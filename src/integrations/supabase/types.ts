@@ -4888,6 +4888,32 @@ export type Database = {
         }
         Relationships: []
       }
+      email_bounce_cursor: {
+        Row: {
+          last_uid: number
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          last_uid?: number
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          last_uid?: number
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_bounce_cursor_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       email_send_failures: {
         Row: {
           attempted_at: string
@@ -4928,6 +4954,9 @@ export type Database = {
       }
       email_send_log: {
         Row: {
+          bounce_detail: string | null
+          bounce_type: string | null
+          bounced_at: string | null
           created_at: string
           error_message: string | null
           id: string
@@ -4939,6 +4968,9 @@ export type Database = {
           template_name: string
         }
         Insert: {
+          bounce_detail?: string | null
+          bounce_type?: string | null
+          bounced_at?: string | null
           created_at?: string
           error_message?: string | null
           id?: string
@@ -4950,6 +4982,9 @@ export type Database = {
           template_name: string
         }
         Update: {
+          bounce_detail?: string | null
+          bounce_type?: string | null
+          bounced_at?: string | null
           created_at?: string
           error_message?: string | null
           id?: string
@@ -4999,6 +5034,41 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      email_suppressions: {
+        Row: {
+          bounce_count: number
+          email: string
+          first_bounced_at: string
+          last_bounce_detail: string | null
+          organization_id: string
+          reason: string
+        }
+        Insert: {
+          bounce_count?: number
+          email: string
+          first_bounced_at?: string
+          last_bounce_detail?: string | null
+          organization_id: string
+          reason: string
+        }
+        Update: {
+          bounce_count?: number
+          email?: string
+          first_bounced_at?: string
+          last_bounce_detail?: string | null
+          organization_id?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_suppressions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       email_unsubscribe_tokens: {
         Row: {
@@ -12354,12 +12424,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -12383,11 +12453,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -12408,11 +12478,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -12433,11 +12503,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -12450,11 +12520,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }

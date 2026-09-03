@@ -120,6 +120,9 @@ serve(async (req) => {
       to: email,
       subject: `You're invited to join ${orgName}`,
       html,
+      // Auth/account-access mail: must reach the user even if a previous
+      // send to this address hard-bounced.
+      ignoreSuppression: true,
     });
     console.log("send-team-invite email result:", JSON.stringify(sendResult));
     if (!sendResult.success) {

@@ -259,3 +259,11 @@ verify_jwt = true
   # paths (x-cron-secret, x-admin-secret, platform-admin JWT).
   [functions.billing-backfill]
     verify_jwt = false
+
+  # Throwaway IMAP spike. Cron-secret gated internally; gateway JWT off so it
+  # can be invoked with x-cron-secret like the other cron-only functions.
+  [functions.imap-bounce-spike]
+    verify_jwt = false
+
+  [functions.ingest-email-bounces]
+    verify_jwt = false

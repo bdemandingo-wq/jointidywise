@@ -40,6 +40,12 @@ export interface SendOrgEmailOptions {
   messageId?: string;
   /** Extra context stored on the log row (invoice id, booking id, ...). */
   metadata?: Record<string, unknown>;
+  /**
+   * Bypass the hard-bounce suppression list. Set ONLY for auth mail
+   * (password reset, magic link, verification, workspace invites) — blocking
+   * those would lock a real user out of their own account.
+   */
+  ignoreSuppression?: boolean;
 }
 
 export interface SendOrgEmailResult {
@@ -192,6 +198,12 @@ async function sendViaGmailSmtp(
   try {
     const html = opts.html + (settings.email_footer ? `<br/><br/><p style="color:#666;font-size:12px;">${settings.email_footer}</p>` : "");
     const text = opts.text ?? "This email requires an HTML-capable client.";
+    // Stamp a real Message-ID so bounces landing in the org's Gmail inbox can be
+    // matched back to this send via email_send_log.message_id.
+    const domain = settings.smtp_email.includes("@")
+      ? settings.smtp_email.split("@")[1]
+      : "tidywise.local";
+    const messageId = `<tw-${crypto.randomUUID()}@${domain}>`;
     // Bypass denomailer's buggy quoted-printable encoder — build MIME parts with base64 instead.
     await client.send({
       from,
@@ -200,6 +212,7 @@ async function sendViaGmailSmtp(
       bcc: toArr(opts.bcc),
       replyTo,
       subject: opts.subject,
+      headers: { "Message-ID": messageId },
       mimeContent: [
         { mimeType: 'text/plain; charset="utf-8"', content: b64(text), transferEncoding: "base64" },
         { mimeType: 'text/html; charset="utf-8"', content: b64(html), transferEncoding: "base64" },
@@ -212,7 +225,7 @@ async function sendViaGmailSmtp(
       })),
     });
     await client.close();
-    return { ok: true, id: `gmail-${crypto.randomUUID()}` };
+    return { ok: true, id: messageId };
   } catch (e: any) {
     try { await client.close(); } catch (_) { /* ignore */ }
     return { ok: false, error: e?.message ?? String(e) };
@@ -301,7 +314,51 @@ export async function sendOrgEmail(opts: SendOrgEmailOptions): Promise<SendOrgEm
     return { success: false, method: "none", error };
   }
 
+  // Hard-bounce suppression. Addresses that permanently bounced for this org
+  // are not retried — repeated hard bounces damage the org's sending
+  // reputation. Auth mail (password reset, magic link, verification) sets
+  // ignoreSuppression: a stale bounce must never lock a user out.
+  //
+  // FAIL OPEN: if the lookup itself errors we send anyway. A database hiccup
+  // must not silently stop a customer's invoices.
+  if (!opts.ignoreSuppression) {
+    try {
+      const url = Deno.env.get("SUPABASE_URL")!;
+      const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const sb = createClient(url, key);
+      const all = [...recipients, ...toArr(opts.cc), ...toArr(opts.bcc)];
+      const lowered = Array.from(new Set(all.map((a) => a.toLowerCase())));
+      const { data: suppressed, error: supErr } = await sb
+        .from("email_suppressions")
+        .select("email")
+        .eq("organization_id", opts.organizationId)
+        .in("email", lowered);
+      if (supErr) throw supErr;
+
+      const blocked = new Set((suppressed ?? []).map((r: { email: string }) => String(r.email).toLowerCase()));
+      if (blocked.size > 0) {
+        if (blocked.has(primaryRecipient.toLowerCase())) {
+          const error = `Recipient suppressed after hard bounce: ${primaryRecipient}`;
+          await logFailure(opts.organizationId, "none", null, primaryRecipient, opts.subject, error);
+          await logSend(opts, { status: "failed", method: "none", recipient: primaryRecipient, error });
+          return { success: false, method: "none", error };
+        }
+        const keep = (list: string[]) => list.filter((a) => !blocked.has(a.toLowerCase()));
+        opts = {
+          ...opts,
+          to: keep(recipients),
+          cc: keep(toArr(opts.cc)),
+          bcc: keep(toArr(opts.bcc)),
+        };
+        console.warn(`[send-org-email] Dropped suppressed cc/bcc recipients for org ${opts.organizationId}`);
+      }
+    } catch (e) {
+      console.error("[send-org-email] Suppression lookup failed; sending anyway:", e);
+    }
+  }
+
   const wantsGmail =
+
     settings.email_send_method === "gmail_smtp" &&
     !!settings.smtp_email &&
     !!settings.smtp_app_password;
