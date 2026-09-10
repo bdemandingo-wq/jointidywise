@@ -4,11 +4,13 @@ import App from "./App.tsx";
 import "./index.css";
 import { setupDeepLinkListener } from "@/lib/nativeOAuth";
 import { initSentry, Sentry } from "@/lib/sentry";
+import { initSitePong } from "@/lib/sitepong";
 
 // Initialize observability before anything renders — earlier init means
 // the bootstrap error path (e.g. the chunk-load recovery below) is also
-// captured. No-op when VITE_SENTRY_DSN is unset.
+// captured. No-op when the respective DSN is unset.
 initSentry();
+initSitePong();
 
 // Auto-recover from stale-deploy chunk load failures.
 //

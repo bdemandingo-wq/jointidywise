@@ -1,6 +1,7 @@
 import UIKit
 import Capacitor
 import UserNotifications
+import FBSDKCoreKit
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -8,16 +9,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Initialize Facebook SDK before Capacitor
+        FBSDKCoreKit.ApplicationDelegate.shared.application(application, didFinishLaunchingWithOptions: launchOptions)
+
         UNUserNotificationCenter.current().delegate = self
 
-        // Register local WidgetBridge plugin after the bridge initializes
+        // Register local plugins after the bridge initializes
         DispatchQueue.main.async {
             if let vc = self.window?.rootViewController as? CAPBridgeViewController {
-                let plugin = WidgetBridgePlugin()
-                vc.bridge?.registerPluginInstance(plugin)
+                let widgetPlugin = WidgetBridgePlugin()
+                vc.bridge?.registerPluginInstance(widgetPlugin)
                 print("[AppDelegate] registered WidgetBridgePlugin on bridge")
+
+                let metaPlugin = MetaEventsPlugin()
+                vc.bridge?.registerPluginInstance(metaPlugin)
+                print("[AppDelegate] registered MetaEventsPlugin on bridge")
             } else {
-                print("[AppDelegate] WARNING: could not find CAPBridgeViewController to register WidgetBridgePlugin")
+                print("[AppDelegate] WARNING: could not find CAPBridgeViewController to register plugins")
             }
         }
 
@@ -48,6 +56,14 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+        // Only let FB SDK process its own URLs (fb{appId}:// scheme).
+        // Non-Facebook URLs (Supabase auth callbacks, deep links) go
+        // straight to Capacitor without touching the FB SDK pipeline.
+        if url.scheme?.hasPrefix("fb") == true {
+            if FBSDKCoreKit.ApplicationDelegate.shared.application(app, open: url, options: options) {
+                return true
+            }
+        }
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
     }
 

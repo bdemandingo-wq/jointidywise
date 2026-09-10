@@ -25,6 +25,7 @@ import { getIndustryTemplate } from '@/data/industryTemplates';
 import { cn } from '@/lib/utils';
 import { SEOHead } from '@/components/SEOHead';
 import { Capacitor } from '@capacitor/core';
+import { logMetaEvent } from '@/lib/metaEvents';
 import { LocalePickers } from '@/components/admin/LocalePickers';
 import { detectBrowserCurrency } from '@/lib/currency';
 import { detectBrowserTimezone } from '@/lib/timezones';
@@ -552,6 +553,10 @@ export default function OnboardingPage() {
       }
 
       toast.success('Business created successfully with your services!');
+
+      // Fire Meta CompleteRegistration standard event for ad attribution
+      logMetaEvent('fb_mobile_complete_registration', { fb_registration_method: 'app' });
+
       // Persist qualifying answers for /choose-plan personalization.
       try {
         sessionStorage.setItem(

@@ -28,6 +28,7 @@ import { ProductTour } from "@/components/copilot/ProductTour";
 import { Capacitor } from "@capacitor/core";
 import { useAppStateHandler } from '@/hooks/useAppStateHandler';
 import { captureReferralFromUrl } from '@/lib/referralAttribution';
+import { requestTrackingPermission } from '@/lib/metaEvents';
 
 // Critical path: keep the shell light; lazy-load even the public entry pages
 const LandingPage = lazy(() => import("./pages/LandingPage"));
@@ -219,6 +220,14 @@ const AppStateHandler = (): null => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     captureReferralFromUrl(window.location.search);
+  }, []);
+  // Request ATT after the app is fully mounted and stable — never during
+  // startup. The 3s delay lets the webview finish loading, session restore
+  // complete, and the user see the UI before the system dialog appears.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const timer = setTimeout(() => { requestTrackingPermission(); }, 3000);
+    return () => clearTimeout(timer);
   }, []);
   return null;
 };

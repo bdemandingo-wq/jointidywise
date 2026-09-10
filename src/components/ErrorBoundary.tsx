@@ -1,5 +1,6 @@
 import React, { Component, ReactNode } from 'react';
 import * as Sentry from '@sentry/react';
+import { captureError } from 'sitepong';
 import { AlertTriangle, RefreshCcw, Home, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -50,6 +51,17 @@ export class ErrorBoundary extends Component<Props, State> {
       contexts: { react: { componentStack: errorInfo.componentStack } },
       tags: { feature: this.props.featureName || 'Unknown' },
     });
+
+    // Report to SitePong alongside Sentry. Wrapped so a SitePong failure
+    // can never break the error boundary itself.
+    try {
+      captureError(error, {
+        tags: { feature: this.props.featureName || 'Unknown' },
+      });
+    } catch {
+      // SitePong may not be initialized or may throw — never let it
+      // interfere with the boundary's own error handling.
+    }
 
     // Auto-recover from stale chunk errors after a deploy.
     // When index.html references new hashed chunks but the browser has an old
