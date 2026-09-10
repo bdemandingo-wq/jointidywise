@@ -91,6 +91,7 @@ serve(async (req) => {
         </div>`;
       try {
         await sendOrgEmail({
+          templateName: "quote_accepted",
           organizationId: body.organization_id,
           to: body.customer_email,
           subject: `Quote ${quoteLabel} approved — your service is booked`,

@@ -111,6 +111,7 @@ serve(async (req) => {
 
     const finalSubject = `[TEST] ${subject}`;
     const result = await sendOrgEmail({
+      templateName: "test",
       organizationId: body.organizationId,
       to: body.toEmail,
       subject: finalSubject,

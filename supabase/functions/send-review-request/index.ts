@@ -217,6 +217,8 @@ const handler = async (req: Request): Promise<Response> => {
 
     const { sendOrgEmail } = await import("../_shared/send-org-email.ts");
     const sendResult = await sendOrgEmail({
+      templateName: "review_request",
+      marketing: true,
       organizationId,
       to: customerEmail,
       subject: `How was your ${serviceName}? We'd love your feedback!`,

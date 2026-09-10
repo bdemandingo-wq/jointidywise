@@ -36,6 +36,7 @@ serve(async (req) => {
     if (!membership) throw new Error("Unauthorized: not a member of this organization");
 
     const result = await sendOrgEmail({
+      templateName: "direct_email",
       organizationId,
       to,
       subject,

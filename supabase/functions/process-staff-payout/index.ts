@@ -104,13 +104,21 @@ serve(async (req) => {
       }
       logStep("Cleaner payout account verified", { stripeAccountId: payoutAccount.stripe_account_id });
 
-      // Create Stripe Transfer using the org's Stripe key
-      const orgStripeClient = new Stripe(orgStripeApiKey, { apiVersion: "2025-08-27.basil" });
+      // Create Stripe Transfer using the PLATFORM key.
+      // Cleaner payout accounts are Stripe Connect Express accounts created
+      // under the TidyWise platform, so transfers must originate from the
+      // platform account — never from an individual organization's Stripe
+      // connected account. Stripe rejects transfers between connected accounts.
+      const platformStripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+      if (!platformStripeKey) {
+        throw new Error("Platform Stripe key is not configured. Cannot process Stripe transfer.");
+      }
+      const platformStripeClient = new Stripe(platformStripeKey, { apiVersion: "2025-08-27.basil" });
 
       const amountCents = Math.round(amount * 100);
       logStep("Creating Stripe Transfer", { amountCents, destination: payoutAccount.stripe_account_id });
 
-      const transfer = await orgStripeClient.transfers.create({
+      const transfer = await platformStripeClient.transfers.create({
         amount: amountCents,
         currency: 'usd',
         destination: payoutAccount.stripe_account_id,

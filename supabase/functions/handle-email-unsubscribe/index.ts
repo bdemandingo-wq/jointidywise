@@ -33,7 +33,7 @@ Deno.serve(async (req) => {
 
   const { data: tok } = await supabase
     .from("email_unsubscribe_tokens")
-    .select("email")
+    .select("email, organization_id")
     .eq("token", token)
     .maybeSingle();
 
@@ -44,6 +44,7 @@ Deno.serve(async (req) => {
   }
 
   const email = tok.email.toLowerCase();
+  const orgId: string | null = (tok as any).organization_id ?? null;
 
   // Both writes below are the actual opt-out — one is safe to be
   // non-authoritative, but neither can be allowed to fail silently.
@@ -59,11 +60,33 @@ Deno.serve(async (req) => {
 
   const { error: suppressError } = await supabase
     .from("suppressed_emails")
-    .upsert({ email, reason: "user_unsubscribed" }, { onConflict: "email" });
+    .upsert({ email, reason: "unsubscribe" }, { onConflict: "email" });
 
-  if (profileError || suppressError) {
+  // Org-scoped opt-out. Only runs when the token identifies an org — legacy
+  // tokens (organization_id IS NULL) keep exactly today's global-only
+  // behaviour. We never opt an address out across orgs: an unsubscribe from
+  // one business must not silence the others.
+  let orgError: unknown = null;
+  let orgName: string | null = null;
+  if (orgId) {
+    const { error } = await supabase
+      .from("customers")
+      .update({ marketing_status: "opted_out" })
+      .eq("organization_id", orgId)
+      .ilike("email", email);
+    orgError = error;
+
+    const { data: org } = await supabase
+      .from("organizations")
+      .select("name")
+      .eq("id", orgId)
+      .maybeSingle();
+    orgName = org?.name ?? null;
+  }
+
+  if (profileError || suppressError || orgError) {
     console.error("[handle-email-unsubscribe] CRITICAL: opt-out write failed, NOT marking token used:", {
-      email, token, profileError, suppressError,
+      email, token, profileError, suppressError, orgError,
     });
     return new Response(
       page(
@@ -87,7 +110,12 @@ Deno.serve(async (req) => {
   }
 
   return new Response(
-    page("You're unsubscribed", `<strong>${email}</strong> will no longer receive Morning Briefs, End of Day Reports, or marketing emails from TidyWise. You'll still receive essential account and transactional emails.`),
+    page(
+      "You're unsubscribed",
+      orgName
+        ? `<strong>${email}</strong> will no longer receive marketing emails from <strong>${orgName}</strong>. You'll still receive essential account and transactional emails, such as booking confirmations and invoices.`
+        : `<strong>${email}</strong> will no longer receive Morning Briefs, End of Day Reports, or marketing emails from TidyWise. You'll still receive essential account and transactional emails.`,
+    ),
     { status: 200, headers: { ...corsHeaders, "Content-Type": "text/html" } }
   );
 });

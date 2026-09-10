@@ -11,6 +11,9 @@
 
 import { parseRecipients } from "./email-address.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isEmailOptedOut } from "./marketing-guard.ts";
+import { ensureUnsubscribeToken } from "./unsubscribe-token.ts";
+
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 import {
   getOrgEmailSettings,
@@ -46,7 +49,25 @@ export interface SendOrgEmailOptions {
    * those would lock a real user out of their own account.
    */
   ignoreSuppression?: boolean;
+  /**
+   * TRUE for promotional mail only (winback, campaigns, referral invites,
+   * loyalty progress, review requests). Marketing sends are gated on the
+   * recipient's per-org customers.marketing_status — the SAME field SMS
+   * already honours, so one opt-out covers both channels.
+   *
+   * Never set this on invoices, receipts, booking confirmations, reminders,
+   * payroll, team invites or auth mail: an opt-out must not stop mail the
+   * customer needs.
+   */
+  marketing?: boolean;
+  /**
+   * Internal. Extra SMTP/Resend headers (currently only List-Unsubscribe,
+   * injected by the marketing footer step). Callers should not set this.
+   */
+  headers?: Record<string, string>;
 }
+
+
 
 export interface SendOrgEmailResult {
   success: boolean;
@@ -212,7 +233,7 @@ async function sendViaGmailSmtp(
       bcc: toArr(opts.bcc),
       replyTo,
       subject: opts.subject,
-      headers: { "Message-ID": messageId },
+      headers: { "Message-ID": messageId, ...(opts.headers ?? {}) },
       mimeContent: [
         { mimeType: 'text/plain; charset="utf-8"', content: b64(text), transferEncoding: "base64" },
         { mimeType: 'text/html; charset="utf-8"', content: b64(html), transferEncoding: "base64" },
@@ -251,6 +272,9 @@ async function sendViaResend(
   };
   if (opts.cc) payload.cc = toArr(opts.cc);
   if (opts.bcc) payload.bcc = toArr(opts.bcc);
+  if (opts.headers && Object.keys(opts.headers).length) payload.headers = opts.headers;
+
+
   if (opts.text) payload.text = opts.text;
   if (opts.attachments?.length) {
     payload.attachments = opts.attachments.map((a) => ({
@@ -357,7 +381,67 @@ export async function sendOrgEmail(opts: SendOrgEmailOptions): Promise<SendOrgEm
     }
   }
 
+  // Marketing opt-out. Only promotional mail passes marketing: true, so
+  // invoices, confirmations, reminders and auth mail are unaffected.
+  //
+  // FAIL CLOSED — deliberately the OPPOSITE of the bounce-suppression block
+  // above, which fails open. That asymmetry is intentional, not an oversight:
+  // a database hiccup must never stop an invoice, but sending marketing to
+  // someone who may have opted out is statutory (TCPA/CAN-SPAM) exposure per
+  // message. Do not "fix" one to match the other.
+  if (opts.marketing) {
+    const url = Deno.env.get("SUPABASE_URL")!;
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const optedOut = await isEmailOptedOut(
+      createClient(url, key),
+      opts.organizationId,
+      primaryRecipient,
+    );
+    if (optedOut) {
+      const error = `Marketing email skipped: recipient opted out of marketing for this organization (${primaryRecipient})`;
+      await logSend(opts, { status: "failed", method: "none", recipient: primaryRecipient, error });
+      return { success: false, method: "none", error };
+    }
+
+    // Every marketing send carries a working way out, minted once here rather
+    // than in each of the five promotional senders. The token is ORG-SCOPED:
+    // clicking it opts the recipient out of THIS org's marketing only, never
+    // out of other orgs and never out of transactional mail.
+    const token = await ensureUnsubscribeToken(
+      createClient(url, key),
+      primaryRecipient,
+      opts.organizationId,
+    );
+    if (token) {
+      const unsubUrl = `${url}/functions/v1/handle-email-unsubscribe?token=${token}`;
+      opts = {
+        ...opts,
+        html:
+          opts.html +
+          `<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;color:#9ca3af;font-size:12px;text-align:center">` +
+          `Don't want these emails? <a href="${unsubUrl}" style="color:#9ca3af;text-decoration:underline">Unsubscribe</a>.` +
+          `</div>`,
+        text: opts.text
+          ? `${opts.text}\n\n---\nDon't want these emails? Unsubscribe: ${unsubUrl}`
+          : undefined,
+        headers: {
+          ...(opts.headers ?? {}),
+          "List-Unsubscribe": `<${unsubUrl}>`,
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        },
+      };
+    } else {
+      // No link means no way out. Marketing fails closed here too.
+      const error = `Marketing email skipped: could not mint unsubscribe token for ${primaryRecipient}`;
+      await logSend(opts, { status: "failed", method: "none", recipient: primaryRecipient, error });
+      return { success: false, method: "none", error };
+    }
+  }
+
+
   const wantsGmail =
+
+
 
     settings.email_send_method === "gmail_smtp" &&
     !!settings.smtp_email &&

@@ -277,6 +277,8 @@ const handler = async (req: Request): Promise<Response> => {
 
     const { sendOrgEmail } = await import("../_shared/send-org-email.ts");
     const sendResult = await sendOrgEmail({
+      templateName: "loyalty_progress",
+      marketing: true,
       organizationId,
       to: customerEmail,
       subject: `🎉 You earned ${pointsEarned} loyalty points!`,

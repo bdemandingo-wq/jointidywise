@@ -105,6 +105,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     const { sendOrgEmail } = await import("../_shared/send-org-email.ts");
     const sendResult = await sendOrgEmail({
+      templateName: "help_center_reply",
       organizationId: organization_id,
       to: recipientTo,
       replyTo: email,

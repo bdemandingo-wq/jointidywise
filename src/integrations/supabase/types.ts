@@ -5075,6 +5075,7 @@ export type Database = {
           created_at: string
           email: string
           id: string
+          organization_id: string | null
           token: string
           used_at: string | null
         }
@@ -5082,6 +5083,7 @@ export type Database = {
           created_at?: string
           email: string
           id?: string
+          organization_id?: string | null
           token: string
           used_at?: string | null
         }
@@ -5089,10 +5091,19 @@ export type Database = {
           created_at?: string
           email?: string
           id?: string
+          organization_id?: string | null
           token?: string
           used_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "email_unsubscribe_tokens_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       estimates: {
         Row: {

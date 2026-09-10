@@ -125,6 +125,8 @@ serve(async (req) => {
 
     const { sendOrgEmail } = await import("../_shared/send-org-email.ts");
     const sendResult = await sendOrgEmail({
+      templateName: "referral_invite",
+      marketing: true,
       organizationId: referral.organization_id,
       to: referral.referred_email,
       subject: `${referrerName} thinks you'd love ${companyName}! Get $${creditAmount} off`,

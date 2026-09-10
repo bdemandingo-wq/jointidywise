@@ -246,6 +246,7 @@ const handler = async (req: Request): Promise<Response> => {
     // Send via unified org sender (Gmail SMTP → Resend fallback)
     const { sendOrgEmail } = await import("../_shared/send-org-email.ts");
     const customerSend = await sendOrgEmail({
+      templateName: "booking_confirmation",
       organizationId: booking.organizationId,
       to: customerEmail,
       subject: emailSubject,
@@ -279,6 +280,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     try {
       await sendOrgEmail({
+        templateName: "booking_admin_copy",
         organizationId: booking.organizationId,
         to: senderEmail,
         subject: `New Booking - ${booking.serviceName || "Cleaning"} - ${booking.appointmentDate || ""}`,

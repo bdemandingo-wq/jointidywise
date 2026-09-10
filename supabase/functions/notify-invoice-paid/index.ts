@@ -127,6 +127,7 @@ serve(async (req) => {
       </div>`;
 
     const r = await sendOrgEmail({
+      templateName: "invoice_paid_receipt",
       organizationId: organizationId,
       to: customer.email,
       subject: `Payment received — invoice ${invLabel}`,

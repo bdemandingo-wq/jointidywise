@@ -194,3 +194,46 @@ export async function findCustomerIdByPhone(
     return null;
   }
 }
+
+/**
+ * Email counterpart of isPhoneOptedOut. Same contract: org-scoped, fail closed.
+ *
+ * Returns TRUE (do not send) on any error or unusable address, and when ANY
+ * customer in the org with that address is opted out. Returns FALSE when no
+ * customer in the org has that address — recipients who are not customers
+ * (owners, staff, leads) have nothing to opt out of here.
+ */
+export async function isEmailOptedOut(
+  supabase: SupabaseClient,
+  organizationId: string,
+  email: string | null | undefined,
+): Promise<boolean> {
+  const addr = (email ?? "").trim().toLowerCase();
+  if (!addr || !addr.includes("@")) {
+    console.error(
+      `[marketing-guard] isEmailOptedOut got an unusable address — failing closed | org:${organizationId}`,
+    );
+    return true;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("customers")
+      .select("id, marketing_status")
+      .eq("organization_id", organizationId)
+      .ilike("email", addr);
+
+    if (error) throw new Error(error.message);
+
+    const rows = (data ?? []) as Array<{ marketing_status: string | null }>;
+    if (rows.length === 0) return false;
+    return rows.some((r) => r.marketing_status === OPTED_OUT);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[marketing-guard] isEmailOptedOut lookup failed — failing closed | org:${organizationId} | ${message}`,
+    );
+    return true;
+  }
+}
+

@@ -217,6 +217,7 @@ const handler = async (req: Request): Promise<Response> => {
     if (!deliveredVia && (channel === "email" || (channel === "sms" && email))) {
       // Email path (primary or fallback) — routed through per-org sender (Gmail SMTP or Resend)
       const emailResult = await sendOrgEmail({
+        templateName: "card_collection_link",
         organizationId,
         to: email!,
         subject: `Add Your Payment Card - ${companyName}`,

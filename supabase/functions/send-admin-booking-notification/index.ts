@@ -116,6 +116,7 @@ const handler = async (req: Request): Promise<Response> => {
     }).format(bookingDate);
 
     const sendResult = await sendOrgEmail({
+      templateName: "admin_new_booking",
       organizationId,
       to: adminEmail,
       subject: `🆕 New Booking: ${customerName} - ${serviceName}`,

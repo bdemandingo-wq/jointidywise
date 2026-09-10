@@ -112,6 +112,7 @@ serve(async (req) => {
         `;
 
         const sent = await sendOrgEmail({
+          templateName: "pnl_reminder",
           organizationId: org.id,
           to: toEmail,
           subject: `Month-end P&L reminder — ${monthLabel}`,

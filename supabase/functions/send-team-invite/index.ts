@@ -116,6 +116,7 @@ serve(async (req) => {
       </div>`;
 
     const sendResult = await sendOrgEmail({
+      templateName: "team_invite",
       organizationId: orgId,
       to: email,
       subject: `You're invited to join ${orgName}`,

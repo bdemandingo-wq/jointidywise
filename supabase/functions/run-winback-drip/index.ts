@@ -157,6 +157,8 @@ serve(async (req) => {
 
           const { sendOrgEmail } = await import("../_shared/send-org-email.ts");
           const sendResult = await sendOrgEmail({
+            templateName: "winback_drip",
+            marketing: true,
             organizationId: org.id,
             to: customer.email,
             subject: resolvedSubject,

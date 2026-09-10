@@ -225,6 +225,8 @@ serve(async (req) => {
               </html>
             `;
         const sendResult = await sendOrgEmail({
+          templateName: "followup_campaign",
+          marketing: true,
           organizationId: campaign.organization_id,
           to: customer.email,
           subject,
