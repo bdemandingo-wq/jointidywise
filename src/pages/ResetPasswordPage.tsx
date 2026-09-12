@@ -52,6 +52,17 @@ export default function ResetPasswordPage() {
   const requestedNext = searchParams.get('next');
   const nextPath = requestedNext?.startsWith('/accept-invite?token=') ? requestedNext : null;
 
+  // Keep the invite-in-flight flag alive across this detour. AcceptInvitePage
+  // clears it when it unmounts, but the code screen signs the user in, and
+  // without the flag the auth provisioning effect would create a stray empty
+  // trial workspace before the invite is accepted.
+  useEffect(() => {
+    if (!nextPath) return;
+    try { sessionStorage.setItem('tidywise_invite_pending', 'true'); } catch { /* ignore */ }
+  }, [nextPath]);
+
+
+
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
