@@ -160,12 +160,21 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
     // row is written, so this effect used to see zero memberships, create a
     // fresh org, and drop the invitee into the onboarding wizard ("create a
     // whole new account") instead of the workspace they were invited to.
+    // The existing-user path also detours through /reset-password?next=/accept-invite...
+    // to create a password. That unmounts AcceptInvitePage (clearing the
+    // sessionStorage flag) and signs the user in via verifyOtp while still on
+    // /reset-password — so the pathname check alone used to miss it and a
+    // stray empty trial org got created mid-invite.
     let invitePending = false;
     try {
+      const path = window.location.pathname;
+      const search = window.location.search;
       invitePending =
-        window.location.pathname.startsWith('/accept-invite') ||
+        path.startsWith('/accept-invite') ||
+        (path.startsWith('/reset-password') && search.includes('accept-invite')) ||
         sessionStorage.getItem('tidywise_invite_pending') === 'true';
     } catch { /* storage unavailable — fall back to the pathname check above */ }
+
     if (invitePending) {
       setProvisioning('idle');
       return;
