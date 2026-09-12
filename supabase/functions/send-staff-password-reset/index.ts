@@ -292,11 +292,20 @@ serve(async (req) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`[send-staff-password-reset] SMS delivery failed: ${response.status} - ${errorText}`, { orgId: organizationId, staffId });
+      // 401/403 means the organization's stored OpenPhone API key is invalid
+      // or revoked — that's a configuration problem, not a transient server
+      // fault, and "please try again" sends staff into an infinite retry loop.
+      const isAuthFailure = response.status === 401 || response.status === 403;
       return new Response(
-        JSON.stringify({ error: "Failed to send SMS. Please try again." }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: isAuthFailure
+            ? "Your organization's text-messaging connection is no longer valid, so the reset link could not be sent. Please ask your administrator to reconnect OpenPhone in Settings."
+            : "Failed to send SMS. Please try again.",
+        }),
+        { status: isAuthFailure ? 400 : 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
 
     console.log("[send-staff-password-reset] SMS delivered", { orgId: organizationId, staffId });
 
