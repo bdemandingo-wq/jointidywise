@@ -46,21 +46,29 @@ Deno.serve(async (req) => {
   const email = tok.email.toLowerCase();
   const orgId: string | null = (tok as any).organization_id ?? null;
 
-  // Both writes below are the actual opt-out — one is safe to be
-  // non-authoritative, but neither can be allowed to fail silently.
-  // TCPA/CAN-SPAM carry per-message statutory damages, so continuing to
-  // email someone whose opt-out write failed is not an acceptable
-  // "best effort" outcome. If either write fails, we do NOT mark the
-  // token used_at, so the same link remains valid — the user re-clicking
-  // it (or clicking "try again" below) is the retry.
-  const { error: profileError } = await supabase
-    .from("profiles")
-    .update({ email_unsubscribed: true, email_unsubscribed_at: new Date().toISOString() })
-    .ilike("email", email);
+  // Platform-wide opt-out. This ONLY runs for legacy tokens with no
+  // organization_id (TidyWise's own Morning Brief / broadcast mail). An
+  // org-scoped token means the person is leaving ONE business's marketing —
+  // writing the global suppressed_emails row there would also silence
+  // TidyWise platform mail and every other org, which is not what they asked
+  // for. If either write fails we do NOT mark the token used_at, so the same
+  // link stays valid and re-clicking it is the retry.
+  let profileError: unknown = null;
+  let suppressError: unknown = null;
 
-  const { error: suppressError } = await supabase
-    .from("suppressed_emails")
-    .upsert({ email, reason: "unsubscribe" }, { onConflict: "email" });
+  if (!orgId) {
+    const { error: pErr } = await supabase
+      .from("profiles")
+      .update({ email_unsubscribed: true, email_unsubscribed_at: new Date().toISOString() })
+      .ilike("email", email);
+    profileError = pErr;
+
+    const { error: sErr } = await supabase
+      .from("suppressed_emails")
+      .upsert({ email, reason: "unsubscribe" }, { onConflict: "email" });
+    suppressError = sErr;
+  }
+
 
   // Org-scoped opt-out. Only runs when the token identifies an org — legacy
   // tokens (organization_id IS NULL) keep exactly today's global-only
