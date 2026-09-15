@@ -51,11 +51,15 @@ serve(async (req) => {
       }
     );
 
-    // SECURITY: Verify the target staff member belongs to the caller's organization
+    // SECURITY: Verify the target staff member belongs to the caller's organization.
+    // Scope by organization_id as well as user_id — one person can be staff in two
+    // organizations, and an unscoped single-row lookup blew up with PGRST116
+    // ("multiple rows returned"), which surfaced as a 500 in the admin UI.
     const { data: staffData, error: staffError } = await supabaseAdmin
       .from('staff')
       .select('id, organization_id, name, email')
       .eq('user_id', userId)
+      .eq('organization_id', authResult.organizationId)
       .maybeSingle();
 
     if (staffError) {
