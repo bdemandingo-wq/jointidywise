@@ -39,6 +39,38 @@ function extractPhoneNumberId(value: string): string {
   return pnMatch ? pnMatch[1] : String(value || "").trim();
 }
 
+/**
+ * The saved openphone_phone_number_id drifts: a number can be removed from the
+ * OpenPhone workspace, or the saved value can be an E.164 number / an id that
+ * belongs to a different API key. OpenPhone then answers the conversations
+ * endpoint with 404 "No phone numbers found for the given input" and the whole
+ * org sync aborts. So ask the account what it actually owns and reconcile.
+ * Returns null when the key owns no numbers at all (a credentials/setup issue
+ * the caller should report plainly).
+ */
+async function resolvePhoneNumberId(apiKey: string, stored: string): Promise<string | null> {
+  const res = await fetch("https://api.openphone.com/v1/phone-numbers", {
+    headers: { Authorization: apiKey, "Content-Type": "application/json" },
+  });
+  if (!res.ok) return null;
+  const json = await res.json().catch(() => null);
+  const numbers = Array.isArray(json?.data) ? json.data : [];
+  if (numbers.length === 0) return null;
+
+  const ids = numbers.map((n: any) => String(n?.id || "")).filter(Boolean);
+  if (ids.includes(stored)) return stored;
+
+  // Stored value may be the phone number itself rather than the PN id.
+  const storedDigits = normalizePhoneDigits(stored);
+  if (storedDigits) {
+    const byNumber = numbers.find((n: any) => normalizePhoneDigits(String(n?.number || "")) === storedDigits);
+    if (byNumber?.id) return String(byNumber.id);
+  }
+
+  // Single-number accounts are the common case — use the one number they own.
+  return ids[0] || null;
+}
+
 function messageText(msg: any): string {
   const text = msg?.text ?? msg?.body ?? msg?.content ?? msg?.message ?? "";
   return typeof text === "string" ? text : String(text || "");
@@ -134,7 +166,17 @@ async function syncOrganization(
   }
 
   const apiKey = String(settings.openphone_api_key).trim().replace(/^Bearer\s+/i, "");
-  const phoneNumberId = extractPhoneNumberId(settings.openphone_phone_number_id);
+  const storedPhoneNumberId = extractPhoneNumberId(settings.openphone_phone_number_id);
+  const resolved = await resolvePhoneNumberId(apiKey, storedPhoneNumberId);
+  if (!resolved) {
+    throw new Error(
+      "OpenPhone did not return any phone numbers for this API key. Reconnect OpenPhone in Settings → SMS.",
+    );
+  }
+  if (resolved !== storedPhoneNumberId) {
+    console.log(`[sync-openphone-messages] org=${organizationId} stored phone id ${storedPhoneNumberId} not owned by this key; using ${resolved}`);
+  }
+  const phoneNumberId = resolved;
   const createdAfter = new Date(Date.now() - options.daysBack * 24 * 60 * 60 * 1000).toISOString();
   const contactLookup = await buildContactLookup(supabase, organizationId);
 
