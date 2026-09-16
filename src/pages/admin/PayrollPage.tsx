@@ -472,7 +472,7 @@ export default function PayrollPage() {
   //                     changes. That is a money decision, not this one.
   //   `payrollRoster` — active, PLUS anyone with work in the selected period.
   //                     Drives who gets a Staff Summary row.
-  const { rows: allStaff, error: allStaffError } = useOrgQuery({
+  const { rows: allStaffBase, error: allStaffError } = useOrgQuery({
     key: ['staff-payroll'],
     query: async (organizationId) => {
       const { data, error } = await supabase
@@ -483,6 +483,18 @@ export default function PayrollPage() {
       return data;
     },
   });
+
+  // base_wage is not selectable from `staff` by `authenticated` (managers are
+  // the same database role as owners). Owners read it through the owner-only
+  // RPC and it is merged back in here so every pay calculation below is
+  // unchanged. A manager reaching this page gets no base_wage, which is the
+  // point — but this page is owner-only anyway (FinancialRoute).
+  const { wagesById } = useOrgStaffWages();
+
+  const allStaff = useMemo(
+    () => (allStaffBase as any[]).map((s) => ({ ...s, base_wage: wagesById.get(s.id)?.base_wage ?? null })),
+    [allStaffBase, wagesById],
+  );
 
   const staff = useMemo(() => (allStaff as any[]).filter((s) => s.is_active), [allStaff]);
 
