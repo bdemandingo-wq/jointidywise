@@ -11991,6 +11991,17 @@ export type Database = {
           tax_classification: string
         }[]
       }
+      get_my_staff_wages: {
+        Args: { _staff_id: string }
+        Returns: {
+          base_wage: number
+          default_hours: number
+          hourly_rate: number
+          id: string
+          organization_id: string
+          percentage_rate: number
+        }[]
+      }
       get_my_wage_rates_for_booking: {
         Args: { _booking_id: string }
         Returns: {
@@ -12050,6 +12061,17 @@ export type Database = {
         Returns: {
           display_name: string
           user_id: string
+        }[]
+      }
+      get_org_staff_wages: {
+        Args: { _org_id: string }
+        Returns: {
+          base_wage: number
+          default_hours: number
+          hourly_rate: number
+          id: string
+          percentage_rate: number
+          tax_document_url: string
         }[]
       }
       get_org_stripe_public_settings: {
