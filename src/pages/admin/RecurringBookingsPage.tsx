@@ -42,7 +42,6 @@ import { orgStartOfDay, orgDayOfWeek, orgDateKey, orgYMD, orgAddDays, orgSetTime
 import { useCustomers, useServices, useStaff } from '@/hooks/useBookings';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { SEOHead } from '@/components/SEOHead';
-import { STAFF_SELECTABLE_COLUMNS } from '@/lib/staffColumns';
 
 interface RecurringBooking {
   id: string;
@@ -250,7 +249,7 @@ export default function RecurringBookingsPage() {
           *,
           customer:customers(*),
           service:services(*),
-          staff:staff(${STAFF_SELECTABLE_COLUMNS})
+          staff:staff(id, user_id, organization_id, name, email, phone, avatar_url, bio, is_active, hourly_rate, percentage_rate, default_hours, tax_classification, calendar_color, home_address, home_latitude, home_longitude, location_permission_status, location_permission_updated_at, created_at, updated_at)
         `)
         .eq('organization_id', organization.id)
         .order('created_at', { ascending: false });

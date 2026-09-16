@@ -528,7 +528,7 @@ export default function PayrollPage() {
       const toEndOfDay = orgEndOfDay(dateRange.to, orgTimezone);
       const { data, error } = await supabase
         .from('bookings')
-        .select(`*, customer:customers(*), staff:staff(${STAFF_SELECTABLE_COLUMNS})`)
+        .select(`*, customer:customers(*), staff:staff(id, user_id, organization_id, name, email, phone, avatar_url, bio, is_active, hourly_rate, percentage_rate, default_hours, tax_classification, calendar_color, home_address, home_latitude, home_longitude, location_permission_status, location_permission_updated_at, created_at, updated_at)`)
         .eq('organization_id', organizationId)
         // payroll_date (= COALESCE(completed_at, scheduled_at)) is what the
         // server-side lock/attribution uses, so the UI must select the same way.
@@ -621,7 +621,7 @@ export default function PayrollPage() {
       const nwEnd = orgEndOfDay(nextWeekEnd, orgTimezone);
       const { data, error } = await supabase
         .from('bookings')
-        .select(`*, customer:customers(*), staff:staff(${STAFF_SELECTABLE_COLUMNS})`)
+        .select(`*, customer:customers(*), staff:staff(id, user_id, organization_id, name, email, phone, avatar_url, bio, is_active, hourly_rate, percentage_rate, default_hours, tax_classification, calendar_color, home_address, home_latitude, home_longitude, location_permission_status, location_permission_updated_at, created_at, updated_at)`)
         .eq('organization_id', organizationId)
         .neq('status', 'cancelled')
         .gte('scheduled_at', currentWeekStart.toISOString())

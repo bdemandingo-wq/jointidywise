@@ -43,7 +43,6 @@ import { SEOHead } from '@/components/SEOHead';
 import { toast } from 'sonner';
 import { fmt } from '@/lib/activeCurrency';
 import { QueryError } from '@/components/QueryError';
-import { STAFF_SELECTABLE_COLUMNS } from '@/lib/staffColumns';
 
 interface Transaction {
   id: string;
@@ -139,7 +138,7 @@ export default function FinancePage() {
           *,
           customer:customers(*),
           service:services(*),
-          staff:staff(${STAFF_SELECTABLE_COLUMNS})
+          staff:staff(id, user_id, organization_id, name, email, phone, avatar_url, bio, is_active, hourly_rate, percentage_rate, default_hours, tax_classification, calendar_color, home_address, home_latitude, home_longitude, location_permission_status, location_permission_updated_at, created_at, updated_at)
         `)
         .eq('organization_id', organizationId)
         // Drafts are not committed work and must not count as revenue.
