@@ -49,6 +49,7 @@ import { SEOHead } from '@/components/SEOHead';
 import { QueryError } from '@/components/QueryError';
 import { fmt } from '@/lib/activeCurrency';
 import { mustAffectRows } from '@/lib/mustAffectRows';
+import { STAFF_SELECTABLE_COLUMNS } from '@/lib/staffColumns';
 
 interface StaffWithPayroll {
   id: string;
@@ -476,7 +477,7 @@ export default function PayrollPage() {
     query: async (organizationId) => {
       const { data, error } = await supabase
         .from('staff')
-        .select('*')
+        .select(STAFF_SELECTABLE_COLUMNS)
         .eq('organization_id', organizationId);
       if (error) throw error;
       return data;
@@ -514,7 +515,7 @@ export default function PayrollPage() {
       const toEndOfDay = orgEndOfDay(dateRange.to, orgTimezone);
       const { data, error } = await supabase
         .from('bookings')
-        .select(`*, customer:customers(*), staff:staff(*)`)
+        .select(`*, customer:customers(*), staff:staff(${STAFF_SELECTABLE_COLUMNS})`)
         .eq('organization_id', organizationId)
         // payroll_date (= COALESCE(completed_at, scheduled_at)) is what the
         // server-side lock/attribution uses, so the UI must select the same way.
@@ -607,7 +608,7 @@ export default function PayrollPage() {
       const nwEnd = orgEndOfDay(nextWeekEnd, orgTimezone);
       const { data, error } = await supabase
         .from('bookings')
-        .select(`*, customer:customers(*), staff:staff(*)`)
+        .select(`*, customer:customers(*), staff:staff(${STAFF_SELECTABLE_COLUMNS})`)
         .eq('organization_id', organizationId)
         .neq('status', 'cancelled')
         .gte('scheduled_at', currentWeekStart.toISOString())

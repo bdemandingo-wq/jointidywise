@@ -8,6 +8,7 @@ import { useOrganization } from '@/contexts/OrganizationContext';
 import type { Json } from '@/integrations/supabase/types';
 import { dispatchZapier } from '@/lib/zapier';
 import { buildBookingZapierPayload } from '@/lib/buildBookingZapierPayload';
+import { STAFF_SELECTABLE_COLUMNS } from '@/lib/staffColumns';
 
 export interface TeamAssignment {
   staff_id: string;
@@ -708,7 +709,7 @@ export function useStaff() {
       }
       const { data, error } = await supabase
         .from('staff')
-        .select('*')
+        .select(STAFF_SELECTABLE_COLUMNS)
         .eq('organization_id', organizationId)
         .eq('is_active', true)
         .order('name', { ascending: true });
@@ -741,7 +742,7 @@ export function useAllStaff() {
       }
       const { data, error } = await supabase
         .from('staff')
-        .select('*')
+        .select(STAFF_SELECTABLE_COLUMNS)
         .eq('organization_id', organizationId)
         .order('is_active', { ascending: false })
         .order('name', { ascending: true });
