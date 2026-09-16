@@ -22,6 +22,8 @@ import {
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { usePlatform } from "@/hooks/usePlatform";
+import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
+import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 
 interface SubscriptionDialogProps {
   open: boolean;
@@ -107,7 +109,13 @@ export function SubscriptionDialog({
     setCheckingOut("standard");
     try {
       const { data, error } = await supabase.functions.invoke("create-subscription");
-      if (error) throw error;
+      if (error) {
+        if (await isAlreadyLifetimeError(error)) {
+          toast.success(ALREADY_LIFETIME_MESSAGE);
+          return;
+        }
+        throw new Error(await readEdgeFunctionError(error, "Failed to start subscription"));
+      }
       if (data?.error) throw new Error(data.error);
       if (data?.url) window.location.href = data.url;
     } catch (error: any) {

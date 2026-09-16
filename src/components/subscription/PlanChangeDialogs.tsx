@@ -15,6 +15,7 @@ import { Loader2, AlertTriangle, BadgePercent, CheckCircle2 } from "lucide-react
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useOrgId } from "@/hooks/useOrgId";
+import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from "@/lib/alreadyLifetime";
 import {
   readEdgeFunctionError,
   readEdgeFunctionErrorBody,
@@ -29,7 +30,15 @@ async function startCheckout(planId: string): Promise<boolean> {
   const { data, error } = await supabase.functions.invoke("create-subscription", {
     body: { plan: planId, interval: "monthly" },
   });
-  if (error) return false;
+  if (error) {
+    // A lifetime owner has nothing to buy. Tell them so and treat it as
+    // handled, rather than falling through to "could not upgrade plan".
+    if (await isAlreadyLifetimeError(error)) {
+      toast.success(ALREADY_LIFETIME_MESSAGE);
+      return true;
+    }
+    return false;
+  }
   const url = (data as { url?: string } | null)?.url;
   if (!url) return false;
   window.location.href = url;

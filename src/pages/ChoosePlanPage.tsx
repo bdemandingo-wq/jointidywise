@@ -13,6 +13,7 @@ import { Check, Crown, Loader2, Lock, LogOut, Sparkles } from 'lucide-react';
 import { SEOHead } from '@/components/SEOHead';
 import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
 import {
   hasAnswer,
   normalizeAnswers,
@@ -251,7 +252,17 @@ export default function ChoosePlanPage() {
       // helper so the sold-out and already-subscribed messages buy-lifetime and
       // create-subscription return reach the person, and so there is one
       // definition of "read the function's own error" rather than three.
-      if (error) throw new Error(await readEdgeFunctionError(error, 'Failed to start checkout'));
+      if (error) {
+        if (await isAlreadyLifetimeError(error)) {
+          window.clearTimeout(timeoutId);
+          isRedirectingRef.current = false;
+          setCheckoutBusy(null);
+          toast.success(ALREADY_LIFETIME_MESSAGE);
+          navigate('/dashboard');
+          return;
+        }
+        throw new Error(await readEdgeFunctionError(error, 'Failed to start checkout'));
+      }
       const payload = data as { url?: string; error?: string } | null;
       if (payload?.error) throw new Error(payload.error);
       if (!payload?.url) throw new Error('No checkout URL returned');
