@@ -15,6 +15,26 @@ import { Loader2, AlertTriangle, BadgePercent, CheckCircle2 } from "lucide-react
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useOrgId } from "@/hooks/useOrgId";
+import {
+  readEdgeFunctionError,
+  readEdgeFunctionErrorBody,
+} from "@/lib/edgeFunctionError";
+
+/**
+ * Someone on a trial has no Stripe subscription to modify, so the plan-change
+ * function correctly refuses. Rather than dead-ending them on an error, send
+ * them straight to checkout for the plan they just picked.
+ */
+async function startCheckout(planId: string): Promise<boolean> {
+  const { data, error } = await supabase.functions.invoke("create-subscription", {
+    body: { plan: planId, interval: "monthly" },
+  });
+  if (error) return false;
+  const url = (data as { url?: string } | null)?.url;
+  if (!url) return false;
+  window.location.href = url;
+  return true;
+}
 
 export interface PlanInfo {
   id: "basic" | "pro" | "custom";
