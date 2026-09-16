@@ -49,6 +49,8 @@ import { SEOHead } from '@/components/SEOHead';
 import { QueryError } from '@/components/QueryError';
 import { fmt } from '@/lib/activeCurrency';
 import { mustAffectRows } from '@/lib/mustAffectRows';
+import { STAFF_SELECTABLE_COLUMNS } from '@/lib/staffColumns';
+import { useOrgStaffWages } from '@/hooks/useOrgStaffWages';
 
 interface StaffWithPayroll {
   id: string;
@@ -471,17 +473,29 @@ export default function PayrollPage() {
   //                     changes. That is a money decision, not this one.
   //   `payrollRoster` — active, PLUS anyone with work in the selected period.
   //                     Drives who gets a Staff Summary row.
-  const { rows: allStaff, error: allStaffError } = useOrgQuery({
+  const { rows: allStaffBase, error: allStaffError } = useOrgQuery({
     key: ['staff-payroll'],
     query: async (organizationId) => {
       const { data, error } = await supabase
         .from('staff')
-        .select('*')
+        .select(STAFF_SELECTABLE_COLUMNS)
         .eq('organization_id', organizationId);
       if (error) throw error;
       return data;
     },
   });
+
+  // base_wage is not selectable from `staff` by `authenticated` (managers are
+  // the same database role as owners). Owners read it through the owner-only
+  // RPC and it is merged back in here so every pay calculation below is
+  // unchanged. A manager reaching this page gets no base_wage, which is the
+  // point — but this page is owner-only anyway (FinancialRoute).
+  const { wagesById } = useOrgStaffWages();
+
+  const allStaff = useMemo(
+    () => (allStaffBase as any[]).map((s) => ({ ...s, base_wage: wagesById.get(s.id)?.base_wage ?? null })),
+    [allStaffBase, wagesById],
+  );
 
   const staff = useMemo(() => (allStaff as any[]).filter((s) => s.is_active), [allStaff]);
 
@@ -514,7 +528,7 @@ export default function PayrollPage() {
       const toEndOfDay = orgEndOfDay(dateRange.to, orgTimezone);
       const { data, error } = await supabase
         .from('bookings')
-        .select(`*, customer:customers(*), staff:staff(*)`)
+        .select(`*, customer:customers(*), staff:staff(id, user_id, organization_id, name, email, phone, avatar_url, bio, is_active, hourly_rate, percentage_rate, default_hours, tax_classification, calendar_color, home_address, home_latitude, home_longitude, location_permission_status, location_permission_updated_at, created_at, updated_at)`)
         .eq('organization_id', organizationId)
         // payroll_date (= COALESCE(completed_at, scheduled_at)) is what the
         // server-side lock/attribution uses, so the UI must select the same way.
@@ -607,7 +621,7 @@ export default function PayrollPage() {
       const nwEnd = orgEndOfDay(nextWeekEnd, orgTimezone);
       const { data, error } = await supabase
         .from('bookings')
-        .select(`*, customer:customers(*), staff:staff(*)`)
+        .select(`*, customer:customers(*), staff:staff(id, user_id, organization_id, name, email, phone, avatar_url, bio, is_active, hourly_rate, percentage_rate, default_hours, tax_classification, calendar_color, home_address, home_latitude, home_longitude, location_permission_status, location_permission_updated_at, created_at, updated_at)`)
         .eq('organization_id', organizationId)
         .neq('status', 'cancelled')
         .gte('scheduled_at', currentWeekStart.toISOString())

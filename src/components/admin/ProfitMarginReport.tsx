@@ -65,7 +65,7 @@ export function ProfitMarginReport({ bookings }: ProfitMarginReportProps) {
       // Fetch all team assignments with staff wage info
       const { data, error } = await supabase
         .from('booking_team_assignments')
-        .select('booking_id, pay_share, staff_id, staff:staff(hourly_rate, base_wage)')
+        .select('booking_id, pay_share, staff_id, staff:staff(hourly_rate)')
         .eq('organization_id', organizationId)
         .in('booking_id', completedBookingIds);
       if (error) throw error;

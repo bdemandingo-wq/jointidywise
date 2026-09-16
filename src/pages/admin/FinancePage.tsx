@@ -138,7 +138,7 @@ export default function FinancePage() {
           *,
           customer:customers(*),
           service:services(*),
-          staff:staff(*)
+          staff:staff(id, user_id, organization_id, name, email, phone, avatar_url, bio, is_active, hourly_rate, percentage_rate, default_hours, tax_classification, calendar_color, home_address, home_latitude, home_longitude, location_permission_status, location_permission_updated_at, created_at, updated_at)
         `)
         .eq('organization_id', organizationId)
         // Drafts are not committed work and must not count as revenue.

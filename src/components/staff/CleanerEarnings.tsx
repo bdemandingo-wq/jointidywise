@@ -56,11 +56,14 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
   const { data: staffInfo, error: staffInfoError } = useQuery({
     queryKey: ['cleaner-wage-info', staffId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('staff')
-        .select('base_wage, hourly_rate, default_hours, organization_id')
-        .eq('id', staffId)
-        .single();
+      // base_wage is not selectable from `staff` by `authenticated` any more
+      // (managers must not read wages). A cleaner reads their OWN rates via
+      // this SECURITY DEFINER RPC, which is scoped to user_id = auth.uid().
+      const { data, error } = await (supabase as unknown as {
+        rpc: (n: string, a: Record<string, unknown>) => {
+          maybeSingle: () => Promise<{ data: unknown; error: unknown }>;
+        };
+      }).rpc('get_my_staff_wages', { _staff_id: staffId }).maybeSingle();
       if (error) throw error;
       return data as WageStaff & { organization_id: string | null };
     },
