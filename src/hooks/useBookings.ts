@@ -9,6 +9,7 @@ import type { Json } from '@/integrations/supabase/types';
 import { dispatchZapier } from '@/lib/zapier';
 import { buildBookingZapierPayload } from '@/lib/buildBookingZapierPayload';
 import { STAFF_SELECTABLE_COLUMNS } from '@/lib/staffColumns';
+import type { Tables } from '@/integrations/supabase/types';
 
 export interface TeamAssignment {
   staff_id: string;
@@ -719,7 +720,9 @@ export function useStaff() {
         throw error;
       }
 
-      return data;
+      // Explicit column list (see staffColumns.ts) loses PostgREST's generated
+      // row typing, so re-assert it here.
+      return (data ?? []) as unknown as Tables<'staff'>[];
     },
     enabled: !!organizationId,
     staleTime: 1000 * 60 * 5,
@@ -752,7 +755,7 @@ export function useAllStaff() {
         throw error;
       }
 
-      return data;
+      return (data ?? []) as unknown as Tables<'staff'>[];
     },
     enabled: !!organizationId,
     staleTime: 1000 * 60 * 5,
