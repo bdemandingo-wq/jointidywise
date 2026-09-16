@@ -56,6 +56,7 @@ import { PendingDocumentsReview } from '@/components/admin/PendingDocumentsRevie
 import { SEOHead } from '@/components/SEOHead';
 import { AttentionStrip } from '@/components/admin/AttentionStrip';
 import { usePageBadgeReasons } from '@/hooks/useSidebarBadges';
+import { useOrgStaffWages } from '@/hooks/useOrgStaffWages';
 
 interface StaffMember {
   id: string;
@@ -113,6 +114,9 @@ export default function StaffPage() {
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   
   const { data: staff = [], isLoading } = useAllStaff();
+  // base_wage is owner-only and no longer part of the staff row (see
+  // src/lib/staffColumns.ts); owners read it through this RPC-backed hook.
+  const { wagesById } = useOrgStaffWages();
   const queryClient = useQueryClient();
   const { isTestMode, maskName, maskEmail, maskPhone } = useTestMode();
   const { organizationId } = useOrgId();
@@ -436,9 +440,9 @@ export default function StaffPage() {
                           <div>
                             <h3 className="font-semibold">{maskName(member.name)}</h3>
                             <div className="flex items-center gap-2">
-                              {hasFinancialAccess && (member.base_wage || member.hourly_rate) && (
+                              {hasFinancialAccess && ((wagesById.get(member.id)?.base_wage ?? null) || member.hourly_rate) && (
                                 <span className="text-sm text-muted-foreground">
-                                  {isTestMode ? '$XX/hr' : `$${member.base_wage || member.hourly_rate}/hr`}
+                                  {isTestMode ? '$XX/hr' : `$${wagesById.get(member.id)?.base_wage ?? member.hourly_rate}/hr`}
                                 </span>
                               )}
 
