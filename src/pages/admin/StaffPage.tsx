@@ -185,7 +185,7 @@ export default function StaffPage() {
   };
 
   const handleEditClick = (member: StaffMember) => {
-    setSelectedStaff(member);
+    setSelectedStaff({ ...member, ...(wagesById.get(member.id) ?? {}) });
     setEditDialogOpen(true);
   };
 
@@ -462,7 +462,7 @@ export default function StaffPage() {
                             <DropdownMenuItem 
                               className="gap-2"
                               onClick={() => {
-                                setSelectedStaff(member);
+                                setSelectedStaff({ ...member, ...(wagesById.get(member.id) ?? {}) });
                                 setScheduleDialogOpen(true);
                               }}
                             >
