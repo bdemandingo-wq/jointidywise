@@ -18,6 +18,7 @@ import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import {
+import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
   Check,
   Sparkles,
   Zap,
@@ -499,7 +500,16 @@ export default function PricingPage() {
       // Was a hand-rolled copy of readEdgeFunctionError. Same behaviour, one
       // definition — and this one also drops supabase-js's generic wrapper
       // instead of surfacing "non-2xx status code" when the body has nothing.
-      if (error) throw new Error(await readEdgeFunctionError(error, 'Could not start checkout. Try again.'));
+      if (error) {
+        if (await isAlreadyLifetimeError(error)) {
+          window.clearTimeout(timeoutId);
+          isRedirectingRef.current = false;
+          setCheckoutBusy(null);
+          toast.success(ALREADY_LIFETIME_MESSAGE);
+          return;
+        }
+        throw new Error(await readEdgeFunctionError(error, 'Could not start checkout. Try again.'));
+      }
       const payload = data as { url?: string; error?: string } | null;
       if (payload?.error) throw new Error(payload.error);
       const url = payload?.url;
