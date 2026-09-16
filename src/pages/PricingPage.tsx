@@ -17,8 +17,8 @@ import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import {
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
+import {
   Check,
   Sparkles,
   Zap,

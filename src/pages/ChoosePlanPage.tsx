@@ -13,8 +13,8 @@ import { Check, Crown, Loader2, Lock, LogOut, Sparkles } from 'lucide-react';
 import { SEOHead } from '@/components/SEOHead';
 import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
-import {
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
+import {
   hasAnswer,
   normalizeAnswers,
   primaryPain,
