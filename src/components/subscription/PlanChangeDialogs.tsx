@@ -278,7 +278,9 @@ export function DowngradePlanDialog({
           organization_id: organizationId,
         },
       });
-      if (error) throw error;
+      if (error) {
+        throw new Error(await readEdgeFunctionError(error, "Could not schedule downgrade"));
+      }
       if ((data as any)?.error) throw new Error((data as any).error);
       const scheduled = (data as any)?.scheduled_at || periodEnd;
       const dateStr = scheduled
