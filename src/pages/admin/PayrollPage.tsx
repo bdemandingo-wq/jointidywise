@@ -50,6 +50,7 @@ import { QueryError } from '@/components/QueryError';
 import { fmt } from '@/lib/activeCurrency';
 import { mustAffectRows } from '@/lib/mustAffectRows';
 import { STAFF_SELECTABLE_COLUMNS } from '@/lib/staffColumns';
+import { useOrgStaffWages } from '@/hooks/useOrgStaffWages';
 
 interface StaffWithPayroll {
   id: string;
