@@ -98,7 +98,9 @@ export function UpgradePlanDialog({
       const { data, error } = await supabase.functions.invoke("preview-plan-change", {
         body: { plan: targetPlan.id, interval: "monthly", discount_code: code },
       });
-      if (error) throw error;
+      if (error) {
+        throw new Error(await readEdgeFunctionError(error, "Could not load preview"));
+      }
       if ((data as any)?.error) throw new Error((data as any).error);
       setPreview(data as PreviewData);
       if (code && (data as PreviewData).discount_valid) {
@@ -128,7 +130,14 @@ export function UpgradePlanDialog({
           discount_code: appliedCode ?? undefined,
         },
       });
-      if (error) throw error;
+      if (error) {
+        const body = await readEdgeFunctionErrorBody(error);
+        if (body?.code === "no_subscription") {
+          const started = await startCheckout(targetPlan.id);
+          if (started) return;
+        }
+        throw new Error(await readEdgeFunctionError(error, "Could not upgrade plan"));
+      }
       if ((data as any)?.error) throw new Error((data as any).error);
       toast.success(
         `You've been upgraded to ${targetPlan.name}. Your new features are now active.`,
