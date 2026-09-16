@@ -79,27 +79,30 @@ serve(async (req) => {
 
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
 
-    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
-    if (customers.data.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "No active subscription found." }),
+    // A person on a trial (or whose latest invoice is retrying) still has a
+    // real Stripe subscription — it just isn't "active". Filtering on
+    // status:"active" made those upgrades fail with a bare 400.
+    const CHANGEABLE = ["active", "trialing", "past_due", "unpaid"];
+    const noSub = () =>
+      new Response(
+        JSON.stringify({
+          error: "You don't have a paid subscription yet, so there's nothing to upgrade. Start a plan to continue.",
+          code: "no_subscription",
+        }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
-    }
+
+    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+    if (customers.data.length === 0) return noSub();
     const customerId = customers.data[0].id;
 
     const subs = await stripe.subscriptions.list({
       customer: customerId,
-      status: "active",
-      limit: 1,
+      status: "all",
+      limit: 20,
     });
-    if (subs.data.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "No active subscription found." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-    const subscription = subs.data[0];
+    const subscription = subs.data.find((s) => CHANGEABLE.includes(s.status));
+    if (!subscription) return noSub();
     const itemId = subscription.items.data[0].id;
 
     // Validate discount code if supplied

@@ -15,6 +15,26 @@ import { Loader2, AlertTriangle, BadgePercent, CheckCircle2 } from "lucide-react
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useOrgId } from "@/hooks/useOrgId";
+import {
+  readEdgeFunctionError,
+  readEdgeFunctionErrorBody,
+} from "@/lib/edgeFunctionError";
+
+/**
+ * Someone on a trial has no Stripe subscription to modify, so the plan-change
+ * function correctly refuses. Rather than dead-ending them on an error, send
+ * them straight to checkout for the plan they just picked.
+ */
+async function startCheckout(planId: string): Promise<boolean> {
+  const { data, error } = await supabase.functions.invoke("create-subscription", {
+    body: { plan: planId, interval: "monthly" },
+  });
+  if (error) return false;
+  const url = (data as { url?: string } | null)?.url;
+  if (!url) return false;
+  window.location.href = url;
+  return true;
+}
 
 export interface PlanInfo {
   id: "basic" | "pro" | "custom";
@@ -78,7 +98,9 @@ export function UpgradePlanDialog({
       const { data, error } = await supabase.functions.invoke("preview-plan-change", {
         body: { plan: targetPlan.id, interval: "monthly", discount_code: code },
       });
-      if (error) throw error;
+      if (error) {
+        throw new Error(await readEdgeFunctionError(error, "Could not load preview"));
+      }
       if ((data as any)?.error) throw new Error((data as any).error);
       setPreview(data as PreviewData);
       if (code && (data as PreviewData).discount_valid) {
@@ -108,7 +130,14 @@ export function UpgradePlanDialog({
           discount_code: appliedCode ?? undefined,
         },
       });
-      if (error) throw error;
+      if (error) {
+        const body = await readEdgeFunctionErrorBody(error);
+        if (body?.code === "no_subscription") {
+          const started = await startCheckout(targetPlan.id);
+          if (started) return;
+        }
+        throw new Error(await readEdgeFunctionError(error, "Could not upgrade plan"));
+      }
       if ((data as any)?.error) throw new Error((data as any).error);
       toast.success(
         `You've been upgraded to ${targetPlan.name}. Your new features are now active.`,
@@ -249,7 +278,9 @@ export function DowngradePlanDialog({
           organization_id: organizationId,
         },
       });
-      if (error) throw error;
+      if (error) {
+        throw new Error(await readEdgeFunctionError(error, "Could not schedule downgrade"));
+      }
       if ((data as any)?.error) throw new Error((data as any).error);
       const scheduled = (data as any)?.scheduled_at || periodEnd;
       const dateStr = scheduled
