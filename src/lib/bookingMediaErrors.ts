@@ -45,11 +45,18 @@ export function getUploadErrorMessage(error: unknown, isVideo: boolean): string 
     return 'Media storage is not set up yet. Please contact your admin.';
   }
 
+  if (msg.includes('mime') || msg.includes('not supported')) {
+    return isVideo
+      ? 'Video uploads are not enabled for job media yet — please upload photos instead.'
+      : 'That image format is not supported. Retake the photo with the camera button and try again.';
+  }
+
   if (msg.includes('payload') || msg.includes('too large') || msg.includes('size')) {
     return isVideo
       ? 'Video must be under 100MB. Try trimming it or recording a shorter clip.'
-      : 'Photo must be under 10MB. Please try again.';
+      : 'Photo must be under 100MB. Please try again.';
   }
+
 
   if (msg.includes('network') || msg.includes('fetch') || msg.includes('timeout')) {
     return isVideo
