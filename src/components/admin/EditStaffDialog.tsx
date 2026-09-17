@@ -632,7 +632,7 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Enter new password"
-                  minLength={6}
+                  minLength={8}
                 />
                 <Button
                   type="button"
@@ -653,7 +653,7 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
                 {isResettingPassword ? 'Resetting...' : 'Reset'}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Minimum 6 characters. Give these credentials to the staff member.</p>
+            <p className="text-xs text-muted-foreground">Minimum 8 characters. Give these credentials to the staff member.</p>
           </div>
 
           <div className="flex items-center justify-between">
