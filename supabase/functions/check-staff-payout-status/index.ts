@@ -79,13 +79,19 @@ serve(async (req: Request) => {
     if (adminMembership) {
       organizationId = requestedOrgId;
     } else {
+      // Scope the lookup to the requested org. A cleaner who works for two
+      // businesses has two staff rows, and the old unscoped .maybeSingle()
+      // errored (PGRST116) -> staffRow null -> a bogus 403 on the payout
+      // screen for exactly the people most likely to use it.
       const { data: staffRow } = await supabase
         .from("staff")
         .select("id, organization_id")
         .eq("user_id", callerId)
+        .eq("organization_id", requestedOrgId)
+        .eq("id", staffId)
         .maybeSingle();
 
-      if (!staffRow || staffRow.id !== staffId || staffRow.organization_id !== requestedOrgId) {
+      if (!staffRow) {
         return new Response(JSON.stringify({ error: "Forbidden" }), {
           status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -93,6 +99,7 @@ serve(async (req: Request) => {
       }
       organizationId = staffRow.organization_id;
     }
+
 
     // Get existing payout account record
     const { data: payoutAccount } = await supabase
