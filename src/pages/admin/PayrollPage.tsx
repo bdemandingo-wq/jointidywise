@@ -530,11 +530,16 @@ export default function PayrollPage() {
         .from('bookings')
         .select(`*, customer:customers(*), staff:staff(id, user_id, organization_id, name, email, phone, avatar_url, bio, is_active, hourly_rate, percentage_rate, default_hours, tax_classification, calendar_color, home_address, home_latitude, home_longitude, location_permission_status, location_permission_updated_at, created_at, updated_at)`)
         .eq('organization_id', organizationId)
-        // payroll_date (= COALESCE(completed_at, scheduled_at)) is what the
-        // server-side lock/attribution uses, so the UI must select the same way.
-        .gte('payroll_date', dateRange.from.toISOString())
-        .lte('payroll_date', toEndOfDay.toISOString())
-        .order('payroll_date', { ascending: false })
+        // Attribute a job to the DAY IT WAS CLEANED, not the day someone got
+        // round to ticking it complete. payroll_date (= COALESCE(completed_at,
+        // scheduled_at)) pulled last week's jobs into this week whenever they
+        // were marked complete late, so the same clean looked like it was being
+        // paid twice and the listed dates never matched the schedule. The
+        // emailed payroll report already windows on scheduled_at — this brings
+        // the page in line with it.
+        .gte('scheduled_at', dateRange.from.toISOString())
+        .lte('scheduled_at', toEndOfDay.toISOString())
+        .order('scheduled_at', { ascending: false })
         .order('id');           // unique tiebreaker — see rule 3
       if (error) throw error;
       return data;
@@ -555,8 +560,9 @@ export default function PayrollPage() {
         .select('id')
         .eq('organization_id', organizationId)
         .neq('status', 'cancelled')
-        .gte('payroll_date', dateRange.from.toISOString())
-        .lte('payroll_date', toEndOfDay.toISOString());
+        // Same clean-date window as the bookings query above.
+        .gte('scheduled_at', dateRange.from.toISOString())
+        .lte('scheduled_at', toEndOfDay.toISOString());
       if (!bookingIds?.length) return [];
       const ids = bookingIds.map((b: any) => b.id);
       const { data, error } = await supabase
