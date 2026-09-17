@@ -199,16 +199,24 @@ async function syncOrganization(
 
   const apiKey = String(settings.openphone_api_key).trim().replace(/^Bearer\s+/i, "");
   const storedPhoneNumberId = extractPhoneNumberId(settings.openphone_phone_number_id);
-  const resolved = await resolvePhoneNumberId(apiKey, storedPhoneNumberId);
-  if (!resolved) {
+  const resolution = await resolvePhoneNumberId(apiKey, storedPhoneNumberId);
+  if (resolution.status === "none") {
     throw new Error(
       "OpenPhone did not return any phone numbers for this API key. Reconnect OpenPhone in Settings → SMS.",
     );
   }
-  if (resolved !== storedPhoneNumberId) {
-    console.log(`[sync-openphone-messages] org=${organizationId} stored phone id ${storedPhoneNumberId} not owned by this key; using ${resolved}`);
+  // Transient helper failure, or an ambiguous multi-line account: carry on with
+  // the saved number, which is exactly what this function used before the
+  // lookup existed. The conversations call below will raise a real error if
+  // the saved id is genuinely wrong.
+  const phoneNumberId = resolution.status === "ok" ? resolution.id : storedPhoneNumberId;
+  if (resolution.status === "unavailable") {
+    console.warn(
+      `[sync-openphone-messages] org=${organizationId} phone lookup unavailable (${resolution.reason}); using stored id ${storedPhoneNumberId}`,
+    );
+  } else if (resolution.id !== storedPhoneNumberId) {
+    console.log(`[sync-openphone-messages] org=${organizationId} stored phone id ${storedPhoneNumberId} not owned by this key; using ${resolution.id}`);
   }
-  const phoneNumberId = resolved;
   const createdAfter = new Date(Date.now() - options.daysBack * 24 * 60 * 60 * 1000).toISOString();
   const contactLookup = await buildContactLookup(supabase, organizationId);
 
