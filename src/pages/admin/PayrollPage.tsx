@@ -85,7 +85,7 @@ interface BookingPayrollDetail {
   booking_number: number;
   customer_name: string;
   scheduled_at: string;
-  /** Date payroll attributes this job to (COALESCE(completed_at, scheduled_at)). */
+  /** Date payroll attributes this job to — the scheduled clean date. */
   payroll_date: string;
   duration: number;
   hours_worked: number;
