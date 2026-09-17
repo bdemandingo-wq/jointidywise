@@ -15,14 +15,24 @@ serve(async (req) => {
   }
 
   try {
-    // SECURITY: Verify the caller is an authenticated admin
-    const authResult = await verifyAdminAuth(req.headers.get("Authorization"), { requireAdmin: true });
+    const { userId, newPassword, organizationId } = await req.json();
+
+    // SECURITY: Verify the caller is an admin OF THE ORGANISATION THEY NAMED.
+    // Without requireOrganizationId, memberships[0] was picked arbitrarily for
+    // anyone in two orgs — the wrong org id (or undefined) then produced a
+    // PostgREST error on the staff lookup and surfaced as a blanket 500.
+    const authResult = await verifyAdminAuth(req.headers.get("Authorization"), {
+      requireAdmin: true,
+      ...(organizationId ? { requireOrganizationId: organizationId } : {}),
+    });
     if (!authResult.success) {
       console.error("[RESET-STAFF-PASSWORD] Authorization failed:", authResult.error);
       return createUnauthorizedResponse(authResult.error || "Unauthorized", corsHeaders);
     }
-
-    const { userId, newPassword } = await req.json();
+    if (!authResult.organizationId) {
+      console.error("[RESET-STAFF-PASSWORD] No organization resolved for caller", authResult.userId);
+      return createForbiddenResponse("No organization found for this account", corsHeaders);
+    }
 
     if (!userId || !newPassword) {
       console.error('[RESET-STAFF-PASSWORD] Missing required fields:', { userId: !!userId, newPassword: !!newPassword });
