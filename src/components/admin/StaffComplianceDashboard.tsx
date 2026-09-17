@@ -1,127 +1,30 @@
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { CheckCircle2, AlertCircle, Clock, ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QueryError } from '@/components/QueryError';
+import { useStaffCompliance } from '@/hooks/useStaffCompliance';
+import { ComplianceIcon } from '@/components/admin/StaffComplianceChecklist';
 
 interface StaffComplianceDashboardProps {
   organizationId: string;
 }
 
-interface StaffCompliance {
-  id: string;
-  name: string;
-  email: string;
-  hasAvailability: boolean;
-  docsStatus: 'complete' | 'pending' | 'missing';
-  sigsStatus: 'complete' | 'none_required' | 'incomplete';
-  payoutStatus: 'active' | 'pending' | 'not_started';
-  percentage: number;
-}
-
 export function StaffComplianceDashboard({ organizationId }: StaffComplianceDashboardProps) {
-  const { data: complianceData = [], isLoading, error: complianceError } = useQuery({
-    queryKey: ['staff-compliance', organizationId],
-    queryFn: async () => {
-      // Get active staff
-      const { data: staffList } = await supabase
-        .from('staff')
-        .select('id, name, email')
-        .eq('organization_id', organizationId)
-        .eq('is_active', true);
-
-      if (!staffList?.length) return [];
-
-      const staffIds = staffList.map(s => s.id);
-
-      // Batch fetch all compliance data
-      const [docsResult, sigsResult, payoutResult, availResult, signableDocsResult] = await Promise.all([
-        supabase.from('staff_documents').select('staff_id, document_type, status').eq('organization_id', organizationId).in('staff_id', staffIds),
-        supabase.from('staff_signatures').select('staff_id, signable_document_id').in('staff_id', staffIds),
-        supabase.from('staff_payout_accounts').select('staff_id, account_status').eq('organization_id', organizationId).in('staff_id', staffIds),
-        supabase.from('working_hours').select('staff_id').in('staff_id', staffIds),
-        supabase.from('staff_signable_documents').select('id').eq('organization_id', organizationId).eq('is_active', true),
-      ]);
-
-      const docs = docsResult.data || [];
-      const sigs = sigsResult.data || [];
-      const payouts = payoutResult.data || [];
-      const avails = availResult.data || [];
-      const signableDocs = signableDocsResult.data || [];
-
-      const totalSignable = signableDocs.length;
-      const signableIds = signableDocs.map(d => d.id);
-
-      return staffList.map((staff): StaffCompliance => {
-        // Availability
-        const hasAvailability = avails.some(a => a.staff_id === staff.id);
-
-        // Documents — consider all uploaded documents, not just specific types
-        const staffDocs = docs.filter(d => d.staff_id === staff.id);
-        const approvedDocs = staffDocs.filter(d => d.status === 'approved');
-        const docsStatus: 'complete' | 'pending' | 'missing' =
-          approvedDocs.length > 0 ? 'complete' :
-          staffDocs.length > 0 ? 'pending' : 'missing';
-
-        // Signatures
-        const staffSigs = sigs.filter(s => s.staff_id === staff.id && signableIds.includes(s.signable_document_id));
-        const sigsStatus: 'complete' | 'none_required' | 'incomplete' =
-          totalSignable === 0 ? 'none_required' :
-          staffSigs.length >= totalSignable ? 'complete' : 'incomplete';
-
-        // Payouts
-        const payout = payouts.find(p => p.staff_id === staff.id);
-        const payoutStatus: 'active' | 'pending' | 'not_started' =
-          payout?.account_status === 'active' ? 'active' :
-          payout ? 'pending' : 'not_started';
-
-        // Calculate percentage
-        let completed = 0;
-        const total = 4;
-        if (hasAvailability) completed++;
-        if (docsStatus === 'complete') completed++;
-        if (sigsStatus === 'complete' || sigsStatus === 'none_required') completed++;
-        if (payoutStatus === 'active') completed++;
-
-        return {
-          id: staff.id,
-          name: staff.name,
-          email: staff.email,
-          hasAvailability,
-          docsStatus,
-          sigsStatus,
-          payoutStatus,
-          percentage: Math.round((completed / total) * 100),
-        };
-      }).sort((a, b) => a.percentage - b.percentage); // Show least complete first
-    },
-    enabled: !!organizationId,
-  });
+  const { data: complianceData = [], isLoading, error: complianceError } = useStaffCompliance(organizationId);
 
   if (complianceError) return <QueryError subject="staff compliance data" />;
   if (isLoading) return null;
   if (!complianceData.length) return null;
 
   const fullyCompliant = complianceData.filter(s => s.percentage === 100).length;
-  const overallPercent = complianceData.length > 0
-    ? Math.round(complianceData.reduce((sum, s) => sum + s.percentage, 0) / complianceData.length)
-    : 0;
+  const overallPercent = Math.round(
+    complianceData.reduce((sum, s) => sum + s.percentage, 0) / complianceData.length
+  );
 
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase();
-
-  const StatusIcon = ({ status }: { status: 'complete' | 'pending' | 'missing' | 'none_required' | 'incomplete' | 'active' | 'not_started' }) => {
-    if (status === 'complete' || status === 'active' || status === 'none_required') {
-      return <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />;
-    }
-    if (status === 'pending') {
-      return <Clock className="w-3.5 h-3.5 text-yellow-500" />;
-    }
-    return <AlertCircle className="w-3.5 h-3.5 text-destructive" />;
-  };
 
   return (
     <Card>
@@ -152,21 +55,25 @@ export function StaffComplianceDashboard({ organizationId }: StaffComplianceDash
                 <span className="text-xs text-muted-foreground ml-2">{staff.percentage}%</span>
               </div>
               <Progress value={staff.percentage} className="h-1.5 mb-1.5" />
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                 <span className="flex items-center gap-1">
-                  <StatusIcon status={staff.hasAvailability ? 'complete' : 'missing'} />
+                  <ComplianceIcon status={staff.profileStatus} />
+                  Profile
+                </span>
+                <span className="flex items-center gap-1">
+                  <ComplianceIcon status={staff.hoursStatus} />
                   Hours
                 </span>
                 <span className="flex items-center gap-1">
-                  <StatusIcon status={staff.docsStatus} />
+                  <ComplianceIcon status={staff.docsStatus} />
                   Docs
                 </span>
                 <span className="flex items-center gap-1">
-                  <StatusIcon status={staff.sigsStatus} />
+                  <ComplianceIcon status={staff.sigsStatus} />
                   Sigs
                 </span>
                 <span className="flex items-center gap-1">
-                  <StatusIcon status={staff.payoutStatus} />
+                  <ComplianceIcon status={staff.payoutStatus} />
                   Payout
                 </span>
               </div>

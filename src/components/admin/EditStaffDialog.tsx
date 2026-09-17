@@ -25,8 +25,9 @@ import { AddressAutocomplete } from '@/components/address/AddressAutocomplete';
 import { maybeAdoptOrgCountry } from '@/lib/orgCountry';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
-import { Upload, FileText, Trash2, Download, Key, Eye, EyeOff, MapPin, Loader2 } from 'lucide-react';
+import { Upload, FileText, Trash2, Download, Key, Eye, EyeOff, MapPin, Loader2, ShieldCheck } from 'lucide-react';
 import { StaffDocumentManager } from '@/components/admin/StaffDocumentManager';
+import { StaffComplianceChecklist } from '@/components/admin/StaffComplianceChecklist';
 
 import { AdminPayoutStatus } from '@/components/admin/AdminPayoutStatus';
 
@@ -601,6 +602,17 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
               rows={3}
             />
           </div>
+
+          {/* Onboarding Checklist */}
+          {staff && (
+            <div className="space-y-2 pt-4 border-t">
+              <Label className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4" />
+                Onboarding Checklist
+              </Label>
+              <StaffComplianceChecklist staffId={staff.id} organizationId={organizationId} />
+            </div>
+          )}
 
           {/* Staff Documents Section */}
           <div className="space-y-2 pt-4 border-t">
