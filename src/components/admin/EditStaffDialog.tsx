@@ -304,8 +304,8 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
   const handleResetPassword = async () => {
     if (!staff?.user_id || !newPassword) return;
     
-    if (newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters');
+    if (newPassword.length < 8) {
+      toast.error('Password must be at least 8 characters');
       return;
     }
 
@@ -648,7 +648,7 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
                 type="button"
                 variant="secondary"
                 onClick={handleResetPassword}
-                disabled={isResettingPassword || !newPassword || newPassword.length < 6}
+                disabled={isResettingPassword || !newPassword || newPassword.length < 8}
               >
                 {isResettingPassword ? 'Resetting...' : 'Reset'}
               </Button>
