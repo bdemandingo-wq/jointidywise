@@ -519,7 +519,10 @@ export default function PayrollPage() {
 
   // Fetch bookings for selected date range
   const { rows: bookings, error: bookingsError } = useOrgQuery({
-    key: ['bookings-payroll', dateRange],
+    // 'v2-clean-date' busts the persisted (24h) offline cache: rows cached
+    // under the old payroll_date window would otherwise keep showing the
+    // wrong week's jobs for a day after this fix shipped.
+    key: ['bookings-payroll', 'v2-clean-date', dateRange],
     query: async (organizationId) => {
       // dateRange.to is already the org's end-of-month instant. setHours(23,59)
       // re-anchored it to the DEVICE's end of day, which for an admin west of
@@ -548,7 +551,7 @@ export default function PayrollPage() {
 
   // Fetch team assignments
   const { rows: teamAssignments, error: teamAssignmentsError } = useOrgQuery({
-    key: ['team-assignments-payroll', dateRange],
+    key: ['team-assignments-payroll', 'v2-clean-date', dateRange],
     query: async (organizationId) => {
       // dateRange.to is already the org's end-of-month instant. setHours(23,59)
       // re-anchored it to the DEVICE's end of day, which for an admin west of
