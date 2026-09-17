@@ -403,14 +403,22 @@ function patchHead(html: string, route: string, meta: RouteMeta): string {
     `<link rel="canonical" href="${canonical}" />`
   );
 
-  // Inject visible content inside #root so crawlers see a real page.
-  // React's createRoot replaces #root children on mount, so users see
-  // this for <1s before JS loads — then the full React app takes over.
+  // Inject crawler-readable content inside #root.
+  //
+  // It used to render as plain, unstyled text filling the viewport for the
+  // fraction of a second before React mounted — every visitor to
+  // jointidywise.com saw a wall of raw copy flash before the real homepage.
+  // The markup is still in the DOM (same text, same <h1>, same order, so
+  // crawlers that don't run JS are unaffected); it is just taken out of the
+  // visual flow with the standard clip technique instead of being painted.
+  const srOnly =
+    "position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0";
   const h1 = `<h1>${escapeHtml(meta.h1)}</h1>`;
   const body = meta.prerenderBody ?? "";
-  const article = body
-    ? `<article>${h1}<p>${description}</p>${body}</article>`
-    : `<article>${h1}<p>${description}</p></article>`;
+  const inner = body
+    ? `${h1}<p>${description}</p>${body}`
+    : `${h1}<p>${description}</p>`;
+  const article = `<article style="${srOnly}">${inner}</article>`;
 
   // Optional <noscript> body content (internal-link grids etc). Non-JS
   // crawlers see it; users with JS never do.
