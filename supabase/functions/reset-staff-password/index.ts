@@ -73,7 +73,14 @@ serve(async (req) => {
       .maybeSingle();
 
     if (staffError) {
-      console.error('[RESET-STAFF-PASSWORD] Error finding staff:', staffError);
+      // Log the real PostgREST payload — "Failed to verify staff member" on
+      // its own gave no way to tell a bad filter from a transient DB error.
+      console.error('[RESET-STAFF-PASSWORD] Error finding staff:', {
+        message: staffError.message,
+        code: (staffError as any).code,
+        details: (staffError as any).details,
+        organizationId: authResult.organizationId,
+      });
       return new Response(
         JSON.stringify({ error: 'Failed to verify staff member' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
