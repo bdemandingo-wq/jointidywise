@@ -42,7 +42,7 @@ import {
   orgStartOfMonth, orgEndOfMonth, orgStartOfWeek, orgStartOfYear, orgDateKey, orgAddDays, orgEndOfDay,
   parseWeekStartDay, type WeekStartDay,
 } from '@/lib/orgDateRange';
-import { formatInTimezone, getDateInTimezone, getLocalDateInTimezone } from '@/lib/timezoneUtils';
+import { formatInTimezone, getDateInTimezone } from '@/lib/timezoneUtils';
 import { PayrollPeriodSettings } from '@/components/admin/PayrollPeriodSettings';
 import { PayrollCostSettings } from '@/components/admin/PayrollCostSettings';
 import { SEOHead } from '@/components/SEOHead';
