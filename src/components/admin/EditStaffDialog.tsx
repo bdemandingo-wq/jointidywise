@@ -82,6 +82,15 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /**
+   * Whether this caller may READ (and therefore safely WRITE) the sensitive
+   * tax columns. Proven by get_staff_sensitive_fields succeeding — that RPC is
+   * owner-gated (has_org_financial_access). Managers and legacy admins cannot
+   * read ssn_last4 / ein / tax_document_url, so writing them back from an
+   * empty form would erase real data, or trip the wage-guard trigger and fail
+   * the whole edit.
+   */
+  const [canEditSensitive, setCanEditSensitive] = useState(false);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -123,12 +132,16 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
         home_longitude: staff.home_longitude ?? null,
       });
 
-      // Load SSN/EIN via secure admin-only RPC (not readable via SELECT)
+      // Load SSN/EIN via the owner-only RPC (not readable via SELECT).
+      // Success here is also what unlocks editing of the tax fields.
+      setCanEditSensitive(false);
       (async () => {
         const { data, error } = await supabase.rpc('get_staff_sensitive_fields' as any, {
           _staff_id: staff.id,
         });
-        if (!error && Array.isArray(data) && data[0]) {
+        if (error) return;
+        setCanEditSensitive(true);
+        if (Array.isArray(data) && data[0]) {
           const row = data[0] as { ssn_last4: string | null; ein: string | null };
           setFormData((prev) => ({
             ...prev,
@@ -160,25 +173,33 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
         );
       }
 
+      // Only owners send the tax columns. For anyone else they were never
+      // loaded, so including them would write NULL over real values (legacy
+      // admin) or trip the wage-guard trigger and fail the entire save
+      // (manager).
+      const updates: Record<string, unknown> = {
+        name: formData.name,
+        phone: formData.phone || null,
+        hourly_rate: formData.hourly_rate ? parseFloat(formData.hourly_rate) : null,
+        percentage_rate: formData.percentage_rate ? parseFloat(formData.percentage_rate) : null,
+        default_hours: formData.default_hours ? parseFloat(formData.default_hours) : 5,
+        bio: formData.bio || null,
+        is_active: formData.is_active,
+        tax_classification: formData.tax_classification,
+        calendar_color: formData.calendar_color || null,
+        home_address: formData.home_address || null,
+        home_latitude: latitude,
+        home_longitude: longitude,
+      };
+      if (canEditSensitive) {
+        updates.tax_document_url = formData.tax_document_url || null;
+        updates.ssn_last4 = formData.ssn_last4 || null;
+        updates.ein = formData.ein || null;
+      }
+
       const { error } = await supabase
         .from('staff')
-        .update({
-          name: formData.name,
-          phone: formData.phone || null,
-          hourly_rate: formData.hourly_rate ? parseFloat(formData.hourly_rate) : null,
-          percentage_rate: formData.percentage_rate ? parseFloat(formData.percentage_rate) : null,
-          default_hours: formData.default_hours ? parseFloat(formData.default_hours) : 5,
-          bio: formData.bio || null,
-          is_active: formData.is_active,
-          tax_classification: formData.tax_classification,
-          tax_document_url: formData.tax_document_url || null,
-          ssn_last4: formData.ssn_last4 || null,
-          ein: formData.ein || null,
-          calendar_color: formData.calendar_color || null,
-          home_address: formData.home_address || null,
-          home_latitude: latitude,
-          home_longitude: longitude,
-        })
+        .update(updates)
         .eq('id', staff.id);
 
       if (error) throw error;
@@ -283,8 +304,8 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
   const handleResetPassword = async () => {
     if (!staff?.user_id || !newPassword) return;
     
-    if (newPassword.length < 6) {
-      toast.error('Password must be at least 6 characters');
+    if (newPassword.length < 8) {
+      toast.error('Password must be at least 8 characters');
       return;
     }
 
@@ -443,79 +464,88 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
             <p className="text-xs text-muted-foreground">Used for pay calculations when not using check-in/out times</p>
           </div>
 
-          {/* SSN/EIN Fields */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-ssn_last4">SSN (Last 4 digits)</Label>
-              <Input
-                id="edit-ssn_last4"
-                value={formData.ssn_last4}
-                onChange={(e) => setFormData({ ...formData, ssn_last4: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                placeholder="1234"
-                maxLength={4}
-              />
-              <p className="text-xs text-muted-foreground">For 1099-NEC filing</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-ein">EIN (if applicable)</Label>
-              <Input
-                id="edit-ein"
-                value={formData.ein}
-                onChange={(e) => setFormData({ ...formData, ein: e.target.value })}
-                placeholder="XX-XXXXXXX"
-              />
-              <p className="text-xs text-muted-foreground">For contractors with EIN</p>
-            </div>
-          </div>
-
-          {/* Tax Document Upload */}
-          <div className="space-y-2">
-            <Label>{taxDocLabel} (Tax Document)</Label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            {formData.tax_document_url ? (
-              <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-                <FileText className="w-5 h-5 text-primary" />
-                <span className="flex-1 text-sm truncate">
-                  {formData.tax_document_url.split('/').pop()}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleDownloadDocument}
-                >
-                  <Download className="w-4 h-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="text-destructive"
-                  onClick={handleDeleteDocument}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
+          {/* SSN / EIN / tax document — owner-only.
+              These columns are not readable by managers or legacy admins
+              (column-level grants), so for them the inputs would render blank
+              and saving would wipe the real values. Hide the whole block
+              unless the sensitive-fields RPC succeeded. */}
+          {canEditSensitive && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-ssn_last4">SSN (Last 4 digits)</Label>
+                  <Input
+                    id="edit-ssn_last4"
+                    value={formData.ssn_last4}
+                    onChange={(e) => setFormData({ ...formData, ssn_last4: e.target.value.replace(/\D/g, '').slice(0, 4) })}
+                    placeholder="1234"
+                    maxLength={4}
+                  />
+                  <p className="text-xs text-muted-foreground">For 1099-NEC filing</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-ein">EIN (if applicable)</Label>
+                  <Input
+                    id="edit-ein"
+                    value={formData.ein}
+                    onChange={(e) => setFormData({ ...formData, ein: e.target.value })}
+                    placeholder="XX-XXXXXXX"
+                  />
+                  <p className="text-xs text-muted-foreground">For contractors with EIN</p>
+                </div>
               </div>
-            ) : (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full gap-2"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-              >
-                <Upload className="w-4 h-4" />
-                {isUploading ? 'Uploading...' : `Upload ${taxDocLabel}`}
-              </Button>
-            )}
-            <p className="text-xs text-muted-foreground">PDF, JPG, or PNG. Max 10MB. Admin-only access.</p>
-          </div>
+
+              {/* Tax Document Upload */}
+              <div className="space-y-2">
+                <Label>{taxDocLabel} (Tax Document)</Label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                {formData.tax_document_url ? (
+                  <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                    <FileText className="w-5 h-5 text-primary" />
+                    <span className="flex-1 text-sm truncate">
+                      {formData.tax_document_url.split('/').pop()}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleDownloadDocument}
+                    >
+                      <Download className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="text-destructive"
+                      onClick={handleDeleteDocument}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full gap-2"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                  >
+                    <Upload className="w-4 h-4" />
+                    {isUploading ? 'Uploading...' : `Upload ${taxDocLabel}`}
+                  </Button>
+                )}
+                <p className="text-xs text-muted-foreground">PDF, JPG, or PNG. Max 10MB. Owner-only access.</p>
+              </div>
+            </>
+          )}
+
 
           {/* Home Address */}
           <div className="space-y-2">
@@ -602,7 +632,7 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   placeholder="Enter new password"
-                  minLength={6}
+                  minLength={8}
                 />
                 <Button
                   type="button"
@@ -618,12 +648,12 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
                 type="button"
                 variant="secondary"
                 onClick={handleResetPassword}
-                disabled={isResettingPassword || !newPassword || newPassword.length < 6}
+                disabled={isResettingPassword || !newPassword || newPassword.length < 8}
               >
                 {isResettingPassword ? 'Resetting...' : 'Reset'}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Minimum 6 characters. Give these credentials to the staff member.</p>
+            <p className="text-xs text-muted-foreground">Minimum 8 characters. Give these credentials to the staff member.</p>
           </div>
 
           <div className="flex items-center justify-between">

@@ -48,27 +48,59 @@ function extractPhoneNumberId(value: string): string {
  * Returns null when the key owns no numbers at all (a credentials/setup issue
  * the caller should report plainly).
  */
-async function resolvePhoneNumberId(apiKey: string, stored: string): Promise<string | null> {
-  const res = await fetch("https://api.openphone.com/v1/phone-numbers", {
-    headers: { Authorization: apiKey, "Content-Type": "application/json" },
-  });
-  if (!res.ok) return null;
+/**
+ * Resolve the PN id to sync from.
+ *
+ * Three distinct outcomes, deliberately NOT collapsed into one null:
+ *  - "unavailable": the lookup itself failed (network, 5xx, rate limit, bad
+ *    JSON). This is a transient fault in a helper request, not a broken
+ *    connection — keep using the stored id rather than aborting the org's
+ *    whole sync with a "reconnect OpenPhone" message that isn't true.
+ *  - "none": the key is valid but owns no numbers → genuinely needs reconnecting.
+ *  - "ok": a real id. Never an arbitrary one — on a multi-line account,
+ *    guessing would pour another line's conversations into this inbox, so an
+ *    unmatched stored id only falls back when the account has exactly ONE
+ *    number.
+ */
+type PhoneResolution =
+  | { status: "ok"; id: string }
+  | { status: "none" }
+  | { status: "unavailable"; reason: string };
+
+async function resolvePhoneNumberId(apiKey: string, stored: string): Promise<PhoneResolution> {
+  let res: Response;
+  try {
+    res = await fetch("https://api.openphone.com/v1/phone-numbers", {
+      headers: { Authorization: apiKey, "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    return { status: "unavailable", reason: err instanceof Error ? err.message : String(err) };
+  }
+  // 401/403 mean the key really is bad — everything else on this helper call
+  // is treated as transient.
+  if (res.status === 401 || res.status === 403) return { status: "none" };
+  if (!res.ok) return { status: "unavailable", reason: `phone-numbers returned ${res.status}` };
+
   const json = await res.json().catch(() => null);
+  if (!json) return { status: "unavailable", reason: "phone-numbers returned unreadable JSON" };
   const numbers = Array.isArray(json?.data) ? json.data : [];
-  if (numbers.length === 0) return null;
+  if (numbers.length === 0) return { status: "none" };
 
   const ids = numbers.map((n: any) => String(n?.id || "")).filter(Boolean);
-  if (ids.includes(stored)) return stored;
+  if (ids.includes(stored)) return { status: "ok", id: stored };
 
   // Stored value may be the phone number itself rather than the PN id.
   const storedDigits = normalizePhoneDigits(stored);
   if (storedDigits) {
     const byNumber = numbers.find((n: any) => normalizePhoneDigits(String(n?.number || "")) === storedDigits);
-    if (byNumber?.id) return String(byNumber.id);
+    if (byNumber?.id) return { status: "ok", id: String(byNumber.id) };
   }
 
-  // Single-number accounts are the common case — use the one number they own.
-  return ids[0] || null;
+  // Exactly one number on the account — unambiguous, so use it. With more than
+  // one, picking the first would be a cross-line data leak; make the admin fix
+  // the saved number instead.
+  if (ids.length === 1) return { status: "ok", id: ids[0] };
+  return { status: "unavailable", reason: `stored id not found among ${ids.length} numbers on this account` };
 }
 
 function messageText(msg: any): string {
@@ -167,16 +199,24 @@ async function syncOrganization(
 
   const apiKey = String(settings.openphone_api_key).trim().replace(/^Bearer\s+/i, "");
   const storedPhoneNumberId = extractPhoneNumberId(settings.openphone_phone_number_id);
-  const resolved = await resolvePhoneNumberId(apiKey, storedPhoneNumberId);
-  if (!resolved) {
+  const resolution = await resolvePhoneNumberId(apiKey, storedPhoneNumberId);
+  if (resolution.status === "none") {
     throw new Error(
       "OpenPhone did not return any phone numbers for this API key. Reconnect OpenPhone in Settings → SMS.",
     );
   }
-  if (resolved !== storedPhoneNumberId) {
-    console.log(`[sync-openphone-messages] org=${organizationId} stored phone id ${storedPhoneNumberId} not owned by this key; using ${resolved}`);
+  // Transient helper failure, or an ambiguous multi-line account: carry on with
+  // the saved number, which is exactly what this function used before the
+  // lookup existed. The conversations call below will raise a real error if
+  // the saved id is genuinely wrong.
+  const phoneNumberId = resolution.status === "ok" ? resolution.id : storedPhoneNumberId;
+  if (resolution.status === "unavailable") {
+    console.warn(
+      `[sync-openphone-messages] org=${organizationId} phone lookup unavailable (${resolution.reason}); using stored id ${storedPhoneNumberId}`,
+    );
+  } else if (resolution.id !== storedPhoneNumberId) {
+    console.log(`[sync-openphone-messages] org=${organizationId} stored phone id ${storedPhoneNumberId} not owned by this key; using ${resolution.id}`);
   }
-  const phoneNumberId = resolved;
   const createdAfter = new Date(Date.now() - options.daysBack * 24 * 60 * 60 * 1000).toISOString();
   const contactLookup = await buildContactLookup(supabase, organizationId);
 
