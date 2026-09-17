@@ -598,8 +598,14 @@ export default function PayrollPage() {
   // boundaries don't drift when admin and org are in different timezones.
   const { config: periodConfig, error: periodConfigError } = usePayrollPeriodConfig();
   const currentPeriod = useMemo(() => {
-    const todayInOrgTz = getLocalDateInTimezone(new Date(), orgTimezone);
-    const start = getPeriodStart(todayInOrgTz, periodConfig, orgTimezone);
+    // Pass the raw instant. getPeriodStart already resolves it in the org's
+    // zone. Routing it through getLocalDateInTimezone first rebuilt the date
+    // from DEVICE-local components (noon local), so a viewer far enough east —
+    // measured from China, UTC+8 — turned "today in the org's zone" into the
+    // PREVIOUS org day, shifting the whole pay period back a day and dragging
+    // an extra job's pay into the total. That is the 610-vs-790 split between
+    // the laptop and the phone.
+    const start = getPeriodStart(new Date(), periodConfig, orgTimezone);
     return { start, end: getPeriodEnd(start, periodConfig, orgTimezone) };
   }, [periodConfig, orgTimezone]);
   const nextPeriod = useMemo(() => {
