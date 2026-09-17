@@ -82,6 +82,15 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /**
+   * Whether this caller may READ (and therefore safely WRITE) the sensitive
+   * tax columns. Proven by get_staff_sensitive_fields succeeding — that RPC is
+   * owner-gated (has_org_financial_access). Managers and legacy admins cannot
+   * read ssn_last4 / ein / tax_document_url, so writing them back from an
+   * empty form would erase real data, or trip the wage-guard trigger and fail
+   * the whole edit.
+   */
+  const [canEditSensitive, setCanEditSensitive] = useState(false);
   
   const [formData, setFormData] = useState({
     name: '',
