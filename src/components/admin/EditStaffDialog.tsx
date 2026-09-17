@@ -173,25 +173,33 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
         );
       }
 
+      // Only owners send the tax columns. For anyone else they were never
+      // loaded, so including them would write NULL over real values (legacy
+      // admin) or trip the wage-guard trigger and fail the entire save
+      // (manager).
+      const updates: Record<string, unknown> = {
+        name: formData.name,
+        phone: formData.phone || null,
+        hourly_rate: formData.hourly_rate ? parseFloat(formData.hourly_rate) : null,
+        percentage_rate: formData.percentage_rate ? parseFloat(formData.percentage_rate) : null,
+        default_hours: formData.default_hours ? parseFloat(formData.default_hours) : 5,
+        bio: formData.bio || null,
+        is_active: formData.is_active,
+        tax_classification: formData.tax_classification,
+        calendar_color: formData.calendar_color || null,
+        home_address: formData.home_address || null,
+        home_latitude: latitude,
+        home_longitude: longitude,
+      };
+      if (canEditSensitive) {
+        updates.tax_document_url = formData.tax_document_url || null;
+        updates.ssn_last4 = formData.ssn_last4 || null;
+        updates.ein = formData.ein || null;
+      }
+
       const { error } = await supabase
         .from('staff')
-        .update({
-          name: formData.name,
-          phone: formData.phone || null,
-          hourly_rate: formData.hourly_rate ? parseFloat(formData.hourly_rate) : null,
-          percentage_rate: formData.percentage_rate ? parseFloat(formData.percentage_rate) : null,
-          default_hours: formData.default_hours ? parseFloat(formData.default_hours) : 5,
-          bio: formData.bio || null,
-          is_active: formData.is_active,
-          tax_classification: formData.tax_classification,
-          tax_document_url: formData.tax_document_url || null,
-          ssn_last4: formData.ssn_last4 || null,
-          ein: formData.ein || null,
-          calendar_color: formData.calendar_color || null,
-          home_address: formData.home_address || null,
-          home_latitude: latitude,
-          home_longitude: longitude,
-        })
+        .update(updates)
         .eq('id', staff.id);
 
       if (error) throw error;
