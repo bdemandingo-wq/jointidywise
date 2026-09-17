@@ -132,12 +132,16 @@ export function EditStaffDialog({ open, onOpenChange, staff }: EditStaffDialogPr
         home_longitude: staff.home_longitude ?? null,
       });
 
-      // Load SSN/EIN via secure admin-only RPC (not readable via SELECT)
+      // Load SSN/EIN via the owner-only RPC (not readable via SELECT).
+      // Success here is also what unlocks editing of the tax fields.
+      setCanEditSensitive(false);
       (async () => {
         const { data, error } = await supabase.rpc('get_staff_sensitive_fields' as any, {
           _staff_id: staff.id,
         });
-        if (!error && Array.isArray(data) && data[0]) {
+        if (error) return;
+        setCanEditSensitive(true);
+        if (Array.isArray(data) && data[0]) {
           const row = data[0] as { ssn_last4: string | null; ein: string | null };
           setFormData((prev) => ({
             ...prev,
