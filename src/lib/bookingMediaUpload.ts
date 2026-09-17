@@ -49,10 +49,41 @@ export interface UploadBookingMediaResult {
  * storage object if it was written — so a caller never has to remember the
  * rollback, which is exactly what one of the three copies forgot.
  */
+/** MIME types the booking-photos bucket accepts. Anything else is rejected
+ *  by storage with an opaque error, so images are re-encoded to JPEG first. */
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+/**
+ * iPhones hand over HEIC/HEIF (and occasionally an empty type) from the photo
+ * library. Storage rejects those outright, which surfaced to cleaners as a
+ * bare "upload failed". Re-encode to JPEG in the browser when we can; if the
+ * browser cannot decode it, fall through and let storage give its own error.
+ */
+async function normalizeImage(file: File): Promise<File> {
+  if (ALLOWED_IMAGE_TYPES.includes(file.type)) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0);
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.9),
+    );
+    if (!blob) return file;
+    const base = file.name.replace(/\.[^.]+$/, '');
+    return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
+
 export async function uploadBookingMedia(
   args: UploadBookingMediaArgs,
 ): Promise<UploadBookingMediaResult> {
-  const { file, bookingId, staffId, photoType, organizationIdFallback, extra, index } = args;
+  const { file: originalFile, bookingId, staffId, photoType, organizationIdFallback, extra, index } = args;
 
   const { data: bookingData, error: bookingError } = await supabase
     .from('bookings')
@@ -67,15 +98,22 @@ export async function uploadBookingMedia(
   if (!organizationId) throw new Error('Selected booking is missing an organization.');
 
   // Derived from the FILE, never from a UI mode. See the note at the top.
-  const mediaType: MediaType = isVideoFile(file) ? 'video' : 'photo';
+  const mediaType: MediaType = isVideoFile(originalFile) ? 'video' : 'photo';
+  const file = mediaType === 'photo' ? await normalizeImage(originalFile) : originalFile;
   const ext = file.name.split('.').pop() || (mediaType === 'video' ? 'mp4' : 'jpg');
   const suffix = index === undefined ? '' : `_${index}`;
   const filePath = `${organizationId}/${bookingId}/${staffId}/${photoType}/${Date.now()}${suffix}.${ext}`;
 
   const { error: uploadError } = await supabase.storage
     .from('booking-photos')
-    .upload(filePath, file, { upsert: false });
+    .upload(filePath, file, {
+      upsert: false,
+      // .mov from iOS often arrives with an empty type; storage then falls
+      // back to a type the bucket does not accept.
+      contentType: file.type || (mediaType === 'video' ? 'video/quicktime' : 'image/jpeg'),
+    });
   if (uploadError) throw uploadError;
+
 
   try {
     const { error: dbError } = await supabase.from('booking_photos').insert({
