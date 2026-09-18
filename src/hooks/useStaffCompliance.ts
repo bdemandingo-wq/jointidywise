@@ -42,10 +42,11 @@ export function useStaffCompliance(organizationId: string | null | undefined) {
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
     queryFn: async (): Promise<StaffComplianceRow[]> => {
+      const orgId = organizationId as string;
       const { data: staffList, error: staffError } = await supabase
         .from('staff')
         .select('id, name, email, phone, avatar_url, home_address, tax_classification')
-        .eq('organization_id', organizationId)
+        .eq('organization_id', orgId)
         .eq('is_active', true)
         .order('name');
       if (staffError) throw staffError;
@@ -54,11 +55,11 @@ export function useStaffCompliance(organizationId: string | null | undefined) {
       const staffIds = staffList.map((s) => s.id);
 
       const [docsResult, sigsResult, payoutResult, availResult, signableDocsResult] = await Promise.all([
-        supabase.from('staff_documents').select('staff_id, document_type, status').eq('organization_id', organizationId).in('staff_id', staffIds),
+        supabase.from('staff_documents').select('staff_id, document_type, status').eq('organization_id', orgId).in('staff_id', staffIds),
         supabase.from('staff_signatures').select('staff_id, signable_document_id').in('staff_id', staffIds),
-        supabase.from('staff_payout_accounts').select('staff_id, account_status, details_submitted, payouts_enabled').eq('organization_id', organizationId).in('staff_id', staffIds),
+        supabase.from('staff_payout_accounts').select('staff_id, account_status, details_submitted, payouts_enabled').eq('organization_id', orgId).in('staff_id', staffIds),
         supabase.from('working_hours').select('staff_id').in('staff_id', staffIds),
-        supabase.from('staff_signable_documents').select('id').eq('organization_id', organizationId).eq('is_active', true),
+        supabase.from('staff_signable_documents').select('id').eq('organization_id', orgId).eq('is_active', true),
       ]);
 
       if (docsResult.error) throw docsResult.error;
