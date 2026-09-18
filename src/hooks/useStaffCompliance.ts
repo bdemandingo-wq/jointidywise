@@ -42,6 +42,7 @@ export function useStaffCompliance(organizationId: string | null | undefined) {
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
     queryFn: async (): Promise<StaffComplianceRow[]> => {
+      const orgId = organizationId as string;
       const { data: staffList, error: staffError } = await supabase
         .from('staff')
         .select('id, name, email, phone, avatar_url, home_address, tax_classification')
