@@ -12241,6 +12241,14 @@ export type Database = {
         }
         Returns: undefined
       }
+      mark_abandoned_booking_progress: {
+        Args: {
+          _converted?: boolean
+          _session_token: string
+          _step_reached?: number
+        }
+        Returns: undefined
+      }
       mark_client_notification_read: {
         Args: { p_client_user_id: string; p_notification_id: string }
         Returns: boolean
@@ -12305,6 +12313,20 @@ export type Database = {
           expires_at: string
           target_url: string
         }[]
+      }
+      save_abandoned_booking: {
+        Args: {
+          _email?: string
+          _first_name?: string
+          _form_snapshot?: Json
+          _last_name?: string
+          _organization_id: string
+          _phone?: string
+          _service_id?: string
+          _session_token: string
+          _step_reached?: number
+        }
+        Returns: undefined
       }
       send_to_dlq: {
         Args: { dlq_name: string; payload: Json }
