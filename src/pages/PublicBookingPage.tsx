@@ -54,7 +54,6 @@ import {
 } from '@/lib/recurringDiscount';
 import { useCustomFrequencies, resolveCustomFrequencyDiscountPct } from '@/hooks/useCustomFrequencies';
 import { supabase } from '@/lib/supabase';
-import { getAbandonedBookingClient } from '@/lib/abandonedBookingClient';
 import { isValidPhone } from '@/lib/errorHandling';
 import { toast } from 'sonner';
 import { applyPublicBranding, clearPublicBranding } from '@/hooks/useBrandingColors';
