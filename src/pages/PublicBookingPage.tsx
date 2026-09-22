@@ -421,18 +421,12 @@ export default function PublicBookingPage() {
   }, [resumeToken, orgSlug]);
 
   // Update step_reached if already tracked. Deliberately fire-and-forget:
-  // funnel-step telemetry only.
-  // NOTE: this is currently a silent no-op for public visitors — the table's
-  // UPDATE policy is org-admins-only, so an anonymous booker matches zero rows
-  // and the error is swallowed. It starts working once the anon session-scoped
-  // UPDATE policy lands with the recovery migrations.
+  // funnel-step telemetry only. Goes through the same SECURITY DEFINER routine
+  // as the initial save, which only ever touches step/converted here.
   useEffect(() => {
     if (abandonedTrackedRef.tracked && step > 3) {
       fireAndForget(
-        getAbandonedBookingClient(sessionTokenRef)
-          .from('abandoned_bookings')
-          .update({ step_reached: step })
-          .eq('session_token', sessionTokenRef),
+        markAbandonedProgress({ _session_token: sessionTokenRef, _step_reached: step }),
         'abandoned_bookings: step reached',
       );
     }
@@ -445,10 +439,7 @@ export default function PublicBookingPage() {
   useEffect(() => {
     if (confirmationNumber && abandonedTrackedRef.tracked) {
       fireAndForget(
-        getAbandonedBookingClient(sessionTokenRef)
-          .from('abandoned_bookings')
-          .update({ converted: true, converted_at: new Date().toISOString() })
-          .eq('session_token', sessionTokenRef),
+        markAbandonedProgress({ _session_token: sessionTokenRef, _converted: true }),
         'abandoned_bookings: converted',
       );
     }
