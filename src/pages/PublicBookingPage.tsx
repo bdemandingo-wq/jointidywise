@@ -64,6 +64,20 @@ import { SEOHead } from '@/components/SEOHead';
 import { TrackingPixels, trackConversion } from '@/components/TrackingPixels';
 import { fireAndForget } from '@/lib/mustAffectRows';
 
+// Abandoned-booking telemetry goes through SECURITY DEFINER routines that take
+// the visitor's session token as an argument. Typed loosely because the
+// generated types lag new routines; the runtime contract is { error }.
+const markAbandonedProgress = (args: {
+  _session_token: string;
+  _step_reached?: number;
+  _converted?: boolean;
+}) =>
+  (supabase.rpc as unknown as (fn: string, a: Record<string, unknown>) => Promise<unknown>)(
+    'mark_abandoned_booking_progress',
+    args,
+  );
+
+
 interface AvailabilitySlot {
   time: string; // "HH:mm" in org timezone
   available: boolean;
