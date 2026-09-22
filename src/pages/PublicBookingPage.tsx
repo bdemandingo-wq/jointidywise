@@ -332,32 +332,31 @@ export default function PublicBookingPage() {
     const timer = setTimeout(() => {
       if (!customerInfo.phone || !isValidPhone(customerInfo.phone)) return;
       const nameParts = customerInfo.name.trim().split(/\s+/);
-      getAbandonedBookingClient(sessionTokenRef)
-        .from('abandoned_bookings')
-        .upsert(
-          {
-            organization_id: organizationId,
-            first_name: nameParts[0] || null,
-            last_name: nameParts.slice(1).join(' ') || null,
-            email: customerInfo.email || null,
-            phone: customerInfo.phone,
-            service_id: selectedService || null,
-            step_reached: step,
-            session_token: sessionTokenRef,
-            form_snapshot: buildFormSnapshot(),
-            // sms_consent is never sent from here: the INSERT policy requires
-            // it to be false and the BEFORE UPDATE trigger pins it to OLD for
-            // anon/authenticated. Consent is granted server-side only.
-          },
-          { onConflict: 'session_token' },
-        )
-        .then(({ error }) => {
-          if (error) {
-            console.log('Abandoned tracking skipped:', error.message);
-            return;
-          }
-          abandonedTrackedRef.tracked = true;
-        });
+      // Writes go through a SECURITY DEFINER routine that takes the session
+      // token as an argument. The previous path relied on an RLS policy that
+      // compared the row's token to a request header — a value the caller sets
+      // freely, so it proved nothing. The routine also whitelists the columns
+      // it will touch, and never sms_consent: consent is granted server-side.
+      (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)(
+        'save_abandoned_booking',
+        {
+          _session_token: sessionTokenRef,
+          _organization_id: organizationId,
+          _first_name: nameParts[0] || null,
+          _last_name: nameParts.slice(1).join(' ') || null,
+          _email: customerInfo.email || null,
+          _phone: customerInfo.phone,
+          _service_id: selectedService || null,
+          _step_reached: step,
+          _form_snapshot: buildFormSnapshot(),
+        },
+      ).then(({ error }) => {
+        if (error) {
+          console.log('Abandoned tracking skipped:', error.message);
+          return;
+        }
+        abandonedTrackedRef.tracked = true;
+      });
     }, 800);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- ref values (abandonedTrackedRef, buildFormSnapshot, sessionTokenRef) are stable across renders
