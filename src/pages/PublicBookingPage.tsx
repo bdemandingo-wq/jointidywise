@@ -54,7 +54,6 @@ import {
 } from '@/lib/recurringDiscount';
 import { useCustomFrequencies, resolveCustomFrequencyDiscountPct } from '@/hooks/useCustomFrequencies';
 import { supabase } from '@/lib/supabase';
-import { getAbandonedBookingClient } from '@/lib/abandonedBookingClient';
 import { isValidPhone } from '@/lib/errorHandling';
 import { toast } from 'sonner';
 import { applyPublicBranding, clearPublicBranding } from '@/hooks/useBrandingColors';
@@ -64,6 +63,20 @@ import { orgDateKey, calendarDayKey } from '@/lib/orgDateRange';
 import { SEOHead } from '@/components/SEOHead';
 import { TrackingPixels, trackConversion } from '@/components/TrackingPixels';
 import { fireAndForget } from '@/lib/mustAffectRows';
+
+// Abandoned-booking telemetry goes through SECURITY DEFINER routines that take
+// the visitor's session token as an argument. Typed loosely because the
+// generated types lag new routines; the runtime contract is { error }.
+const markAbandonedProgress = (args: {
+  _session_token: string;
+  _step_reached?: number;
+  _converted?: boolean;
+}) =>
+  (supabase.rpc as unknown as (fn: string, a: Record<string, unknown>) => Promise<unknown>)(
+    'mark_abandoned_booking_progress',
+    args,
+  );
+
 
 interface AvailabilitySlot {
   time: string; // "HH:mm" in org timezone
@@ -333,32 +346,31 @@ export default function PublicBookingPage() {
     const timer = setTimeout(() => {
       if (!customerInfo.phone || !isValidPhone(customerInfo.phone)) return;
       const nameParts = customerInfo.name.trim().split(/\s+/);
-      getAbandonedBookingClient(sessionTokenRef)
-        .from('abandoned_bookings')
-        .upsert(
-          {
-            organization_id: organizationId,
-            first_name: nameParts[0] || null,
-            last_name: nameParts.slice(1).join(' ') || null,
-            email: customerInfo.email || null,
-            phone: customerInfo.phone,
-            service_id: selectedService || null,
-            step_reached: step,
-            session_token: sessionTokenRef,
-            form_snapshot: buildFormSnapshot(),
-            // sms_consent is never sent from here: the INSERT policy requires
-            // it to be false and the BEFORE UPDATE trigger pins it to OLD for
-            // anon/authenticated. Consent is granted server-side only.
-          },
-          { onConflict: 'session_token' },
-        )
-        .then(({ error }) => {
-          if (error) {
-            console.log('Abandoned tracking skipped:', error.message);
-            return;
-          }
-          abandonedTrackedRef.tracked = true;
-        });
+      // Writes go through a SECURITY DEFINER routine that takes the session
+      // token as an argument. The previous path relied on an RLS policy that
+      // compared the row's token to a request header — a value the caller sets
+      // freely, so it proved nothing. The routine also whitelists the columns
+      // it will touch, and never sms_consent: consent is granted server-side.
+      (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)(
+        'save_abandoned_booking',
+        {
+          _session_token: sessionTokenRef,
+          _organization_id: organizationId,
+          _first_name: nameParts[0] || null,
+          _last_name: nameParts.slice(1).join(' ') || null,
+          _email: customerInfo.email || null,
+          _phone: customerInfo.phone,
+          _service_id: selectedService || null,
+          _step_reached: step,
+          _form_snapshot: buildFormSnapshot(),
+        },
+      ).then(({ error }) => {
+        if (error) {
+          console.log('Abandoned tracking skipped:', error.message);
+          return;
+        }
+        abandonedTrackedRef.tracked = true;
+      });
     }, 800);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- ref values (abandonedTrackedRef, buildFormSnapshot, sessionTokenRef) are stable across renders
@@ -423,18 +435,12 @@ export default function PublicBookingPage() {
   }, [resumeToken, orgSlug]);
 
   // Update step_reached if already tracked. Deliberately fire-and-forget:
-  // funnel-step telemetry only.
-  // NOTE: this is currently a silent no-op for public visitors — the table's
-  // UPDATE policy is org-admins-only, so an anonymous booker matches zero rows
-  // and the error is swallowed. It starts working once the anon session-scoped
-  // UPDATE policy lands with the recovery migrations.
+  // funnel-step telemetry only. Goes through the same SECURITY DEFINER routine
+  // as the initial save, which only ever touches step/converted here.
   useEffect(() => {
     if (abandonedTrackedRef.tracked && step > 3) {
       fireAndForget(
-        getAbandonedBookingClient(sessionTokenRef)
-          .from('abandoned_bookings')
-          .update({ step_reached: step })
-          .eq('session_token', sessionTokenRef),
+        markAbandonedProgress({ _session_token: sessionTokenRef, _step_reached: step }),
         'abandoned_bookings: step reached',
       );
     }
@@ -447,10 +453,7 @@ export default function PublicBookingPage() {
   useEffect(() => {
     if (confirmationNumber && abandonedTrackedRef.tracked) {
       fireAndForget(
-        getAbandonedBookingClient(sessionTokenRef)
-          .from('abandoned_bookings')
-          .update({ converted: true, converted_at: new Date().toISOString() })
-          .eq('session_token', sessionTokenRef),
+        markAbandonedProgress({ _session_token: sessionTokenRef, _converted: true }),
         'abandoned_bookings: converted',
       );
     }
