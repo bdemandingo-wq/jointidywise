@@ -46,7 +46,7 @@ export function MyPayoutsCard({ organizationId }: { organizationId: string }) {
         {isLoading ? (
           <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
         ) : error ? (
-          <QueryError error={error as Error} onRetry={() => refetch()} />
+          <QueryError subject="payouts" onRetry={() => refetch()} />
         ) : data.length === 0 ? (
           <p className="text-sm text-muted-foreground">No payouts yet. When you're paid, you'll see the status and expected deposit date here.</p>
         ) : (
