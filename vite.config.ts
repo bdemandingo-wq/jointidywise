@@ -136,7 +136,7 @@ export default defineConfig(({ mode }) => ({
         ],
       },
       workbox: {
-        cleanupOutdatedCaches: false,
+        cleanupOutdatedCaches: true,
         /*
           Precache the app shell only. dist/ carries hundreds of PRERENDERED
           marketing pages (blog, locations, compare) that exist for SEO — the
@@ -149,9 +149,27 @@ export default defineConfig(({ mode }) => ({
         // already injected by manifest.icons and includeAssets respectively.
         // Listing them here too produces duplicate precache entries with
         // conflicting revision hashes, which crashes the service worker.
-        globPatterns: ["**/*.{js,css}", "index.html"],
+        // index.html is deliberately NOT precached: precache serves "/" from
+        // the cached copy (directoryIndex), so returning visitors saw a stale
+        // homepage — including the SEO text flash — until they accepted an
+        // update. Page HTML now always comes network-first (below).
+        globPatterns: ["**/*.{js,css}"],
         globIgnores: ["**/images/**", "**/blog/**", "**/locations/**"],
-        navigateFallback: "/index.html",
+        navigateFallback: null,
+        runtimeCaching: [
+          {
+            // Newest HTML from the server; cached copy only when offline.
+            urlPattern: ({ request, url }) =>
+              request.mode === "navigate" &&
+              /^\/(dashboard|staff|portal|auth)/.test(url.pathname),
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "app-shell-html",
+              networkTimeoutSeconds: 4,
+              expiration: { maxEntries: 20 },
+            },
+          },
+        ],
         /*
           And the same boundary for navigations: the SPA shell is only ever
           served for app routes. Every marketing and prerendered route falls
