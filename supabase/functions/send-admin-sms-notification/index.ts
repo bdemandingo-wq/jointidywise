@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseAlertPhones, sendToExtraAlertPhones } from '../_shared/alertPhones.ts';
 import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
 
 const corsHeaders = {
@@ -126,8 +127,9 @@ const handler = async (req: Request): Promise<Response> => {
        and OpenPhone texting its own number never lands on a handset. */
     const alertPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
       || businessSettings?.company_phone;
+    const allAlertPhones = parseAlertPhones(alertPhone);
 
-    if (!alertPhone) {
+    if (!alertPhone || allAlertPhones.length === 0) {
       console.log("[send-admin-sms-notification] No admin phone configured for org:", organizationId);
       return new Response(
         JSON.stringify({ success: false, error: "No admin phone number configured in business settings" }),
@@ -170,7 +172,7 @@ const handler = async (req: Request): Promise<Response> => {
       `Log in to your dashboard to view details.`;
 
     // Format admin phone
-    let formattedPhone = alertPhone.replace(/\D/g, '');
+    let formattedPhone = allAlertPhones[0].replace(/\D/g, '');
     if (formattedPhone.length === 10) {
       formattedPhone = `+1${formattedPhone}`;
     } else if (!formattedPhone.startsWith('+')) {
@@ -190,6 +192,8 @@ const handler = async (req: Request): Promise<Response> => {
 
     // OpenPhone expects the raw API key in the Authorization header
     const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
+
+    await sendToExtraAlertPhones(allAlertPhones.slice(1), phoneNumberId, authHeader, message, 'send-admin-sms-notification');
 
     // Send SMS via OpenPhone API
     const response = await fetch("https://api.openphone.com/v1/messages", {

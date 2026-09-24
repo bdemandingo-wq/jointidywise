@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
+import { parseAlertPhones } from '../_shared/alertPhones.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
 
 const corsHeaders = {
@@ -128,7 +129,10 @@ const handler = async (req: Request): Promise<Response> => {
       const msg = `📍 ${staff.name} has arrived at Job #${booking.booking_number}\n\n` +
         `Customer: ${customer?.first_name ?? ''} ${customer?.last_name ?? ''}\n` +
         `Address: ${formatFullAddress(booking as any) || 'N/A'}`;
-      adminSent = await sendSms(formatPhoneNumber(adminPhone), msg, 'admin');
+      const phones = parseAlertPhones(adminPhone);
+      const list = phones.length ? phones : [formatPhoneNumber(adminPhone)];
+      adminSent = await sendSms(list[0], msg, 'admin');
+      for (const extra of list.slice(1)) await sendSms(extra, msg, 'admin');
     }
 
     /* Bell entry as well — the text can fail or be off, the dashboard record

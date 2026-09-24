@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
+import { parseAlertPhones } from '../_shared/alertPhones.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
 
 const corsHeaders = {
@@ -321,8 +322,10 @@ const handler = async (req: Request): Promise<Response> => {
     // Send admin SMS if admin phone is configured and enabled
     let adminSent = false;
     if (notifyAdmin && adminPhone) {
-      const formattedAdminPhone = formatPhoneNumber(adminPhone);
-      const adminResult = await sendSms(formattedAdminPhone, adminMessage, 'admin');
+      const phones = parseAlertPhones(adminPhone);
+      const list = phones.length ? phones : [formatPhoneNumber(adminPhone)];
+      const adminResult = await sendSms(list[0], adminMessage, 'admin');
+      for (const extra of list.slice(1)) await sendSms(extra, adminMessage, 'admin');
       adminSent = adminResult.success;
       if (!adminResult.success) {
         console.warn(`[send-on-the-way-sms] Admin notification failed, but customer was notified`);
