@@ -238,8 +238,11 @@ const handler = async (req: Request): Promise<Response> => {
     customerMessage += `\n\nQuestions? Reply to this message.`;
 
     // Build admin notification message
+    const customerLabel = typedCustomer
+      ? `${typedCustomer.first_name} ${typedCustomer.last_name}`
+      : 'Customer';
     const adminMessage = `📍 ${staff.name} is on the way to Job #${booking.booking_number}\n\n` +
-      `Customer: ${typedCustomer.first_name} ${typedCustomer.last_name}\n` +
+      `Customer: ${customerLabel}\n` +
       `Address: ${formattedAddress || 'N/A'}\n` +
       (etaMinutes ? `ETA: ~${etaMinutes} min` : '');
 
@@ -255,7 +258,7 @@ const handler = async (req: Request): Promise<Response> => {
     };
 
     // Format customer phone number
-    const formattedCustomerPhone = formatPhoneNumber(typedCustomer.phone);
+    const formattedCustomerPhone = typedCustomer?.phone ? formatPhoneNumber(typedCustomer.phone) : '';
 
     // Extract phone number ID if full URL was provided
     let phoneNumberId = smsSettings.openphone_phone_number_id;
