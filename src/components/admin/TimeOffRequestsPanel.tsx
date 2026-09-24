@@ -83,7 +83,9 @@ export function TimeOffRequestsPanel() {
       toast.success(`Request ${v.status}`);
       setNotes(n => { const c = { ...n }; delete c[v.id]; return c; });
       qc.invalidateQueries({ queryKey: ['admin-time-off', organizationId] });
+      refreshBadges(qc);
     },
+
     onError: (e: any) => toast.error(e.message || 'Failed'),
   });
 

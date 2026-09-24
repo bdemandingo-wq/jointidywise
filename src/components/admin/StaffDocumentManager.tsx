@@ -100,10 +100,12 @@ export function StaffDocumentManager({ staffId, staffName }: Props) {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['admin-staff-documents', staffId] });
+      refreshBadges(queryClient);
       toast.success(`Document ${variables.status}`);
       setReviewingDocId(null);
       setAdminNote('');
     },
+
     onError: () => toast.error('Failed to update document status'),
   });
 
