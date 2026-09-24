@@ -13,6 +13,7 @@ import { QueryError } from '@/components/QueryError';
 
 export function StaffEventNotifications() {
   const { organizationId } = useOrgId();
+  const { timezone } = useOrgTimezone(organizationId);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
