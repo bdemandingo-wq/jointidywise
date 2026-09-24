@@ -84,6 +84,10 @@ interface BusinessSettings {
   company_name: string;
   company_email: string;
   company_phone: string;
+  /* The owner's own mobile. Every admin text alert goes here. */
+  notification_phone: string;
+  /* The public-facing line (usually the OpenPhone number). Never alerted. */
+  business_line_phone: string;
   company_address: string;
   website_url: string;
   company_city: string;
@@ -132,6 +136,8 @@ const defaultSettings: BusinessSettings = {
   company_name: '',
   company_email: '',
   company_phone: '',
+  notification_phone: '',
+  business_line_phone: '',
   company_address: '',
   website_url: '',
   company_city: '',
