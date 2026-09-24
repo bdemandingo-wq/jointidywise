@@ -209,9 +209,11 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
       if (data?.success) {
         toast.success(
-          trackingResult
-            ? 'Customer notified with live tracking link!'
-            : 'Customer notified that you\'re on the way!'
+          !customerPhone
+            ? 'Marked as on the way. No phone number on file for the customer, so only the office was alerted.'
+            : trackingResult
+              ? 'Customer notified with live tracking link!'
+              : 'Customer notified that you\'re on the way!'
         );
         setOnTheWaySent(true);
       } else {
