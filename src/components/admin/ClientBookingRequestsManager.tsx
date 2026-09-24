@@ -197,7 +197,9 @@ export function ClientBookingRequestsManager() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client-booking-requests'] });
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      refreshBadges(queryClient);
       toast.success(responseAction === 'approved' ? 'Request approved and booking created!' : 'Request rejected');
+
       setRespondDialogOpen(false);
       setSelectedRequest(null);
       setResponseNote('');
