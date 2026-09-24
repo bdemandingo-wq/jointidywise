@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import { requestStaffPasswordReset } from '@/features/staff-auth/staffAuth';
 import { saveBlob } from '@/lib/fileActions';
 import { matrixToCsv } from '@/lib/orgDataExport';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -450,6 +451,28 @@ export default function PayrollPage() {
   const openPayoutDialog = (staffId: string, staffName: string, amount: number) => {
     setPayoutDialog({ open: true, staffId, staffName, amount });
     setPayoutNotes('');
+  };
+
+  // Reuses the staff "forgot password" text, which resolves the phone from
+  // the staff record server-side (never from this request).
+  const [sendingLoginLink, setSendingLoginLink] = useState(false);
+  const sendStaffLoginLink = async () => {
+    if (!organizationId) return;
+    setSendingLoginLink(true);
+    try {
+      const { data: s, error: se } = await supabase
+        .from('staff').select('email, user_id')
+        .eq('id', payoutDialog.staffId).eq('organization_id', organizationId).maybeSingle();
+      if (se) throw se;
+      if (!s?.email) throw new Error('This cleaner has no email on file, so a sign-in link can\'t be sent.');
+      if (!s.user_id) throw new Error('This cleaner hasn\'t been given a staff portal login yet. Invite them from the Staff page first.');
+      await requestStaffPasswordReset(s.email, `${window.location.origin}/staff/reset-password`);
+      toast.success(`Sign-in link texted to ${payoutDialog.staffName}.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not send sign-in link');
+    } finally {
+      setSendingLoginLink(false);
+    }
   };
 
   // #13 fix: track which button was pressed so only that one shows a spinner
@@ -1853,6 +1876,19 @@ export default function PayrollPage() {
                       This cleaner hasn't set up Stripe payouts yet
                     </p>
                   )}
+                  <p className="text-xs text-muted-foreground text-center">
+                    The cleaner gets a text and email when paid. Money goes to their bank automatically — they don't need to sign in to accept it.
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full gap-2"
+                    disabled={sendingLoginLink}
+                    onClick={sendStaffLoginLink}
+                  >
+                    {sendingLoginLink ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Cleaner can't sign in? Text them a sign-in link
+                  </Button>
                   <div className="relative my-1">
                     <div className="absolute inset-0 flex items-center">
                       <span className="w-full border-t" />

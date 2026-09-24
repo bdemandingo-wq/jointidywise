@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { sendStaffSms, PORTAL_URL, APP_URL, FORGOT_URL } from "../_shared/staff-notify.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -174,6 +175,20 @@ serve(async (req: Request) => {
       })
       .eq("staff_id", staffId)
       .eq("organization_id", organizationId);
+
+    // Welcome text on the one transition into "active" (the saved status only
+    // flips once, so this fires once without a separate flag).
+    if (newStatus === "active" && payoutAccount.account_status !== "active") {
+      const [{ data: s }, { data: org }] = await Promise.all([
+        supabase.from("staff").select("name, phone").eq("id", staffId).eq("organization_id", organizationId).maybeSingle(),
+        supabase.from("organizations").select("name").eq("id", organizationId).maybeSingle(),
+      ]);
+      const first = (s?.name || "").split(" ")[0] || "there";
+      await sendStaffSms(supabase, organizationId, s?.phone ?? null,
+        `${org?.name || "TidyWise"}: Hi ${first}, your payouts are set up! Pay goes straight to your bank automatically — nothing to accept. Staff portal: ${PORTAL_URL} · Get the app: ${APP_URL} · Forgot password? ${FORGOT_URL}`,
+        "check-staff-payout-status");
+    }
+
 
     return new Response(JSON.stringify({
       status: newStatus,
