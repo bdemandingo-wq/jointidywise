@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { refreshBadges } from '@/lib/badgeRefresh';
 import { supabase } from '@/lib/supabase';
 import { useOrgId } from '@/hooks/useOrgId';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,6 +13,7 @@ import { QueryError } from '@/components/QueryError';
 export function StaffEventNotifications() {
   const { organizationId } = useOrgId();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: eventRows = [], refetch, error: eventRowsError } = useQuery({
     queryKey: ['staff-event-notifications', organizationId],
@@ -72,6 +74,7 @@ export function StaffEventNotifications() {
       .eq('organization_id', organizationId)
       .eq('is_read', false);
     refetch();
+    refreshBadges(queryClient);
   };
 
   const getIcon = (type: string) => {

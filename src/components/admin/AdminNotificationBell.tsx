@@ -19,6 +19,8 @@ import { useNotificationPreferences, useUpdateNotificationPreferences } from '@/
 import { isChannelEnabled, typeByKey } from '@/lib/notificationCatalog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { orgDayOfWeek, orgDateKey } from '@/lib/orgDateRange';
+import { useQueryClient } from '@tanstack/react-query';
+import { refreshBadges } from '@/lib/badgeRefresh';
 
 interface AdminNotification {
   id: string;
@@ -368,6 +370,8 @@ export function AdminNotificationBell() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchNotifications is recreated each render; runs once per org
   }, [organizationId]);
 
+  const queryClient = useQueryClient();
+
   const markAsRead = async (notificationId: string) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === notificationId ? { ...n, is_read: true } : n))
@@ -388,6 +392,7 @@ export function AdminNotificationBell() {
         .update({ is_read: true })
         .eq('id', dbId);
     }
+    refreshBadges(queryClient);
   };
 
   const markAllAsRead = async () => {
@@ -423,6 +428,7 @@ export function AdminNotificationBell() {
       localStorage.setItem(`weekly-reminder-dismissed-${organizationId}-${today}`, 'true');
     }
     setIsOpen(false);
+    refreshBadges(queryClient);
   };
 
   const handleNotificationClick = (notification: AdminNotification) => {
@@ -449,6 +455,7 @@ export function AdminNotificationBell() {
     persistDismissed(next);
     setNotifications(prev => prev.map(n => selected.has(n.id) ? { ...n, is_read: true } : n));
     setSelected(new Set());
+    refreshBadges(queryClient);
   };
 
   const snoozeSelected = async (hours: number) => {
@@ -456,6 +463,7 @@ export function AdminNotificationBell() {
     notifications.forEach(n => { if (selected.has(n.id) && n.typeKey) typeKeys.add(n.typeKey); });
     for (const k of typeKeys) await snoozeType(k, hours);
     setSelected(new Set());
+    refreshBadges(queryClient);
   };
 
   const getTypeIcon = (type: string) => {
