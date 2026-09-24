@@ -751,12 +751,28 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
+                  <Label htmlFor="phone">Business Cell</Label>
                   <Input
                     id="phone"
                     value={settings.company_phone}
                     onChange={(e) => updateField('company_phone', e.target.value)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Shown to customers on invoices, emails and your booking form.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="notification_phone">Personal Cell (alerts)</Label>
+                  <Input
+                    id="notification_phone"
+                    value={settings.notification_phone}
+                    placeholder="e.g. 813-236-4513"
+                    onChange={(e) => updateField('notification_phone', e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Every text alert goes here — cleaner on the way, cleaner arrived, job
+                    completed, new bookings and cancellations. Never shown to customers.
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="city">City</Label>
