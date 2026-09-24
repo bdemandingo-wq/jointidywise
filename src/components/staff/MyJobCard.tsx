@@ -133,8 +133,12 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
   };
 
   const handleOnTheWayClick = async () => {
-    if (!staffInfo.id || !booking.customer?.phone) {
-      toast.error('Customer phone number is required');
+    /* Was `|| !booking.customer?.phone` — a customer with no number on file
+       stopped the cleaner dead AND meant the owner never got the alert. The
+       missing-phone case is handled further down, where it skips only the
+       customer text. */
+    if (!staffInfo.id) {
+      toast.error('Your staff profile is still loading — try again in a moment.');
       return;
     }
 
