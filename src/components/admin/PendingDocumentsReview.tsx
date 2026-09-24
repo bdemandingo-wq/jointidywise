@@ -12,6 +12,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOrgId } from '@/hooks/useOrgId';
 import { format } from 'date-fns';
 import { QueryError } from '@/components/QueryError';
+import { refreshBadges } from '@/lib/badgeRefresh';
+
 
 const DOCUMENT_TYPES: Record<string, string> = {
   insurance: 'Insurance Certificate',
@@ -114,10 +116,14 @@ export function PendingDocumentsReview() {
       queryClient.invalidateQueries({ queryKey });
       queryClient.invalidateQueries({ queryKey: ['admin-staff-documents'] });
       queryClient.invalidateQueries({ queryKey: ['staff-event-notifications'] });
+      // Tab badge + sidebar counts live in separate queries; without this the
+      // review list empties while the red "7" stays put.
+      refreshBadges(queryClient);
       toast.success(`Document ${variables.status}`);
       setReviewingDocId(null);
       setAdminNote('');
     },
+
     onError: (_error, _vars, context) => {
       if (context?.previous) {
         queryClient.setQueryData(queryKey, context.previous);

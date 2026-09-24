@@ -10,6 +10,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Check, X, CalendarOff, Loader2 } from 'lucide-react';
 import { QueryError } from '@/components/QueryError';
+import { refreshBadges } from '@/lib/badgeRefresh';
+
 
 interface Row {
   id: string;
@@ -83,7 +85,9 @@ export function TimeOffRequestsPanel() {
       toast.success(`Request ${v.status}`);
       setNotes(n => { const c = { ...n }; delete c[v.id]; return c; });
       qc.invalidateQueries({ queryKey: ['admin-time-off', organizationId] });
+      refreshBadges(qc);
     },
+
     onError: (e: any) => toast.error(e.message || 'Failed'),
   });
 

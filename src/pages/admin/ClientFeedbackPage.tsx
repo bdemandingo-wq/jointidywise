@@ -35,6 +35,8 @@ import { dispatchZapier } from '@/lib/zapier';
 import { AttentionStrip } from '@/components/admin/AttentionStrip';
 import { orgDateKey } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
+import { refreshBadges } from '@/lib/badgeRefresh';
+
 
 interface FeedbackEntry {
   id: string;
@@ -114,6 +116,7 @@ export default function ClientFeedbackPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client-feedback'] });
+      refreshBadges(queryClient);
       toast.success('Feedback added');
       setDialogOpen(false);
     },
@@ -128,6 +131,7 @@ export default function ClientFeedbackPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client-feedback'] });
+      refreshBadges(queryClient);
       toast.success('Feedback updated');
       setDialogOpen(false);
       setEditingEntry(null);
@@ -143,8 +147,10 @@ export default function ClientFeedbackPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client-feedback'] });
+      refreshBadges(queryClient);
       toast.success('Feedback deleted');
     },
+
     onError: (error: any) => toast.error(error.message),
   });
 

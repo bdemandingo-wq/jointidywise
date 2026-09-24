@@ -12,6 +12,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOrgId } from '@/hooks/useOrgId';
 import { format } from 'date-fns';
 import { QueryError } from '@/components/QueryError';
+import { refreshBadges } from '@/lib/badgeRefresh';
+
 
 const DOCUMENT_TYPES: Record<string, string> = {
   insurance: 'Insurance Certificate',
@@ -100,10 +102,12 @@ export function StaffDocumentManager({ staffId, staffName }: Props) {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['admin-staff-documents', staffId] });
+      refreshBadges(queryClient);
       toast.success(`Document ${variables.status}`);
       setReviewingDocId(null);
       setAdminNote('');
     },
+
     onError: () => toast.error('Failed to update document status'),
   });
 
