@@ -346,6 +346,10 @@ export default function SettingsPage() {
           company_name: data.company_name || '',
           company_email: data.company_email || '',
           company_phone: data.company_phone || '',
+          /* Legacy orgs saved one number. Until they split it, that number is
+             the alert cell — the migration backfilled it the same way. */
+          notification_phone: typedData.notification_phone || data.company_phone || '',
+          business_line_phone: typedData.business_line_phone || '',
           company_address: data.company_address || '',
           website_url: data.website_url || '',
           company_city: data.company_city || '',
