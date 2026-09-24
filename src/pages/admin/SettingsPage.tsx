@@ -422,6 +422,8 @@ export default function SettingsPage() {
         company_name: settings.company_name,
         company_email: settings.company_email,
         company_phone: settings.company_phone,
+        notification_phone: settings.notification_phone,
+        business_line_phone: settings.business_line_phone,
         company_address: settings.company_address,
         // Layer 1 of the website_url guard — never persist an unnormalised
         // value; it becomes an href on the public booking form.
