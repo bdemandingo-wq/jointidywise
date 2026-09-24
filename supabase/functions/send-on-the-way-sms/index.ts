@@ -138,12 +138,12 @@ const handler = async (req: Request): Promise<Response> => {
     const customer = Array.isArray(customerData) ? customerData[0] : customerData;
     const typedCustomer = customer as { first_name: string; last_name: string; phone: string | null } | null;
     
+    /* A customer with no phone used to abort here with a 400. That silenced the
+       ADMIN alert too — the owner never learned their cleaner was on the way
+       because of a gap in the CUSTOMER's record. The customer text is now
+       simply skipped; everything else still runs. */
     if (!typedCustomer?.phone) {
-      console.log("[send-on-the-way-sms] Customer has no phone number");
-      return new Response(
-        JSON.stringify({ success: false, error: "Customer has no phone number" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      console.log("[send-on-the-way-sms] Customer has no phone number — skipping customer SMS, still alerting admin");
     }
 
     // Fetch staff info
