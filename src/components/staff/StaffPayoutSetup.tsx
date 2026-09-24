@@ -14,6 +14,8 @@ import { PayoutResetSection } from './PayoutResetSection';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useSearchParams } from 'react-router-dom';
 import { QueryError } from '@/components/QueryError';
+import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import { openExternalUrl } from '@/lib/openExternalUrl';
 
 interface StaffPayoutSetupProps {
   staffId: string;
@@ -316,13 +318,44 @@ export function StaffPayoutSetup({ staffId, organizationId }: StaffPayoutSetupPr
 
   const isOrgNotConnected = payoutStatus?.status === 'org_not_connected';
   const isSetUp = payoutStatus?.status === 'active';
+  const [openingDashboard, setOpeningDashboard] = useState(false);
   const isOnboarding = payoutStatus?.status === 'onboarding' && !justSubmitted;
   const isPending = payoutStatus?.status === 'pending_verification' || (justSubmitted && payoutStatus?.detailsSubmitted);
+
+  const openStripeDashboard = async () => {
+    setOpeningDashboard(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('staff-payout-dashboard-link', {
+        body: { staffId, organizationId },
+      });
+      if (error) throw new Error(await readEdgeFunctionError(error, 'Could not open your payout page'));
+      if (!data?.url) throw new Error('Could not open your payout page');
+      await openExternalUrl(data.url);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not open your payout page');
+    } finally {
+      setOpeningDashboard(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
       {/* Requirements checklist — shows status card and action items */}
       <PayoutRequirementsChecklist staffId={staffId} organizationId={organizationId} />
+
+      {(isSetUp || isPending || payoutStatus?.detailsSubmitted) && (
+        <Card>
+          <CardContent className="pt-4 space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Pay goes straight to your bank automatically — you never need to accept it. To see your balance, deposits or anything Stripe needs from you:
+            </p>
+            <Button onClick={openStripeDashboard} disabled={openingDashboard} className="w-full min-h-[44px] gap-2">
+              {openingDashboard ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+              View my payouts on Stripe
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <div>
         <h2 className="text-lg font-semibold flex items-center gap-2">
