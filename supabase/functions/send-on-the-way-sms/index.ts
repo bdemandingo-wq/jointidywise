@@ -138,12 +138,12 @@ const handler = async (req: Request): Promise<Response> => {
     const customer = Array.isArray(customerData) ? customerData[0] : customerData;
     const typedCustomer = customer as { first_name: string; last_name: string; phone: string | null } | null;
     
+    /* A customer with no phone used to abort here with a 400. That silenced the
+       ADMIN alert too — the owner never learned their cleaner was on the way
+       because of a gap in the CUSTOMER's record. The customer text is now
+       simply skipped; everything else still runs. */
     if (!typedCustomer?.phone) {
-      console.log("[send-on-the-way-sms] Customer has no phone number");
-      return new Response(
-        JSON.stringify({ success: false, error: "Customer has no phone number" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      console.log("[send-on-the-way-sms] Customer has no phone number — skipping customer SMS, still alerting admin");
     }
 
     // Fetch staff info
@@ -195,12 +195,16 @@ const handler = async (req: Request): Promise<Response> => {
     // Get business settings for company name, admin phone, and app URL
     const { data: businessSettings } = await supabase
       .from('business_settings')
-      .select('company_name, company_phone, app_url')
+      .select('company_name, company_phone, notification_phone, app_url')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
 
     const companyName = businessSettings?.company_name || 'Your cleaning service';
-    const adminPhone = businessSettings?.company_phone;
+    /* notification_phone is the owner's personal cell. company_phone is often
+       the OpenPhone line itself, and OpenPhone texting its own number never
+       reaches a handset — which is why these alerts appeared to vanish. */
+    const adminPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
+      || businessSettings?.company_phone;
 
     // Resolve the app URL for tracking link
     let appBaseUrl = businessSettings?.app_url || Deno.env.get("APP_URL") || Deno.env.get("PROJECT_URL") || '';
@@ -234,8 +238,11 @@ const handler = async (req: Request): Promise<Response> => {
     customerMessage += `\n\nQuestions? Reply to this message.`;
 
     // Build admin notification message
+    const customerLabel = typedCustomer
+      ? `${typedCustomer.first_name} ${typedCustomer.last_name}`
+      : 'Customer';
     const adminMessage = `📍 ${staff.name} is on the way to Job #${booking.booking_number}\n\n` +
-      `Customer: ${typedCustomer.first_name} ${typedCustomer.last_name}\n` +
+      `Customer: ${customerLabel}\n` +
       `Address: ${formattedAddress || 'N/A'}\n` +
       (etaMinutes ? `ETA: ~${etaMinutes} min` : '');
 
@@ -251,7 +258,7 @@ const handler = async (req: Request): Promise<Response> => {
     };
 
     // Format customer phone number
-    const formattedCustomerPhone = formatPhoneNumber(typedCustomer.phone);
+    const formattedCustomerPhone = typedCustomer?.phone ? formatPhoneNumber(typedCustomer.phone) : '';
 
     // Extract phone number ID if full URL was provided
     let phoneNumberId = smsSettings.openphone_phone_number_id;
@@ -297,26 +304,18 @@ const handler = async (req: Request): Promise<Response> => {
     const notifyClient = smsSettings.notify_client_on_the_way !== false;
     const notifyAdmin = smsSettings.notify_admin_on_the_way !== false;
 
-    // Send customer SMS if enabled
+    /* Customer first, but a customer-side failure must NOT return early — the
+       admin alert below is the one the owner actually relies on, and skipping
+       it because the customer's carrier rejected a text is how "I pressed on
+       the way and nobody got anything" happens. */
     let customerResult: { success: boolean; messageId?: string; error?: string } = { success: true, messageId: undefined };
-    if (notifyClient) {
+    if (notifyClient && formattedCustomerPhone) {
       customerResult = await sendSms(formattedCustomerPhone, customerMessage, 'customer');
-
       if (!customerResult.success) {
-        let errorCode = 'SMS_FAILED';
-        let userMessage = 'SMS delivery failed. Please try again later.';
-
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: userMessage,
-            errorCode,
-          }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        console.warn("[send-on-the-way-sms] Customer SMS failed — continuing to admin alert");
       }
     } else {
-      console.log("[send-on-the-way-sms] Client notification disabled by org settings, skipping");
+      console.log("[send-on-the-way-sms] Customer SMS skipped (disabled or no phone on file)");
     }
 
     // Send admin SMS if admin phone is configured and enabled
@@ -333,6 +332,18 @@ const handler = async (req: Request): Promise<Response> => {
     } else {
       console.log(`[send-on-the-way-sms] No admin phone configured, skipping admin notification`);
     }
+
+    /* Also drop it in the admin bell. The text can fail or be switched off; the
+       owner should still be able to see what happened from the dashboard. */
+    const { error: bellErr } = await supabase.from('admin_system_notifications').insert({
+      organization_id: booking.organization_id,
+      type: 'staff_activity',
+      title: '🚗 Cleaner on the way',
+      message: `${staff.name} is on the way to Booking #${booking.booking_number} for ${customerLabel}.`,
+      link: '/dashboard/bookings',
+      metadata: { booking_id: bookingId, staff_id: staffId },
+    });
+    if (bellErr) console.warn('[send-on-the-way-sms] bell notification failed:', bellErr);
 
     // Log to prevent duplicates per cleaner. Team jobs allow each cleaner to send once.
     const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({

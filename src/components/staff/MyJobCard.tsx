@@ -133,8 +133,12 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
   };
 
   const handleOnTheWayClick = async () => {
-    if (!staffInfo.id || !booking.customer?.phone) {
-      toast.error('Customer phone number is required');
+    /* Was `|| !booking.customer?.phone` — a customer with no number on file
+       stopped the cleaner dead AND meant the owner never got the alert. The
+       missing-phone case is handled further down, where it skips only the
+       customer text. */
+    if (!staffInfo.id) {
+      toast.error('Your staff profile is still loading — try again in a moment.');
       return;
     }
 
@@ -185,16 +189,12 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
         });
       }
 
-      // The SMS is a NOTIFICATION about a state change, not the state change
-      // itself — so a customer with no phone must not stop the cleaner marking
-      // themselves on the way. Nothing above blocks on it either: permission
-      // denial, a GPS error and a failed geocode all still send.
+      /* No early return for a customer without a phone any more. The owner's
+         alert is sent from the same call, and bailing out here meant a gap in
+         the CUSTOMER's record silenced the OWNER's text too. The send skips
+         only the customer leg now. */
       const customerPhone = booking.customer?.phone;
-      if (!customerPhone) {
-        toast.success('Marked as on the way. No phone number on file, so no text was sent.');
-        setOnTheWaySent(true);
-        return;
-      }
+
 
       const { data, error } = await supabase.functions.invoke('send-on-the-way-sms', {
         body: {
@@ -209,9 +209,11 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
       if (data?.success) {
         toast.success(
-          trackingResult
-            ? 'Customer notified with live tracking link!'
-            : 'Customer notified that you\'re on the way!'
+          !customerPhone
+            ? 'Marked as on the way. No phone number on file for the customer, so only the office was alerted.'
+            : trackingResult
+              ? 'Customer notified with live tracking link!'
+              : 'Customer notified that you\'re on the way!'
         );
         setOnTheWaySent(true);
       } else {

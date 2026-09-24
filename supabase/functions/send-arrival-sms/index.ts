@@ -78,11 +78,14 @@ const handler = async (req: Request): Promise<Response> => {
 
     const { data: businessSettings } = await supabase
       .from('business_settings')
-      .select('company_name, company_phone')
+      .select('company_name, company_phone, notification_phone')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
     const companyName = businessSettings?.company_name || 'Your cleaning service';
-    const adminPhone = businessSettings?.company_phone;
+    /* Personal cell wins. company_phone is often the OpenPhone line, and
+       OpenPhone texting itself never lands on a handset. */
+    const adminPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
+      || businessSettings?.company_phone;
 
     const notifyClient = (smsSettings as any).notify_client_arrived !== false;
     const notifyAdmin = (smsSettings as any).notify_admin_arrived !== false;
@@ -127,6 +130,20 @@ const handler = async (req: Request): Promise<Response> => {
         `Address: ${formatFullAddress(booking as any) || 'N/A'}`;
       adminSent = await sendSms(formatPhoneNumber(adminPhone), msg, 'admin');
     }
+
+    /* Bell entry as well — the text can fail or be off, the dashboard record
+       should still be there. */
+    const { error: bellErr } = await supabase.from('admin_system_notifications').insert({
+      organization_id: booking.organization_id,
+      type: 'staff_activity',
+      title: '📍 Cleaner arrived',
+      message: `${staff.name} has arrived at Booking #${booking.booking_number} for ${customer?.first_name ?? 'the customer'} ${customer?.last_name ?? ''}`.trim() + '.',
+      link: '/dashboard/bookings',
+      metadata: { booking_id: bookingId, staff_id: staffId },
+    });
+    if (bellErr) console.warn('[send-arrival-sms] bell notification failed:', bellErr);
+
+
 
     const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
       booking_id: bookingId,

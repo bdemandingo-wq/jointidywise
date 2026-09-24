@@ -92,7 +92,7 @@ const handler = async (req: Request): Promise<Response> => {
     // Get admin phone and notification settings from business settings
     const { data: businessSettings, error: businessError } = await supabase
       .from('business_settings')
-      .select('company_phone, company_name, notify_cancellations, timezone')
+      .select('company_phone, notification_phone, company_name, notify_cancellations, timezone')
       .eq('organization_id', organizationId)
       .maybeSingle();
 
@@ -113,7 +113,12 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    if (!businessSettings?.company_phone) {
+    /* Personal cell first — company_phone is often the OpenPhone line itself,
+       and OpenPhone texting its own number never lands on a handset. */
+    const alertPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
+      || businessSettings?.company_phone;
+
+    if (!alertPhone) {
       console.log("[send-cancellation-sms-notification] No admin phone configured for org:", organizationId);
       return new Response(
         JSON.stringify({ success: false, error: "No admin phone number configured in business settings" }),
@@ -155,7 +160,7 @@ const handler = async (req: Request): Promise<Response> => {
       `Log in to your dashboard for details.`;
 
     // Format admin phone
-    let formattedPhone = businessSettings.company_phone.replace(/\D/g, '');
+    let formattedPhone = alertPhone.replace(/\D/g, '');
     if (formattedPhone.length === 10) {
       formattedPhone = `+1${formattedPhone}`;
     } else if (!formattedPhone.startsWith('+')) {

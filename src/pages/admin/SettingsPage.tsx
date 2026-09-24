@@ -84,6 +84,10 @@ interface BusinessSettings {
   company_name: string;
   company_email: string;
   company_phone: string;
+  /* The owner's own mobile. Every admin text alert goes here. */
+  notification_phone: string;
+  /* The public-facing line (usually the OpenPhone number). Never alerted. */
+  business_line_phone: string;
   company_address: string;
   website_url: string;
   company_city: string;
@@ -132,6 +136,8 @@ const defaultSettings: BusinessSettings = {
   company_name: '',
   company_email: '',
   company_phone: '',
+  notification_phone: '',
+  business_line_phone: '',
   company_address: '',
   website_url: '',
   company_city: '',
@@ -340,6 +346,10 @@ export default function SettingsPage() {
           company_name: data.company_name || '',
           company_email: data.company_email || '',
           company_phone: data.company_phone || '',
+          /* Legacy orgs saved one number. Until they split it, that number is
+             the alert cell — the migration backfilled it the same way. */
+          notification_phone: typedData.notification_phone || data.company_phone || '',
+          business_line_phone: typedData.business_line_phone || '',
           company_address: data.company_address || '',
           website_url: data.website_url || '',
           company_city: data.company_city || '',
@@ -412,6 +422,8 @@ export default function SettingsPage() {
         company_name: settings.company_name,
         company_email: settings.company_email,
         company_phone: settings.company_phone,
+        notification_phone: settings.notification_phone,
+        business_line_phone: settings.business_line_phone,
         company_address: settings.company_address,
         // Layer 1 of the website_url guard — never persist an unnormalised
         // value; it becomes an href on the public booking form.
@@ -739,12 +751,28 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
+                  <Label htmlFor="phone">Business Cell</Label>
                   <Input
                     id="phone"
                     value={settings.company_phone}
                     onChange={(e) => updateField('company_phone', e.target.value)}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Shown to customers on invoices, emails and your booking form.
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="notification_phone">Personal Cell (alerts)</Label>
+                  <Input
+                    id="notification_phone"
+                    value={settings.notification_phone}
+                    placeholder="e.g. 813-236-4513"
+                    onChange={(e) => updateField('notification_phone', e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Every text alert goes here — cleaner on the way, cleaner arrived, job
+                    completed, new bookings and cancellations. Never shown to customers.
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="city">City</Label>
