@@ -219,7 +219,7 @@ const handler = async (req: Request): Promise<Response> => {
     // Fetch the actual invoice to get the auto-generated invoice number + address
     const { data: invoiceRow } = await supabase
       .from("invoices")
-      .select("invoice_number, address, subtotal, total_amount, due_date, notes, created_at")
+      .select("invoice_number, address, subtotal, total_amount, due_date, notes, created_at, send_copy_to_self")
       .eq("id", data.invoiceId)
       .maybeSingle();
 
@@ -325,6 +325,7 @@ const handler = async (req: Request): Promise<Response> => {
             dueDate: data.dueDate || invoiceRow?.due_date || undefined,
             notes: data.notes || invoiceRow?.notes || undefined,
             ccEmails: Array.isArray(data.ccEmails) ? data.ccEmails : [],
+            sendCopyToSelf: invoiceRow?.send_copy_to_self !== false,
           },
         });
         if (emailError) {

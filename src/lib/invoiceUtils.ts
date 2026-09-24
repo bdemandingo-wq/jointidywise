@@ -143,5 +143,7 @@ export function buildInvoiceEmailPayload(invoice: InvoiceLike, organizationId: s
     ccEmails: Array.isArray(invoice.cc_emails)
       ? invoice.cc_emails.filter((e): e is string => typeof e === 'string' && e.trim().length > 0)
       : [],
+    // "Send a copy to myself" — saved on the invoice, BCCs the business inbox.
+    sendCopyToSelf: (invoice as { send_copy_to_self?: boolean | null }).send_copy_to_self !== false,
   };
 }
