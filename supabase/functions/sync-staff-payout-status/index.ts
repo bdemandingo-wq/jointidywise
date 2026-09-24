@@ -39,9 +39,6 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const orgId = typeof body?.organization_id === "string" ? body.organization_id : null;
     if (!orgId || !/^[0-9a-f-]{36}$/i.test(orgId)) return json({ error: "organization_id required" }, 400);
-    const { data: fin } = await admin.rpc("has_org_financial_access", { _org_id: orgId }).then(
-      () => ({ data: null }), () => ({ data: null })); // RPC relies on auth.uid(); not usable with service role — check tables directly
-    void fin;
     const { data: mem } = await admin.from("org_memberships").select("role").eq("organization_id", orgId).eq("user_id", u.user.id).maybeSingle();
     if (mem && mem.role === "owner") {
       orgFilter = orgId;

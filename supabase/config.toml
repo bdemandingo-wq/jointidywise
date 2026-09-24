@@ -267,3 +267,6 @@ verify_jwt = true
 
   [functions.ingest-email-bounces]
     verify_jwt = false
+
+[functions.sync-staff-payout-status]
+  verify_jwt = false
