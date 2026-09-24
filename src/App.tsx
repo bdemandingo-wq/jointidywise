@@ -186,7 +186,17 @@ const queryClient = new QueryClient({
       retry: 1,
     },
   },
+  // Every badge count lives in its own query, separate from the list a user
+  // just acted on — so approving a document emptied the review list while the
+  // tab badge kept showing the stale number. Refreshing badge counts after ANY
+  // successful write means no action screen has to remember to do it.
+  mutationCache: new MutationCache({
+    onSuccess: () => {
+      refreshBadges(queryClient);
+    },
+  }),
 });
+
 
 // Offline mode: persist the query cache to device storage so the app opens
 // with yesterday's calendar, bookings, and customers even with no signal.
