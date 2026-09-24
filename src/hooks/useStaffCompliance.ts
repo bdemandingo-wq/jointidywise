@@ -79,9 +79,8 @@ export function useStaffCompliance(organizationId: string | null | undefined) {
 
       return staffList
         .map((staff): StaffComplianceRow => {
-          // Profile: photo, phone, home address
+          // Profile: phone, home address — photo is optional and must not block
           const missingProfileFields: string[] = [];
-          if (!staff.avatar_url) missingProfileFields.push('Photo');
           if (!staff.phone) missingProfileFields.push('Phone');
           if (!staff.home_address) missingProfileFields.push('Home address');
           const profileStatus: ComplianceState = missingProfileFields.length === 0 ? 'complete' : 'missing';
