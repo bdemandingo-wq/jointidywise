@@ -195,12 +195,16 @@ const handler = async (req: Request): Promise<Response> => {
     // Get business settings for company name, admin phone, and app URL
     const { data: businessSettings } = await supabase
       .from('business_settings')
-      .select('company_name, company_phone, app_url')
+      .select('company_name, company_phone, notification_phone, app_url')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
 
     const companyName = businessSettings?.company_name || 'Your cleaning service';
-    const adminPhone = businessSettings?.company_phone;
+    /* notification_phone is the owner's personal cell. company_phone is often
+       the OpenPhone line itself, and OpenPhone texting its own number never
+       reaches a handset — which is why these alerts appeared to vanish. */
+    const adminPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
+      || businessSettings?.company_phone;
 
     // Resolve the app URL for tracking link
     let appBaseUrl = businessSettings?.app_url || Deno.env.get("APP_URL") || Deno.env.get("PROJECT_URL") || '';
