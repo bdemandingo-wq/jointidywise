@@ -183,6 +183,8 @@ interface SortableNavItemProps {
   isOpen: boolean;
   isMobile: boolean;
   onNavClick: () => void;
+  /** Accent styling for the pinned Help row — keeps it visually distinct from regular nav. */
+  accent?: boolean;
 }
 
 function SortableNavItem({ item, isActive, isOpen, isMobile, onNavClick }: SortableNavItemProps) {
