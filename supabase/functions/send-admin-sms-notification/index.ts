@@ -122,7 +122,12 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    if (!businessSettings?.company_phone) {
+    /* Personal cell first — company_phone is often the OpenPhone line itself,
+       and OpenPhone texting its own number never lands on a handset. */
+    const alertPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
+      || businessSettings?.company_phone;
+
+    if (!alertPhone) {
       console.log("[send-admin-sms-notification] No admin phone configured for org:", organizationId);
       return new Response(
         JSON.stringify({ success: false, error: "No admin phone number configured in business settings" }),
