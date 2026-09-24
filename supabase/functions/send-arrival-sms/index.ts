@@ -131,6 +131,20 @@ const handler = async (req: Request): Promise<Response> => {
       adminSent = await sendSms(formatPhoneNumber(adminPhone), msg, 'admin');
     }
 
+    /* Bell entry as well — the text can fail or be off, the dashboard record
+       should still be there. */
+    const { error: bellErr } = await supabase.from('admin_system_notifications').insert({
+      organization_id: booking.organization_id,
+      type: 'staff_activity',
+      title: '📍 Cleaner arrived',
+      message: `${staff.name} has arrived at Booking #${booking.booking_number} for ${customer?.first_name ?? 'the customer'} ${customer?.last_name ?? ''}`.trim() + '.',
+      link: '/dashboard/bookings',
+      metadata: { booking_id: bookingId, staff_id: staffId },
+    });
+    if (bellErr) console.warn('[send-arrival-sms] bell notification failed:', bellErr);
+
+
+
     const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
       booking_id: bookingId,
       organization_id: booking.organization_id,
