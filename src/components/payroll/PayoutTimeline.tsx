@@ -64,7 +64,6 @@ export function PayoutTimeline({ record }: { record: PayoutRecord }) {
     return <p className="text-sm text-muted-foreground">Marked paid outside Stripe on {fmtDate(record.paid_at)}.</p>;
   }
   const s = record.payout_status ?? 'pending';
-  const order = ['pending', 'paid', 'deposited'] as const;
   const reached = s === 'deposited' ? 2 : s === 'paid' ? 1 : 0;
   const steps = [
     { key: 'pending', icon: Send, title: 'Sent', sub: fmtDate(record.paid_at) },
@@ -105,7 +104,6 @@ export function PayoutTimeline({ record }: { record: PayoutRecord }) {
           </li>
         )}
       </ol>
-      {void order}
     </div>
   );
 }

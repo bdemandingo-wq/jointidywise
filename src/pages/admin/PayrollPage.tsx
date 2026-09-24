@@ -1,3 +1,4 @@
+import { PayoutTimelinePopover, type PayoutRecord } from '@/components/payroll/PayoutTimeline';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AdminLayout } from '@/components/admin/AdminLayout';
