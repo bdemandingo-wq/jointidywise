@@ -136,7 +136,7 @@ export default defineConfig(({ mode }) => ({
         ],
       },
       workbox: {
-        cleanupOutdatedCaches: true,
+        cleanupOutdatedCaches: false,
         /*
           Precache the app shell only. dist/ carries hundreds of PRERENDERED
           marketing pages (blog, locations, compare) that exist for SEO — the
