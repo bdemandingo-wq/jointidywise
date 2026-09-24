@@ -593,6 +593,8 @@ export function StaffPayoutSetup({ staffId, organizationId }: StaffPayoutSetupPr
         </CardContent>
       </Card>
 
+      <MyPayoutsCard organizationId={organizationId} />
+
       {/* Payout History */}
       {isSetUp && payoutHistory.length > 0 && (
         <Card>
