@@ -114,6 +114,7 @@ export default function ClientFeedbackPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client-feedback'] });
+      refreshBadges(queryClient);
       toast.success('Feedback added');
       setDialogOpen(false);
     },
@@ -128,6 +129,7 @@ export default function ClientFeedbackPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client-feedback'] });
+      refreshBadges(queryClient);
       toast.success('Feedback updated');
       setDialogOpen(false);
       setEditingEntry(null);
@@ -143,8 +145,10 @@ export default function ClientFeedbackPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['client-feedback'] });
+      refreshBadges(queryClient);
       toast.success('Feedback deleted');
     },
+
     onError: (error: any) => toast.error(error.message),
   });
 
