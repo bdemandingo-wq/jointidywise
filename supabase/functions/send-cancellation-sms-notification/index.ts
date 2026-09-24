@@ -160,7 +160,7 @@ const handler = async (req: Request): Promise<Response> => {
       `Log in to your dashboard for details.`;
 
     // Format admin phone
-    let formattedPhone = businessSettings.company_phone.replace(/\D/g, '');
+    let formattedPhone = alertPhone.replace(/\D/g, '');
     if (formattedPhone.length === 10) {
       formattedPhone = `+1${formattedPhone}`;
     } else if (!formattedPhone.startsWith('+')) {
