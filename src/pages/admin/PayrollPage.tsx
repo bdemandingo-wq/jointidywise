@@ -1,3 +1,4 @@
+import { PayoutTimelinePopover, type PayoutRecord } from '@/components/payroll/PayoutTimeline';
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AdminLayout } from '@/components/admin/AdminLayout';
@@ -342,7 +343,7 @@ export default function PayrollPage() {
     query: async (organizationId) => {
       const { data, error } = await supabase
         .from('payroll_payments')
-        .select('staff_id, payment_method, stripe_transfer_id, amount, paid_at')
+        .select('staff_id, payment_method, stripe_transfer_id, amount, paid_at, payout_status, expected_arrival_date, failure_reason')
         .eq('organization_id', organizationId)
         .eq('week_start', weekStart);
       if (error) throw error;
@@ -351,7 +352,7 @@ export default function PayrollPage() {
   });
 
   const paidStaffMap = useMemo(() => {
-    const map = new Map<string, { payment_method: string; stripe_transfer_id: string | null; amount: number | null; paid_at: string }>();
+    const map = new Map<string, (typeof paidPayments)[number]>();
     for (const p of paidPayments) {
       map.set(p.staff_id, p);
     }
@@ -1624,12 +1625,9 @@ export default function PayrollPage() {
                                <AlertTriangle className="w-3 h-3 mr-1" />1099
                              </Badge>
                            )}
-                           {isPaid && (
-                             <Badge variant="default" className="bg-success">
-                               <CheckCircle2 className="w-3 h-3 mr-1" />
-                               {paymentInfo?.payment_method === 'stripe_transfer' ? 'Paid (Stripe)' : 'Paid (External)'}
-                             </Badge>
-                           )}
+                          {isPaid && paymentInfo && (
+                            <PayoutTimelinePopover record={paymentInfo as PayoutRecord} />
+                          )}
                          </div>
                        </TableCell>
                        <TableCell className="text-center">

@@ -8237,39 +8237,57 @@ export type Database = {
         Row: {
           amount: number | null
           created_at: string
+          expected_arrival_date: string | null
+          failure_reason: string | null
           id: string
           notes: string | null
           organization_id: string | null
           paid_at: string
           paid_by: string
           payment_method: string
+          payout_status: string | null
           staff_id: string
+          status_history: Json
+          status_updated_at: string | null
+          stripe_payout_id: string | null
           stripe_transfer_id: string | null
           week_start: string
         }
         Insert: {
           amount?: number | null
           created_at?: string
+          expected_arrival_date?: string | null
+          failure_reason?: string | null
           id?: string
           notes?: string | null
           organization_id?: string | null
           paid_at?: string
           paid_by: string
           payment_method?: string
+          payout_status?: string | null
           staff_id: string
+          status_history?: Json
+          status_updated_at?: string | null
+          stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
           week_start: string
         }
         Update: {
           amount?: number | null
           created_at?: string
+          expected_arrival_date?: string | null
+          failure_reason?: string | null
           id?: string
           notes?: string | null
           organization_id?: string | null
           paid_at?: string
           paid_by?: string
           payment_method?: string
+          payout_status?: string | null
           staff_id?: string
+          status_history?: Json
+          status_updated_at?: string | null
+          stripe_payout_id?: string | null
           stripe_transfer_id?: string | null
           week_start?: string
         }
@@ -11975,6 +11993,20 @@ export type Database = {
           min_spending: number
           tier_name: string
           tier_order: number
+        }[]
+      }
+      get_my_payouts: {
+        Args: { _organization_id: string }
+        Returns: {
+          amount: number
+          expected_arrival_date: string
+          failure_reason: string
+          id: string
+          paid_at: string
+          payment_method: string
+          payout_status: string
+          status_history: Json
+          week_start: string
         }[]
       }
       get_my_staff_profile: {

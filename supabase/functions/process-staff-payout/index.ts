@@ -167,6 +167,9 @@ serve(async (req) => {
         payment_method,
         stripe_transfer_id: stripeTransferId,
         notes: notes || null,
+        payout_status: stripeTransferId ? 'pending' : 'paid',
+        status_updated_at: new Date().toISOString(),
+        status_history: [{ status: stripeTransferId ? 'pending' : 'paid', at: new Date().toISOString() }],
       })
       .select()
       .single();
@@ -183,8 +186,13 @@ serve(async (req) => {
       const biz = org?.name || 'Your employer';
       const amt = `$${Number(amount).toFixed(2)}`;
       const first = (s?.name || '').split(' ')[0] || 'there';
-      const sms = `${biz}: Hi ${first}, you've been paid ${amt}. It goes to your bank automatically, usually within 2 business days. Nothing to accept. See it in the staff portal: ${PORTAL_URL} (Forgot password? ${FORGOT_URL})`;
-      const html = `<p>Hi ${first},</p><p><strong>${biz}</strong> just paid you <strong>${amt}</strong> for the period starting ${week_start}.</p><p>You don't need to accept anything. The money goes to your bank account automatically, usually within 2 business days.</p><p><a href="${PORTAL_URL}">Open the staff portal</a> to see your payouts. <a href="${FORGOT_URL}">Forgot your password?</a></p>`;
+      // Estimated arrival: +2 business days (Stripe's exact date shows in the portal once the bank payout starts).
+      const est = new Date();
+      let added = 0;
+      while (added < 2) { est.setUTCDate(est.getUTCDate() + 1); const d = est.getUTCDay(); if (d !== 0 && d !== 6) added++; }
+      const estStr = est.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+      const sms = `${biz}: Hi ${first}, you've been paid ${amt}. Estimated deposit: ${estStr}. It goes to your bank automatically. Nothing to accept. Track it in the staff portal: ${PORTAL_URL} (Forgot password? ${FORGOT_URL})`;
+      const html = `<p>Hi ${first},</p><p><strong>${biz}</strong> just paid you <strong>${amt}</strong> for the period starting ${week_start}.</p><p><strong>Estimated deposit: ${estStr}</strong>. You don't need to accept anything. The money goes to your bank account automatically.</p><p><a href="${PORTAL_URL}">Open the staff portal</a> to track your payout status. <a href="${FORGOT_URL}">Forgot your password?</a></p>`;
       const [smsSent, emailSent] = await Promise.all([
         sendStaffSms(supabaseAdmin, organization_id, s?.phone ?? null, sms, 'process-staff-payout'),
         sendStaffEmail(organization_id, s?.email ?? null, `You've been paid ${amt}`, html, 'process-staff-payout'),
