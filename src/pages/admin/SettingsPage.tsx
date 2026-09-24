@@ -762,16 +762,17 @@ export default function SettingsPage() {
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="notification_phone">Personal Cell (alerts)</Label>
+                  <Label htmlFor="notification_phone">Personal Cell(s) (alerts)</Label>
                   <Input
                     id="notification_phone"
                     value={settings.notification_phone}
-                    placeholder="e.g. 813-236-4513"
+                    placeholder="e.g. 813-236-4513, 561-555-0100"
                     onChange={(e) => updateField('notification_phone', e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
                     Every text alert goes here — cleaner on the way, cleaner arrived, job
-                    completed, new bookings and cancellations. Never shown to customers.
+                    completed, new bookings and cancellations. Add more than one number by
+                    separating them with commas. Never shown to customers.
                   </p>
                 </div>
                 <div className="space-y-2">
