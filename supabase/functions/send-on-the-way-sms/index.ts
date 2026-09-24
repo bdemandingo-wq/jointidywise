@@ -304,26 +304,18 @@ const handler = async (req: Request): Promise<Response> => {
     const notifyClient = smsSettings.notify_client_on_the_way !== false;
     const notifyAdmin = smsSettings.notify_admin_on_the_way !== false;
 
-    // Send customer SMS if enabled
+    /* Customer first, but a customer-side failure must NOT return early — the
+       admin alert below is the one the owner actually relies on, and skipping
+       it because the customer's carrier rejected a text is how "I pressed on
+       the way and nobody got anything" happens. */
     let customerResult: { success: boolean; messageId?: string; error?: string } = { success: true, messageId: undefined };
-    if (notifyClient) {
+    if (notifyClient && formattedCustomerPhone) {
       customerResult = await sendSms(formattedCustomerPhone, customerMessage, 'customer');
-
       if (!customerResult.success) {
-        let errorCode = 'SMS_FAILED';
-        let userMessage = 'SMS delivery failed. Please try again later.';
-
-        return new Response(
-          JSON.stringify({
-            success: false,
-            error: userMessage,
-            errorCode,
-          }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        console.warn("[send-on-the-way-sms] Customer SMS failed — continuing to admin alert");
       }
     } else {
-      console.log("[send-on-the-way-sms] Client notification disabled by org settings, skipping");
+      console.log("[send-on-the-way-sms] Customer SMS skipped (disabled or no phone on file)");
     }
 
     // Send admin SMS if admin phone is configured and enabled
