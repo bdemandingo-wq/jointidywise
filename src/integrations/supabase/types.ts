@@ -2618,6 +2618,7 @@ export type Database = {
           arrival_windows: Json
           benchmarks_opt_in: boolean
           booking_buffer_minutes: number | null
+          business_line_phone: string | null
           campaign_quiet_hours_enabled: boolean
           campaign_quiet_hours_end: number
           campaign_quiet_hours_start: number
@@ -2645,6 +2646,7 @@ export type Database = {
           meta_pixel_id: string | null
           min_clockout_photos: number
           minimum_notice_hours: number | null
+          notification_phone: string | null
           notify_cancellations: boolean | null
           notify_evening_brief: boolean
           notify_morning_brief: boolean
@@ -2691,6 +2693,7 @@ export type Database = {
           arrival_windows?: Json
           benchmarks_opt_in?: boolean
           booking_buffer_minutes?: number | null
+          business_line_phone?: string | null
           campaign_quiet_hours_enabled?: boolean
           campaign_quiet_hours_end?: number
           campaign_quiet_hours_start?: number
@@ -2718,6 +2721,7 @@ export type Database = {
           meta_pixel_id?: string | null
           min_clockout_photos?: number
           minimum_notice_hours?: number | null
+          notification_phone?: string | null
           notify_cancellations?: boolean | null
           notify_evening_brief?: boolean
           notify_morning_brief?: boolean
@@ -2764,6 +2768,7 @@ export type Database = {
           arrival_windows?: Json
           benchmarks_opt_in?: boolean
           booking_buffer_minutes?: number | null
+          business_line_phone?: string | null
           campaign_quiet_hours_enabled?: boolean
           campaign_quiet_hours_end?: number
           campaign_quiet_hours_start?: number
@@ -2791,6 +2796,7 @@ export type Database = {
           meta_pixel_id?: string | null
           min_clockout_photos?: number
           minimum_notice_hours?: number | null
+          notification_phone?: string | null
           notify_cancellations?: boolean | null
           notify_evening_brief?: boolean
           notify_morning_brief?: boolean
