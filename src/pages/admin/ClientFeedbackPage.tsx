@@ -35,6 +35,8 @@ import { dispatchZapier } from '@/lib/zapier';
 import { AttentionStrip } from '@/components/admin/AttentionStrip';
 import { orgDateKey } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
+import { refreshBadges } from '@/lib/badgeRefresh';
+
 
 interface FeedbackEntry {
   id: string;

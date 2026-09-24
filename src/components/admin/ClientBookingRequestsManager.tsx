@@ -37,6 +37,8 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { QueryError } from '@/components/QueryError';
+import { refreshBadges } from '@/lib/badgeRefresh';
+
 
 interface BookingRequest {
   id: string;
