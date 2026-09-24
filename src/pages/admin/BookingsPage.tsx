@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { AdminLayout } from '@/components/admin/AdminLayout';
+import { AttentionStrip } from '@/components/admin/AttentionStrip';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -1719,6 +1720,7 @@ export default function BookingsPage() {
       subtitle="Manage your appointments"
     >
       <div className="portal-v2">
+      <AttentionStrip href="/dashboard/bookings" onReasonClick={() => setActiveTab('all')} />
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="bg-secondary/50">
