@@ -6,12 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Bell, FileText, PenLine, Banknote, Check, CalendarOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { format } from 'date-fns';
+import { useOrgTimezone } from '@/hooks/useOrgTimezone';
+import { formatTimestampWithZone } from '@/lib/timezoneUtils';
 import { useNavigate } from 'react-router-dom';
 import { QueryError } from '@/components/QueryError';
 
 export function StaffEventNotifications() {
   const { organizationId } = useOrgId();
+  const { timezone } = useOrgTimezone(organizationId);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -128,7 +130,7 @@ export function StaffEventNotifications() {
                   <p className="font-medium">{n.title}</p>
                   <p className="text-muted-foreground text-xs truncate">{n.message}</p>
                   <p className="text-muted-foreground text-xs mt-0.5">
-                    {format(new Date(n.created_at), 'MMM d, h:mm a')}
+                    {formatTimestampWithZone(n.created_at, timezone)}
                   </p>
                 </div>
                 {!n.is_read && (

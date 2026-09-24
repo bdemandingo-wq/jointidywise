@@ -117,3 +117,17 @@ export function getLocalDateInTimezone(dateInput: Date | string, timezone: strin
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(year, month - 1, day, 12, 0, 0, 0);
 }
+
+/**
+ * Format a timestamp as "Sep 24, 11:04 PM EDT" in the given IANA timezone,
+ * independent of the viewer's device timezone.
+ */
+export function formatTimestampWithZone(dateInput: Date | string, timezone: string): string {
+  const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short',
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${get('month')} ${get('day')}, ${get('hour')}:${get('minute')} ${get('dayPeriod')} ${get('timeZoneName')}`;
+}
