@@ -333,6 +333,18 @@ const handler = async (req: Request): Promise<Response> => {
       console.log(`[send-on-the-way-sms] No admin phone configured, skipping admin notification`);
     }
 
+    /* Also drop it in the admin bell. The text can fail or be switched off; the
+       owner should still be able to see what happened from the dashboard. */
+    const { error: bellErr } = await supabase.from('admin_system_notifications').insert({
+      organization_id: booking.organization_id,
+      type: 'staff_activity',
+      title: '🚗 Cleaner on the way',
+      message: `${staff.name} is on the way to Booking #${booking.booking_number} for ${customerLabel}.`,
+      link: '/dashboard/bookings',
+      metadata: { booking_id: bookingId, staff_id: staffId },
+    });
+    if (bellErr) console.warn('[send-on-the-way-sms] bell notification failed:', bellErr);
+
     // Log to prevent duplicates per cleaner. Team jobs allow each cleaner to send once.
     const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
       booking_id: bookingId,
