@@ -403,6 +403,14 @@
     @apply bg-sidebar-primary text-sidebar-primary-foreground shadow-md;
   }
 
+  /* Pinned Help row — deliberately louder than regular nav in both themes.
+     Built on the primary token so light and dark mode each get their own
+     contrast; .sidebar-link.active still wins when the item is the current page. */
+  .sidebar-link-help {
+    @apply bg-primary/10 text-primary border border-primary/25 font-medium
+           hover:bg-primary/15 hover:text-primary;
+  }
+
   /* Premium stat card */
   .stat-card {
     @apply bg-card rounded-2xl p-6 border border-border/50 
