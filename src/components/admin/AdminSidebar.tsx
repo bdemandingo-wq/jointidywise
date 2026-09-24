@@ -238,7 +238,7 @@ function SortableNavItem({ item, isActive, isOpen, isMobile, onNavClick }: Sorta
   );
 }
 
-function StaticNavItem({ item, isActive, isOpen, isMobile, onNavClick }: SortableNavItemProps) {
+function StaticNavItem({ item, isActive, isOpen, isMobile, onNavClick, accent }: SortableNavItemProps) {
   return (
     <Link
       to={item.href}
@@ -246,6 +246,7 @@ function StaticNavItem({ item, isActive, isOpen, isMobile, onNavClick }: Sortabl
       style={{ position: 'relative', zIndex: 1 }}
       className={cn(
         'sidebar-link min-h-[44px] pointer-events-auto touch-manipulation',
+        accent && 'sidebar-link-help',
         isActive && 'active',
         !isOpen && !isMobile && 'justify-center px-2'
       )}
