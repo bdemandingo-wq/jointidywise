@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
+import { parseAlertPhones, sendToExtraAlertPhones } from '../_shared/alertPhones.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
 
 /**
@@ -138,8 +139,9 @@ const handler = async (req: Request): Promise<Response> => {
     const r = await fetch("https://api.openphone.com/v1/messages", {
       method: "POST",
       headers: { "Authorization": authHeader, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: phoneNumberId, to: [formatPhoneNumber(adminPhone)], content: message }),
+      body: JSON.stringify({ from: phoneNumberId, to: [parseAlertPhones(adminPhone)[0] || formatPhoneNumber(adminPhone)], content: message }),
     });
+    await sendToExtraAlertPhones(parseAlertPhones(adminPhone).slice(1), phoneNumberId, authHeader, message, 'send-job-complete-sms');
     if (!r.ok) {
       console.error('[send-job-complete-sms] admin SMS failed:', r.status, await r.text());
     } else {
@@ -149,7 +151,7 @@ const handler = async (req: Request): Promise<Response> => {
     const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
       booking_id: bookingId,
       organization_id: booking.organization_id,
-      recipient_phone: formatPhoneNumber(adminPhone),
+      recipient_phone: parseAlertPhones(adminPhone)[0] || formatPhoneNumber(adminPhone),
       reminder_type: reminderType,
     });
     if (logInsertErr) {
