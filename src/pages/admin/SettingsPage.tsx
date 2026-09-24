@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Save, Globe, Bell, Lock, Palette, Loader2, Star, Upload, Eye, EyeOff, AlertCircle, MessageSquare, DollarSign, LayoutGrid, PanelLeft, RotateCcw, Share2, Copy, Code, ExternalLink, Trash2, AlertTriangle, Gift, TrendingUp } from 'lucide-react';
+import { AlertPhoneList } from '@/components/admin/AlertPhoneList';
 import { SurgePricingSettings } from '@/components/admin/SurgePricingSettings';
 import { EmbedCodeCard } from '@/components/admin/EmbedCodeCard';
 import {
@@ -763,16 +764,13 @@ export default function SettingsPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="notification_phone">Personal Cell(s) (alerts)</Label>
-                  <Input
-                    id="notification_phone"
+                  <AlertPhoneList
                     value={settings.notification_phone}
-                    placeholder="e.g. 813-236-4513, 561-555-0100"
-                    onChange={(e) => updateField('notification_phone', e.target.value)}
+                    onChange={(v) => updateField('notification_phone', v)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Every text alert goes here — cleaner on the way, cleaner arrived, job
-                    completed, new bookings and cancellations. Add more than one number by
-                    separating them with commas. Never shown to customers.
+                    Every text alert goes to all of these numbers — cleaner on the way, cleaner
+                    arrived, job completed, new bookings and cancellations. Never shown to customers.
                   </p>
                 </div>
                 <div className="space-y-2">
