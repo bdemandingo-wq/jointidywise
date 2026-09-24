@@ -78,11 +78,14 @@ const handler = async (req: Request): Promise<Response> => {
 
     const { data: businessSettings } = await supabase
       .from('business_settings')
-      .select('company_name, company_phone')
+      .select('company_name, company_phone, notification_phone')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
     const companyName = businessSettings?.company_name || 'Your cleaning service';
-    const adminPhone = businessSettings?.company_phone;
+    /* Personal cell wins. company_phone is often the OpenPhone line, and
+       OpenPhone texting itself never lands on a handset. */
+    const adminPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
+      || businessSettings?.company_phone;
 
     const notifyClient = (smsSettings as any).notify_client_arrived !== false;
     const notifyAdmin = (smsSettings as any).notify_admin_arrived !== false;
