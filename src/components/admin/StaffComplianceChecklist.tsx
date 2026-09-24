@@ -15,7 +15,7 @@ function rowItems(row: StaffComplianceRow) {
       key: 'profile',
       label: 'Profile',
       status: row.profileStatus,
-      detail: row.missingProfileFields.length ? `Missing: ${row.missingProfileFields.join(', ')}` : 'Photo, phone and address on file',
+      detail: row.missingProfileFields.length ? `Missing: ${row.missingProfileFields.join(', ')}` : 'Phone and address on file',
     },
     {
       key: 'hours',
