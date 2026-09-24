@@ -4,7 +4,7 @@
 import { sendOrgEmail } from "./send-org-email.ts";
 
 export const PORTAL_URL = "https://www.jointidywise.com/staff";
-export const FORGOT_URL = "https://www.jointidywise.com/staff/forgot-password";
+export const FORGOT_URL = "https://www.jointidywise.com/staff/login";
 export const APP_URL = "https://www.jointidywise.com/get-the-app";
 
 function e164(raw: string): string | null {
