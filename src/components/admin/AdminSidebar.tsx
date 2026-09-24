@@ -513,6 +513,7 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
           isOpen={isOpen}
           isMobile={isMobile}
           onNavClick={handleNavClick}
+          accent
         />
       </div>
 
