@@ -124,6 +124,7 @@ function detectDefaultCountry(): string {
 
 export function StaffPayoutSetup({ staffId, organizationId }: StaffPayoutSetupProps) {
   const queryClient = useQueryClient();
+  const [openingDashboard, setOpeningDashboard] = useState(false);
   const [searchParams] = useSearchParams();
   const [onboardingUrl, setOnboardingUrl] = useState<string | null>(null);
   const [isCheckingReturn, setIsCheckingReturn] = useState(false);
