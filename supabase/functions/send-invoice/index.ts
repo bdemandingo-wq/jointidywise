@@ -36,6 +36,7 @@ interface InvoiceEmailRequest {
   notes?: string;
   organizationId: string;
   ccEmails?: string[];
+  sendCopyToSelf?: boolean;
 }
 
 const ACCENT = "#0ea5e9";
@@ -339,10 +340,16 @@ const handler = async (req: Request): Promise<Response> => {
 
     // Route through org email helper (Gmail SMTP → Resend fallback)
     const { sendOrgEmail } = await import("../_shared/send-org-email.ts");
+    // "Send a copy to myself": BCC this org's own business inbox (never another org's).
+    const selfCopy = data.sendCopyToSelf
+      ? (bizSettings?.company_email || emailSettings.from_email || "").trim().toLowerCase()
+      : "";
+    const bccSelf = selfCopy && selfCopy !== customerEmail.toLowerCase() ? [selfCopy] : undefined;
     const sendResult = await sendOrgEmail({
       organizationId: data.organizationId,
       to: customerEmail,
       cc: Array.isArray(data.ccEmails) && data.ccEmails.length > 0 ? data.ccEmails : undefined,
+      bcc: bccSelf,
       subject: `${invoiceNumber} from ${companyName} — Pay Online`,
       html: emailHtml,
       templateName: "invoice",
