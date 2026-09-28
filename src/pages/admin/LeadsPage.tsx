@@ -54,6 +54,7 @@ import { AttentionStrip } from '@/components/admin/AttentionStrip';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { orgDateKey } from '@/lib/orgDateRange';
 import { matrixToCsv } from '@/lib/orgDataExport';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 
 
@@ -960,11 +961,11 @@ export default function LeadsPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
-                          {link.link_sent_at ? format(new Date(link.link_sent_at), 'MMM d, h:mm a') : '-'}
+                          {link.link_sent_at ? <OrgTimestamp value={link.link_sent_at} /> : '-'}
                         </TableCell>
                         <TableCell className="text-sm">
                           {link.link_opened_at ? (
-                            <span className="text-warning">{format(new Date(link.link_opened_at), 'MMM d, h:mm a')}</span>
+                            <span className="text-warning"><OrgTimestamp value={link.link_opened_at} /></span>
                           ) : (
                             <span className="text-muted-foreground">Not opened</span>
                           )}

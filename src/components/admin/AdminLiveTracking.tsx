@@ -232,7 +232,7 @@ export function AdminLiveTracking({
     const ageSec = (Date.now() - new Date(tracking.recorded_at).getTime()) / 1000;
     const isStale = ageSec > 90;
     const timeAgo = Math.round(ageSec / 60);
-    const startedAtLabel = formatInTimezone(tracking.created_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true });
+    const startedAtLabel = formatInTimezone(tracking.created_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' });
 
     return (
       <div className="rounded-lg border bg-card p-4 space-y-3">
@@ -293,7 +293,7 @@ export function AdminLiveTracking({
   if (onTheWay) {
     const sentTime = new Date(onTheWay.sent_at);
     const minutesAgo = Math.round((Date.now() - sentTime.getTime()) / 60000);
-    const sentTimeLabel = formatInTimezone(onTheWay.sent_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true });
+    const sentTimeLabel = formatInTimezone(onTheWay.sent_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' });
 
     if (minutesAgo > 120) return null;
 

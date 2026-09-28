@@ -695,7 +695,7 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
               customerPhone: booking.customer?.phone || 'Not provided',
               serviceName: booking.service?.name || (booking.total_amount === 0 ? 'Re-clean' : 'Cleaning Service'),
               appointmentDate: formatInTimezone(booking.scheduled_at, orgTimezone, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
-              appointmentTime: formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true }),
+              appointmentTime: formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' }),
               address: [booking.address, (booking as any).apt_suite ? `Unit ${(booking as any).apt_suite}` : null, booking.city, booking.state, booking.zip_code].filter(Boolean).join(', ') || 'Address not provided',
               bookingNumber: booking.booking_number,
               organizationId: organization?.id,
@@ -880,7 +880,7 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
                           </Badge>
                         </div>
                         <div className="text-sm text-muted-foreground mt-1">
-                          {booking.service?.name || (booking.total_amount === 0 ? 'Re-clean' : 'Service')} • {formatInTimezone(booking.scheduled_at, orgTimezone, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                          {booking.service?.name || (booking.total_amount === 0 ? 'Re-clean' : 'Service')} • {formatInTimezone(booking.scheduled_at, orgTimezone, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
                         </div>
                       </button>
                     ))
@@ -1083,7 +1083,7 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
                         </Badge>
                       </div>
                       <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2">
-                        <span>{formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                        <span>{formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}</span>
                         <span>•</span>
                         <span>{booking.service?.name || 'Service'}</span>
                         {!isTestMode && booking.total_amount > 0 && (
@@ -1150,7 +1150,7 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
                         {formatInTimezone(selectedBooking.scheduled_at, orgTimezone, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                       </p>
                       <p className="text-muted-foreground">
-                        {formatInTimezone(selectedBooking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true })}
+                        {formatInTimezone(selectedBooking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
                       </p>
                     </div>
                   </div>

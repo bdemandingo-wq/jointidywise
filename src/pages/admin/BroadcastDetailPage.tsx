@@ -23,6 +23,8 @@ import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { useBroadcastRecipients, useRetryFailed, type MessageClass, type RecipientRow } from '@/hooks/useBroadcasts';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, Loader2, Mail, RefreshCw, XCircle } from 'lucide-react';
+import { formatTimestampWithZone } from '@/lib/timezoneUtils';
+import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 
 /**
  * Broadcast detail — "did it finish, who didn't get it, retry the failures."
@@ -82,14 +84,9 @@ function useBroadcastDetail(id: string | undefined) {
   });
 }
 
-function formatDateTime(value: string | null): string {
+function formatDateTime(value: string | null, timezone: string): string {
   if (!value) return '—';
-  return new Date(value).toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatTimestampWithZone(value, timezone);
 }
 
 function truncate(value: string, max: number): string {
@@ -153,6 +150,7 @@ export default function BroadcastDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { timezone } = useOrgTimezone();
 
   const [showAll, setShowAll] = useState(false);
   const [retryDialogOpen, setRetryDialogOpen] = useState(false);
@@ -281,8 +279,8 @@ export default function BroadcastDetailPage() {
                 </div>
                 <CardDescription>
                   {broadcast.started_at
-                    ? `Started ${formatDateTime(broadcast.started_at)} → ${
-                        broadcast.completed_at ? formatDateTime(broadcast.completed_at) : 'in progress'
+                    ? `Started ${formatDateTime(broadcast.started_at, timezone)} → ${
+                        broadcast.completed_at ? formatDateTime(broadcast.completed_at, timezone) : 'in progress'
                       }`
                     : 'Not started'}
                 </CardDescription>
@@ -483,7 +481,7 @@ export default function BroadcastDetailPage() {
                                 {reason ?? '—'}
                               </TableCell>
                               <TableCell className="text-right tabular-nums">{r.attempts}</TableCell>
-                              <TableCell className="whitespace-nowrap">{formatDateTime(r.sent_at)}</TableCell>
+                              <TableCell className="whitespace-nowrap">{formatDateTime(r.sent_at, timezone)}</TableCell>
                             </TableRow>
                           );
                         })}

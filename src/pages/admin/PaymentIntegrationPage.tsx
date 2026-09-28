@@ -45,6 +45,7 @@ import { format } from "date-fns";
 import { Capacitor } from "@capacitor/core";
 import { openExternalUrl } from "@/lib/openExternalUrl";
 import { fmt } from '@/lib/activeCurrency';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 
 interface ConnectionStatus {
@@ -604,7 +605,7 @@ export default function PaymentIntegrationPage() {
                             <p className="text-xs text-muted-foreground truncate">{p.description}</p>
                           )}
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {format(new Date(p.created_at), "MMM d, yyyy h:mm a")}
+                            <OrgTimestamp value={p.created_at} />
                           </p>
                         </div>
                         <div className="text-right shrink-0 ml-3">

@@ -10,6 +10,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface Notification {
   id: string;
@@ -162,7 +163,7 @@ export function NotificationBell({ staffId, onViewJob }: Props) {
                         {notification.message}
                       </p>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {format(new Date(notification.created_at), 'MMM d, h:mm a')}
+                        <OrgTimestamp value={notification.created_at} />
                       </p>
                     </div>
                   </div>

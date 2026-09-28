@@ -21,6 +21,7 @@ import { AutomationEditorDialog } from './AutomationEditorDialog';
 import { QueryError } from '@/components/QueryError';
 
 import { format } from 'date-fns';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface ReminderInterval {
   id?: string;
@@ -818,7 +819,7 @@ export function AutomationsTab() {
                     {historyLog.slice(0, 25).map((log, i) => (
                       <TableRow key={i}>
                         <TableCell className="text-xs whitespace-nowrap">
-                          {format(new Date(log.date), 'MMM d, h:mm a')}
+                          <OrgTimestamp value={log.date} />
                         </TableCell>
                         <TableCell className="font-medium text-sm">{log.automationName}</TableCell>
                         <TableCell className="text-sm">{log.clientName}</TableCell>

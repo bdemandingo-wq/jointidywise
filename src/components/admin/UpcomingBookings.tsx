@@ -130,7 +130,7 @@ export function UpcomingBookings({ bookings }: UpcomingBookingsProps) {
               customerPhone: booking.customer?.phone || 'Not provided',
               serviceName: booking.service?.name || 'Cleaning Service',
               appointmentDate: formatInTimezone(booking.scheduled_at, orgTimezone, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }),
-              appointmentTime: formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true }),
+              appointmentTime: formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' }),
               address: [booking.address, (booking as any).apt_suite ? `Unit ${(booking as any).apt_suite}` : null, booking.city, booking.state, booking.zip_code].filter(Boolean).join(', ') || 'Address not provided',
               bookingNumber: booking.booking_number,
               organizationId: organization?.id,
@@ -266,7 +266,7 @@ export function UpcomingBookings({ bookings }: UpcomingBookingsProps) {
                       </button>
                       <div className="flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5" />
-                        <span>{formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                        <span>{formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}</span>
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1">
@@ -329,7 +329,7 @@ export function UpcomingBookings({ bookings }: UpcomingBookingsProps) {
                   <div>
                     <p className="font-medium">
                       {formatInTimezone(selectedBooking.scheduled_at, orgTimezone, { month: 'long', day: 'numeric', year: 'numeric' })} at{' '}
-                      {formatInTimezone(selectedBooking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true })}
+                      {formatInTimezone(selectedBooking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
                     </p>
                     <p className="text-muted-foreground">
                       Duration: {selectedBooking.duration} minutes

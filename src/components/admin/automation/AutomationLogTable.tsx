@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { CheckCircle2, XCircle, Clock, Inbox } from 'lucide-react';
 import { QueryError } from '@/components/QueryError';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface LogEntry {
   id: string;
@@ -168,7 +169,7 @@ export function AutomationLogTable() {
               <td className="py-2.5 px-3 font-medium text-foreground">{log.type}</td>
               <td className="py-2.5 px-3 text-muted-foreground">{log.customer_name}</td>
               <td className="py-2.5 px-3 text-muted-foreground whitespace-nowrap">
-                {format(new Date(log.created_at), 'MMM d, h:mm a')}
+                <OrgTimestamp value={log.created_at} />
               </td>
             </tr>
           ))}

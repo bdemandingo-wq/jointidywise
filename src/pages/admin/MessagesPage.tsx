@@ -40,6 +40,7 @@ import { PullToRefreshIndicator } from '@/components/admin/PullToRefreshIndicato
 import { BookOpen, Filter } from 'lucide-react';
 import { SEOHead } from '@/components/SEOHead';
 import { hapticImpact } from '@/lib/haptics';
+import { formatTimestampWithZone } from '@/lib/timezoneUtils';
 import { MessagesHealthBanner } from '@/components/admin/MessagesHealthBanner';
 import { AISuggestReplyButton } from '@/components/admin/AISuggestReplyButton';
 import { AIInboxSummaryButton } from '@/components/admin/AIInboxSummaryButton';
@@ -131,7 +132,7 @@ const getInitials = (name: string | null, phone: string) => {
 const formatConversationTime = (dateStr: string, timeZone: string) => {
   const d = new Date(dateStr);
   // Message grouping by the BUSINESS's day, not the reader's.
-  if (orgDateKey(d, timeZone) === orgDateKey(new Date(), timeZone)) return format(d, 'h:mm a');
+  if (orgDateKey(d, timeZone) === orgDateKey(new Date(), timeZone)) return formatTimestampWithZone(d, timeZone);
   if (isThisWeek(d)) return format(d, 'EEE');
   return format(d, 'M/d/yy');
 };
@@ -1553,7 +1554,7 @@ export default function MessagesPage() {
                             {initialsOf(senderNames[msg.sender_user_id ?? ''])}
                           </span>
                         )}
-                        {format(new Date(msg.sent_at), 'h:mm a')}
+                        {formatTimestampWithZone(msg.sent_at, orgTimezone)}
                         {isOutbound && (() => {
                           const ds = (msg as unknown as Record<string, unknown>).delivery_status as string | null | undefined;
                           const effective = ds || msg.status;

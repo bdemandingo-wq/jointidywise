@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, History, AlertTriangle } from 'lucide-react';
 import { QueryError } from '@/components/QueryError';
 import { format, subDays } from 'date-fns';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 const REASON_LABELS: Record<string, string> = {
   changed_banks: 'Changed banks',
@@ -113,7 +114,7 @@ export function StripeResetHistoryPanel() {
                       </div>
                     </TableCell>
                     <TableCell className="text-sm">
-                      {format(new Date(reset.created_at), 'MMM d, yyyy h:mm a')}
+                      <OrgTimestamp value={reset.created_at} />
                     </TableCell>
                     <TableCell>
                       <span className="text-sm">{REASON_LABELS[reset.reason] || reset.reason || '—'}</span>

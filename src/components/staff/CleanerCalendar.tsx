@@ -233,7 +233,7 @@ export function CleanerCalendar({ staffId, organizationId }: Props) {
                           key={booking.id}
                           className={`text-[10px] truncate px-1 py-0.5 rounded ${getStatusColor(booking.status)} text-white`}
                         >
-                          {formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true })}
+                          {formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
                         </div>
                       ))}
                       {dayBookings.length > 2 && (
@@ -286,7 +286,7 @@ export function CleanerCalendar({ staffId, organizationId }: Props) {
                       <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Clock className="h-3 w-3" />
-                          {formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true })} ({booking.duration} min)
+                          {formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })} ({booking.duration} min)
                         </span>
                       </div>
                       {booking.customer && (

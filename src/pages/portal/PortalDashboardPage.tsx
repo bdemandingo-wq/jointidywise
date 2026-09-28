@@ -674,7 +674,7 @@ export default function PortalDashboardPage() {
                 <Calendar className="h-4 w-4 text-[hsl(var(--pv-ink-4))] shrink-0" />
                 <span className="font-medium text-[hsl(var(--pv-ink))]">{getDateLabel(nextBooking.scheduled_at)}</span>
                 <span className="text-[hsl(var(--pv-ink-3))]">
-                  · {formatInTimezone(nextBooking.scheduled_at, orgTimezone, { hour: "numeric", minute: "2-digit", hour12: true })}
+                  · {formatInTimezone(nextBooking.scheduled_at, orgTimezone, { hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: 'short' })}
                 </span>
               </span>
               {nextBooking.address && (
@@ -814,7 +814,7 @@ export default function PortalDashboardPage() {
                             <p className="font-medium text-[13.5px]">{notification.title}</p>
                             <p className="text-[12.5px] text-[hsl(var(--pv-ink-3))]">{notification.message}</p>
                             <p className="text-[11px] text-[hsl(var(--pv-ink-3))] mt-1">
-                              {formatInTimezone(notification.created_at, orgTimezone, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}
+                              {formatInTimezone(notification.created_at, orgTimezone, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true, timeZoneName: 'short' })}
                             </p>
                           </div>
                         </div>
@@ -917,7 +917,7 @@ export default function PortalDashboardPage() {
                       key={booking.id}
                       booking={booking}
                       dateLabel={getDateLabel(booking.scheduled_at)}
-                      timeLabel={formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true })}
+                      timeLabel={formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
                       onReschedule={() => handleReschedule(booking)}
                       onCancel={() => handleCancelClick(booking)}
                     />
@@ -939,7 +939,7 @@ export default function PortalDashboardPage() {
                           <p className="text-[14.5px] font-medium text-[hsl(var(--pv-ink))]">{request.service_name || 'Service request'}</p>
                           <p className="pv-meta inline-flex items-center gap-1.5">
                             <Calendar className="h-3.5 w-3.5" />
-                            {formatInTimezone(request.requested_date, orgTimezone, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                            {formatInTimezone(request.requested_date, orgTimezone, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
                           </p>
                           {request.notes && <p className="text-[13px] text-[hsl(var(--pv-ink-2))]">{request.notes}</p>}
                           {request.admin_response_note && (
@@ -1044,7 +1044,7 @@ export default function PortalDashboardPage() {
                           <p className="text-[14px] font-medium text-[hsl(var(--pv-ink))]">{notification.title}</p>
                           <p className="text-[13px] text-[hsl(var(--pv-ink-3))]">{notification.message}</p>
                           <p className="text-[11.5px] text-[hsl(var(--pv-ink-3))] mt-1">
-                            {formatInTimezone(notification.created_at, orgTimezone, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                            {formatInTimezone(notification.created_at, orgTimezone, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
@@ -1234,7 +1234,7 @@ export default function PortalDashboardPage() {
                 <>
                   Are you sure you want to cancel your{' '}
                   <strong>{bookingToCancel.service?.name || 'cleaning'}</strong> scheduled for{' '}
-                  <strong>{formatInTimezone(bookingToCancel.scheduled_at, orgTimezone, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</strong>?
+                  <strong>{formatInTimezone(bookingToCancel.scheduled_at, orgTimezone, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}</strong>?
                   <br /><br />
                   <span className="text-muted-foreground text-sm">
                     {/* Deliberately names no tier. "Platinum" is one org's tier

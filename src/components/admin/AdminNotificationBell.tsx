@@ -21,6 +21,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { orgDayOfWeek, orgDateKey } from '@/lib/orgDateRange';
 import { useQueryClient } from '@tanstack/react-query';
 import { refreshBadges } from '@/lib/badgeRefresh';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface AdminNotification {
   id: string;
@@ -577,7 +578,7 @@ export function AdminNotificationBell() {
                         {notification.message}
                       </p>
                       <p className="text-[10px] text-muted-foreground mt-1">
-                        {format(new Date(notification.created_at), 'MMM d, h:mm a')}
+                        <OrgTimestamp value={notification.created_at} />
                       </p>
                     </button>
                     <div className="opacity-0 group-hover:opacity-100 flex flex-col gap-1">

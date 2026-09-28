@@ -14,6 +14,7 @@ import { RefreshCw, Loader2, History, CheckCircle2, XCircle, RotateCw, Search, A
 import { supabase } from '@/lib/supabase';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { toast } from 'sonner';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface LogRow {
   id: string;
@@ -180,7 +181,7 @@ export function GHLDispatchLogCard() {
                       <XCircle className="h-4 w-4 text-destructive shrink-0" />
                     )}
                     <span className="text-muted-foreground shrink-0 w-36">
-                      {new Date(r.created_at).toLocaleString()}
+                      <OrgTimestamp value={r.created_at} />
                     </span>
                     <Badge variant="outline" className="font-mono shrink-0">{r.event_type}</Badge>
                     <Badge variant="secondary" className="shrink-0">HTTP {r.http_status ?? '—'}</Badge>

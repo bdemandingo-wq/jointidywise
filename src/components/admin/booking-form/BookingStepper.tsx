@@ -41,7 +41,7 @@ import { supabase } from '@/lib/supabase';
 import { formatFullAddress } from '@/lib/formatAddress';
 import { useOrgId } from '@/hooks/useOrgId';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
-import { selectedDateTimeToUTCISO, getTimeInTimezone, formatInTimezone } from '@/lib/timezoneUtils';
+import { selectedDateTimeToUTCISO, getTimeInTimezone, formatInTimezone, formatTimestampWithZone } from '@/lib/timezoneUtils';
 import { orgAddDaysPreservingTime } from '@/lib/orgDateRange';
 import { useCreateBooking, useUpdateBooking, useCreateCustomer, BookingWithDetails, useBookings } from '@/hooks/useBookings';
 import { extras as extrasData } from '@/data/pricingData';
@@ -489,7 +489,7 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
           serviceName: selectedService?.name || 'Cleaning Service',
           homeSize: `${bedrooms || '?'} bed / ${bathrooms || '?'} bath`,
           appointmentDate: format(scheduledDate, 'MMMM d, yyyy'),
-          appointmentTime: format(scheduledDate, 'h:mm a'),
+          appointmentTime: formatTimestampWithZone(selectedDateTimeToUTCISO(selectedDate!, selectedTime, orgTimezone), orgTimezone),
           address: address || '',
           aptSuite: aptSuite || '',
           city: city || '',
@@ -1356,7 +1356,7 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
                 /* eslint-enable local/no-device-local-dates */
 
                 const formattedDate = format(scheduledDate, 'MMMM d, yyyy');
-                const formattedTime = format(scheduledDate, 'h:mm a');
+                const formattedTime = formatTimestampWithZone(selectedDateTimeToUTCISO(selectedDate!, selectedTime, orgTimezone), orgTimezone);
                 const serviceName = selectedService?.name || 'cleaning';
                 const fullAddress = formatFullAddress({ address, apt_suite: aptSuite, city });
 

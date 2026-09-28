@@ -13,6 +13,7 @@ import { LoyaltyTierEditor } from './LoyaltyTierEditor';
 import { useAdminOrgTiers } from '@/hooks/useAdminOrgTiers';
 import { resolveTierName } from '@/lib/loyaltyTier';
 import { QueryError } from '@/components/QueryError';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface CustomerLoyalty {
   id: string;
@@ -425,7 +426,7 @@ export function LoyaltyProgramSettings() {
                       {tx.points >= 0 ? '+' : ''}{tx.points} pts
                     </span>
                     <p className="text-xs text-muted-foreground">
-                      {format(new Date(tx.created_at), 'MMM d, h:mm a')}
+                      <OrgTimestamp value={tx.created_at} />
                     </p>
                   </div>
                 </div>

@@ -63,6 +63,7 @@ import { DisputeEvidencePanel } from '@/components/admin/DisputeEvidencePanel';
 import ChurnRetentionTab from '@/components/admin/ChurnRetentionTab';
 import { ErrorsIncidentsPanel } from '@/components/admin/ErrorsIncidentsPanel';
 import { TrendingDown, Bug, Megaphone } from 'lucide-react';
+import { formatTimestampWithZone } from '@/lib/timezoneUtils';
 
 interface Subscriber {
   id: string;
@@ -473,7 +474,7 @@ export default function PlatformAnalyticsPage() {
           <div className="flex items-center gap-2">
             <Activity className="w-5 h-5 text-primary" />
             <span className="text-sm text-muted-foreground">
-              Last updated: {format(new Date(), 'MMM d, h:mm a')}
+              Last updated: {formatTimestampWithZone(new Date(), orgTimezone)}
             </span>
           </div>
           <Button variant="outline" size="sm" onClick={() => { fetchAnalytics(); refetchSessions(); }} disabled={loading}>

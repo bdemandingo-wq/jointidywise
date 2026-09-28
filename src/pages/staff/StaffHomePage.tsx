@@ -8,6 +8,7 @@ import { resolveCleanerPay } from '@/lib/wageCalculation';
 import { bookingStatusBadge } from '@/lib/bookingStatus';
 import { combinedPhase } from '@/lib/queryState';
 import { CleanerHomeView, type HomeJob, type SetupStep } from '@/components/portal-v2';
+import { formatTimestampWithZone } from '@/lib/timezoneUtils';
 
 /**
  * Screen 2a wired to real data — the cleaner's home.
@@ -24,7 +25,7 @@ import { CleanerHomeView, type HomeJob, type SetupStep } from '@/components/port
 const MONEY = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 
 const timeLabel = (iso: string, tz: string) =>
-  new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
+  formatTimestampWithZone(iso, tz);
 
 export default function StaffHomePage() {
   const navigate = useNavigate();

@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { orgStartOfMonth } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { QueryError } from '@/components/QueryError';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface DemoRequest {
   id: string;
@@ -167,7 +168,7 @@ export function DemoRequestsTab() {
                         {demo.biggest_challenge && <Badge variant="outline">{demo.biggest_challenge}</Badge>}
                         {demo.preferred_days?.length ? <Badge variant="outline">{demo.preferred_days.join(', ')}</Badge> : null}
                         {demo.preferred_time && <Badge variant="outline">{demo.preferred_time}</Badge>}
-                        <span className="ml-auto">{format(new Date(demo.created_at), 'MMM d, h:mm a')}</span>
+                        <OrgTimestamp className="ml-auto" value={demo.created_at} />
                       </div>
                       {/* Inline notes */}
                       {editingNotes === demo.id ? (

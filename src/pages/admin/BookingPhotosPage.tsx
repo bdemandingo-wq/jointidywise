@@ -523,7 +523,7 @@ export default function BookingPhotosPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4 text-muted-foreground" />
-                    <span>Uploaded: {selectedPhoto.created_at ? formatInTimezone(selectedPhoto.created_at, orgTz, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '—'}</span>
+                    <span>Uploaded: {selectedPhoto.created_at ? formatInTimezone(selectedPhoto.created_at, orgTz, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' }) : '—'}</span>
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2">

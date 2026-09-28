@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { format } from 'date-fns';
 import { SignaturePad } from './SignaturePad';
 import { QueryError } from '@/components/QueryError';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 
 interface SignableDoc {
@@ -271,7 +272,7 @@ export function StaffSignatureManager({ staffId, organizationId }: Props) {
 
               {sig && (
                 <div className="bg-muted/50 rounded-lg p-3 text-xs text-muted-foreground space-y-2">
-                  <p>Signed on {format(new Date(sig.signed_at), 'MMM d, yyyy \'at\' h:mm a')}</p>
+                  <p>Signed on <OrgTimestamp value={sig.signed_at} /></p>
                   {sig.signature_type === 'type' && (
                     <p className="text-base italic font-serif" style={{ fontFamily: "'Georgia', serif" }}>
                       {sig.signature_data}

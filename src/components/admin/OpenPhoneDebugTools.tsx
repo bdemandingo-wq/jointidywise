@@ -9,6 +9,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { useOrganization } from '@/contexts/OrganizationContext';
+import { formatTimestampWithZone } from '@/lib/timezoneUtils';
+import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { 
   Phone, 
   Send, 
@@ -30,6 +32,7 @@ interface TestResult {
 
 export function OpenPhoneDebugTools() {
   const { organization } = useOrganization();
+  const { timezone } = useOrgTimezone(organization?.id);
   const [testPhone, setTestPhone] = useState('');
   const [testMessage, setTestMessage] = useState('This is a test message from TidyWise. If you received this, OpenPhone is working! 🎉');
   const [isTesting, setIsTesting] = useState(false);
@@ -333,7 +336,7 @@ export function OpenPhoneDebugTools() {
                         </AlertDescription>
                         <span className="text-xs text-muted-foreground">
                           {/* eslint-disable-next-line local/no-device-local-dates -- debug console: when the request ran on THIS machine */}
-                          {result.timestamp.toLocaleTimeString()}
+                          {formatTimestampWithZone(result.timestamp, timezone)}
                         </span>
                         {result.details && (
                           <details className="mt-1">
