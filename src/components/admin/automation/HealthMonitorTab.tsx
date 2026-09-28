@@ -11,6 +11,9 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { QueryError } from '@/components/QueryError';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
+import { formatTimestampWithZone } from '@/lib/timezoneUtils';
+import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 
 interface HealthCheck {
   name: string;
@@ -22,6 +25,7 @@ interface HealthCheck {
 }
 
 export function HealthMonitorTab() {
+  const { timezone } = useOrgTimezone();
   const { organization } = useOrganization();
   const navigate = useNavigate();
 
@@ -125,7 +129,7 @@ export function HealthMonitorTab() {
       icon: Phone,
       status: openphoneStatus?.connected ? 'ok' : 'error',
       message: openphoneStatus?.connected
-        ? `Active${openphoneStatus.lastMessage ? ` • Last message ${format(new Date(openphoneStatus.lastMessage), 'MMM d, h:mm a')}` : ''}`
+        ? `Active${openphoneStatus.lastMessage ? ` • Last message ${formatTimestampWithZone(openphoneStatus.lastMessage, timezone)}` : ''}`
         : 'Not configured. SMS automations will not work.',
       lastChecked: new Date().toISOString(),
       fixAction: !openphoneStatus?.connected ? { label: 'Configure SMS', href: '/dashboard/settings?tab=sms' } : undefined,
@@ -244,7 +248,7 @@ export function HealthMonitorTab() {
                       <p className="text-sm text-muted-foreground mt-1">{check.message}</p>
                       {check.lastChecked && (
                         <p className="text-xs text-muted-foreground mt-1">
-                          Checked: {format(new Date(check.lastChecked), 'MMM d, h:mm a')}
+                          Checked: <OrgTimestamp value={check.lastChecked} />
                         </p>
                       )}
                     </div>

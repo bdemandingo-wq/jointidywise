@@ -18,6 +18,8 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useSearchParams } from 'react-router-dom';
+import { formatTimestampWithZone } from '@/lib/timezoneUtils';
+import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 
 interface GmailConnection {
   id: string;
@@ -30,6 +32,7 @@ interface GmailConnection {
 }
 
 export function GmailConnectionCard() {
+  const { timezone } = useOrgTimezone();
   const { organization, isAdmin } = useOrganization();
   const [searchParams, setSearchParams] = useSearchParams();
   const [connection, setConnection] = useState<GmailConnection | null>(null);
@@ -173,7 +176,7 @@ export function GmailConnectionCard() {
 
   const formatDate = (iso: string | null) => {
     if (!iso) return 'Never';
-    return new Date(iso).toLocaleString();
+    return formatTimestampWithZone(iso, timezone);
   };
 
   const isConnected = connection?.status === 'active';

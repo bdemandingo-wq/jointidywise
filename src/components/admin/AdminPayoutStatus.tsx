@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Banknote, CheckCircle2, Clock, AlertCircle, RefreshCw, Loader2, AlertTriangle, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { QueryError } from '@/components/QueryError';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface AdminPayoutStatusProps {
   staffId: string;
@@ -187,7 +188,7 @@ export function AdminPayoutStatus({ staffId, staffName }: AdminPayoutStatusProps
       {/* Last webhook timestamp */}
       {lastWebhook && (
         <p className="text-[10px] text-muted-foreground/60">
-          Last synced: {new Date(lastWebhook).toLocaleString()}
+          Last synced: <OrgTimestamp value={lastWebhook} />
         </p>
       )}
     </div>
