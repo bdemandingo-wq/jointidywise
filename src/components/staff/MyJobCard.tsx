@@ -365,7 +365,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
         <div className="flex items-center gap-2 text-sm">
           <Clock className="w-4 h-4 text-muted-foreground" />
           <span>
-            {formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true })} ({booking.duration} min)
+            {formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })} ({booking.duration} min)
           </span>
         </div>
         {booking.customer && (

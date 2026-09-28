@@ -1526,7 +1526,7 @@ export default function BookingsPage() {
           // fallback to save this one. The lint rule missed it because
           // format(x, 'EEEE, MMMM d') is a display pattern, not a date key.
           const formattedDate = formatInOrgTz(scheduledDate, orgTz, { weekday: 'long', month: 'long', day: 'numeric' });
-          const formattedTime = formatInOrgTz(scheduledDate, orgTz, { hour: 'numeric', minute: '2-digit', hour12: true });
+          const formattedTime = formatInOrgTz(scheduledDate, orgTz, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' });
           
           // AI-style friendly reminder message
           const message = `Hey ${customerName}! 👋 Quick reminder: Your ${booking.service?.name || 'cleaning'} is scheduled for ${formattedDate} at ${formattedTime}.\n\n` +
@@ -1580,7 +1580,7 @@ export default function BookingsPage() {
       b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown',
       b.service?.name || (b.total_amount === 0 ? 'Re-clean' : 'Service'),
       formatInTimezone(b.scheduled_at, orgTz, { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/(\d+)\/(\d+)\/(\d+)/, '$3-$1-$2'),
-      formatInTimezone(b.scheduled_at, orgTz, { hour: 'numeric', minute: '2-digit', hour12: true }),
+      formatInTimezone(b.scheduled_at, orgTz, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' }),
       getBookingCleaners(b).map(c => c.name).join(', ') || 'Unassigned',
       statusLabels[b.status] || b.status,
       getPaymentStatusInfo(b).label,
@@ -2035,7 +2035,7 @@ export default function BookingsPage() {
                   <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
                     <span>{booking.service?.name || (booking.total_amount === 0 ? 'Re-clean' : 'Service')}</span>
                     <span>•</span>
-                    <span>{formatInTimezone(scheduledDate, orgTz, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                    <span>{formatInTimezone(scheduledDate, orgTz, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}</span>
                   </div>
                   
                   {/* Staff */}
@@ -2195,7 +2195,7 @@ export default function BookingsPage() {
                               {formatInTimezone(scheduledDate, orgTz, { month: 'short', day: 'numeric', year: 'numeric' })}
                             </span>
                             <span className="text-xs text-muted-foreground">
-                              {formatInTimezone(scheduledDate, orgTz, { hour: 'numeric', minute: '2-digit', hour12: true })}
+                              {formatInTimezone(scheduledDate, orgTz, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
                             </span>
                           </div>
                           {(needsReminder || urgentReminder) && (
@@ -2656,7 +2656,7 @@ export default function BookingsPage() {
                           #{booking.booking_number} - {booking.customer?.first_name} {booking.customer?.last_name}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          {booking.service?.name} • {formatInTimezone(booking.scheduled_at, orgTz, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                          {booking.service?.name} • {formatInTimezone(booking.scheduled_at, orgTz, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
                         </p>
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">

@@ -55,7 +55,7 @@ export default function SchedulerPage() {
       b.customer ? `${b.customer.first_name} ${b.customer.last_name}` : 'Unknown',
       b.service?.name || (b.total_amount === 0 ? 'Re-clean' : 'Service'),
       formatInTimezone(b.scheduled_at, orgTz, { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/(\d+)\/(\d+)\/(\d+)/, '$3-$1-$2'),
-      formatInTimezone(b.scheduled_at, orgTz, { hour: 'numeric', minute: '2-digit', hour12: true }),
+      formatInTimezone(b.scheduled_at, orgTz, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' }),
       b.staff?.name || 'Unassigned',
       b.status,
       `$${b.total_amount}`

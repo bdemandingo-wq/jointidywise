@@ -457,7 +457,7 @@ export default function FinancePage() {
         )}
         {stripeData?.synced_at && (
           <span className="text-xs text-muted-foreground">
-            Last synced: {formatInTimezone(stripeData.synced_at, orgTz, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+            Last synced: {formatInTimezone(stripeData.synced_at, orgTz, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
           </span>
         )}
       </div>

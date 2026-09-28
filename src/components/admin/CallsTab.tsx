@@ -342,7 +342,7 @@ export default function CallsTab({ organizationId }: CallsTabProps) {
                 <div className="bg-muted/50 rounded-lg p-3 col-span-2">
                   <p className="text-xs text-muted-foreground">Date & Time</p>
                   <p className="text-sm font-medium mt-1">
-                    {selectedCall.started_at ? formatInTimezone(selectedCall.started_at, orgTz, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : 'N/A'}
+                    {selectedCall.started_at ? formatInTimezone(selectedCall.started_at, orgTz, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' }) : 'N/A'}
                   </p>
                 </div>
               </div>
