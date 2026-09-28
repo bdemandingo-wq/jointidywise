@@ -37,6 +37,7 @@ import { SEOHead } from '@/components/SEOHead';
 import { AttentionStrip } from '@/components/admin/AttentionStrip';
 import { orgDateKey } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 type TaskType = 'daily' | 'weekly' | 'monthly' | 'note';
 
@@ -387,7 +388,7 @@ export default function TasksPage() {
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground mt-3">
-                            {format(new Date(note.created_at), 'MMM d, yyyy h:mm a')}
+                            <OrgTimestamp value={note.created_at} />
                           </p>
                         </CardContent>
                       </Card>

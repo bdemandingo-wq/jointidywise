@@ -15,6 +15,7 @@ import {
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 type Status =
   | 'submitted'
@@ -171,7 +172,7 @@ export default function AdminCustomWorkRequestsPage() {
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Submitted {new Date(r.submitted_at).toLocaleString()} ·
+                          Submitted <OrgTimestamp value={r.submitted_at} /> ·
                           Period{' '}
                           {/* eslint-disable-next-line local/no-device-local-dates -- viewer-local display of a stored instant */}
                           {new Date(r.billing_period_start).toLocaleDateString()} →{' '}

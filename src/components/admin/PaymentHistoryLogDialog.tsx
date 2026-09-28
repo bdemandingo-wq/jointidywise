@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
 import { BookingWithDetails } from '@/hooks/useBookings';
 import { fmt } from '@/lib/activeCurrency';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface PaymentHistoryLogDialogProps {
   open: boolean;
@@ -249,7 +250,7 @@ export function PaymentHistoryLogDialog({ open, onOpenChange, booking }: Payment
                     <div className="flex items-center gap-2 mt-2">
                       {getStatusBadge(event.status)}
                       <span className="text-xs text-muted-foreground">
-                        {format(new Date(event.timestamp), 'MMM d, yyyy h:mm a')}
+                        <OrgTimestamp value={event.timestamp} />
                       </span>
                     </div>
                   </div>
