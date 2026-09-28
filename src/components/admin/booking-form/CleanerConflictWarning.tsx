@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { format, parseISO } from 'date-fns';
 import { ConflictInfo } from '@/hooks/useCleanerConflicts';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface CleanerConflictWarningProps {
   cleanerName: string;
@@ -48,7 +49,7 @@ export function CleanerConflictWarning({
                 </div>
                 <div className="flex items-center gap-2 text-muted-foreground mt-1">
                   <Clock className="h-3 w-3" />
-                  {format(parseISO(conflict.scheduledAt), 'h:mm a')} 
+                  <OrgTimestamp value={conflict.scheduledAt} /> 
                   <span className="text-xs">
                     ({conflict.duration} min • {conflict.serviceName})
                   </span>

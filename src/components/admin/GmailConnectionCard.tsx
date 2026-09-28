@@ -153,7 +153,7 @@ export function GmailConnectionCard() {
     if (!organization?.id || !connection?.google_email) return;
     setSendingTest(true);
     try {
-      const timestamp = new Date().toLocaleString();
+      const timestamp = formatTimestampWithZone(new Date(), timezone);
       const { data, error } = await supabase.functions.invoke('gmail-send', {
         body: {
           organization_id: organization.id,

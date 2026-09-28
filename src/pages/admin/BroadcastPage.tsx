@@ -31,6 +31,7 @@ import {
 } from '@/hooks/useBroadcasts';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Loader2, Mail, Send } from 'lucide-react';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 /**
  * Platform broadcast composer — subject/body -> class -> resolve audience ->
@@ -579,12 +580,7 @@ export function BroadcastView({ embedded = false }: { embedded?: boolean }) {
                       <TableCell className="text-right tabular-nums">{b.failed_count}</TableCell>
                       <TableCell className="text-right tabular-nums">{b.skipped_count}</TableCell>
                       <TableCell className="whitespace-nowrap">
-                        {new Date(b.created_at).toLocaleString(undefined, {
-                          day: 'numeric',
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
+                        <OrgTimestamp value={b.created_at} />
                       </TableCell>
                     </TableRow>
                   ))}

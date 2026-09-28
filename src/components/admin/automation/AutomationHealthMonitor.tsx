@@ -10,6 +10,7 @@ import { CheckCircle2, XCircle, AlertTriangle, Activity, TrendingUp, Clock, Chev
 import { format } from 'date-fns';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { QueryError } from '@/components/QueryError';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface QueueStats {
   total: number;
@@ -181,9 +182,9 @@ function DetailsList({ items, filter }: { items: DetailItem[]; filter: 'failed' 
               <p className="text-destructive mt-0.5 break-all">{item.error}</p>
             )}
             <div className="flex gap-2 mt-0.5 text-muted-foreground">
-              <span>Created: {format(new Date(item.created_at), 'MMM d, h:mm a')}</span>
+              <span>Created: <OrgTimestamp value={item.created_at} /></span>
               {item.send_at && item.status === 'pending' && (
-                <span>• Scheduled: {format(new Date(item.send_at), 'MMM d, h:mm a')}</span>
+                <span>• Scheduled: <OrgTimestamp value={item.send_at} /></span>
               )}
             </div>
           </div>
@@ -441,7 +442,7 @@ export function AutomationHealthMonitor() {
               <p className="text-xs text-muted-foreground mt-1">
                 No reminder activity in the last 2 hours.{' '}
                 {reminderStats.lastActivityAt
-                  ? <>Last log entry {format(new Date(reminderStats.lastActivityAt), 'MMM d, h:mm a')}.</>
+                  ? <>Last log entry <OrgTimestamp value={reminderStats.lastActivityAt} />.</>
                   : <>No reminder has ever been logged for this organization.</>}
                 {' '}The scheduler runs every 15 minutes — if you have bookings in the next few days, contact support.
               </p>

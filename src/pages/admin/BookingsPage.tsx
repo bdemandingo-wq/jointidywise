@@ -98,7 +98,7 @@ import { useBookings, useDraftBookings, useUpdateBooking, useDeleteBooking, useS
 import { format, isWithinInterval, startOfDay, endOfDay, differenceInDays, differenceInHours, addDays } from 'date-fns';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { orgStartOfDay, orgEndOfDay, orgDateKey, formatInOrgTz } from '@/lib/orgDateRange';
-import { formatInTimezone, getDateInTimezone } from '@/lib/timezoneUtils';
+import { formatInTimezone, getDateInTimezone, formatTimestampWithZone } from '@/lib/timezoneUtils';
 import { AddBookingDialog } from '@/components/admin/AddBookingDialog';
 import { BookingDetailsDialog, AdjustPaymentDialog } from '@/components/admin/BookingDialogs';
 import { PaymentHistoryLogDialog } from '@/components/admin/PaymentHistoryLogDialog';
@@ -1158,7 +1158,7 @@ export default function BookingsPage() {
               customerPhone: booking.customer?.phone || 'N/A',
               serviceName: booking.service?.name || 'Cleaning Service',
               appointmentDate: format(scheduledDate, 'EEEE, MMMM d, yyyy'),
-              appointmentTime: format(scheduledDate, 'h:mm a'),
+              appointmentTime: formatTimestampWithZone(scheduledDate, orgTz),
               scheduledAt: booking.scheduled_at,
               address: fullAddress || 'Address not provided',
               bookingNumber: booking.booking_number,
@@ -1252,7 +1252,7 @@ export default function BookingsPage() {
                 customerPhone: booking.customer?.phone || 'N/A',
                 serviceName: booking.service?.name || 'Cleaning Service',
                 appointmentDate: format(scheduledDate, 'EEEE, MMMM d, yyyy'),
-                appointmentTime: format(scheduledDate, 'h:mm a'),
+                appointmentTime: formatTimestampWithZone(scheduledDate, orgTz),
                 address: fullAddress || 'Address not provided',
                 bookingNumber: booking.booking_number,
                 organizationId: organization?.id,
@@ -1318,7 +1318,7 @@ export default function BookingsPage() {
             booking_number: booking.booking_number,
             service_name: booking.service?.name || 'Cleaning Service',
             scheduled_date: format(scheduledDate, 'MMMM d, yyyy'),
-            scheduled_time: format(scheduledDate, 'h:mm a'),
+            scheduled_time: formatTimestampWithZone(scheduledDate, orgTz),
             address: fullAddress || 'Address not provided',
             square_footage: booking.square_footage || '',
             duration: booking.duration,
@@ -1452,7 +1452,7 @@ export default function BookingsPage() {
                 customerPhone: booking.customer?.phone || 'N/A',
                 serviceName: booking.service?.name || 'Cleaning Service',
                 appointmentDate: format(scheduledDate, 'EEEE, MMMM d, yyyy'),
-                appointmentTime: format(scheduledDate, 'h:mm a'),
+                appointmentTime: formatTimestampWithZone(scheduledDate, orgTz),
                 address: fullAddress || 'Address not provided',
                 bookingNumber: booking.booking_number,
                 organizationId: organization?.id,
@@ -1549,7 +1549,7 @@ export default function BookingsPage() {
           
           // Update booking with reminder sent tag
           await supabase.from('bookings').update({
-            notes: (booking.notes ? booking.notes + '\n' : '') + `[Reminder Sent: ${format(new Date(), 'MMM d, h:mm a')}]`
+            notes: (booking.notes ? booking.notes + '\n' : '') + `[Reminder Sent: ${formatTimestampWithZone(new Date(), orgTz)}]`
           }).eq('id', booking.id);
           
           successCount++;
@@ -1630,7 +1630,7 @@ export default function BookingsPage() {
         doc.text('TidyWise: Bookings Report', 14, 18);
         doc.setFontSize(10);
         doc.setTextColor(120, 120, 120);
-        doc.text(`Generated ${format(new Date(), 'MMMM d, yyyy h:mm a')}  •  ${filteredBookings.length} bookings`, 14, 26);
+        doc.text(`Generated ${formatTimestampWithZone(new Date(), orgTz)}  •  ${filteredBookings.length} bookings`, 14, 26);
         autoTable(doc, {
           head: [headers],
           body: rows,
@@ -1649,7 +1649,7 @@ export default function BookingsPage() {
         if (!printWin) { toast({ title: "Error", description: "Popup blocked. Please allow popups.", variant: "destructive" }); return; }
         const escHtml = (s: unknown) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         const tableRows = rows.map(r => `<tr>${r.map(c => `<td style="padding:6px 10px;border:1px solid #ddd;font-size:13px">${escHtml(c)}</td>`).join('')}</tr>`).join('');
-        printWin.document.write(`<!DOCTYPE html><html><head><title>Bookings</title><style>body{font-family:Arial,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th{background:#2563eb;color:#fff;padding:8px 10px;font-size:13px;text-align:left}h1{font-size:20px;margin-bottom:4px}p{color:#888;font-size:13px;margin-bottom:16px}@media print{body{margin:0}}</style></head><body><h1>TidyWise: Bookings Report</h1><p>Generated ${format(new Date(), 'MMMM d, yyyy h:mm a')} • ${filteredBookings.length} bookings</p><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${tableRows}</tbody></table></body></html>`);
+        printWin.document.write(`<!DOCTYPE html><html><head><title>Bookings</title><style>body{font-family:Arial,sans-serif;margin:24px}table{border-collapse:collapse;width:100%}th{background:#2563eb;color:#fff;padding:8px 10px;font-size:13px;text-align:left}h1{font-size:20px;margin-bottom:4px}p{color:#888;font-size:13px;margin-bottom:16px}@media print{body{margin:0}}</style></head><body><h1>TidyWise: Bookings Report</h1><p>Generated ${formatTimestampWithZone(new Date(), orgTz)} • ${filteredBookings.length} bookings</p><table><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${tableRows}</tbody></table></body></html>`);
         printWin.document.close();
         printWin.focus();
         printWin.print();

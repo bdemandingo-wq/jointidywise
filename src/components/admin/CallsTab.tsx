@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { format, isToday, isThisWeek } from 'date-fns';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
-import { formatInTimezone } from '@/lib/timezoneUtils';
+import { formatInTimezone, formatTimestampWithZone } from '@/lib/timezoneUtils';
 import {
   Phone, PhoneIncoming, PhoneOutgoing, PhoneMissed, Voicemail,
   Search, Loader2, RefreshCw, FileText, Mic, Play, Download,
@@ -68,9 +68,9 @@ const formatCallTime = (dateStr: string | null, timeZone: string) => {
   const d = new Date(dateStr);
   // A call's timestamp is an instant; whether it happened "today" is the
   // business's question, not the viewer's.
-  if (orgDateKey(d, timeZone) === orgDateKey(new Date(), timeZone)) return format(d, 'h:mm a');
-  if (isThisWeek(d)) return format(d, 'EEE h:mm a');
-  return format(d, 'MMM d, h:mm a');
+  if (orgDateKey(d, timeZone) === orgDateKey(new Date(), timeZone)) return formatTimestampWithZone(d, timeZone);
+  if (isThisWeek(d)) return formatTimestampWithZone(d, timeZone);
+  return formatTimestampWithZone(d, timeZone);
 };
 
 const getCallIcon = (call: OpenPhoneCall) => {
