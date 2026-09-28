@@ -99,6 +99,7 @@ function MiniMap({ lat, lng, destLat, destLng }: { lat: number; lng: number; des
 function ActiveJobCard({ tracking }: { tracking: ActiveTracking }) {
   const distanceUnit = useDistanceUnit(tracking.organization_id);
   const orgCountry = useOrgCountryCode(tracking.organization_id);
+  const { timezone: orgTz } = useOrgTimezone(tracking.organization_id);
   const [destCoords, setDestCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [eta, setEta] = useState<{ durationMinutes: number; distanceMiles: number } | null>(null);
   const [, setTick] = useState(0);
