@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { saveBlob } from '@/lib/fileActions';
 import { buildPlatformRevenueCsv, type BillingEventRow } from '@/lib/platformRevenueExport';
 import {
+import { formatTimestampWithZone } from '@/lib/timezoneUtils';
   useBillingRevenue,
   useBackfillFreshness,
   useBillingPlanPayers,
@@ -173,9 +174,7 @@ function StalenessBanner({ freshness }: { freshness: Freshness | undefined }) {
   // revenue page that looks authoritative while being weeks out of date is
   // precisely what this is here to prevent.
   if (freshness.state === 'fresh') {
-    const when = freshness.loadedAt.toLocaleString(undefined, {
-      day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-    });
+    const when = formatTimestampWithZone(freshness.loadedAt, 'America/New_York');
     return (
       <p className="flex items-center gap-1.5 text-xs text-muted-foreground mb-4">
         <Clock className="w-3.5 h-3.5" />

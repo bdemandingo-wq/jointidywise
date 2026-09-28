@@ -177,6 +177,7 @@ export default function PlatformFeedbackPage() {
                     day: 'numeric',
                     hour: 'numeric',
                     minute: '2-digit',
+                    timeZoneName: 'short',
                   })}
                   {f.app_area ? ` · ${f.app_area}` : ''}
                 </p>

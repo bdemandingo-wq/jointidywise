@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { Search, FileDown, Loader2, Clock, CalendarDays, Activity, Timer, Globe } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { formatTimestampWithZone } from '@/lib/timezoneUtils';
 
 // Nullable in the database. The interface claimed otherwise, which is why
 // assigning a query result to it failed — the interface was the wrong half.
@@ -149,7 +150,7 @@ export function UserSessionEvidence() {
     const autoTable = (await import('jspdf-autotable')).default;
 
     const doc = new jsPDF({ orientation: 'landscape' });
-    const now = format(new Date(), 'MMMM d, yyyy h:mm a');
+    const now = formatTimestampWithZone(new Date(), 'America/New_York');
 
     // Header
     doc.setFontSize(18);
@@ -169,8 +170,8 @@ export function UserSessionEvidence() {
       head: [['Metric', 'Value']],
       body: [
         ['Total Sessions', String(report.totalSessions)],
-        ['First Session', format(new Date(report.firstSession), 'MMM d, yyyy h:mm a')],
-        ['Last Session', format(new Date(report.lastSession), 'MMM d, yyyy h:mm a')],
+        ['First Session', formatTimestampWithZone(report.firstSession, 'America/New_York')],
+        ['Last Session', formatTimestampWithZone(report.lastSession, 'America/New_York')],
         ['Total Time in Platform', formatDuration(report.totalDurationSeconds)],
         ['Unique Pages Accessed', String(report.pageSummary.length)],
         ['Total Page Views', String(report.pageViews.length)],
@@ -193,8 +194,8 @@ export function UserSessionEvidence() {
           p.page_title,
           p.page_path,
           String(p.visit_count),
-          format(new Date(p.first_visit), 'MMM d, yyyy h:mm a'),
-          format(new Date(p.last_visit), 'MMM d, yyyy h:mm a'),
+          formatTimestampWithZone(p.first_visit, 'America/New_York'),
+          formatTimestampWithZone(p.last_visit, 'America/New_York'),
         ]),
         theme: 'grid',
         headStyles: { fillColor: [30, 30, 30] },
@@ -219,8 +220,8 @@ export function UserSessionEvidence() {
       body: report.sessions.map((s, i) => [
         String(i + 1),
         format(new Date(s.session_start), 'MMM d, yyyy'),
-        format(new Date(s.session_start), 'h:mm a'),
-        s.session_end ? format(new Date(s.session_end), 'h:mm a') : '—',
+        formatTimestampWithZone(s.session_start, 'America/New_York'),
+        s.session_end ? formatTimestampWithZone(s.session_end, 'America/New_York') : '—',
         formatDuration(s.duration_seconds),
         s.is_active ? 'Active' : 'Ended',
       ]),
@@ -369,8 +370,8 @@ export function UserSessionEvidence() {
                             {format(new Date(s.session_start), 'MMM d, yyyy')}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {format(new Date(s.session_start), 'h:mm a')}
-                            {s.session_end && ` to ${format(new Date(s.session_end), 'h:mm a')}`}
+                            {formatTimestampWithZone(s.session_start, 'America/New_York')}
+                            {s.session_end && ` to ${formatTimestampWithZone(s.session_end, 'America/New_York')}`}
                           </p>
                         </div>
                       </div>
