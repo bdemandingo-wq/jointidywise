@@ -15,7 +15,7 @@ import { calculateDistanceMiles, formatDistance } from '@/lib/distanceUtils';
 import { useDistanceUnit, useOrgCountryCode } from '@/hooks/useDistanceUnit';
 import { format } from 'date-fns';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
-import { formatInTimezone } from '@/lib/timezoneUtils';
+import { formatInTimezone, formatTimestampWithZone } from '@/lib/timezoneUtils';
 import { orgStartOfDay } from '@/lib/orgDateRange';
 
 interface ActiveTracking {
@@ -226,7 +226,7 @@ function ActiveJobCard({ tracking }: { tracking: ActiveTracking }) {
                 of whoever is watching the map right now, which is what makes an
                 elapsed time legible. Not a business-day boundary. */}
             {/* eslint-disable-next-line local/no-device-local-dates -- viewer-local elapsed time, deliberate */}
-            <span>On the way since {startedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+            <span>On the way since {formatTimestampWithZone(startedAt, orgTz)}</span>
           </div>
           {eta && !isStale && (
             <span className="font-medium text-primary">
@@ -512,8 +512,8 @@ export default function TrackingPage() {
                       </div>
                     </div>
                     <div className="text-xs text-muted-foreground text-right">
-                      <p>En route at {formatInTimezone(job.created_at, orgTz, { hour: 'numeric', minute: '2-digit', hour12: true })}</p>
-                      <p>Last update {formatInTimezone(job.recorded_at, orgTz, { hour: 'numeric', minute: '2-digit', hour12: true })}</p>
+                      <p>En route at {formatTimestampWithZone(job.created_at, orgTz)}</p>
+                      <p>Last update {formatTimestampWithZone(job.recorded_at, orgTz)}</p>
                     </div>
                   </div>
                 );

@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { Calendar, MapPin, Clock, DollarSign, CheckCircle } from 'lucide-react';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface Booking {
   id: string;
@@ -77,7 +78,7 @@ export function JobHistoryCard({ booking }: Props) {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Clock className="w-4 h-4" />
           <span>
-            {format(new Date(booking.scheduled_at), 'h:mm a')} ({booking.duration} min)
+            <OrgTimestamp value={booking.scheduled_at} /> ({booking.duration} min)
           </span>
         </div>
         {booking.customer && (

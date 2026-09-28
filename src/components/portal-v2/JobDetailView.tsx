@@ -9,6 +9,7 @@ import { InfoRow } from './InfoRow';
 import { InverseCard } from './Card';
 import { NoteWell } from './NoteWell';
 import { StatusBadge } from './StatusBadge';
+import { formatTimestampWithZone } from '@/lib/timezoneUtils';
 
 /**
  * Screen 3a's presentation, with no data fetching in it.
@@ -59,7 +60,7 @@ const MONEY = (n: number) => n.toLocaleString('en-US', { style: 'currency', curr
 /* Both formatters pass an explicit timeZone, which is what
    local/no-device-local-dates asks for — the ban is on toLocale* WITHOUT one. */
 const timeLabel = (iso: string, tz: string) =>
-  new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz });
+  formatTimestampWithZone(iso, tz);
 const dayLabel = (iso: string, tz: string) =>
   new Date(iso).toLocaleDateString('en-US', {
     weekday: 'short',

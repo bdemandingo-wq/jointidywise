@@ -38,6 +38,7 @@ import { supabase } from '@/lib/supabase';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { QueryError } from '@/components/QueryError';
 import { refreshBadges } from '@/lib/badgeRefresh';
+import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 
 interface BookingRequest {
@@ -344,7 +345,7 @@ export function ClientBookingRequestsManager() {
 
                 <div className="flex items-center justify-between pt-2 border-t">
                   <p className="text-xs text-muted-foreground">
-                    Submitted {format(new Date(request.created_at), 'MMM d, h:mm a')}
+                    Submitted <OrgTimestamp value={request.created_at} />
                   </p>
                   
                   {request.status === 'pending' && (
