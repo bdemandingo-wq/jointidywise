@@ -1364,7 +1364,15 @@ export default function BookingsPage() {
       });
 
       if (error) throw error;
-      if (data?.success) {
+      if (data?.success && data?.skipped) {
+        // The function answers 200 when it deliberately skips (customer opted
+        // out of marketing texts) — don't report that as "sent".
+        toast({
+          title: "Tip link not sent",
+          description: `${booking.customer.first_name} has opted out of promotional texts, so no tip request was sent.`,
+          variant: "destructive",
+        });
+      } else if (data?.success) {
         toast({ title: "Tip Link Sent", description: `Tip request SMS sent to ${booking.customer.first_name}` });
       } else {
         toast({ title: "Error", description: data?.error || "Failed to send tip request", variant: "destructive" });
