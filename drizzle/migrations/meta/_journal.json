@@ -78,6 +78,13 @@
       "when": 1791781825008,
       "tag": "0010_p4_abandoned_booking_rate_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791781834830,
+      "tag": "0011_p4_revoke_anon_rls_helpers",
+      "breakpoints": true
     }
   ]
 }
