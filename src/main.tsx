@@ -50,9 +50,32 @@ window.addEventListener("error", (event) => {
   }
 });
 
+// An expired sign-in (e.g. after the backend was paused, or a laptop slept)
+// makes background function calls reject with 401 "token is expired". That is
+// recoverable: refresh the session once instead of letting it blank the screen.
+let expiredRefreshInFlight = false;
+function isExpiredJwtError(reason: unknown): boolean {
+  const msg = reason instanceof Error ? reason.message : String(reason ?? "");
+  return /token is expired|invalid JWT|JWT expired/i.test(msg);
+}
+
 window.addEventListener("unhandledrejection", (event) => {
   if (maybeReloadForStaleChunk(event.reason)) {
     event.preventDefault();
+    return;
+  }
+  if (isExpiredJwtError(event.reason)) {
+    event.preventDefault();
+    if (expiredRefreshInFlight) return;
+    expiredRefreshInFlight = true;
+    import("@/integrations/supabase/client")
+      .then(async ({ supabase }) => {
+        const { error } = await supabase.auth.refreshSession();
+        if (error) console.warn("[auth] session refresh after expired token failed:", error.message);
+      })
+      .finally(() => {
+        expiredRefreshInFlight = false;
+      });
   }
 });
 
