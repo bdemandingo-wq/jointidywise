@@ -36,7 +36,7 @@ export async function decryptToken(payload: string): Promise<string> {
   const iv = unb64(parts[1]);
   const ct = unb64(parts[2]);
   const key = await getKey();
-  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct as BufferSource);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct as unknown as ArrayBuffer);
   return dec.decode(pt);
 }
 
@@ -62,7 +62,7 @@ export async function verifyState(token: string, maxAgeMs = 15 * 60 * 1000): Pro
     "raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]
   );
   const sigBytes = unb64(sig.replace(/-/g, "+").replace(/_/g, "/") + "==".slice((sig.length + 2) % 4));
-  const ok = await crypto.subtle.verify("HMAC", key, sigBytes as BufferSource, enc.encode(data) as BufferSource);
+  const ok = await crypto.subtle.verify("HMAC", key, sigBytes as unknown as ArrayBuffer, enc.encode(data) as unknown as ArrayBuffer);
   if (!ok) return null;
   try {
     const json = atob(data.replace(/-/g, "+").replace(/_/g, "/") + "==".slice((data.length + 2) % 4));

@@ -328,7 +328,7 @@ RULES:
     const aiResp = await anthropicChat(
       {
         model: MODEL_HAIKU,
-        messages,
+        messages: messages as any,
         max_tokens: 300,
         temperature: 0.7,
       },

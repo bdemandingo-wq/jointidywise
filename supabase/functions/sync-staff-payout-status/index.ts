@@ -81,7 +81,7 @@ serve(async (req) => {
           { created: { gte: transfer.created }, limit: 10 },
           { stripeAccount: transfer.destination },
         );
-        const p = payouts.data.sort((a, b) => a.created - b.created)[0];
+        const p = payouts.data.sort((a: { created: number }, b: { created: number }) => a.created - b.created)[0];
         if (p) {
           payoutId = p.id;
           expected = new Date(p.arrival_date * 1000).toISOString().slice(0, 10);
