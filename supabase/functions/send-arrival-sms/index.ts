@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { parseAlertPhones } from '../_shared/alertPhones.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
+import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -56,14 +57,21 @@ const handler = async (req: Request): Promise<Response> => {
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // AUTH: caller must belong to the booking's organization. Anon key is not enough.
+    const auth = await verifyOrgAccess(req, booking.organization_id);
+    if (!auth.ok) {
+      return new Response(JSON.stringify({ success: false, error: auth.error }),
+        { status: auth.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const customerData = booking.customer as unknown;
     const customer = (Array.isArray(customerData) ? customerData[0] : customerData) as
       { first_name: string; last_name: string; phone: string | null } | null;
 
-    const { data: staff } = await supabase.from('staff').select('name').eq('id', staffId).single();
-    if (!staff) {
-      return new Response(JSON.stringify({ success: false, error: "Staff not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const { data: staff } = await supabase.from('staff').select('name, organization_id').eq('id', staffId).maybeSingle();
+    if (!staff || staff.organization_id !== booking.organization_id) {
+      return new Response(JSON.stringify({ success: false, error: "Staff does not belong to this organization" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const { data: smsSettings } = await supabase

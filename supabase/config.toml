@@ -67,6 +67,10 @@ project_id = "slwfkaqczvwvvvavkgpr"
     # Invoked by trg_notify_new_lead on public.leads via pg_net, which cannot
     # present a user JWT. Gated internally by requireCronSecret.
     verify_jwt = false
+  [functions.notify-new-organization-signup]
+    # Invoked by on_new_org_created on public.organizations via pg_net, which
+    # cannot present a user JWT. Gated internally by x-cron-secret.
+    verify_jwt = false
   [functions.notify-platform-admin-subscription]
     verify_jwt = false
   [functions.openphone-webhook]
@@ -233,6 +237,11 @@ verify_jwt = true
   # incident). Self-gates via is_platform_admin RPC inside the handler,
   # so verify_jwt is left off to keep that one source of truth.
   [functions.recover-stripe-subscription]
+    verify_jwt = false
+  [functions.stripe-isolation-audit]
+    # Cron (x-cron-secret) or a platform-admin user JWT, both checked inside.
+    # Gateway JWT is off so a cron call is not rejected before that check.
+    # The old x-service-key header is no longer accepted.
     verify_jwt = false
   [functions.notify-quote-accepted]
     verify_jwt = false

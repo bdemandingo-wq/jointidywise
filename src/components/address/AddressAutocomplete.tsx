@@ -42,11 +42,27 @@ interface Suggestion {
   secondaryText: string;
 }
 
+function readPortalSessionToken(): string | null {
+  try {
+    const raw = localStorage.getItem('client_portal_session');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { sessionToken?: unknown };
+    return typeof parsed?.sessionToken === 'string' && parsed.sessionToken ? parsed.sessionToken : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface AddressAutocompleteProps {
   value: string;
   onChange: (value: string) => void;
   /** Fires only on suggestion pick, never on free typing. */
   onResolved: (resolved: ResolvedAddress) => void;
+  /**
+   * Public booking page only. Anonymous autocomplete is rejected unless
+   * this is a real organization slug. Signed-in callers can omit it.
+   */
+  bookingOrgSlug?: string;
   id?: string;
   placeholder?: string;
   /** Applied to the positioning wrapper. */
@@ -70,6 +86,7 @@ export function AddressAutocomplete({
   value,
   onChange,
   onResolved,
+  bookingOrgSlug,
   id,
   placeholder = 'Start typing an address...',
   className,
@@ -121,13 +138,16 @@ export function AddressAutocomplete({
 
     debounceRef.current = window.setTimeout(async () => {
       try {
+        const portalToken = readPortalSessionToken();
         const { data, error } = await supabase.functions.invoke('address-autocomplete', {
           body: {
             action: 'suggest',
             input: q,
             sessionToken: sessionTokenRef.current,
             regionCode: REGION_CODE,
+            bookingOrgSlug,
           },
+          headers: portalToken ? { 'x-portal-session': portalToken } : undefined,
         });
         if (error) throw error;
         setSuggestions((data?.suggestions ?? []) as Suggestion[]);
@@ -142,7 +162,7 @@ export function AddressAutocomplete({
     return () => {
       if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
-  }, [value]);
+  }, [value, bookingOrgSlug]);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
@@ -158,12 +178,15 @@ export function AddressAutocomplete({
     setShowSuggest(false);
     onChange(s.mainText || s.text);
     try {
+      const portalToken = readPortalSessionToken();
       const { data, error } = await supabase.functions.invoke('address-autocomplete', {
         body: {
           action: 'details',
           placeId: s.placeId,
           sessionToken: sessionTokenRef.current,
+          bookingOrgSlug,
         },
+        headers: portalToken ? { 'x-portal-session': portalToken } : undefined,
       });
       if (error) throw error;
       if (data?.street) {

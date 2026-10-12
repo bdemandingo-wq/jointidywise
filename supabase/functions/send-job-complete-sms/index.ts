@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { parseAlertPhones, sendToExtraAlertPhones } from '../_shared/alertPhones.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
+import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
 
 /**
  * Texts the owner's PERSONAL cell the moment a cleaner marks a job complete.
@@ -64,6 +65,13 @@ const handler = async (req: Request): Promise<Response> => {
     if (!booking?.organization_id) {
       return new Response(JSON.stringify({ success: false, error: "Booking not found" }),
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // AUTH: caller must belong to the booking's organization. Anon key is not enough.
+    const auth = await verifyOrgAccess(req, booking.organization_id);
+    if (!auth.ok) {
+      return new Response(JSON.stringify({ success: false, error: auth.error }),
+        { status: auth.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // Cross-tenant guard: the staff row must belong to the booking's org.
