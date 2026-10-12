@@ -6,10 +6,11 @@
 -- saved cleaner_wage, otherwise the staff record's hourly_rate, and only
 -- then the legacy base_wage.
 --
--- Already-completed unlocked hourly jobs are rewritten to that same number
--- so Earnings, the job card, Cleaner Wages, and payroll agree without
--- waiting for the job to be completed again. Locked pay and team splits
--- (2+ assignment rows) are left alone.
+-- This migration only replaces complete_assigned_booking. The new hours
+-- and rate are stored when a cleaner completes an in-progress job after
+-- this function is deployed. Existing rows are not updated:
+-- cleaner_pay_expected and pay_share stay as they were written. Screens
+-- may still compute a displayed amount from this rule without writing it.
 
 CREATE OR REPLACE FUNCTION public.complete_assigned_booking(p_booking_id uuid)
 RETURNS jsonb
@@ -207,71 +208,4 @@ REVOKE ALL ON FUNCTION public.complete_assigned_booking(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.complete_assigned_booking(uuid) TO authenticated;
 
 COMMENT ON FUNCTION public.complete_assigned_booking(uuid) IS
-  'Assigned cleaner marks their in-progress booking complete. Hourly pay is the staff or booking rate times payable hours: the clock, floored at the booking duration and capped by payroll_settings. Does not accept a pay amount from the client.';
-
--- Rewrite stored hourly pay that was saved under the old rules (raw clock,
--- or a hardcoded 5 hours). auth.uid() is null here, so the financial guards
--- allow the update.
-WITH caps AS (
-  SELECT organization_id,
-         COALESCE(hours_overage_cap_ratio, 1.25) AS cap,
-         COALESCE(hours_absolute_ceiling, 12) AS ceiling
-  FROM public.payroll_settings
-),
-computed AS (
-  SELECT
-    b.id,
-    CASE
-      WHEN b.cleaner_checkin_at IS NOT NULL
-           AND b.cleaner_checkout_at IS NOT NULL
-           AND b.cleaner_checkout_at > b.cleaner_checkin_at
-      THEN
-        CASE
-          WHEN COALESCE(b.duration, 0) > 0 THEN
-            LEAST(
-              GREATEST(
-                EXTRACT(EPOCH FROM (b.cleaner_checkout_at - b.cleaner_checkin_at)) / 3600.0,
-                b.duration::numeric / 60.0
-              ),
-              (b.duration::numeric / 60.0) * COALESCE(c.cap, 1.25),
-              COALESCE(c.ceiling, 12)
-            )
-          ELSE
-            LEAST(
-              EXTRACT(EPOCH FROM (b.cleaner_checkout_at - b.cleaner_checkin_at)) / 3600.0,
-              COALESCE(c.ceiling, 12)
-            )
-        END
-      WHEN b.cleaner_override_hours IS NOT NULL THEN b.cleaner_override_hours
-      WHEN COALESCE(b.duration, 0) > 0 THEN b.duration::numeric / 60.0
-      WHEN s.default_hours IS NOT NULL THEN s.default_hours
-      ELSE NULL
-    END AS hours,
-    COALESCE(b.cleaner_wage, s.hourly_rate, s.base_wage, 0) AS rate
-  FROM public.bookings b
-  LEFT JOIN public.staff s ON s.id = b.staff_id
-  LEFT JOIN caps c ON c.organization_id = b.organization_id
-  WHERE COALESCE(b.pay_locked, false) = false
-    AND b.cleaner_actual_payment IS NULL
-    AND lower(COALESCE(NULLIF(btrim(b.cleaner_wage_type), ''), 'hourly')) = 'hourly'
-)
-UPDATE public.bookings b
-SET cleaner_pay_expected = ROUND(c.rate * c.hours, 2)
-FROM computed c
-WHERE b.id = c.id
-  AND c.hours IS NOT NULL
-  AND c.rate > 0
-  AND b.cleaner_pay_expected IS DISTINCT FROM ROUND(c.rate * c.hours, 2);
-
-UPDATE public.booking_team_assignments a
-SET pay_share = b.cleaner_pay_expected
-FROM public.bookings b
-WHERE a.booking_id = b.id
-  AND b.cleaner_pay_expected IS NOT NULL
-  AND COALESCE(b.pay_locked, false) = false
-  AND b.cleaner_actual_payment IS NULL
-  AND lower(COALESCE(NULLIF(btrim(b.cleaner_wage_type), ''), 'hourly')) = 'hourly'
-  AND (
-    SELECT count(*) FROM public.booking_team_assignments a2 WHERE a2.booking_id = b.id
-  ) = 1
-  AND a.pay_share IS DISTINCT FROM b.cleaner_pay_expected;
+  'Assigned cleaner marks their in-progress booking complete. Hourly pay is the staff or booking rate times payable hours: the clock, floored at the booking duration and capped by payroll_settings. Does not accept a pay amount from the client. Does not rewrite pay on bookings that are already completed.';
