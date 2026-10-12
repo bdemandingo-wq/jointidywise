@@ -221,6 +221,13 @@ export function AddressAutocomplete({
             onChange(e.target.value);
           }}
           onFocus={() => suggestions.length > 0 && setShowSuggest(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && showSuggest) {
+              e.preventDefault();
+              e.stopPropagation();
+              setShowSuggest(false);
+            }
+          }}
           placeholder={placeholder}
           autoComplete="off"
           disabled={disabled}
