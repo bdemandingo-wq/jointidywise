@@ -36,6 +36,13 @@
       "when": 1791775103064,
       "tag": "0004_tighten_complete_booking_financial_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791777636564,
+      "tag": "0005_consistent_payable_hours",
+      "breakpoints": true
     }
   ]
 }
