@@ -17,6 +17,8 @@ export interface JobNotifyResult {
   error?: string;
   channels?: JobNotifyChannels;
   smsSkippedReason?: string | null;
+  /** Plain reason the customer text failed. Present only when a send was attempted and rejected. */
+  customerSmsError?: string | null;
   /** Older responses, before channels existed. */
   adminSent?: boolean;
   adminNotified?: boolean;
@@ -51,12 +53,18 @@ export function describeOnTheWay(
   const customer = channels ? !!channels.customerSms : false;
   const office = officeReached(channels, data.adminNotified || data.adminSent);
 
+  if (data.customerSmsError) {
+    const officeNote = office ? ' The office was still notified.' : '';
+    return {
+      ok: false,
+      message: `${data.customerSmsError}${officeNote} You can try again.`,
+    };
+  }
+
   if (!channels && data.success) {
     return {
       ok: true,
-      message: opts.hasTracking
-        ? 'Customer notified with a live tracking link.'
-        : "Customer notified that you're on the way.",
+      message: 'On the way recorded.',
     };
   }
 

@@ -69,6 +69,13 @@ const handler = async (req: Request): Promise<Response> => {
 
     const companyName = businessSettings?.company_name || 'Our Company';
 
+    const { data: orgRow } = await supabase
+      .from('organizations')
+      .select('slug')
+      .eq('id', organizationId)
+      .maybeSingle();
+    const orgSlug = (orgRow as { slug?: string | null } | null)?.slug || '';
+
     // Find abandoned bookings with phone numbers that haven't been followed up
     const cutoffTime = new Date();
     cutoffTime.setHours(cutoffTime.getHours() - hoursThreshold);
@@ -158,10 +165,14 @@ const handler = async (req: Request): Promise<Response> => {
         }
         // Marketing: the STOP line is appended here rather than baked into the
         // body, so an owner rewording it cannot drop the opt-out.
-        const personalizedMessage =
+        let personalizedMessage =
           AUTOMATION_DEFAULTS.abandoned_booking_recovery.message_class === 'marketing'
             ? withStopSentence(resolvedAb.text)
             : resolvedAb.text;
+        if (orgSlug && booking.session_token) {
+          const resumeUrl = `https://www.jointidywise.com/book/${orgSlug}?resume=${encodeURIComponent(booking.session_token)}`;
+          personalizedMessage = `${personalizedMessage}\n\nFinish your booking: ${resumeUrl}`;
+        }
 
 
         let toPhone = booking.phone.replace(/\D/g, '');

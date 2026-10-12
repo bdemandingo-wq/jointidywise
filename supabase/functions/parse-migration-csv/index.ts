@@ -224,11 +224,26 @@ serve(async (req) => {
       });
     }
 
-    const { data: membership } = await supabaseClient
+    // getUser(token) validates the JWT but does not attach it to this client,
+    // so a membership read here runs as anon and RLS returns no row — every
+    // signed-in owner then got 403. The service-role client checks membership.
+    const adminClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
+    const { data: membership, error: membershipError } = await adminClient
       .from("org_memberships").select("role")
       .eq("organization_id", organizationId).eq("user_id", user.id).maybeSingle();
 
-    if (!membership || !["owner", "admin"].includes(membership.role)) {
+    if (membershipError) {
+      console.error("[parse-migration-csv] membership lookup failed:", membershipError);
+      return new Response(JSON.stringify({ error: "Could not verify organization access" }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!membership || !["owner", "admin", "manager"].includes(membership.role)) {
       return new Response(JSON.stringify({ error: "Not authorized for this organization" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -243,11 +258,6 @@ serve(async (req) => {
 
     const fieldMapping = autoMapFields(headers, dataType);
     const duplicates = detectDuplicates(rows, fieldMapping);
-
-    const adminClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
 
     const { data: importRecord, error: importError } = await adminClient
       .from("migration_imports")

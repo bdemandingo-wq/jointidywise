@@ -131,3 +131,17 @@ export function formatTimestampWithZone(dateInput: Date | string, timezone: stri
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
   return `${get('month')} ${get('day')}, ${get('hour')}:${get('minute')} ${get('dayPeriod')} ${get('timeZoneName')}`;
 }
+
+/**
+ * Time of day only, e.g. "11:00 AM EDT". Use this when the sentence already
+ * names the date, so the slot does not repeat "Sep 24".
+ */
+export function formatTimeWithZone(dateInput: Date | string, timezone: string): string {
+  const d = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short',
+  }).formatToParts(d);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${get('hour')}:${get('minute')} ${get('dayPeriod')} ${get('timeZoneName')}`.replace(/\s+/g, ' ').trim();
+}

@@ -10,6 +10,11 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
+/** "Sep 24, 11:00 AM EDT" beside a full date reads as a date twice. Keep the clock. */
+function timeSlotOnly(value: string): string {
+  return value.replace(/^[A-Za-z]{3,9}\.?\s+\d{1,2},\s+/, "").replace(/\s+/g, " ").trim();
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -155,6 +160,9 @@ const handler = async (req: Request): Promise<Response> => {
       });
     }
     booking.organizationId = callerOrg.ctx.organizationId;
+    if (booking.appointmentTime) {
+      booking.appointmentTime = timeSlotOnly(booking.appointmentTime);
+    }
 
     console.log("Sending booking confirmation email to:", customerEmail, "for organization:", booking.organizationId);
 

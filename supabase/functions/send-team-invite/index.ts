@@ -127,8 +127,14 @@ serve(async (req) => {
     });
     console.log("send-team-invite email result:", JSON.stringify(sendResult));
     if (!sendResult.success) {
+      const raw = (sendResult.error || "").toLowerCase();
+      const plain = raw.includes("not verified") || raw.includes("domain is not")
+        ? "The invite was created, but the email couldn't be sent because the sending domain isn't verified yet. Copy the link and send it yourself, or verify the domain in Settings."
+        : raw.includes("api key") || raw.includes("missing")
+          ? "The invite was created, but email isn't set up for this business yet. Copy the link and send it yourself."
+          : "The invite was created, but the email didn't send. Copy the link and send it yourself.";
       return new Response(JSON.stringify({
-        error: sendResult.error || "Failed to send invite email",
+        error: plain,
         accept_url: acceptUrl,
       }), {
         status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -83,8 +83,8 @@ interface BookingStats {
 }
 
 export default function CustomersPage() {
-  const [searchTerm, setSearchTerm] = useState('');
   const [searchParams, setSearchParams] = useSearchParams();
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('q') || '');
   const [tabFilter, setTabFilter] = useState<TabFilter>(
     searchParams.get('filter') === 'non_recurring' ? 'non_recurring' : 'all'
   );

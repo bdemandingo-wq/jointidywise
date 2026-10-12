@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { extrasToLabels, type ExtraOption } from '@/lib/bookingExtras';
@@ -83,6 +84,7 @@ interface Props {
 }
 
 export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photoReqs, propertyNote, photoCount: initialPhotoCount, onTheWaySent: initialOnTheWaySent, onUpdateStatus, isUpdating }: Props) {
+  const navigate = useNavigate();
   const { timezone: orgTimezone } = useOrgTimezone(organizationId);
   const extraLabels = extrasToLabels(booking.extras, orgExtras);
   const [checklistOpen, setChecklistOpen] = useState(false);
@@ -229,24 +231,16 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
       });
       if (described.ok) toast.success(described.message, { id: locationToast });
       else toast.error(described.message, { id: locationToast });
-      // The text may have failed, but the cleaner IS on the way — record the
-      // state so they aren't locked out of starting the job by a messaging problem.
-      setOnTheWaySent(true);
+      // Lock only when the customer text went out, was skipped on purpose, or
+      // this tap was a duplicate. A failed send leaves the button enabled.
+      // Start Job does not depend on this flag.
+      const result = data as JobNotifyResult | null;
+      if (result?.success && !result.customerSmsError) {
+        setOnTheWaySent(true);
+      }
     } catch (error) {
       console.error('Error sending on the way SMS:', error);
-      // Read the function's own reason. supabase-js turns every non-2xx into
-      // "Edge Function returned a non-2xx status code", and the previous
-      // hardcoded string discarded the real one just as thoroughly — a cleaner
-      // standing outside a house was told "Failed to send notification"
-      // whether the org had no SMS configured, the customer had no mobile
-      // number, or OpenPhone rejected the send.
       toast.error(await readEdgeFunctionError(error, 'Failed to send notification'), { id: locationToast });
-      // Same rule as the 2xx-with-failure branch above: the text failed, but the
-      // cleaner IS on the way. Before this, a non-2xx left them stuck on "On my
-      // way" while a 2xx failure let them through — the harder failure was the
-      // one that blocked them. Whether the send failed with a 200 or a 500 is
-      // not something the cleaner did, and it must not gate starting the job.
-      setOnTheWaySent(true);
     } finally {
       setIsSendingOnTheWay(false);
       setLocationWait(null);
@@ -558,6 +552,22 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
               Directions
             </Button>
           )}
+          {booking.customer?.phone && (
+            <Button variant="outline" size="sm" className="gap-2" asChild>
+              <a href={`tel:${booking.customer.phone.replace(/[^\d+]/g, '')}`}>
+                <Phone className="w-4 h-4" />
+                Call
+              </a>
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => navigate(`/staff/job/${booking.id}`)}
+          >
+            Details
+          </Button>
           {/* GPS Check-In when starting job */}
           {staffInfo.id && booking.status === 'confirmed' && booking.organization_id && (
             <GpsCheckin

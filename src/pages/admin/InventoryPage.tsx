@@ -25,6 +25,16 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -86,6 +96,7 @@ export default function InventoryPage() {
   const [perPage, setPerPage] = useState(25);
   const [editingCell, setEditingCell] = useState<{ id: string; field: 'quantity' | 'min_quantity' } | null>(null);
   const [editingCellValue, setEditingCellValue] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<{ kind: 'one'; id: string } | { kind: 'bulk'; ids: string[] } | null>(null);
   const queryClient = useQueryClient();
   const { organization } = useOrganization();
 
@@ -355,11 +366,7 @@ export default function InventoryPage() {
               size="sm"
               variant="destructive"
               className="h-7 text-xs"
-              onClick={() => {
-                if (confirm(`Delete ${selectedIds.size} items?`)) {
-                  bulkDeleteMutation.mutate(Array.from(selectedIds));
-                }
-              }}
+              onClick={() => setPendingDelete({ kind: 'bulk', ids: Array.from(selectedIds) })}
             >
               Delete selected
             </Button>
@@ -517,7 +524,7 @@ export default function InventoryPage() {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="text-destructive"
-                                onClick={() => { if (confirm('Delete this item?')) deleteMutation.mutate(item.id); }}
+                                onSelect={() => setPendingDelete({ kind: 'one', id: item.id })}
                               >
                                 <Trash2 className="w-4 h-4 mr-2" /> Delete
                               </DropdownMenuItem>
@@ -584,6 +591,34 @@ export default function InventoryPage() {
           categories={customCategories}
           organizationId={organization?.id || ''}
         />
+
+        <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {pendingDelete?.kind === 'bulk'
+                  ? `Delete ${pendingDelete.ids.length} items?`
+                  : 'Delete this item?'}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes the inventory record. It cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  if (pendingDelete?.kind === 'one') deleteMutation.mutate(pendingDelete.id);
+                  if (pendingDelete?.kind === 'bulk') bulkDeleteMutation.mutate(pendingDelete.ids);
+                  setPendingDelete(null);
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </PlanFeatureGate>
     </div>
 </AdminLayout>
@@ -662,6 +697,7 @@ function InventorySettingsDialog({
   const queryClient = useQueryClient();
   const [newCategoryName, setNewCategoryName] = useState('');
   const [editingCategory, setEditingCategory] = useState<InventoryCategory | null>(null);
+  const [pendingCategoryId, setPendingCategoryId] = useState<string | null>(null);
 
   const createCategoryMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -728,7 +764,7 @@ function InventorySettingsDialog({
                     ) : (
                       <>
                         <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditingCategory(cat)}><Edit className="w-4 h-4" /></Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => { if (confirm('Delete this category?')) deleteCategoryMutation.mutate(cat.id); }}><Trash2 className="w-4 h-4" /></Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => setPendingCategoryId(cat.id)}><Trash2 className="w-4 h-4" /></Button>
                       </>
                     )}
                   </div>
@@ -745,6 +781,28 @@ function InventorySettingsDialog({
         </div>
         <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button></DialogFooter>
       </DialogContent>
+      <AlertDialog open={pendingCategoryId !== null} onOpenChange={(open) => { if (!open) setPendingCategoryId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this category?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Items already filed under it keep their category name. The category itself is removed from this list.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (pendingCategoryId) deleteCategoryMutation.mutate(pendingCategoryId);
+                setPendingCategoryId(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
