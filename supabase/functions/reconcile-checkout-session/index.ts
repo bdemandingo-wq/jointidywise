@@ -21,6 +21,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,10 +32,7 @@ const corsHeaders = {
 const log = (msg: string, extra?: unknown) =>
   console.log(`[reconcile-checkout-session] ${msg}`, extra ?? "");
 
-// Platform admin phone numbers (same list notify-platform-admin-subscription
-// uses) — a direct SMS here, not a shared helper, since sendAdminNotification
-// in stripe-invoice-webhook is also function-local rather than in _shared/.
-const ADMIN_PHONES = ["+15615718725", "+18137356859"];
+const ADMIN_PHONES = platformAdminPhones();
 
 async function alertAdmin(reason: string, details: Record<string, unknown>): Promise<void> {
   try {

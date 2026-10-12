@@ -1,11 +1,10 @@
 import { ReactNode, Suspense, lazy, useState } from 'react';
-import { Search, Plus, Eye, EyeOff } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Link } from 'react-router-dom';
+import { Plus } from 'lucide-react';
+import { AdminHeaderSearch } from '@/components/admin/AdminHeaderSearch';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { ThemeToggle } from '@/components/admin/ThemeToggle';
 import { useTestMode } from '@/contexts/TestModeContext';
-import { Badge } from '@/components/ui/badge';
 import { AdminNotificationBell } from '@/components/admin/AdminNotificationBell';
 
 
@@ -22,7 +21,7 @@ interface AdminHeaderProps {
 
 export function AdminHeader({ title, actions }: AdminHeaderProps) {
   const [bookingDialogOpen, setBookingDialogOpen] = useState(false);
-  const { isTestMode, toggleTestMode } = useTestMode();
+  const { isTestMode } = useTestMode();
 
   return (
     <>
@@ -37,25 +36,20 @@ export function AdminHeader({ title, actions }: AdminHeaderProps) {
                 <h1 className="text-sm md:text-xl font-semibold text-foreground leading-tight truncate">{title}</h1>
               </div>
               {isTestMode && (
-                <Badge variant="outline" className="hidden md:flex bg-accent/10 text-foreground border-accent/30">
-                  Demo Mode
-                </Badge>
+                <Link
+                  to="/dashboard/settings?tab=general"
+                  className="hidden md:inline text-xs font-medium text-warning underline-offset-2 hover:underline whitespace-nowrap"
+                >
+                  Demo mode on
+                </Link>
               )}
             </div>
 
             {/* Desktop: full action bar */}
             <div className="hidden md:flex items-center gap-4 shrink-0">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input placeholder="Search..." className="w-60 pl-10 bg-secondary/50 border-0 focus-visible:ring-1" />
-              </div>
+              <AdminHeaderSearch />
               {actions}
               <AdminNotificationBell />
-              <Button variant="ghost" size="icon" onClick={toggleTestMode}
-                title={isTestMode ? 'Disable Demo Mode' : 'Enable Demo Mode'}
-                className={cn("h-9 w-9", isTestMode ? 'text-warning' : '')}>
-                {isTestMode ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </Button>
               <ThemeToggle />
               <Button className="h-9 w-auto px-3 gap-2" onClick={() => setBookingDialogOpen(true)}>
                 <Plus className="w-4 h-4" />
@@ -65,12 +59,15 @@ export function AdminHeader({ title, actions }: AdminHeaderProps) {
 
             {/* Mobile: compact icon cluster only */}
             <div className="flex md:hidden items-center gap-1 shrink-0">
+              {isTestMode && (
+                <Link
+                  to="/dashboard/settings?tab=general"
+                  className="text-[11px] font-medium text-warning leading-tight max-w-[4.5rem]"
+                >
+                  Demo on
+                </Link>
+              )}
               <AdminNotificationBell />
-              <Button variant="ghost" size="icon" onClick={toggleTestMode}
-                title={isTestMode ? 'Disable Demo Mode' : 'Enable Demo Mode'}
-                className={cn("h-10 w-10", isTestMode ? 'text-warning' : '')}>
-                {isTestMode ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </Button>
               <ThemeToggle />
             </div>
           </div>

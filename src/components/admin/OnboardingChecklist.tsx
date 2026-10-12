@@ -4,6 +4,7 @@ import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Check, ChevronRight } from 'lucide-react';
 import { useOnboardingChecklist } from '@/hooks/useOnboardingChecklist';
+import { QueryError } from '@/components/QueryError';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useOrganization } from '@/contexts/OrganizationContext';
@@ -11,7 +12,7 @@ import { useOrganization } from '@/contexts/OrganizationContext';
 const HIDE_CHECKLIST_EMAILS = ['support@tidywisecleaning.com', 'applereview@tidywise.com'];
 
 export function OnboardingChecklist() {
-  const { data: items = [], isLoading } = useOnboardingChecklist();
+  const { data: items = [], isLoading, isError, refetch } = useOnboardingChecklist();
   const navigate = useNavigate();
   const { user } = useAuth();
   const { organization } = useOrganization();
@@ -24,7 +25,22 @@ export function OnboardingChecklist() {
   // Hide for internal/free accounts
   if (user?.email && HIDE_CHECKLIST_EMAILS.includes(user.email.toLowerCase())) return null;
 
-  if (isLoading || items.length === 0) return null;
+  if (isLoading) return null;
+
+  if (isError) {
+    return (
+      <Card className="border-destructive/30 mb-6" data-tour-id="setup-checklist">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Complete your setup</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <QueryError subject="your setup checklist" onRetry={() => void refetch()} />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (items.length === 0) return null;
 
   const completedCount = items.filter(i => i.completed).length;
   const totalCount = items.length;
@@ -36,7 +52,7 @@ export function OnboardingChecklist() {
   const progressPercent = Math.round((completedCount / totalCount) * 100);
 
   return (
-    <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent mb-6">
+    <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent mb-6" data-tour-id="setup-checklist">
       <CardHeader className="pb-3">
         <CardTitle className="text-lg flex items-center gap-2">
           🚀 Complete your setup

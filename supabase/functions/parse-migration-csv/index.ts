@@ -207,8 +207,17 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_ANON_KEY") ?? ""
     );
 
-    const authHeader = req.headers.get("Authorization")!;
-    const token = authHeader.replace("Bearer ", "");
+    // 401 before the body. A missing Authorization header used to hit
+    // `authHeader.replace` and return 500 "Cannot read properties of null".
+    const authHeader = req.headers.get("Authorization");
+    const token = authHeader?.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length).trim()
+      : "";
+    if (!token) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
     if (authError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -216,7 +225,19 @@ serve(async (req) => {
       });
     }
 
-    const { csvContent, dataType, source, organizationId, filename } = await req.json();
+    let parsed: {
+      csvContent?: string;
+      dataType?: string;
+      source?: string;
+      organizationId?: string;
+      filename?: string;
+    } | null = null;
+    try {
+      parsed = await req.json();
+    } catch {
+      parsed = null;
+    }
+    const { csvContent, dataType, source, organizationId, filename } = parsed ?? {};
 
     if (!csvContent || !dataType || !source || !organizationId) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
@@ -224,11 +245,26 @@ serve(async (req) => {
       });
     }
 
-    const { data: membership } = await supabaseClient
+    // getUser(token) validates the JWT but does not attach it to this client,
+    // so a membership read here runs as anon and RLS returns no row — every
+    // signed-in owner then got 403. The service-role client checks membership.
+    const adminClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
+    const { data: membership, error: membershipError } = await adminClient
       .from("org_memberships").select("role")
       .eq("organization_id", organizationId).eq("user_id", user.id).maybeSingle();
 
-    if (!membership || !["owner", "admin"].includes(membership.role)) {
+    if (membershipError) {
+      console.error("[parse-migration-csv] membership lookup failed:", membershipError);
+      return new Response(JSON.stringify({ error: "Could not verify organization access" }), {
+        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!membership || !["owner", "admin", "manager"].includes(membership.role)) {
       return new Response(JSON.stringify({ error: "Not authorized for this organization" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -243,11 +279,6 @@ serve(async (req) => {
 
     const fieldMapping = autoMapFields(headers, dataType);
     const duplicates = detectDuplicates(rows, fieldMapping);
-
-    const adminClient = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
 
     const { data: importRecord, error: importError } = await adminClient
       .from("migration_imports")

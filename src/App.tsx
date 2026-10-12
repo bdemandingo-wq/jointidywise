@@ -112,11 +112,13 @@ const AdminCustomWorkRequestsPage = lazy(() => import("./pages/admin/AdminCustom
 const DataImportPage = lazy(() => import("./pages/admin/DataImportPage"));
 const BookingPhotosPage = lazy(() => import("./pages/admin/BookingPhotosPage"));
 const StaffPortal = lazy(() => import("./pages/staff/StaffPortal"));
+const StaffJobDetailPage = lazy(() => import("./pages/staff/StaffJobDetailPage"));
 const StaffLoginPage = lazy(() => import("./pages/staff/StaffLoginPage"));
 const StaffResetPasswordPage = lazy(() => import("./pages/staff/StaffResetPasswordPage"));
 
 // Client Portal Pages
 const PortalLoginPage = lazy(() => import("./pages/portal/PortalLoginPage"));
+const PortalResetPasswordPage = lazy(() => import("./pages/portal/PortalResetPasswordPage"));
 const PortalDashboardPage = lazy(() => import("./pages/portal/PortalDashboardPage"));
 const PortalRequestPage = lazy(() => import("./pages/portal/PortalRequestPage"));
 
@@ -310,6 +312,11 @@ const App = () => (
             !JSON.stringify(q.queryKey).includes('my-staff-orgs'),
         },
       }}
+      onSuccess={() => {
+        // A reload inside staleTime would otherwise treat the restored
+        // snapshot as fresh and keep showing the values from before a save.
+        void queryClient.invalidateQueries();
+      }}
     >
       {/* AuthProviderNoSession MUST wrap AuthProvider since AuthProvider uses useAuthNoSession */}
       <AuthProviderNoSession>
@@ -389,11 +396,13 @@ const App = () => (
                       {/* Staff Portal */}
                       <Route path="/staff/login" element={<StaffLoginPage />} />
                       <Route path="/staff/reset-password" element={<StaffResetPasswordPage />} />
+                      <Route path="/staff/job/:id" element={<StaffRoute><ErrorBoundary featureName="Staff Job"><StaffJobDetailPage /></ErrorBoundary></StaffRoute>} />
                       <Route path="/staff" element={<StaffRoute><ErrorBoundary featureName="Staff Portal"><StaffPortal /></ErrorBoundary></StaffRoute>} />
 
                       {/* Client Portal */}
                       <Route path="/portal" element={<PortalLoginPage />} />
                       <Route path="/portal/login" element={<PortalLoginPage />} />
+                      <Route path="/portal/reset-password" element={<PortalResetPasswordPage />} />
                       <Route path="/portal/dashboard" element={<ProtectedPortalRoute><PortalDashboardPage /></ProtectedPortalRoute>} />
                       <Route path="/portal/request" element={<ProtectedPortalRoute><PortalRequestPage /></ProtectedPortalRoute>} />
 
@@ -540,11 +549,13 @@ const App = () => (
                     {/* Staff Portal */}
                     <Route path="/staff/login" element={<StaffLoginPage />} />
                     <Route path="/staff/reset-password" element={<StaffResetPasswordPage />} />
+                    <Route path="/staff/job/:id" element={<StaffRoute><ErrorBoundary featureName="Staff Job"><StaffJobDetailPage /></ErrorBoundary></StaffRoute>} />
                     <Route path="/staff" element={<StaffRoute><ErrorBoundary featureName="Staff Portal"><StaffPortal /></ErrorBoundary></StaffRoute>} />
 
                     {/* Client Portal */}
                     <Route path="/portal" element={<PortalLoginPage />} />
                     <Route path="/portal/login" element={<PortalLoginPage />} />
+                    <Route path="/portal/reset-password" element={<PortalResetPasswordPage />} />
                     <Route path="/portal/dashboard" element={<ProtectedPortalRoute><PortalDashboardPage /></ProtectedPortalRoute>} />
                     <Route path="/portal/request" element={<ProtectedPortalRoute><PortalRequestPage /></ProtectedPortalRoute>} />
 

@@ -7,6 +7,10 @@ project_id = "slwfkaqczvwvvvavkgpr"
     verify_jwt = false
   [functions.ai-analysis-center]
     verify_jwt = false
+  [functions.ai-sms-reply]
+    # Called only by other edge functions. Gateway JWT check would force the
+    # caller to send the service-role key. Auth is isInternalDispatchRequest.
+    verify_jwt = false
   [functions.auth-email-hook]
     verify_jwt = false
   [functions.backfill-openphone-messages]
@@ -73,6 +77,9 @@ project_id = "slwfkaqczvwvvvavkgpr"
     verify_jwt = false
   [functions.notify-platform-admin-subscription]
     verify_jwt = false
+  [functions.openphone-ai-sms-reply]
+    # Called by openphone-webhook. Same internal-secret auth as ai-sms-reply.
+    verify_jwt = false
   [functions.openphone-webhook]
     verify_jwt = false
   [functions.parse-migration-csv]
@@ -100,6 +107,14 @@ project_id = "slwfkaqczvwvvvavkgpr"
   [functions.public-booking-data]
     verify_jwt = false
   [functions.public-booking-submit]
+    verify_jwt = false
+  [functions.record-booking-consent]
+    verify_jwt = false
+  [functions.resume-abandoned-booking]
+    verify_jwt = false
+  [functions.request-client-portal-reset]
+    verify_jwt = false
+  [functions.complete-client-portal-reset]
     verify_jwt = false
   [functions.quote-expiry-reminder]
     verify_jwt = false
@@ -205,6 +220,12 @@ verify_jwt = true
     verify_jwt = false
 
   [functions.send-subscription-renewal-reminder]
+    verify_jwt = false
+
+  [functions.send-trial-reminders]
+    verify_jwt = false
+
+  [functions.send-onboarding-winback]
     verify_jwt = false
 
   # Public checkout endpoints — anonymous /pricing visitors hit these.

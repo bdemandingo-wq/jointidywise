@@ -86,7 +86,7 @@ Deno.serve(async (req) => {
 });
 
 function redirectBack(success: boolean, extra = "") {
-  const base = Deno.env.get("APP_URL") || "https://jointidywise.lovable.app";
+  const base = Deno.env.get("APP_URL") || "https://jointidywise.com";
   const qs = success ? "tab=emails&gmail_connected=true" : `tab=emails&${extra}`;
   return new Response(null, {
     status: 302,

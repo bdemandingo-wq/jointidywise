@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { anthropicChat, MODEL_HAIKU } from "../_shared/anthropic.ts";
+import { isInternalDispatchRequest } from "../_shared/internal-dispatch-auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -19,15 +20,13 @@ serve(async (req: Request) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  // SECURITY: internal-only endpoint — require service-role bearer token
-  {
-    const authHeader = req.headers.get('Authorization') || '';
-    const token = authHeader.replace(/^Bearer\s+/i, '');
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
-    if (!token || !serviceKey || token !== serviceKey) {
-      return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-    }
+  // Internal-only. Once INTERNAL_DISPATCH_SECRET is set, the service-role
+  // key is no longer accepted as a bearer (it is a database bypass key and
+  // should not travel between functions). Until then, the service-role
+  // bearer is still accepted so a partial deploy keeps replies working.
+  if (!isInternalDispatchRequest(req)) {
+    return new Response(JSON.stringify({ success: false, error: 'Unauthorized' }),
+      { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 
   try {

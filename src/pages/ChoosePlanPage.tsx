@@ -23,6 +23,7 @@ import {
   recommendPlan,
   type OnboardingAnswers,
 } from '@/lib/onboardingAnswers';
+import { LIFETIME_FEATURES, LIFETIME_PRICE, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
 
 type Interval = 'monthly' | 'yearly';
 
@@ -35,72 +36,10 @@ type Interval = 'monthly' | 'yearly';
  * subscription card to accommodate one product that isn't a subscription.
  */
 type PlanId = 'basic' | 'pro' | 'custom' | 'lifetime';
+type Tier = PublicTier;
 
-const LIFETIME_PRICE = 300;
-
-interface Tier {
-  id: Exclude<PlanId, 'lifetime'>;
-  name: string;
-  tagline: string;
-  monthlyPrice: number;
-  yearlyPrice: number;
-  highlight?: boolean;
-  features: string[];
-}
-
-// Mirrors PricingPage tiers — trimmed feature lists for a faster decision.
-const TIERS: Tier[] = [
-  {
-    id: 'basic',
-    name: 'Basic',
-    tagline: 'Run jobs, get paid, keep customers organized.',
-    monthlyPrice: 49,
-    yearlyPrice: 490,
-    features: [
-      'Online booking system',
-      'Unlimited customers + CRM',
-      'Smart team scheduler',
-      'Estimates, invoices, Stripe payments',
-      'Recurring bookings + staff management',
-    ],
-  },
-  {
-    id: 'pro',
-    name: 'Pro',
-    tagline: 'Everything in Basic, plus the growth toolkit.',
-    monthlyPrice: 97,
-    yearlyPrice: 970,
-    highlight: true,
-    features: [
-      'Everything in Basic',
-      'Automations (reviews, reminders, win-back)',
-      'AI Intelligence + Copilot',
-      'GPS tracking + advanced reports',
-      'Payroll, inventory, client portal',
-    ],
-  },
-  {
-    id: 'custom',
-    name: 'Custom',
-    tagline: 'Pro features + we do the heavy lifting for you.',
-    monthlyPrice: 197,
-    yearlyPrice: 1970,
-    features: [
-      'Everything in Pro',
-      '1 done-for-you request per month',
-      'Website build, CRM import, marketing setup',
-      'Priority support',
-    ],
-  },
-];
-
-/** Pro's list, minus the recurring framing — what the one payment actually buys. */
-const LIFETIME_FEATURES = [
-  'Everything in Pro, forever',
-  'Every feature we ship in future',
-  'No recurring bill, ever',
-  'Founding member — 100 spots total',
-];
+// Same plans, prices, and feature bullets as the public /pricing page.
+const TIERS: Tier[] = PUBLIC_TIERS;
 
 function priceFor(tier: Tier, interval: Interval): { display: string; sub: string } {
   if (interval === 'yearly') {
@@ -369,9 +308,9 @@ export default function ChoosePlanPage() {
           </h1>
           <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
             {hasFullAccess
-              ? 'Your trial is active and the dashboard stays open. Pick a plan when you want to add a card. Nothing is charged until you finish Stripe Checkout.'
+              ? 'Your trial is active and the dashboard stays open. Add a card only if you want billing to continue when the trial ends. The trial date does not move.'
               : painPitch ??
-                'Your booking page, scheduler, and CRM are ready. Pick a plan to activate them.'}
+                'Your 14-day trial has ended. Pick a plan and add a card to unlock the dashboard again.'}
           </p>
         </div>
 

@@ -30,6 +30,7 @@ import { CampaignTrackingDialog } from '@/components/admin/campaigns/CampaignTra
 import { CampaignEditDialog } from '@/components/admin/campaigns/CampaignEditDialog';
 import { CampaignWizard } from '@/components/admin/campaigns/CampaignWizard';
 import { CampaignList } from '@/components/admin/campaigns/CampaignList';
+import { campaignLibraryStatus } from '@/components/admin/campaigns/campaignLibraryStatus';
 import { useOptedOutCount } from '@/hooks/useOptOuts';
 import { useCampaignRuns } from '@/hooks/useCampaignRuns';
 import {
@@ -40,13 +41,9 @@ import {
 } from '@/hooks/useCampaigns';
 
 /**
- * There is no channel to filter on.
- *
- * `automated_campaigns` has no `channel` column — the wizard's channel picker
- * only decides which body it saves — and both senders are SMS-only:
- * `run-inactive-campaign` reads organization_sms_settings and sends via
- * OpenPhone, and `process-campaign-queue` is the `campaign_sms` PGMQ worker.
- * So every stored campaign body is sent as SMS.
+ * Channel is stored on automated_campaigns.channel (sms, email, or both).
+ * SMS still sends through run-inactive-campaign / the campaign_sms queue.
+ * Email sends through send-followup-campaign when the owner chooses Send now.
  *
  * The "SMS" and "Email" tabs were therefore unfilterable and were never wired
  * into the predicate — they rendered the identical unfiltered list. An Email tab
@@ -71,8 +68,11 @@ export default function CampaignsPage() {
 
   // Deep link from Smart Suggestions: /dashboard/campaigns?audience=...&days=...&create=1
   const [searchParams] = useSearchParams();
+  const [nameQuery, setNameQuery] = useState(() => searchParams.get('q') || '');
   useEffect(() => {
     if (searchParams.get('create') === '1') setCreateOpen(true);
+    const q = searchParams.get('q');
+    if (q) setNameQuery(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -110,17 +110,15 @@ export default function CampaignsPage() {
 
   // Filtered campaigns
   const filteredCampaigns = useMemo(() => {
+    const q = nameQuery.trim().toLowerCase();
     return campaigns.filter(c => {
-      if (statusFilter !== "all") {
-        if (statusFilter === "active" && !c.is_active) return false;
-        if (statusFilter === "sent" && c.is_active) return false;
-        if (statusFilter === "draft" && c.is_active) return false;
-      }
+      if (statusFilter !== "all" && campaignLibraryStatus(c) !== statusFilter) return false;
+      if (q && !String(c.name || "").toLowerCase().includes(q)) return false;
       return true;
     });
     // channelFilter is deliberately absent: it selects a VIEW (the opted-out
     // panel), not a subset of campaigns, so it must not be a dependency here.
-  }, [campaigns, statusFilter]);
+  }, [campaigns, statusFilter, nameQuery]);
 
   // Mutations
 
@@ -180,6 +178,16 @@ export default function CampaignsPage() {
           {channelFilter === "opted_out" ? (
             <OptedOutPanel orgId={orgId} campaignNameMap={campaignNameMap} />
           ) : (
+            <>
+            <div className="mb-3">
+              <Input
+                value={nameQuery}
+                onChange={(e) => setNameQuery(e.target.value)}
+                placeholder="Search campaigns by name"
+                aria-label="Search campaigns"
+                className="max-w-sm"
+              />
+            </div>
             <CampaignList
               campaigns={filteredCampaigns}
               orgId={orgId}
@@ -193,6 +201,7 @@ export default function CampaignsPage() {
               onEditCampaign={setEditCampaign}
               onNewCampaign={() => setCreateOpen(true)}
             />
+            </>
           )}
         </div>
       </PlanFeatureGate>

@@ -18,20 +18,22 @@ export function StatCard({ title, value, change, changeLabel, icon, trend = 'neu
         <div>
           <p className="text-sm font-medium text-muted-foreground">{title}</p>
           <p className="text-3xl font-bold mt-2">{value}</p>
-          {change !== undefined && (
+          {(change !== undefined || changeLabel) && (
             <div className="flex items-center gap-1 mt-2">
-              {trend === 'up' && <TrendingUp className="w-4 h-4 text-success" />}
-              {trend === 'down' && <TrendingDown className="w-4 h-4 text-destructive" />}
-              <span
-                className={cn(
-                  'text-sm font-medium',
-                  trend === 'up' && 'text-success',
-                  trend === 'down' && 'text-destructive',
-                  trend === 'neutral' && 'text-muted-foreground'
-                )}
-              >
-                {change > 0 ? '+' : ''}{change}%
-              </span>
+              {change !== undefined && trend === 'up' && <TrendingUp className="w-4 h-4 text-success" />}
+              {change !== undefined && trend === 'down' && <TrendingDown className="w-4 h-4 text-destructive" />}
+              {change !== undefined && (
+                <span
+                  className={cn(
+                    'text-sm font-medium',
+                    trend === 'up' && 'text-success',
+                    trend === 'down' && 'text-destructive',
+                    trend === 'neutral' && 'text-muted-foreground'
+                  )}
+                >
+                  {change > 0 ? '+' : ''}{change}%
+                </span>
+              )}
               {changeLabel && (
                 <span className="text-sm text-muted-foreground">{changeLabel}</span>
               )}

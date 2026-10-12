@@ -2,7 +2,7 @@
 import * as React from 'npm:react@18.3.1'
 import {
   Body, Button, Container, Head, Heading, Html, Preview, Section, Text,
-} from 'npm:@react-email/components@0.0.22'
+} from 'https://esm.sh/@react-email/components@0.0.22?deps=react@18.3.1'
 import { styles } from './_brand.ts'
 import { Logo } from './_logo.tsx'
 import { Footer } from './_footer.tsx'

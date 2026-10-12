@@ -19,6 +19,8 @@ import { SplashScreen } from '@/components/SplashScreen';
 import { toast } from 'sonner';
 import { Eye, EyeOff, Loader2, ArrowLeft, Mail, Lock, User, Phone, Crown, Sparkles, Zap, Settings as SettingsIcon } from 'lucide-react';
 import { z } from 'zod';
+import { validatePhone } from '@/lib/phoneValidation';
+import { PERSON_NAME_MAX } from '@/lib/displayName';
 
 // Plan metadata for the "you're signing up to start X" banner. Kept
 // inline so the signup page doesn't have to import the full features.ts
@@ -32,7 +34,7 @@ const PLAN_META: Record<string, { label: string; price: string; Icon: React.Comp
 
 // Validation schema
 const signupSchema = z.object({
-  fullName: z.string().min(2, 'Name must be at least 2 characters'),
+  fullName: z.string().trim().min(2, 'Name must be at least 2 characters').max(PERSON_NAME_MAX, `Name must be ${PERSON_NAME_MAX} characters or fewer`),
   email: z.string().trim().email('Please enter a valid email address'),
   password: z
     .string()
@@ -40,7 +42,9 @@ const signupSchema = z.object({
     .regex(/[A-Za-z]/, 'Password must include a letter')
     .regex(/[0-9]/, 'Password must include a number'),
   confirmPassword: z.string(),
-  phone: z.string().optional(),
+  phone: z.string().optional().refine((value) => !validatePhone(value ?? '', false), {
+    message: 'Enter a real phone number, like (555) 123-4567',
+  }),
 }).refine(data => data.password === data.confirmPassword, {
   message: "Passwords don't match",
   path: ['confirmPassword'],
@@ -124,6 +128,8 @@ export default function SignupPage() {
           fieldErrors[field] = e.message;
         });
         setErrors(fieldErrors);
+        const first = err.errors[0]?.message;
+        if (first) toast.error(first);
       }
       return false;
     }
@@ -424,7 +430,7 @@ export default function SignupPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
               {/* Full Name */}
               <div className="space-y-2">
                 <Label htmlFor="fullName" className="flex items-center gap-2">
@@ -433,6 +439,7 @@ export default function SignupPage() {
                 </Label>
                 <Input
                   id="fullName"
+                  maxLength={PERSON_NAME_MAX}
                   type="text"
                   placeholder="John Doe"
                   value={formData.fullName}
@@ -461,10 +468,20 @@ export default function SignupPage() {
                   type="tel"
                   placeholder="(555) 123-4567"
                   value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, phone: e.target.value });
+                    if (errors.phone) setErrors({ ...errors, phone: '' });
+                  }}
                   autoComplete="tel"
+                  inputMode="tel"
+                  aria-invalid={errors.phone ? true : undefined}
+                  className={errors.phone ? 'border-destructive' : ''}
                 />
-                <p className="text-xs text-muted-foreground">We'll send you a welcome text!</p>
+                {errors.phone ? (
+                  <p className="text-xs text-destructive">{errors.phone}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Optional. Use a real number if you want a welcome text.</p>
+                )}
               </div>
 
               {/* Email */}
@@ -598,7 +615,7 @@ export default function SignupPage() {
               {/* Submit button. CTA copy reflects post-signup intent
                   when a plan is pre-selected so the user knows checkout
                   is next, not a generic landing on the dashboard. */}
-              <Button type="submit" className="w-full" disabled={loading || !tosAccepted}>
+              <Button type="submit" className="w-full" variant="premium" disabled={loading}>
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {planMeta ? planMeta.ctaLabel : 'Create Account'}
               </Button>

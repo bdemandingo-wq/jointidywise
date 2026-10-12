@@ -31,15 +31,9 @@ const geocodeCache = new Map<string, GeocodeCacheEntry>();
 const GEOCODE_SUCCESS_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours
 const GEOCODE_FAILURE_TTL_MS = 1000 * 60 * 2; // 2 minutes
 
-// 12-hour time slots with AM/PM labels
+// Business hours first. The list used to start at 12:00 AM, so the first
+// thing in the menu — and the slot a cleared select fell into — was 1:30 AM.
 const TIME_SLOTS = [
-  { value: '00:00', label: '12:00 AM' }, { value: '00:30', label: '12:30 AM' },
-  { value: '01:00', label: '1:00 AM' }, { value: '01:30', label: '1:30 AM' },
-  { value: '02:00', label: '2:00 AM' }, { value: '02:30', label: '2:30 AM' },
-  { value: '03:00', label: '3:00 AM' }, { value: '03:30', label: '3:30 AM' },
-  { value: '04:00', label: '4:00 AM' }, { value: '04:30', label: '4:30 AM' },
-  { value: '05:00', label: '5:00 AM' }, { value: '05:30', label: '5:30 AM' },
-  { value: '06:00', label: '6:00 AM' }, { value: '06:30', label: '6:30 AM' },
   { value: '07:00', label: '7:00 AM' }, { value: '07:30', label: '7:30 AM' },
   { value: '08:00', label: '8:00 AM' }, { value: '08:30', label: '8:30 AM' },
   { value: '09:00', label: '9:00 AM' }, { value: '09:30', label: '9:30 AM' },
@@ -57,6 +51,13 @@ const TIME_SLOTS = [
   { value: '21:00', label: '9:00 PM' }, { value: '21:30', label: '9:30 PM' },
   { value: '22:00', label: '10:00 PM' }, { value: '22:30', label: '10:30 PM' },
   { value: '23:00', label: '11:00 PM' }, { value: '23:30', label: '11:30 PM' },
+  { value: '00:00', label: '12:00 AM' }, { value: '00:30', label: '12:30 AM' },
+  { value: '01:00', label: '1:00 AM' }, { value: '01:30', label: '1:30 AM' },
+  { value: '02:00', label: '2:00 AM' }, { value: '02:30', label: '2:30 AM' },
+  { value: '03:00', label: '3:00 AM' }, { value: '03:30', label: '3:30 AM' },
+  { value: '04:00', label: '4:00 AM' }, { value: '04:30', label: '4:30 AM' },
+  { value: '05:00', label: '5:00 AM' }, { value: '05:30', label: '5:30 AM' },
+  { value: '06:00', label: '6:00 AM' }, { value: '06:30', label: '6:30 AM' },
 ];
 
 // Helper to get display label from 24h value

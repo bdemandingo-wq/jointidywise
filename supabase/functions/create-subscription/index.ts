@@ -23,6 +23,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { ensureOnboardingCoupon, type OnboardingCouponOffer } from "../_shared/onboarding-coupons.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -139,6 +140,7 @@ serve(async (req) => {
     // runs at the session-creation site and needs both of these. Do not move
     // that lookup inside this block — it would change when it runs.
     let referredOrgId: string | null = null;
+    let orgPlanType: string | null = null;
     const accessAdmin = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
@@ -153,6 +155,7 @@ serve(async (req) => {
         .maybeSingle();
       const org = (existingOrg as { organizations?: { id?: string; plan_type?: string; grandfathered_lifetime?: boolean } } | null)?.organizations;
       referredOrgId = org?.id ?? null;
+      orgPlanType = org?.plan_type ?? null;
       if (org?.grandfathered_lifetime || org?.plan_type === "lifetime") {
 
         return new Response(
@@ -178,7 +181,14 @@ serve(async (req) => {
           status: "active",
           limit: 1,
         });
-        if (existingSubs.data.length > 0) {
+        const existingTrials = await stripeForLookup.subscriptions.list({
+          customer: customerId,
+          status: "trialing",
+          limit: 1,
+        });
+        // Do not open a second Checkout for someone already trialing in
+        // Stripe. Their card and trial end stay exactly as they are.
+        if (existingSubs.data.length > 0 || existingTrials.data.length > 0) {
           return new Response(
             JSON.stringify({ error: "You already have an active subscription." }),
             {
@@ -222,15 +232,20 @@ serve(async (req) => {
       "https://jointidywise.com";
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
 
-    // 14-day free trial on every new subscription. Card is collected
-    // upfront at Stripe Checkout (default in subscription mode) and
-    // billing automatically starts at $X/mo once the trial ends. If
-    // the saved card later fails or is removed before trial end, the
-    // subscription is cancelled instead of going unpaid.
-    // Trial users get full features for the duration — that's resolved
-    // server-side by public.effective_plan, not by plan_type, so the tier
-    // they picked at checkout is still what they convert onto.
-    const TRIAL_DAYS = 14;
+    // Card-free trial lives on the org (plan_type trial + trial_ends_at),
+    // not on a Checkout session. This function is only the paid conversion.
+    //
+    // - Active org trial, more than 48h left: optional card, and the Stripe
+    //   trial ends on the SAME timestamp. No second 14 days, and Stripe
+    //   cancels at that time if they never add a card.
+    // - Org trial already over: card required, billed from today. The
+    //   paywall is not another free period.
+    // - Any other existing plan: keep the previous checkout (card required,
+    //   14-day Stripe trial). Those subscriptions are not rewritten.
+    // - Anonymous first checkout: card optional, 14-day Stripe trial,
+    //   cancel if no card when it ends.
+    // Stripe rejects trial_end inside 48 hours, so a last-day upgrade
+    // collects a card and starts billing instead of erroring.
 
     // The referred org's half of the programme: 50% off their first month.
     // Only orgs that arrived through someone's referral link, and only on
@@ -247,6 +262,7 @@ serve(async (req) => {
     // could be consumed by it, leaving nothing for the first real charge.
     let referralDiscount: { coupon: string }[] | undefined;
     let referralRowId: string | null = null;
+    let winbackOffer: OnboardingCouponOffer | null = null;
     try {
       const couponId = Deno.env.get("REFERRED_FIRST_MONTH_COUPON");
       if (couponId && referredOrgId) {
@@ -270,6 +286,68 @@ serve(async (req) => {
       console.error("[referral] discount lookup failed:", e);
     }
 
+    if (user) {
+      try {
+        const { data: winback } = await accessAdmin
+          .from("onboarding_winback")
+          .select("offer_used")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (winback?.offer_used === "half_off_first_month" || winback?.offer_used === "first_month_free") {
+          winbackOffer = winback.offer_used;
+        }
+      } catch (e) {
+        console.error("[winback] lookup failed:", e);
+      }
+    }
+
+    let checkoutDiscounts = referralDiscount;
+    if (winbackOffer) {
+      try {
+        const coupon = await ensureOnboardingCoupon(stripe, winbackOffer);
+        checkoutDiscounts = [{ coupon }];
+        // One coupon per Checkout session. The larger winback offer wins,
+        // and the referral coupon is left unused rather than stacked.
+        referralRowId = null;
+        evidenceMetadata.tidywise_winback_offer = winbackOffer;
+      } catch (e) {
+        console.error("[winback] coupon ensure failed:", e);
+      }
+    }
+
+    const MIN_TRIAL_END_LEAD_MS = 48 * 60 * 60 * 1000;
+    let paymentMethodCollection: "always" | "if_required" = "if_required";
+    const subscriptionData: {
+      metadata: Record<string, string>;
+      trial_settings: { end_behavior: { missing_payment_method: "cancel" } };
+      trial_period_days?: number;
+      trial_end?: number;
+    } = {
+      metadata: evidenceMetadata,
+      trial_settings: { end_behavior: { missing_payment_method: "cancel" } },
+    };
+
+    if (user && orgPlanType === "trial") {
+      const { data: trialProfile } = await accessAdmin
+        .from("profiles")
+        .select("trial_ends_at")
+        .eq("id", user.id)
+        .maybeSingle();
+      const endsMs = trialProfile?.trial_ends_at ? Date.parse(trialProfile.trial_ends_at) : NaN;
+      if (Number.isFinite(endsMs) && endsMs - Date.now() >= MIN_TRIAL_END_LEAD_MS) {
+        subscriptionData.trial_end = Math.floor(endsMs / 1000);
+        paymentMethodCollection = "if_required";
+      } else {
+        paymentMethodCollection = "always";
+      }
+    } else if (user && orgPlanType && orgPlanType !== "trial") {
+      paymentMethodCollection = "always";
+      subscriptionData.trial_period_days = 14;
+    } else {
+      paymentMethodCollection = "if_required";
+      subscriptionData.trial_period_days = 14;
+    }
+
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
 
@@ -291,9 +369,7 @@ serve(async (req) => {
       // Default, where those methods are wanted. Do not "simplify" this by
       // changing the account-wide setting instead — that would hit all of them.
       payment_method_configuration: "pmc_1Q0IjxJv857o86nohXqYdISA",
-      // Force card collection even during the trial so the customer
-      // is auto-charged when the 14 days end.
-      payment_method_collection: "always",
+      payment_method_collection: paymentMethodCollection,
       payment_method_options: {
         card: { request_three_d_secure: "automatic" },
       },
@@ -302,14 +378,8 @@ serve(async (req) => {
       // as omitting it, and Stripe rejects it alongside promotion codes
       // (which this function does not enable).
 
-      ...(referralDiscount ? { discounts: referralDiscount } : {}),
-      subscription_data: {
-        metadata: evidenceMetadata,
-        trial_period_days: TRIAL_DAYS,
-        trial_settings: {
-          end_behavior: { missing_payment_method: "cancel" },
-        },
-      },
+      ...(checkoutDiscounts ? { discounts: checkoutDiscounts } : {}),
+      subscription_data: subscriptionData,
       success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}&plan=${requestedPlan}&interval=${requestedInterval}`,
       cancel_url: `${origin}/pricing?canceled=true`,
     });
@@ -327,10 +397,24 @@ serve(async (req) => {
         });
     }
 
+    if (user && winbackOffer && checkoutDiscounts) {
+      await accessAdmin
+        .from("onboarding_winback")
+        .update({
+          checkout_coupon_id: checkoutDiscounts[0].coupon,
+          checkout_attached_at: new Date().toISOString(),
+        })
+        .eq("user_id", user.id)
+        .then(({ error }) => {
+          if (error) console.error("[winback] failed to record coupon:", error);
+        });
+    }
+
     logStep("Checkout session created", {
       sessionId: session.id,
       flow: user ? "authenticated" : "anonymous",
-      referralDiscount: Boolean(referralDiscount),
+      referralDiscount: Boolean(referralRowId),
+      winbackOffer,
     });
 
 

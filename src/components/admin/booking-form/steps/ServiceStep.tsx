@@ -650,7 +650,7 @@ export function ServiceStep() {
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm">{extra.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      {extra.note ? extra.note : `$${extra.price}`}
+                      {extra.note ? extra.note : extra.price > 0 ? `$${extra.price}` : 'Custom pricing'}
                     </p>
                   </div>
                 </div>

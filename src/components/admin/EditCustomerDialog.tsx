@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
+import { PERSON_NAME_MAX } from '@/lib/displayName';
 import { Loader2, User, Mail, Phone, ShieldAlert, UserCheck, CreditCard, Link2, Check, Clock, Send, MapPin, Plus, Trash2, Star } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { mustAffectRows } from '@/lib/mustAffectRows';
@@ -386,6 +387,7 @@ export function EditCustomerDialog({ open, onOpenChange, customer }: EditCustome
               <Input
                 id="first_name"
                 value={formData.first_name}
+                maxLength={PERSON_NAME_MAX}
                 onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
                 placeholder="John"
               />
@@ -395,6 +397,7 @@ export function EditCustomerDialog({ open, onOpenChange, customer }: EditCustome
               <Input
                 id="last_name"
                 value={formData.last_name}
+                maxLength={PERSON_NAME_MAX}
                 onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
                 placeholder="Doe"
               />

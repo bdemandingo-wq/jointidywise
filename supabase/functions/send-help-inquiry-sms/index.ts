@@ -1,12 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { isServiceRoleRequest } from "../_shared/require-caller-org.ts";
+import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const ADMIN_PHONE = "+15615718725";
+const ADMIN_PHONE = platformAdminPhone("primary");
 
 interface HelpInquiryRequest {
   type: 'question' | 'idea';

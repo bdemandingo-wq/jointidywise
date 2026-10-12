@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
+import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -8,7 +9,7 @@ const corsHeaders = {
 };
 
 const TIDYWISE_ORG_ID = "e95b92d0-7099-408e-a773-e4407b34f8b4";
-const ADMIN_PHONES = ["+15615718725", "+18137356859"];
+const ADMIN_PHONES = platformAdminPhones();
 
 function formatTime12h(time: string): string {
   const [h, m] = time.split(":").map(Number);

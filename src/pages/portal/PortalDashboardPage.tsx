@@ -63,6 +63,7 @@ import { tierProgressPercent, type TierDef } from "@/lib/loyaltyTier";
 import { usePlatform } from "@/hooks/usePlatform";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { orgAddDays } from '@/lib/orgDateRange';
+import { sanitizeDisplayName } from '@/lib/displayName';
 
 interface Booking {
   id: string;
@@ -656,7 +657,7 @@ export default function PortalDashboardPage() {
     ? upcomingBookings.slice().sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())[0]
     : null;
 
-  const firstName = customer.first_name || 'there';
+  const firstName = sanitizeDisplayName(customer.first_name, 'there');
 
   /* ─────────────────────────── SHARED SECTIONS ─────────────────────────── */
 

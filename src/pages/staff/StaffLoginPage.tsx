@@ -51,6 +51,7 @@ export default function StaffLoginPage() {
   } = useBiometricAuth();
 
   const [showPassword, setShowPassword] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [biometricLoading, setBiometricLoading] = useState(false);
 
@@ -90,6 +91,7 @@ export default function StaffLoginPage() {
   }, [authLoading, user, navigate]);
 
   const onSubmitLogin = async (values: LoginValues) => {
+    setLoginError(null);
     try {
       await signInStaff(values.email, values.password);
       
@@ -104,7 +106,9 @@ export default function StaffLoginPage() {
       toast.success("Welcome back!");
       navigate("/staff", { replace: true });
     } catch (err: any) {
-      toast.error(err?.message || "Login failed");
+      const message = err?.message || "Login failed";
+      setLoginError(message);
+      toast.error(message);
     }
   };
 
@@ -235,8 +239,11 @@ export default function StaffLoginPage() {
                   <p className="text-sm text-destructive">{loginForm.formState.errors.password.message}</p>
                 )}
               </div>
+              {loginError && (
+                <p className="text-sm text-destructive" role="alert">{loginError}</p>
+              )}
 
-              <Button type="submit" className="w-full" disabled={isSubmitting}>
+              <Button type="submit" className="w-full" variant="premium" disabled={isSubmitting}>
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Sign In to Portal
               </Button>

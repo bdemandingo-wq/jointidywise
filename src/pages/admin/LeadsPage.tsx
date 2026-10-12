@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { PlanFeatureGate } from '@/components/admin/PlanFeatureGate';
 import { Button } from '@/components/ui/button';
@@ -115,7 +116,8 @@ export default function LeadsPage() {
   const { timezone: orgTimezone } = useOrgTimezone();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchParams] = useSearchParams();
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('q') || '');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [showFunnel, setShowFunnel] = useState(false);
@@ -296,6 +298,9 @@ export default function LeadsPage() {
       state: lead.state,
       zip_code: lead.zip_code,
       organization_id: organization.id,
+      // The column default is 'lead'. Leaving it there kept a converted
+      // customer in the Leads list and in the customers-page lead count.
+      customer_status: 'active',
     });
 
     if (customerError) {

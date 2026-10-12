@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Loader2, Trash2, Mail, Copy, Check, AlertTriangle } from 'lucide-react';
 import { readEdgeFunctionError, readEdgeFunctionErrorBody } from '@/lib/edgeFunctionError';
+import { plainInviteEmailError } from '@/lib/inviteEmailError';
 import { QueryError } from '@/components/QueryError';
 import { confirmDialog } from "@/components/AppDialogs";
 
@@ -105,14 +106,18 @@ export function TeamMembersCard() {
         const body = await readEdgeFunctionErrorBody(error);
         const acceptUrl = typeof body?.accept_url === 'string' ? body.accept_url : null;
         if (acceptUrl) {
-          return { emailFailed: true, acceptUrl, reason: typeof body?.error === 'string' ? body.error : null };
+          return {
+            emailFailed: true,
+            acceptUrl,
+            reason: plainInviteEmailError(typeof body?.error === 'string' ? body.error : null),
+          };
         }
 
         // Everything else: surface what the function said. supabase-js reports
         // every non-2xx as "Edge Function returned a non-2xx status code", which
         // hid the real reason — insufficient_permission, invalid_email and the
         // rest all looked identical.
-        throw new Error(await readEdgeFunctionError(error, 'Failed to send invite'));
+        throw new Error(plainInviteEmailError(await readEdgeFunctionError(error, 'Failed to send invite')));
       }
       return data;
     },

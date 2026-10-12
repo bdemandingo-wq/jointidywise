@@ -6,6 +6,7 @@ import {
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireOrgAdmin } from "../_shared/requireOrgAdmin.ts";
+import { isServiceRoleRequest, rejectUnauthenticated } from "../_shared/require-caller-org.ts";
 import { isPhoneOptedOut } from "../_shared/marketing-guard.ts";
 
 const corsHeaders = {
@@ -30,7 +31,32 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const { organizationId, testMode = false, message, hoursThreshold = 1 } = await req.json();
+
+    // Caller first. An empty unauthenticated POST used to throw inside
+    // req.json() and come back as 500. Service-role (cron / another function)
+    // is a caller; it skips the user-membership check below because
+    // requireOrgAdmin only accepts a user session.
+    const denied = await rejectUnauthenticated(req, corsHeaders, {
+      success: false,
+      error: "Unauthorized",
+    });
+    if (denied) return denied;
+
+    let body: {
+      organizationId?: string;
+      testMode?: boolean;
+      message?: string;
+      hoursThreshold?: number;
+    } | null = null;
+    try {
+      body = await req.json();
+    } catch {
+      body = null;
+    }
+    const organizationId = body?.organizationId;
+    const testMode = body?.testMode ?? false;
+    const message = body?.message;
+    const hoursThreshold = body?.hoursThreshold ?? 1;
 
     if (!organizationId) {
       return new Response(
@@ -41,8 +67,10 @@ const handler = async (req: Request): Promise<Response> => {
 
     // SECURITY: require an authenticated owner/admin of this org before
     // touching the org's OpenPhone credentials or sending SMS to its customers.
-    const authResult = await requireOrgAdmin(req, organizationId);
-    if (authResult instanceof Response) return authResult;
+    if (!isServiceRoleRequest(req)) {
+      const authResult = await requireOrgAdmin(req, organizationId);
+      if (authResult instanceof Response) return authResult;
+    }
 
     console.log(`[followup-abandoned-booking] Starting for org: ${organizationId}, threshold: ${hoursThreshold}h`);
 
@@ -68,6 +96,13 @@ const handler = async (req: Request): Promise<Response> => {
       .maybeSingle();
 
     const companyName = businessSettings?.company_name || 'Our Company';
+
+    const { data: orgRow } = await supabase
+      .from('organizations')
+      .select('slug')
+      .eq('id', organizationId)
+      .maybeSingle();
+    const orgSlug = (orgRow as { slug?: string | null } | null)?.slug || '';
 
     // Find abandoned bookings with phone numbers that haven't been followed up
     const cutoffTime = new Date();
@@ -158,10 +193,14 @@ const handler = async (req: Request): Promise<Response> => {
         }
         // Marketing: the STOP line is appended here rather than baked into the
         // body, so an owner rewording it cannot drop the opt-out.
-        const personalizedMessage =
+        let personalizedMessage =
           AUTOMATION_DEFAULTS.abandoned_booking_recovery.message_class === 'marketing'
             ? withStopSentence(resolvedAb.text)
             : resolvedAb.text;
+        if (orgSlug && booking.session_token) {
+          const resumeUrl = `https://www.jointidywise.com/book/${orgSlug}?resume=${encodeURIComponent(booking.session_token)}`;
+          personalizedMessage = `${personalizedMessage}\n\nFinish your booking: ${resumeUrl}`;
+        }
 
 
         let toPhone = booking.phone.replace(/\D/g, '');

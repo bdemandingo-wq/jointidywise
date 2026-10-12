@@ -1,12 +1,12 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Platform admin phone number
-const ADMIN_PHONES = ["+15615718725", "+18137356859"];
+const ADMIN_PHONES = platformAdminPhones();
 
 interface NotifyAdminRequest {
   organizationId: string;

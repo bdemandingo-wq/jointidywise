@@ -62,7 +62,10 @@ export interface PortalSessionClaims {
   exp: number;
 }
 
-const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60; // 7 days
+// The client portal tells the browser the session lasts 30 days
+// (ClientPortalContext saveSession). A 7-day token logged people out
+// while localStorage still considered them signed in.
+const DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
 export async function mintPortalSession(
   input: { portal_user_id: string; customer_id: string; organization_id: string },

@@ -1,6 +1,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { resolveCallerOrg } from '../_shared/require-caller-org.ts';
+import { assertSafeWebhookUrl, UnsafeWebhookUrlError } from '../_shared/safe-webhook-url.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -98,6 +99,12 @@ function classifyError(status: number | null, error: string | null): { code: str
         'GHL rejected the payload (4xx). Check your event mapping — the Inbound Webhook trigger expects fields like email, phone, firstName.',
     };
   }
+  if (error && /private|metadata|https|not allowed|redirected|credentials/i.test(error)) {
+    return {
+      code: 'UNSAFE_URL',
+      hint: 'That webhook URL is not allowed. Use the https Inbound Webhook URL from your GoHighLevel workflow. Private networks, metadata addresses, and redirects are blocked.',
+    };
+  }
   if (error && /fetch|network|timed?out|ENOTFOUND/i.test(error)) {
     return {
       code: 'NETWORK_ERROR',
@@ -113,6 +120,20 @@ async function deliver(
   authHeaderName: string | null,
   authToken: string | null,
 ) {
+  let target: string;
+  try {
+    target = (await assertSafeWebhookUrl(url)).toString();
+  } catch (err) {
+    const message = err instanceof UnsafeWebhookUrlError ? err.message : 'Webhook URL is not allowed';
+    return {
+      success: false,
+      status: null as number | null,
+      attempts: 0,
+      latency_ms: 0,
+      response_snippet: null as string | null,
+      error: message,
+    };
+  }
   let lastStatus: number | null = null;
   let lastError: string | null = null;
   let lastSnippet: string | null = null;
@@ -126,7 +147,18 @@ async function deliver(
             ? `Bearer ${authToken}`
             : authToken;
       }
-      const resp = await fetch(url, { method: 'POST', headers, body });
+      // redirect: 'manual' so a public URL cannot 302 to instance metadata.
+      const resp = await fetch(target, { method: 'POST', headers, body, redirect: 'manual' });
+      if (resp.status >= 300 && resp.status < 400) {
+        return {
+          success: false,
+          status: resp.status,
+          attempts: attempt,
+          latency_ms: Date.now() - started,
+          response_snippet: null as string | null,
+          error: 'Webhook URL redirected; redirects are not followed',
+        };
+      }
       lastStatus = resp.status;
       lastSnippet = (await resp.text().catch(() => '')).slice(0, 500);
       if (resp.ok) {

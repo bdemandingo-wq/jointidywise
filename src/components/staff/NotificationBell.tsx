@@ -7,9 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/lib/supabase';
-import { format } from 'date-fns';
 import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface Notification {
@@ -27,6 +25,10 @@ interface Props {
   onViewJob?: (bookingId: string) => void;
 }
 
+function hasNotificationBody(notification: { title?: string | null; message?: string | null }) {
+  return Boolean((notification.title || '').trim() || (notification.message || '').trim());
+}
+
 export function NotificationBell({ staffId, onViewJob }: Props) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -41,8 +43,9 @@ export function NotificationBell({ staffId, onViewJob }: Props) {
       .limit(20);
 
     if (!error && data) {
-      setNotifications(data);
-      setUnreadCount(data.filter((n) => !n.is_read).length);
+      const visible = (data as Notification[]).filter(hasNotificationBody);
+      setNotifications(visible);
+      setUnreadCount(visible.filter((n) => !n.is_read).length);
     }
   };
 
@@ -62,7 +65,9 @@ export function NotificationBell({ staffId, onViewJob }: Props) {
             filter: `staff_id=eq.${staffId}`,
           },
           (payload) => {
-            setNotifications((prev) => [payload.new as Notification, ...prev]);
+            const next = payload.new as Notification;
+            if (!hasNotificationBody(next)) return;
+            setNotifications((prev) => [next, ...prev]);
             setUnreadCount((prev) => prev + 1);
           }
         )
@@ -115,7 +120,13 @@ export function NotificationBell({ staffId, onViewJob }: Props) {
   };
 
   return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
+    <Popover
+      open={isOpen}
+      onOpenChange={(open) => {
+        setIsOpen(open);
+        if (open) fetchNotifications();
+      }}
+    >
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="h-5 w-5" />
@@ -138,7 +149,7 @@ export function NotificationBell({ staffId, onViewJob }: Props) {
             </Button>
           )}
         </div>
-        <ScrollArea className="h-80">
+        <div className="max-h-80 overflow-y-auto">
           {notifications.length === 0 ? (
             <div className="p-4 text-center text-muted-foreground">
               No notifications yet
@@ -171,7 +182,7 @@ export function NotificationBell({ staffId, onViewJob }: Props) {
               ))}
             </div>
           )}
-        </ScrollArea>
+        </div>
       </PopoverContent>
     </Popover>
   );

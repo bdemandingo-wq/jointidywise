@@ -28,72 +28,15 @@ import {
   Loader2,
 } from 'lucide-react';
 
+import { LIFETIME_FEATURES, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
+
 type Interval = 'monthly' | 'yearly';
+type Tier = PublicTier;
 
-interface Tier {
-  id: 'basic' | 'pro' | 'custom';
-  name: string;
-  tagline: string;
-  monthlyPrice: number;
-  yearlyPrice: number;
-  highlight?: boolean;
-  features: string[];
-}
-
-const TIERS: Tier[] = [
-  {
-    id: 'basic',
-    name: 'Basic',
-    tagline: 'Run jobs, get paid, keep customers organized.',
-    monthlyPrice: 49,
-    yearlyPrice: 490,
-    // Four bullets, not nine. A card's job is to help someone choose BETWEEN
-    // tiers; anything table-stakes or true of all three is noise. Everything
-    // cut is still on the page in COMPARISON below — demoted, not deleted.
-    features: [
-      'Unlimited customers, jobs and staff — no per-user fees',
-      'Online booking that takes payment',
-      'Scheduling and recurring jobs',
-      'Estimates, invoices and Stripe payouts',
-    ],
-  },
-  {
-    id: 'pro',
-    name: 'Pro',
-    tagline: 'Everything in Basic, plus the growth toolkit.',
-    monthlyPrice: 97,
-    yearlyPrice: 970,
-    highlight: true,
-    // Client portal is on the card and GPS tracking is not — a deliberate swap.
-    // "Your customers get their own login" is easy for an owner to picture and
-    // sells to a two-cleaner business and a ten-van one alike. GPS reads as
-    // surveillance at small headcounts: it wins the big operator and unsettles
-    // the small one, which is the wrong trade on the card that has to convert
-    // both. GPS is still in the comparison table.
-    features: [
-      'Everything in Basic',
-      'Automated review requests, reminders and win-backs',
-      'Payroll for your cleaners',
-      'AI assistant and advanced reports',
-      'Client portal — your customers get their own login',
-    ],
-  },
-  {
-    id: 'custom',
-    name: 'Custom',
-    tagline: 'Pro features + we do the heavy lifting for you.',
-    monthlyPrice: 197,
-    yearlyPrice: 1970,
-    // The five '•' sub-items were examples of ONE feature, rendered as peers of
-    // 'Priority support'. That nesting is what made this card read as clutter.
-    // They collapse into the line below and appear in full in the table.
-    features: [
-      'Everything in Pro',
-      'One done-for-you request every month — website build, CRM import, marketing setup, or anything custom',
-      'Priority support',
-    ],
-  },
-];
+// Card bullets live in publicPlans.ts so /choose-plan cannot drift from this
+// page. The comparison table below is still the full list — nothing was cut
+// from the page, only from the cards.
+const TIERS: Tier[] = PUBLIC_TIERS;
 
 /**
  * Every feature, in full. The cards carry only what distinguishes one tier from
@@ -443,115 +386,10 @@ export default function PricingPage() {
   }
 
 
-  async function startSubscriptionCheckout(planId: Tier['id']) {
-    // Idempotency guard — bail on every re-entry until the page
-    // navigates away. Prevents the duplicate-session bug seen in
-    // edge-function logs (multiple sessions per click from rapid
-    // double-taps / re-renders firing the handler before busy state
-    // painted). pageshow listener resets it on bfcache restore.
-    if (isRedirectingRef.current || checkoutBusy) return;
-    isRedirectingRef.current = true;
-
-    // Open the blank tab synchronously (still inside the user gesture)
-    // ONLY after the guard passes — so rapid clicks can't each pop a
-    // blank tab before busy state lands.
-    const preopened = preopenCheckoutTab();
-
-    // Persist the choice in BOTH places:
-    //   - sessionStorage for the Stripe cancel_url round-trip
-    //   - URL params so a full refresh during checkout (or a deep
-    //     link share) still restores the same tier highlight.
-    try {
-      sessionStorage.setItem(
-        'tw_pending_plan',
-        JSON.stringify({ plan: planId, interval: billingInterval }),
-      );
-    } catch {
-      // sessionStorage unavailable — silent no-op.
-    }
-    const next = new URLSearchParams(searchParams);
-    next.set('plan', planId);
-    next.set('interval', billingInterval);
-    setSearchParams(next, { replace: true });
-
-    // Checkout-first flow: every click goes straight to Stripe. The
-    // webhook creates the account from session.customer_details.email
-    // after payment. No more signup detour, no more loop.
-    setCheckoutBusy(planId);
-    // Hard timeout — if the edge function or redirect never resolves
-    // within 20s, surface an error instead of leaving the button
-    // spinning forever (the bug the user reported on Basic).
-    const timeoutId = window.setTimeout(() => {
-      setCheckoutBusy((current) => {
-        if (current === planId) {
-          isRedirectingRef.current = false;
-          toast.error('Checkout is taking longer than expected. Please try again.');
-          return null;
-        }
-        return current;
-      });
-    }, 20000);
-
-    try {
-      console.log('[pricing] starting checkout', { plan: planId, interval: billingInterval });
-      const { data, error } = await supabase.functions.invoke('create-subscription', {
-        body: { plan: planId, interval: billingInterval },
-      });
-      // Was a hand-rolled copy of readEdgeFunctionError. Same behaviour, one
-      // definition — and this one also drops supabase-js's generic wrapper
-      // instead of surfacing "non-2xx status code" when the body has nothing.
-      if (error) {
-        if (await isAlreadyLifetimeError(error)) {
-          window.clearTimeout(timeoutId);
-          isRedirectingRef.current = false;
-          setCheckoutBusy(null);
-          toast.success(ALREADY_LIFETIME_MESSAGE);
-          return;
-        }
-        throw new Error(await readEdgeFunctionError(error, 'Could not start checkout. Try again.'));
-      }
-      const payload = data as { url?: string; error?: string } | null;
-      if (payload?.error) throw new Error(payload.error);
-      const url = payload?.url;
-      if (!url) throw new Error('Checkout URL missing — please try again.');
-      goToCheckout(url, preopened);
-
-      // Only release the spinner if we're still visible after the
-      // redirect window. If the browser actually started navigating to
-      // Stripe, the document hides — keeping the spinner on through
-      // the unload feels correct (the page is leaving). Clearing it
-      // mid-navigation made the button briefly flash back to "Start
-      // Basic" while Stripe was loading, which contributed to the
-      // glitch the user reported.
-      window.setTimeout(() => {
-        if (document.visibilityState === 'visible') {
-          setCheckoutBusy((current) => (current === planId ? null : current));
-        }
-      }, 2000);
-    } catch (err) {
-      // Close the pre-opened tab so the user isn't left with a blank page.
-      if (preopened && !preopened.closed) {
-        try { preopened.close(); } catch { /* ignore */ }
-      }
-      console.error('[pricing] create-subscription failed', err);
-      toast.error(
-        err instanceof Error ? err.message : 'Could not start checkout. Try again.',
-      );
-      setCheckoutBusy(null);
-      isRedirectingRef.current = false;
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-  }
-
-
-  // Auto-resume after the cancel_url round-trip. If the user clicks a
-  // plan, lands on Stripe, then clicks cancel and returns to /pricing,
-  // they still have ?plan=…&interval=… in the URL and a sessionStorage
-  // marker. We could fire checkout immediately on return, but that
-  // would feel pushy after they explicitly cancelled — instead we keep
-  // the tier highlighted (via the existing effect) so a one-click
-  // retry is right there. No auto-resume.
+  // Subscription cards link to signup (or the dashboard, if already
+  // signed in). Lifetime is still a one-time Stripe payment. A canceled
+  // lifetime checkout can return with ?plan= in the URL; the highlight
+  // restores, and we do not auto-open Stripe again.
 
   async function startLifetimeCheckout() {
     if (isRedirectingRef.current || checkoutBusy) return;
@@ -681,7 +519,7 @@ export default function PricingPage() {
           </p>
           <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-sm font-medium text-primary">
             <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
-            Start with a 14-day free trial — card required, cancel anytime.
+            Start with a 14-day free trial — no card. The dashboard locks when it ends.
           </p>
 
           <div
@@ -749,7 +587,6 @@ export default function PricingPage() {
           >
             {TIERS.map((tier) => {
               const price = priceFor(tier, billingInterval);
-              const isBusy = checkoutBusy === tier.id;
               const isHighlighted = highlightedPlan === tier.id;
               const cardLabel = `${tier.name} plan, ${price.display}${price.sub}${tier.highlight ? ', most popular' : ''}${isHighlighted ? ', selected' : ''}`;
               return (
@@ -801,22 +638,20 @@ export default function PricingPage() {
                   </p>
 
                   <Button
-                    onClick={() => startSubscriptionCheckout(tier.id)}
-                    disabled={isBusy}
+                    asChild
                     variant={tier.highlight ? 'default' : 'outline'}
                     size="lg"
                     className="w-full mb-2"
-                    aria-label={`Start 14-day free trial of ${tier.name} plan, ${billingInterval === 'yearly' ? 'billed yearly after trial' : 'billed monthly after trial'}`}
-                    aria-busy={isBusy}
                   >
-                    {isBusy ? (
-                      <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
-                    ) : (
-                      `Start 14-day free trial`
-                    )}
+                    <Link
+                      to={user ? '/dashboard' : '/signup'}
+                      aria-label={`Start 14-day free trial of ${tier.name} plan, ${billingInterval === 'yearly' ? 'billed yearly after trial' : 'billed monthly after trial'}`}
+                    >
+                      Start 14-day free trial
+                    </Link>
                   </Button>
                   <p className="text-[11px] text-muted-foreground text-center mb-6">
-                    Card required. Cancel anytime before day 14 and you won't be charged.
+                    No card to start. After 14 days the app asks you to pick a plan.
                   </p>
 
                   <ul className="space-y-2.5 text-sm">
@@ -1071,12 +906,7 @@ export default function PricingPage() {
                   What's left all speaks to the one-time offer specifically —
                   which is the only thing this block has to argue.
                 */}
-                {[
-                  'Every Pro feature, forever',
-                  'All future features included free',
-                  'No recurring bill — ever',
-                  'Excludes the Custom plan done-for-you requests',
-                ].map((f) => (
+                {LIFETIME_FEATURES.map((f) => (
                   <li key={f} className="flex items-start gap-2.5">
                     <Check className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
                     <span>{f}</span>
@@ -1195,7 +1025,7 @@ export default function PricingPage() {
               },
               {
                 q: 'How does the free trial work?',
-                a: 'Every plan starts with a 14-day free trial. A card is required up front, but you are not charged until the trial ends — cancel before then and you pay nothing. Cancel later and you keep access until the end of the month you paid for.',
+                a: 'Every new account gets 14 days in the app with no card. When that ends, the dashboard locks until you pick a plan and add a card. Cancel before then and you pay nothing. After you subscribe, canceling keeps access until the end of the month you paid for.',
               },
               {
                 q: 'What happens at the end of my paid month if I cancel?',

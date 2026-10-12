@@ -47,6 +47,20 @@ function getThumbnailUrl(embedUrl: string): string | null {
   return null;
 }
 
+/** Same Loom URL stored twice (global row plus an org copy) was listing the
+ * payroll video two or three times. Compare the URL without its query string. */
+function dedupeHelpVideos(rows: HelpVideo[]): HelpVideo[] {
+  const seen = new Set<string>();
+  const unique: HelpVideo[] = [];
+  for (const row of rows) {
+    const key = (row.loom_url || '').split('?')[0].trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+  return unique;
+}
+
 interface HelpVideo {
   id: string;
   title: string;
@@ -94,7 +108,7 @@ export default function HelpPage() {
         .order('sort_order', { ascending: true });
 
       if (error) throw error;
-      setVideos(data || []);
+      setVideos(dedupeHelpVideos(data || []));
     } catch (error) {
       console.error('Error fetching videos:', error);
       toast.error('Failed to load help videos');

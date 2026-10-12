@@ -1,8 +1,9 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useLayoutEffect, useState } from 'react';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminHeader } from './AdminHeader';
 
 import { PlanStateBanner } from './PlanStateBanner';
+import { TrialDaysBanner } from './TrialDaysBanner';
 import { OfflineIndicator } from './OfflineIndicator';
 import { MobileBottomNav } from '@/components/mobile/MobileBottomNav';
 import { cn } from '@/lib/utils';
@@ -21,6 +22,14 @@ interface AdminLayoutProps {
 export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const location = useLocation();
+
+  // Admin pages pass `title` into the header but most of them never touch
+  // document.title, so the browser tab stayed on the marketing default.
+  // No cleanup restore: the next page sets its own title, and restoring the
+  // previous one flashes the page you just left.
+  useLayoutEffect(() => {
+    if (title) document.title = `${title} | TidyWise`;
+  }, [title]);
   
   // Apply org branding colors to entire CRM theme
   useBrandingColors();
@@ -141,6 +150,7 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
           )}
         >
           <PlanStateBanner />
+          <TrialDaysBanner />
           {children}
         </main>
       </div>

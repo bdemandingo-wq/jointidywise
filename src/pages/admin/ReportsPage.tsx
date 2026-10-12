@@ -42,6 +42,7 @@ import { useOrgId } from '@/hooks/useOrgId';
 import { SEOHead } from '@/components/SEOHead';
 import { fmt } from '@/lib/activeCurrency';
 import { QueryError } from '@/components/QueryError';
+import { percentChange, trendDirection } from '@/lib/reportTrends';
 
 // Helper to fetch data - uses any to break TS2589 type depth chain
 // Includes pagination limits for performance
@@ -281,7 +282,9 @@ export default function ReportsPage() {
         // Cancelled work is not revenue. Without this the bar counted it,
         // which is why it read higher than Finance's Total Sales for the
         // same window. Matches the status handling in totalStats below.
-        if (b.status === 'cancelled') return false;
+        // Same definition as the Total Revenue card: completed work only.
+        // Counting scheduled jobs drew a ~$90 bar on accounts with $0 revenue.
+        if (b.status !== 'completed') return false;
         // bookingDate IS an instant, so the month it counts toward is the org's.
         const bm = orgYMD(new Date(b.scheduled_at), orgTimezone);
         return bm.m - 1 === monthIndex && bm.y === year;
@@ -324,6 +327,32 @@ export default function ReportsPage() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- bookings is the unfiltered source; filteredBookings already captures its content
   }, [filteredBookings, staff, customers, recurringBookings, orgTimezone]);
+
+  const priorStats = useMemo(() => {
+    const span = Math.max(0, dateRange.to.getTime() - dateRange.from.getTime());
+    const end = new Date(dateRange.from.getTime() - 1);
+    const start = new Date(end.getTime() - span);
+    const inPrev = bookings.filter((b) => {
+      const bookingDate = new Date(b.scheduled_at);
+      return isWithinInterval(bookingDate, {
+        start: orgStartOfDay(start, orgTimezone),
+        end: orgEndOfDay(end, orgTimezone),
+      });
+    });
+    const completed = inPrev.filter((b) => b.status === 'completed');
+    const revenue = sumBookingRevenue(completed);
+    return {
+      revenue,
+      bookings: inPrev.length,
+      avg: completed.length > 0 ? revenue / completed.length : 0,
+      conversion: inPrev.length > 0 ? Math.round((completed.length / inPrev.length) * 100) : 0,
+    };
+  }, [bookings, dateRange, orgTimezone]);
+
+  const revenueChange = percentChange(totalStats.totalRevenue, priorStats.revenue);
+  const bookingsChange = percentChange(totalStats.totalBookings, priorStats.bookings);
+  const avgChange = percentChange(totalStats.avgBookingValue, priorStats.avg);
+  const completionChange = percentChange(totalStats.conversionRate, priorStats.conversion);
 
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -397,25 +426,23 @@ export default function ReportsPage() {
         <StatCard
           title="Total Revenue"
           value={isTestMode ? '$X,XXX' : `${fmt(totalStats.totalRevenue)}`}
-          change={18}
-          changeLabel="vs last month"
-          trend="up"
+          change={revenueChange ?? undefined}
+          changeLabel={revenueChange === null ? undefined : 'vs prior period'}
+          trend={trendDirection(revenueChange)}
           icon={<DollarSign className="w-6 h-6" />}
         />
         <StatCard
           title="Total Bookings"
           value={isTestMode ? 'XX' : totalStats.totalBookings}
-          change={12}
-          changeLabel="vs last month"
-          trend="up"
+          change={bookingsChange ?? undefined}
+          changeLabel={bookingsChange === null ? undefined : 'vs prior period'}
+          trend={trendDirection(bookingsChange)}
           icon={<Calendar className="w-6 h-6" />}
         />
         <StatCard
           title={`Recurring Cleans (${orgYMD(new Date(), orgTimezone).y})`}
           value={isTestMode ? 'XX' : recurringCleansCount}
-          change={0}
           changeLabel={isTestMode ? '$X,XXX revenue' : `${fmt(recurringCleansRevenue)} revenue`}
-          trend="up"
           icon={<Repeat className="w-6 h-6" />}
         />
         <StatCard
@@ -426,17 +453,17 @@ export default function ReportsPage() {
         <StatCard
           title="Avg Booking Value"
           value={isTestMode ? '$XXX' : `${fmt(totalStats.avgBookingValue)}`}
-          change={5}
-          changeLabel="vs last month"
-          trend="up"
+          change={avgChange ?? undefined}
+          changeLabel={avgChange === null ? undefined : 'vs prior period'}
+          trend={trendDirection(avgChange)}
           icon={<TrendingUp className="w-6 h-6" />}
         />
         <StatCard
           title="Completion Rate"
           value={isTestMode ? 'XX%' : `${totalStats.conversionRate}%`}
-          change={3}
-          changeLabel="vs last month"
-          trend="up"
+          change={completionChange ?? undefined}
+          changeLabel={completionChange === null ? undefined : 'vs prior period'}
+          trend={trendDirection(completionChange)}
           icon={<Users className="w-6 h-6" />}
         />
         <StatCard

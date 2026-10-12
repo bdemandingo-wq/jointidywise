@@ -274,7 +274,7 @@ export function BookingFormProvider({
   
   // Schedule state
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(defaultDate);
-  const [selectedTime, setSelectedTime] = useState('');
+  const [selectedTime, setSelectedTime] = useState('09:00');
   const [selectedStaffId, setSelectedStaffId] = useState('');
   const [isTeamMode, setIsTeamMode] = useState(false);
   const [selectedTeamMembers, setSelectedTeamMembers] = useState<string[]>([]);
@@ -519,7 +519,7 @@ export function BookingFormProvider({
     setSelectedServiceId('');
     setSelectedStaffId('');
     setSelectedDate(undefined);
-    setSelectedTime('');
+    setSelectedTime('09:00');
     setNotes('');
     setCustomerNotes('');
     setTotalAmount(0);
