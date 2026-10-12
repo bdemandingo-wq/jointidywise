@@ -24,7 +24,7 @@ import { usePlatform } from "@/hooks/usePlatform";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { readEdgeFunctionError, readEdgeFunctionErrorBody } from "@/lib/edgeFunctionError";
-import { hasChangeableStripeSubscription } from "@/lib/stripeMode";
+import { hasChangeableStripeSubscription, isActiveOrgTrial } from "@/lib/stripeMode";
 import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from "@/lib/startSubscriptionCheckout";
 import { ALREADY_LIFETIME_MESSAGE } from "@/lib/alreadyLifetime";
 
@@ -166,7 +166,7 @@ export function PlanSwitcher() {
 
   async function subscribe(plan: PlanInfo) {
     if (!canShowPaymentFlows) {
-      window.open("https://jointidywise.com/choose-plan", "_blank", "noopener,noreferrer");
+      window.open("https://jointidywise.com/choose-plan?upgrade=1", "_blank", "noopener,noreferrer");
       return;
     }
     setCheckoutBusy(plan.id);
@@ -190,7 +190,7 @@ export function PlanSwitcher() {
         const body = await readEdgeFunctionErrorBody(error);
         if (body?.code === "no_customer") {
           toast.error(typeof body.error === "string" ? body.error : "No card on file yet.");
-          if (canShowPaymentFlows) window.location.href = "/choose-plan";
+          if (canShowPaymentFlows) window.location.href = "/choose-plan?upgrade=1";
           return;
         }
         throw new Error(await readEdgeFunctionError(error, "Could not open the billing portal."));
@@ -358,9 +358,11 @@ export function PlanSwitcher() {
         <p className="mt-3 text-xs text-muted-foreground">
           {subscription?.payment_failed
             ? "The last payment failed. Update payment method opens Stripe's billing portal."
-            : canShowPaymentFlows
-              ? "There is no card on file, so these open Stripe Checkout. The card is entered on Stripe, not in this screen."
-              : "Subscriptions are managed at jointidywise.com. This app cannot take a card."}
+            : isActiveOrgTrial(subscription)
+              ? "Your trial is active. Choosing a plan opens Stripe Checkout when you want to upgrade. The card is entered on Stripe, and your trial stays in place until that checkout finishes."
+              : canShowPaymentFlows
+                ? "There is no card on file, so these open Stripe Checkout. The card is entered on Stripe, not in this screen."
+                : "Subscriptions are managed at jointidywise.com. This app cannot take a card."}
         </p>
       )}
 

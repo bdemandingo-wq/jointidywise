@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -15,6 +15,7 @@ import { SEOHead } from '@/components/SEOHead';
 import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
+import { shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
 import {
   hasAnswer,
   normalizeAnswers,
@@ -158,14 +159,17 @@ const PAIN_PITCH: Record<string, string> = {
  *
  * - Web only. Native builds never route here (App Store 3.1.1) — a native
  *   visit redirects straight to /dashboard.
- * - Users with full access (subscribed / demo accounts) redirect to /dashboard.
- * - No skip. Only escape hatch is logout.
- * - AdminRoute is the backstop: any /dashboard visit without a subscription
+ * - Accounts with dashboard access, including an active org trial, go to
+ *   /dashboard. ?upgrade=1 keeps the page open so that trial can still pick a plan.
+ * - Accounts without access have no skip. The escape hatch is logout.
+ * - AdminRoute is the backstop: any /dashboard visit without access
  *   bounces new users back here.
  */
 export default function ChoosePlanPage() {
   const navigate = useNavigate();
-  const { user, loading: authLoading, signOut, checkSubscription, subscription } = useAuth();
+  const location = useLocation();
+  const upgradeRequested = new URLSearchParams(location.search).get('upgrade') === '1';
+  const { user, loading: authLoading, signOut, checkSubscription } = useAuth();
   const { hasFullAccess, isLoading: subLoading } = useSubscription();
   const [billingInterval, setBillingInterval] = useState<Interval>('monthly');
   const [checkoutBusy, setCheckoutBusy] = useState<string | null>(null);
@@ -211,14 +215,17 @@ export default function ChoosePlanPage() {
       navigate('/login', { replace: true });
       return;
     }
-    // An unpaid org trial comes back as subscribed=true / product_id=org_trial,
-    // which hasFullAccess currently treats as paid. That sent /choose-plan
-    // straight to the dashboard, so there was no checkout. PR #5
-    // (cursor/p0-security-holes-8989) changes hasFullAccess itself; this check
-    // stays correct either way and does not edit that hook.
-    const unpaidOrgTrial = subscription?.product_id === 'org_trial';
-    if (hasFullAccess && !unpaidOrgTrial) navigate('/dashboard', { replace: true });
-  }, [authLoading, subLoading, user, hasFullAccess, subscription?.product_id, navigate]);
+    // hasFullAccess follows the live paywall: an org trial with trial_ends_at
+    // still in the future counts as access and is not held on this page.
+    // ?upgrade=1 is set by the subscription screen when that trial chooses
+    // to pick a plan.
+    if (shouldRedirectChoosePlanToDashboard({
+      hasDashboardAccess: hasFullAccess,
+      upgradeRequested,
+    })) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [authLoading, subLoading, user, hasFullAccess, upgradeRequested, navigate]);
 
   async function startCheckout(planId: PlanId) {
     if (isRedirectingRef.current || checkoutBusy) return;
@@ -322,22 +329,28 @@ export default function ChoosePlanPage() {
     <div className="portal-v2 portal-v2-scroll min-h-screen bg-background">
       <SEOHead title="Choose Your Plan | TidyWise" description="Pick a plan to activate your TidyWise account." noIndex />
 
-      {/* Top bar — brand + logout only. No nav, no skip. */}
-      <header className="flex items-center justify-between px-6 py-4 border-b">
+      <header className="flex items-center justify-between gap-3 px-6 py-4 border-b">
         <span className="font-semibold text-lg">TidyWise</span>
         <StripeModeBadge />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="gap-2 text-muted-foreground"
-          onClick={async () => {
-            await signOut();
-            navigate('/login', { replace: true });
-          }}
-        >
-          <LogOut className="h-4 w-4" />
-          Log out
-        </Button>
+        <div className="flex items-center gap-2">
+          {hasFullAccess && (
+            <Button variant="outline" size="sm" onClick={() => navigate('/dashboard')}>
+              Continue to dashboard
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2 text-muted-foreground"
+            onClick={async () => {
+              await signOut();
+              navigate('/login', { replace: true });
+            }}
+          >
+            <LogOut className="h-4 w-4" />
+            Log out
+          </Button>
+        </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-10 sm:py-14">
@@ -350,11 +363,15 @@ export default function ChoosePlanPage() {
               : 'Last step — your business is set up'}
           </div>
           <h1 className="pv-display text-3xl sm:text-5xl tracking-tight">
-            Choose your plan to enter your dashboard
+            {hasFullAccess
+              ? 'Upgrade your trial whenever you are ready'
+              : 'Choose your plan to enter your dashboard'}
           </h1>
           <p className="text-muted-foreground mt-3 max-w-xl mx-auto">
-            {painPitch ??
-              'Your booking page, scheduler, and CRM are ready. Pick a plan to activate them.'}
+            {hasFullAccess
+              ? 'Your trial is active and the dashboard stays open. Pick a plan when you want to add a card. Nothing is charged until you finish Stripe Checkout.'
+              : painPitch ??
+                'Your booking page, scheduler, and CRM are ready. Pick a plan to activate them.'}
           </p>
         </div>
 

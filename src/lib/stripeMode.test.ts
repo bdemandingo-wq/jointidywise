@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import {
   billingNextStep,
   hasChangeableStripeSubscription,
+  isActiveOrgTrial,
   readReportedStripeMode,
+  shouldRedirectChoosePlanToDashboard,
   stripeKeyMode,
 } from "./stripeMode.ts";
 
@@ -37,6 +39,24 @@ test("an unpaid org trial is checkout, not the billing portal", () => {
   assert.equal(
     hasChangeableStripeSubscription({ subscribed: true, product_id: "prod_abc" }),
     true,
+  );
+});
+
+test("an active org trial leaves /choose-plan unless they asked to upgrade", () => {
+  assert.equal(isActiveOrgTrial({ product_id: "org_trial", subscribed: true, trial_active: true }), true);
+  assert.equal(isActiveOrgTrial({ product_id: "org_trial", subscribed: false, trial_active: false }), false);
+  assert.equal(isActiveOrgTrial({ product_id: null, subscribed: false }), false);
+  assert.equal(
+    shouldRedirectChoosePlanToDashboard({ hasDashboardAccess: true, upgradeRequested: false }),
+    true,
+  );
+  assert.equal(
+    shouldRedirectChoosePlanToDashboard({ hasDashboardAccess: true, upgradeRequested: true }),
+    false,
+  );
+  assert.equal(
+    shouldRedirectChoosePlanToDashboard({ hasDashboardAccess: false, upgradeRequested: false }),
+    false,
   );
 });
 

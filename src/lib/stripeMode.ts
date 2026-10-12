@@ -61,3 +61,30 @@ export function hasChangeableStripeSubscription(subscription: {
   const id = subscription?.product_id ?? "";
   return subscription?.subscribed === true && typeof id === "string" && id.startsWith("prod_");
 }
+
+/**
+ * check-subscription reports product_id "org_trial" only while the trial
+ * still grants access (plan_type trial with trial_ends_at in the future, or
+ * the older pre-cutoff org trial). An expired trial comes back subscribed
+ * false and without that product id.
+ */
+export function isActiveOrgTrial(subscription: {
+  product_id?: string | null;
+  subscribed?: boolean;
+  trial_active?: boolean;
+} | null | undefined): boolean {
+  if (subscription?.product_id !== "org_trial") return false;
+  return subscription.subscribed === true || subscription.trial_active === true;
+}
+
+/**
+ * /choose-plan is the paywall for accounts without dashboard access.
+ * An active org trial has that access, so it returns to the dashboard
+ * unless the admin opened this page to upgrade.
+ */
+export function shouldRedirectChoosePlanToDashboard(opts: {
+  hasDashboardAccess: boolean;
+  upgradeRequested: boolean;
+}): boolean {
+  return opts.hasDashboardAccess && !opts.upgradeRequested;
+}

@@ -13,7 +13,7 @@ import { PlanSwitcher } from "@/components/subscription/PlanSwitcher";
 import { RedeemAccessCodeCard } from "@/components/subscription/RedeemAccessCodeCard";
 import { StripeModeBadge } from "@/components/subscription/StripeModeBadge";
 import { readEdgeFunctionError, readEdgeFunctionErrorBody } from "@/lib/edgeFunctionError";
-import { billingNextStep } from "@/lib/stripeMode";
+import { billingNextStep, isActiveOrgTrial } from "@/lib/stripeMode";
 
 export default function SubscriptionPage() {
   const { subscription, checkSubscription } = useAuth();
@@ -56,7 +56,7 @@ export default function SubscriptionPage() {
               ? body.error
               : "No card on file yet. Choose a plan to add one at checkout.",
           );
-          navigate("/choose-plan");
+          navigate("/choose-plan?upgrade=1");
           return;
         }
         throw new Error(await readEdgeFunctionError(error, "Could not open the billing portal."));
@@ -99,9 +99,11 @@ export default function SubscriptionPage() {
             {isSubscribed ? (
               <>
                 <p className="text-sm text-muted-foreground">
-                  {nextStep === "checkout"
-                    ? "This account does not have a card on file yet. Choose a plan to open Stripe Checkout."
-                    : "Your subscription is active."}
+                  {nextStep === "checkout" && isActiveOrgTrial(subscription)
+                    ? "Your trial is active. Choose a plan when you want to add a card. Checkout is optional, and nothing is charged until you finish it."
+                    : nextStep === "checkout"
+                      ? "This account does not have a card on file yet. Choose a plan to open Stripe Checkout."
+                      : "Your subscription is active."}
                   {periodEnd && (
                     <>
                       {" "}Next billing date:{" "}
@@ -142,7 +144,7 @@ export default function SubscriptionPage() {
                       Update payment method
                     </Button>
                   ) : nextStep === "checkout" ? (
-                    <Button variant="outline" onClick={() => navigate("/choose-plan")}>
+                    <Button variant="outline" onClick={() => navigate("/choose-plan?upgrade=1")}>
                       <CreditCard className="mr-1 h-4 w-4" />
                       Choose a plan
                     </Button>
@@ -178,7 +180,7 @@ export default function SubscriptionPage() {
                     Update payment method
                   </Button>
                 ) : nextStep === "checkout" ? (
-                  <Button onClick={() => navigate("/choose-plan")}>
+                  <Button onClick={() => navigate("/choose-plan?upgrade=1")}>
                     <CreditCard className="mr-1 h-4 w-4" />
                     Choose a plan
                   </Button>

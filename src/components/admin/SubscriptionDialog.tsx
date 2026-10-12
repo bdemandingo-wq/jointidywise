@@ -110,7 +110,7 @@ export function SubscriptionDialog({
     // The simple dialog used to call create-subscription with no plan, which
     // 400s ("Invalid plan"). /choose-plan is the checkout that sends a plan.
     if (!PRICING_ENABLED) {
-      window.location.href = "/choose-plan";
+      window.location.href = "/choose-plan?upgrade=1";
       return;
     }
     setCheckingOut("standard");
