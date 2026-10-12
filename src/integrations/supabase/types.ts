@@ -1600,6 +1600,7 @@ export type Database = {
           checkin_type: string
           created_at: string | null
           distance_meters: number | null
+          gps_error: string | null
           id: string
           latitude: number | null
           longitude: number | null
@@ -1612,6 +1613,7 @@ export type Database = {
           checkin_type: string
           created_at?: string | null
           distance_meters?: number | null
+          gps_error?: string | null
           id?: string
           latitude?: number | null
           longitude?: number | null
@@ -1624,6 +1626,7 @@ export type Database = {
           checkin_type?: string
           created_at?: string | null
           distance_meters?: number | null
+          gps_error?: string | null
           id?: string
           latitude?: number | null
           longitude?: number | null
@@ -4738,6 +4741,7 @@ export type Database = {
       }
       device_push_tokens: {
         Row: {
+          apns_env: string | null
           created_at: string
           id: string
           organization_id: string | null
@@ -4747,6 +4751,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          apns_env?: string | null
           created_at?: string
           id?: string
           organization_id?: string | null
@@ -4756,6 +4761,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          apns_env?: string | null
           created_at?: string
           id?: string
           organization_id?: string | null
@@ -11775,6 +11781,10 @@ export type Database = {
       cleanup_ai_rate_limits: { Args: never; Returns: number }
       client_cancel_booking: {
         Args: { p_booking_id: string; p_customer_id: string }
+        Returns: Json
+      }
+      complete_assigned_booking: {
+        Args: { p_booking_id: string }
         Returns: Json
       }
       compute_org_benchmark_metrics: {

@@ -239,7 +239,18 @@ export function usePushNotifications(staffId?: string) {
             // defaults to 'ios' only when it's absent), so this needs no
             // backend change. Returns 'ios' | 'android' | 'web'; we are inside
             // registerNative(), so it is never 'web' here.
-            body: { token: nativeToken, platform: Capacitor.getPlatform() },
+            //
+            // apns_env is a hint. TestFlight and App Store ship a production
+            // bundle (import.meta.env.PROD) and Apple issues production tokens.
+            // A dev server inside the simulator is sandbox. The push function
+            // still retries the other host if this hint is wrong.
+            body: {
+              token: nativeToken,
+              platform: Capacitor.getPlatform(),
+              ...(Capacitor.getPlatform() === 'ios'
+                ? { apns_env: import.meta.env.PROD ? 'production' : 'sandbox' }
+                : {}),
+            },
             headers: { Authorization: `Bearer ${session.access_token}` },
           });
           if (saveError) {

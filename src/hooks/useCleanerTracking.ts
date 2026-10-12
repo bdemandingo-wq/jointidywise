@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { useOrgCountryCode } from '@/hooks/useDistanceUnit';
 import { calculateDistanceMiles, estimateDriveMinutes } from '@/lib/distanceUtils';
+import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -16,20 +17,21 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Request the best available location permission.
-// On iOS native, we ask for "always" so CoreLocation continues in background.
+// Request When-In-Use location. @capacitor/geolocation does not prompt for
+// Always, and the Info.plist does not declare the location background mode
+// (removed for App Store guideline 2.5.4). Live updates run while the app
+// is open; coming back to the app re-checks arrival.
 async function requestLocationPermission(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return true; // browser handles its own prompt
   try {
     const { Geolocation } = await import('@capacitor/geolocation');
     const status = await Geolocation.checkPermissions();
 
-    // Already have always — perfect
     if (status.location === 'granted') return true;
 
     // Denied — can't recover without sending user to Settings
     if (status.location === 'denied') {
-      toast.error('Location permission denied. Enable it in Settings → TidyWise → Location → Always.');
+      toast.error('Location permission denied. Enable it in Settings → TidyWise → Location → While Using the App.');
       return false;
     }
 
@@ -44,23 +46,6 @@ async function requestLocationPermission(): Promise<boolean> {
     console.warn('[GPS] Permission request error', e);
     return true; // don't block — let watchPosition surface the real error
   }
-}
-
-// One-shot position — prefers Capacitor native (CLLocationManager) on device.
-async function getCurrentPosition(timeoutMs = 15000): Promise<{ latitude: number; longitude: number }> {
-  if (Capacitor.isNativePlatform()) {
-    const { Geolocation } = await import('@capacitor/geolocation');
-    const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: timeoutMs });
-    return { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-  }
-  // Browser fallback (web / desktop preview)
-  return new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude }),
-      reject,
-      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 },
-    );
-  });
 }
 
 // ─── constants ───────────────────────────────────────────────────────────────
@@ -98,7 +83,12 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   // ── arrival firing (shared by geofence, resume-check, and manual button) ──
 
   const fireArrival = useCallback(async (source: string) => {
-    if (arrivedRef.current) return;
+    if (arrivedRef.current) {
+      return {
+        data: { success: true, deduplicated: true, message: 'Arrival already recorded.' },
+        error: null,
+      };
+    }
     arrivedRef.current = true;
     setHasArrived(true);
     console.log(`[GPS] Arrival fired (${source})`);
@@ -109,14 +99,25 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
           .update({ arrived_at: new Date().toISOString() } as any)
           .eq('id', trackingIdRef.current);
       }
-      await supabase.functions.invoke('send-arrival-sms', { body: { bookingId, staffId } });
+      const result = await supabase.functions.invoke('send-arrival-sms', { body: { bookingId, staffId } });
+      // A hard failure should leave the button usable. A success:true with
+      // SMS skipped still notified the office, so the arrival sticks.
+      if (result.error || result.data?.success === false) {
+        arrivedRef.current = false;
+        setHasArrived(false);
+      }
+      return result;
     } catch (err) {
       console.warn('[GPS] Arrival notification failed:', err);
+      arrivedRef.current = false;
+      setHasArrived(false);
+      return { data: null, error: err };
     }
   }, [bookingId, staffId]);
 
   /** Manual "I've Arrived" — works even if GPS tracking never started.
-   *  The send-arrival-sms function dedupes per staff+booking server-side. */
+   *  The send-arrival-sms function dedupes per staff+booking server-side.
+   *  Returns the function payload so the toast can name what was actually sent. */
   const markArrived = useCallback(() => fireArrival('manual'), [fireArrival]);
 
   // ── wake lock ─────────────────────────────────────────────────────────────
@@ -203,7 +204,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     const checkNow = async () => {
       if (arrivedRef.current) return;
       try {
-        const { latitude, longitude } = await getCurrentPosition(10000);
+        const { latitude, longitude } = await getPositionWithFallback();
         void checkArrival(latitude, longitude);
       } catch { /* position unavailable — geofence watch will retry */ }
     };
@@ -232,11 +233,10 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
   const startWatch = useCallback(async () => {
     if (Capacitor.isNativePlatform()) {
-      // Use @capacitor/geolocation which wraps CLLocationManager directly.
-      // With UIBackgroundModes: location in Info.plist, CLLocationManager
-      // continues sending updates while the app is backgrounded (e.g. cleaner
-      // has Apple Maps open in another app). The plugin fires callbacks on every
-      // significant location change — typically every 50-500 m while driving.
+      // @capacitor/geolocation wraps CLLocationManager. It does not keep a
+      // background location session (no UIBackgroundModes location — that
+      // was removed for App Store 2.5.4). Updates flow while the app is in
+      // the foreground. The resume effect above catches up on return.
       try {
         const { Geolocation } = await import('@capacitor/geolocation');
         const id = await Geolocation.watchPosition(
@@ -268,7 +268,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
   // ── start tracking ────────────────────────────────────────────────────────
 
-  const startTracking = useCallback(async (): Promise<{
+  const startTracking = useCallback(async (onStatus?: (message: string) => void): Promise<{
     trackingToken: string | null;
     etaMinutes: number | null;
     latitude: number;
@@ -276,11 +276,13 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   } | null> => {
     console.log('[GPS] startTracking called for booking:', bookingId);
 
+    onStatus?.('Waiting for location access…');
     const permitted = await requestLocationPermission();
     if (!permitted) return null;
 
     try {
-      const { latitude, longitude } = await getCurrentPosition(15000);
+      onStatus?.('Getting your location…');
+      const { latitude, longitude } = await getPositionWithFallback();
       console.log('[GPS] Initial position:', latitude, longitude);
 
       // Insert or resume tracking record
@@ -346,15 +348,16 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       setIsTracking(true);
 
       return { trackingToken, etaMinutes, latitude, longitude };
-    } catch (err: any) {
-      const message = err?.message || '';
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '';
       console.error('[GPS] startTracking failed:', message, err);
-      if (message.includes('denied')) {
-        toast.error('Location access denied. Go to Settings → TidyWise → Location and allow access.');
-      } else if (message.includes('timeout') || err?.code === 3) {
-        toast.error('Location timed out. Make sure GPS is enabled and try again.');
+      const code = geoFailureCode(err);
+      if (code === 'denied') {
+        toast.error('Location access denied. Go to Settings → TidyWise → Location → While Using the App.');
+      } else if (code === 'timeout') {
+        toast.error('Location timed out. The on-the-way notice will still send.');
       } else {
-        toast.error('Unable to get your location. Please try again.');
+        toast.error('Unable to get your location. The on-the-way notice will still send.');
       }
       return null;
     }

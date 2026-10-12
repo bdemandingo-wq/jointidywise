@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791769926983,
+      "tag": "0000_complete_assigned_booking_gps_push",
+      "breakpoints": true
+    }
+  ]
+}

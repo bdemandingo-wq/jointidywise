@@ -48,13 +48,24 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>TidyWise uses your location to show your ETA and route to the cleaning appointment.</string>
+	<string>TidyWise uses your location while you are on the way to a job so the customer can see your ETA and live route.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>TidyWise uses your location while you are on the way to a job so the customer can see your ETA and live route. Location is only used during an active job.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>TidyWise needs camera access to take before/after photos for cleaning jobs.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TidyWise needs photo library access to attach existing photos to job and inspection reports.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>TidyWise saves job photos and exported files to your photo library.</string>
+	<!--
+	  Background modes match what the app actually does: background fetch, and
+	  remote push. `location` is intentionally absent. @capacitor/geolocation
+	  does not run a continuous background session, and declaring the location
+	  background mode was removed for App Store guideline 2.5.4. Live tracking
+	  runs while the app is open and catches up when the cleaner returns.
+	  NSLocationAlwaysAndWhenInUseUsageDescription is required by the Capacitor
+	  geolocation plugin even though the prompt itself is When In Use.
+	-->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

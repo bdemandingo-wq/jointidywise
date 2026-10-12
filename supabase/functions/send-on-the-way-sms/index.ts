@@ -1,9 +1,10 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
-import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
 import { parseAlertPhones } from '../_shared/alertPhones.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
+import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
+import { notifyOffice } from "../_shared/office-notify.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -46,32 +47,6 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    // Deduplication: each staff member can send their own "on the way" once.
-    // Team jobs: both cleaners can press "On The Way" (each sends one SMS to the customer).
-    const staffReminderType = `on_the_way:${staffId}`;
-    const { data: existingLog, error: existingLogErr } = await supabase
-      .from('booking_reminder_log')
-      .select('id')
-      .eq('booking_id', bookingId)
-      .eq('reminder_type', staffReminderType)
-      .limit(1);
-
-    if (existingLogErr) {
-      console.error(`[send-on-the-way-sms] dedupe check failed for booking ${bookingId}, refusing to send to avoid a possible duplicate:`, existingLogErr);
-      return new Response(
-        JSON.stringify({ success: false, error: "Could not verify send status, please retry" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (existingLog && existingLog.length > 0) {
-      console.log(`[send-on-the-way-sms] Already sent for booking ${bookingId} by staff ${staffId}, skipping duplicate`);
-      return new Response(
-        JSON.stringify({ success: true, deduplicated: true, message: "You've already sent the on-the-way notification for this booking." }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
     // Fetch booking with customer info
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
@@ -110,8 +85,9 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    // AUTH: caller must be a member of the booking's organization
-    const auth = await verifyOrgAccess(req, booking.organization_id);
+    // Caller must be this cleaner, or an owner/admin/manager, and the staff
+    // row must be assigned to this booking in this organization.
+    const auth = await assertAssignedStaffEvent(req, supabase, booking.organization_id, staffId, bookingId);
     if (!auth.ok) {
       return new Response(
         JSON.stringify({ success: false, error: auth.error }),
@@ -119,20 +95,31 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    // AUTH: staffId must belong to the same organization (prevent cross-tenant spoofing)
-    const { data: staffRow, error: staffOrgErr } = await supabase
-      .from('staff')
-      .select('id, organization_id')
-      .eq('id', staffId)
-      .maybeSingle();
-    if (staffOrgErr || !staffRow || staffRow.organization_id !== booking.organization_id) {
-      console.error("[send-on-the-way-sms] staffId does not belong to booking's org");
+    // Deduplication: each staff member can send their own "on the way" once.
+    // Team jobs: both cleaners can press "On The Way" (each sends one SMS to the customer).
+    const staffReminderType = `on_the_way:${staffId}`;
+    const { data: existingLog, error: existingLogErr } = await supabase
+      .from('booking_reminder_log')
+      .select('id')
+      .eq('booking_id', bookingId)
+      .eq('reminder_type', staffReminderType)
+      .limit(1);
+
+    if (existingLogErr) {
+      console.error(`[send-on-the-way-sms] dedupe check failed for booking ${bookingId}, refusing to send to avoid a possible duplicate:`, existingLogErr);
       return new Response(
-        JSON.stringify({ success: false, error: "Staff does not belong to this organization" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ success: false, error: "Could not verify send status, please retry" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
+    if (existingLog && existingLog.length > 0) {
+      console.log(`[send-on-the-way-sms] Already sent for booking ${bookingId} by staff ${staffId}, skipping duplicate`);
+      return new Response(
+        JSON.stringify({ success: true, deduplicated: true, message: "You've already sent the on-the-way notification for this booking." }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     // Handle customer as array from join
     const customerData = booking.customer as unknown;
@@ -169,30 +156,46 @@ const handler = async (req: Request): Promise<Response> => {
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
 
+    // Bell + push happen whether or not SMS is configured. The previous
+    // early return on "SMS notifications are disabled" skipped both, so the
+    // office heard nothing and the cleaner was told the whole action failed.
+    const customerLabelForOffice = typedCustomer
+      ? `${typedCustomer.first_name} ${typedCustomer.last_name}`
+      : 'Customer';
+    const office = await notifyOffice(supabase, {
+      organizationId: booking.organization_id,
+      title: '🚗 Cleaner on the way',
+      message: `${staff.name} is on the way to Booking #${booking.booking_number} for ${customerLabelForOffice}.`,
+      metadata: { booking_id: bookingId, staff_id: staffId },
+      pushTitle: `🚗 ${staff.name} is on the way`,
+      pushBody: `Booking #${booking.booking_number}`,
+      pushData: { booking_id: bookingId, kind: 'on_the_way' },
+    });
+
+    let smsSkippedReason: string | null = null;
     if (settingsError) {
       console.error("[send-on-the-way-sms] Error fetching SMS settings:", settingsError);
-      return new Response(
-        JSON.stringify({ success: false, error: "Failed to fetch SMS settings" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (!smsSettings?.sms_enabled) {
+      smsSkippedReason = "Failed to fetch SMS settings";
+    } else if (!smsSettings?.sms_enabled) {
       console.log("[send-on-the-way-sms] SMS disabled for organization");
-      return new Response(
-        JSON.stringify({ success: false, error: "SMS notifications are disabled" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (!smsSettings.openphone_api_key || !smsSettings.openphone_phone_number_id) {
+      smsSkippedReason = "SMS notifications are disabled";
+    } else if (!smsSettings.openphone_api_key || !smsSettings.openphone_phone_number_id) {
       console.log("[send-on-the-way-sms] OpenPhone not configured");
-      return new Response(
-        JSON.stringify({ success: false, error: "OpenPhone not configured" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      smsSkippedReason = "OpenPhone not configured";
     }
 
+    let customerSms = false;
+    let adminSms = false;
+    let messageId: string | undefined;
+    const formatPhoneNumber = (phone: string): string => {
+      let formatted = phone.replace(/\D/g, '');
+      if (formatted.length === 10) formatted = `+1${formatted}`;
+      else if (!formatted.startsWith('+')) formatted = `+${formatted}`;
+      return formatted;
+    };
+    const formattedCustomerPhone = typedCustomer?.phone ? formatPhoneNumber(typedCustomer.phone) : '';
+
+    if (!smsSkippedReason && smsSettings) {
     // Get business settings for company name, admin phone, and app URL
     const { data: businessSettings } = await supabase
       .from('business_settings')
@@ -247,20 +250,6 @@ const handler = async (req: Request): Promise<Response> => {
       `Address: ${formattedAddress || 'N/A'}\n` +
       (etaMinutes ? `ETA: ~${etaMinutes} min` : '');
 
-    // Helper function to format phone numbers
-    const formatPhoneNumber = (phone: string): string => {
-      let formatted = phone.replace(/\D/g, '');
-      if (formatted.length === 10) {
-        formatted = `+1${formatted}`;
-      } else if (!formatted.startsWith('+')) {
-        formatted = `+${formatted}`;
-      }
-      return formatted;
-    };
-
-    // Format customer phone number
-    const formattedCustomerPhone = typedCustomer?.phone ? formatPhoneNumber(typedCustomer.phone) : '';
-
     // Extract phone number ID if full URL was provided
     let phoneNumberId = smsSettings.openphone_phone_number_id;
     if (phoneNumberId.includes('openphone.com')) {
@@ -309,9 +298,10 @@ const handler = async (req: Request): Promise<Response> => {
        admin alert below is the one the owner actually relies on, and skipping
        it because the customer's carrier rejected a text is how "I pressed on
        the way and nobody got anything" happens. */
-    let customerResult: { success: boolean; messageId?: string; error?: string } = { success: true, messageId: undefined };
     if (notifyClient && formattedCustomerPhone) {
-      customerResult = await sendSms(formattedCustomerPhone, customerMessage, 'customer');
+      const customerResult = await sendSms(formattedCustomerPhone, customerMessage, 'customer');
+      customerSms = customerResult.success;
+      messageId = customerResult.messageId;
       if (!customerResult.success) {
         console.warn("[send-on-the-way-sms] Customer SMS failed — continuing to admin alert");
       }
@@ -320,35 +310,24 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // Send admin SMS if admin phone is configured and enabled
-    let adminSent = false;
     if (notifyAdmin && adminPhone) {
       const phones = parseAlertPhones(adminPhone);
       const list = phones.length ? phones : [formatPhoneNumber(adminPhone)];
       const adminResult = await sendSms(list[0], adminMessage, 'admin');
       for (const extra of list.slice(1)) await sendSms(extra, adminMessage, 'admin');
-      adminSent = adminResult.success;
+      adminSms = adminResult.success;
       if (!adminResult.success) {
-        console.warn(`[send-on-the-way-sms] Admin notification failed, but customer was notified`);
+        console.warn(`[send-on-the-way-sms] Admin SMS failed, but the office bell and push were already sent`);
       }
     } else if (!notifyAdmin) {
-      console.log(`[send-on-the-way-sms] Admin notification disabled by org settings, skipping`);
+      console.log(`[send-on-the-way-sms] Admin SMS disabled by org settings, skipping`);
     } else {
-      console.log(`[send-on-the-way-sms] No admin phone configured, skipping admin notification`);
+      console.log(`[send-on-the-way-sms] No admin phone configured, skipping admin SMS`);
+    }
     }
 
-    /* Also drop it in the admin bell. The text can fail or be switched off; the
-       owner should still be able to see what happened from the dashboard. */
-    const { error: bellErr } = await supabase.from('admin_system_notifications').insert({
-      organization_id: booking.organization_id,
-      type: 'staff_activity',
-      title: '🚗 Cleaner on the way',
-      message: `${staff.name} is on the way to Booking #${booking.booking_number} for ${customerLabel}.`,
-      link: '/dashboard/bookings',
-      metadata: { booking_id: bookingId, staff_id: staffId },
-    });
-    if (bellErr) console.warn('[send-on-the-way-sms] bell notification failed:', bellErr);
-
     // Log to prevent duplicates per cleaner. Team jobs allow each cleaner to send once.
+    // Logged even when SMS was skipped, so a second tap does not insert another bell.
     const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
       booking_id: bookingId,
       organization_id: booking.organization_id,
@@ -369,10 +348,17 @@ const handler = async (req: Request): Promise<Response> => {
     });
 
     return new Response(
-      JSON.stringify({ 
-        success: true, 
-        messageId: customerResult.messageId,
-        adminNotified: adminSent
+      JSON.stringify({
+        success: true,
+        messageId,
+        adminNotified: adminSms,
+        smsSkippedReason,
+        channels: {
+          customerSms,
+          adminSms,
+          bell: office.bell,
+          push: office.push,
+        },
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

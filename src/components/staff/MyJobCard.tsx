@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Calendar, MapPin, Clock, User, Phone, Navigation, DollarSign, ClipboardCheck, Car, Loader2, FileText, Users, KeyRound, PawPrint, ParkingCircle, Info, Sparkles } from 'lucide-react';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import { describeArrival, describeOnTheWay, type JobNotifyResult } from '@/lib/jobNotifyResult';
 import { formatInTimezone } from '@/lib/timezoneUtils';
 import { orgDateKey } from '@/lib/orgDateRange';
 import { BookingPhotoUpload } from './BookingPhotoUpload';
@@ -85,6 +86,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
   const extraLabels = extrasToLabels(booking.extras, orgExtras);
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [isSendingOnTheWay, setIsSendingOnTheWay] = useState(false);
+  const [locationWait, setLocationWait] = useState<string | null>(null);
   const [onTheWaySent, setOnTheWaySent] = useState(initialOnTheWaySent);
   const [isMarkingArrived, setIsMarkingArrived] = useState(false);
   const [photoCount, setPhotoCount] = useState<number>(initialPhotoCount);
@@ -123,8 +125,14 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
   const handleArrivedClick = async () => {
     setIsMarkingArrived(true);
     try {
-      await markArrived();
-      toast.success('Arrival sent. Client and admin notified.');
+      const result = await markArrived();
+      if (result?.error) {
+        toast.error(await readEdgeFunctionError(result.error, 'Arrival not sent.'));
+        return;
+      }
+      const described = describeArrival(result?.data as JobNotifyResult | null);
+      if (described.ok) toast.success(described.message);
+      else toast.error(described.message);
     } catch {
       toast.error('Could not send arrival notification. Please try again.');
     } finally {
@@ -143,6 +151,8 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
     }
 
     setIsSendingOnTheWay(true);
+    setLocationWait('Waiting for location access…');
+    const locationToast = toast.loading('Waiting for location access…');
     try {
       // Check GPS permission state before attempting tracking
       let trackingResult: Awaited<ReturnType<typeof startTracking>> = null;
@@ -165,11 +175,16 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
       // Only attempt GPS if not denied
       if (!gpsPermissionDenied) {
         try {
-          trackingResult = await startTracking();
+          trackingResult = await startTracking((message) => {
+            setLocationWait(message);
+            toast.loading(message, { id: locationToast });
+          });
         } catch (gpsError) {
           console.warn('GPS tracking failed, proceeding with SMS only:', gpsError);
         }
       }
+      setLocationWait('Notifying the office…');
+      toast.loading('Notifying the office…', { id: locationToast });
 
       // No ETA despite a good GPS fix means the destination could not be
       // resolved — no stored coordinates, and geocode-address is US-only. That
@@ -207,21 +222,15 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
       if (error) throw error;
 
-      if (data?.success) {
-        toast.success(
-          !customerPhone
-            ? 'Marked as on the way. No phone number on file for the customer, so only the office was alerted.'
-            : trackingResult
-              ? 'Customer notified with live tracking link!'
-              : 'Customer notified that you\'re on the way!'
-        );
-        setOnTheWaySent(true);
-      } else {
-        // The text failed, but the cleaner IS on the way — record the state so
-        // they aren't locked out of starting the job by a messaging problem.
-        toast.error(data?.error || 'Couldn\'t text the customer, but you\'re marked as on the way.');
-        setOnTheWaySent(true);
-      }
+      const described = describeOnTheWay(data as JobNotifyResult | null, {
+        hasTracking: !!trackingResult,
+        hasCustomerPhone: !!customerPhone,
+      });
+      if (described.ok) toast.success(described.message, { id: locationToast });
+      else toast.error(described.message, { id: locationToast });
+      // The text may have failed, but the cleaner IS on the way — record the
+      // state so they aren't locked out of starting the job by a messaging problem.
+      setOnTheWaySent(true);
     } catch (error) {
       console.error('Error sending on the way SMS:', error);
       // Read the function's own reason. supabase-js turns every non-2xx into
@@ -230,7 +239,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
       // standing outside a house was told "Failed to send notification"
       // whether the org had no SMS configured, the customer had no mobile
       // number, or OpenPhone rejected the send.
-      toast.error(await readEdgeFunctionError(error, 'Failed to send notification'));
+      toast.error(await readEdgeFunctionError(error, 'Failed to send notification'), { id: locationToast });
       // Same rule as the 2xx-with-failure branch above: the text failed, but the
       // cleaner IS on the way. Before this, a non-2xx left them stuck on "On my
       // way" while a 2xx failure let them through — the harder failure was the
@@ -239,6 +248,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
       setOnTheWaySent(true);
     } finally {
       setIsSendingOnTheWay(false);
+      setLocationWait(null);
     }
   };
   
@@ -465,7 +475,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
         {isTracking && (
           <div className="p-2.5 rounded-lg bg-info/10 border border-info/20 text-xs text-info">
-            📍 Sharing your live location — keep this screen open so the client can see you on the way.
+            📍 Sharing your live location. Keep this screen open so the client can follow you. If you switch apps, tracking catches up when you come back.
           </div>
         )}
 
@@ -507,6 +517,9 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
                 )}
                 {onTheWaySent ? 'Sent!' : 'On The Way'}
               </Button>
+              {isSendingOnTheWay && locationWait && (
+                <p className="text-[11px] text-muted-foreground">{locationWait}</p>
+              )}
               {!isScheduledToday && (
                 <p className="text-[11px] text-muted-foreground">{NOT_TODAY_TOOLTIP}</p>
               )}
