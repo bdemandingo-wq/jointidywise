@@ -58,6 +58,9 @@ function prerenderPlugin(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  // esbuild minify honors this drop list, so production bundles (web and the
+  // Capacitor iOS build, which ships the same dist/) do not include console.*.
+  esbuild: mode === 'production' ? { drop: ['console', 'debugger'] } : undefined,
   server: {
     host: "::",
     port: 8080,

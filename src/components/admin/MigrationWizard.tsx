@@ -368,7 +368,7 @@ export function MigrationWizard() {
                   <Upload className="w-12 h-12 text-muted-foreground mb-4" />
                   <p className="font-medium text-lg mb-1">Upload your CSV export</p>
                   <p className="text-sm text-muted-foreground mb-4">
-                    Export your {dataType} from {source === 'bookingkoala' ? 'BookingKoala' : 'Jobber'} as CSV
+                    {`Export your ${dataType} from ${source === 'bookingkoala' ? 'BookingKoala' : 'Jobber'} as CSV`}
                   </p>
                   <input
                     ref={fileInputRef}
