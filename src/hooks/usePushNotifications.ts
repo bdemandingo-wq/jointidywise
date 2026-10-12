@@ -2,6 +2,11 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import {
+  describePushRuntime,
+  readPushRuntimeFacts,
+  routePushEnable,
+} from '@/lib/pushRuntime';
 
 // The native runtime sets this before the webview evaluates JS (it looks for
 // webkit.messageHandlers.bridge). A second check against window.Capacitor
@@ -28,8 +33,32 @@ function publishTokenSaved(value: boolean) {
 }
 
 // One OS permission dialog at a time. The registrar and a settings toggle
-// can both fire during the same launch.
-let nativeRegisterInFlight: Promise<boolean> | null = null;
+// can both fire during the same launch. The promise resolves with a message
+// the screen can show; it does not toast. Callers decide whether to toast.
+let nativeRegisterInFlight: Promise<PushAttempt> | null = null;
+
+export type PushStatusPhase = 'idle' | 'working' | 'saved' | 'failed';
+
+export interface PushStatus {
+  phase: PushStatusPhase;
+  message: string;
+}
+
+export interface PushAttempt {
+  ok: boolean;
+  prompted: boolean;
+  /** Bridge missing, plugin missing, timeout, or a thrown native error. */
+  hard: boolean;
+  message: string;
+}
+
+let pushStatus: PushStatus = { phase: 'idle', message: '' };
+const statusListeners = new Set<(status: PushStatus) => void>();
+
+function publishPushStatus(next: PushStatus) {
+  pushStatus = next;
+  statusListeners.forEach((listener) => listener(next));
+}
 
 // Lazy load the push notifications plugin
 const getPushPlugin = async () => {
@@ -42,10 +71,12 @@ const getPushPlugin = async () => {
   }
 };
 
-// Generous enough that a legitimately-shown OS prompt awaiting the user's tap
-// won't falsely time out, but short enough that a native call that never
-// responds surfaces as an error instead of an infinite spinner.
-const PERMISSION_TIMEOUT_MS = 20000;
+// checkPermissions should return immediately. A hang means the bridge accepted
+// the call and never answered (plugin not on the bridge). The system dialog
+// itself is requestPermissions, so that wait is long enough for a person to
+// read the prompt and tap it.
+const CHECK_TIMEOUT_MS = 8000;
+const REQUEST_TIMEOUT_MS = 45000;
 
 // Race a native call against a timeout so a stalled bridge (no resolve, no
 // reject) becomes a visible error. Rejects with `label` context.
@@ -106,6 +137,7 @@ export function usePushNotifications(staffId?: string) {
   const [isSupported, setIsSupported] = useState(false);
   const [isRegistered, setIsRegistered] = useState(nativeTokenSaved);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [status, setStatus] = useState<PushStatus>(pushStatus);
   const nativeListenersAttachedRef = useRef(false);
   const nativeListenerHandlesRef = useRef<Array<{ remove: () => Promise<void> }>>([]);
 
@@ -143,8 +175,11 @@ export function usePushNotifications(staffId?: string) {
 
   useEffect(() => {
     registeredListeners.add(setIsRegistered);
+    statusListeners.add(setStatus);
+    setStatus(pushStatus);
     return () => {
       registeredListeners.delete(setIsRegistered);
+      statusListeners.delete(setStatus);
     };
   }, []);
 
@@ -152,7 +187,11 @@ export function usePushNotifications(staffId?: string) {
     // Check support for native or web. OS permission "granted" is not the
     // same as a token saved on our server — checkPermissions used to flip
     // isRegistered and the staff portal then skipped register() entirely.
-    if (isNativePlatform()) {
+    const facts = readPushRuntimeFacts();
+    // The iOS shell must not treat window.Notification as "already registered".
+    // That API is the web view, not the app's Settings permission, and a
+    // granted/denied value there used to hide the Enable button.
+    if (facts.iosShell || isNativePlatform()) {
       setIsSupported(true);
       void attachNativeListeners();
     } else if ('Notification' in window) {
@@ -166,49 +205,67 @@ export function usePushNotifications(staffId?: string) {
     };
   }, [attachNativeListeners, cleanupNativeListeners, staffId]);
 
-  const registerNative = async (options?: PushRegistrationOptions): Promise<{ ok: boolean; prompted: boolean }> => {
-    const quiet = options?.quiet === true;
+  const registerNative = async (options?: PushRegistrationOptions): Promise<PushAttempt> => {
     const organizationId = options?.organizationId ?? null;
+    const facts = readPushRuntimeFacts();
     const PushNotifications = await getPushPlugin();
     if (!PushNotifications) {
-      const message = 'Push notifications are not available on this device';
+      const message = `Push notifications are not available on this device. ${describePushRuntime(facts)}`;
       console.error('[PUSH]', message);
-      toast.error(message);
-      return { ok: false, prompted: false };
+      return { ok: false, prompted: false, hard: true, message };
     }
+
+    const permissionState = (status: { receive?: string } | null | undefined): 'granted' | 'denied' | 'prompt' | 'missing' => {
+      if (status?.receive === 'granted' || status?.receive === 'denied' || status?.receive === 'prompt') {
+        return status.receive;
+      }
+      return 'missing';
+    };
 
     // Already-denied is a settled OS state. Calling requestPermissions again
     // does not show a dialog and must not toast on every cold start.
+    // Both calls are timed out. A missing plugin makes Capacitor drop the
+    // call without resolving the promise, and a quiet caller used to wait
+    // forever — the Enable button then joined that same promise and the
+    // screen never changed.
     let prompted = false;
     try {
-      const current = await PushNotifications.checkPermissions();
-      if (current.receive === 'denied') {
-        if (!quiet) toast.error('Push notification permission denied. Enable notifications for TidyWise in iOS Settings.');
-        return { ok: false, prompted: false };
+      const current = permissionState(await withTimeout(
+        PushNotifications.checkPermissions(),
+        CHECK_TIMEOUT_MS,
+        'PushNotifications.checkPermissions()',
+      ));
+      if (current === 'missing') {
+        const message = `TidyWise asked the iPhone for notification permission, but the push plugin did not return a permission state, so the system dialog was not shown. ${describePushRuntime(facts)}`;
+        console.error('[PUSH]', message);
+        return { ok: false, prompted: false, hard: true, message };
       }
-      if (current.receive !== 'granted') {
+      if (current === 'denied') {
+        const message = 'Notifications are off for TidyWise. Open the iPhone Settings app, tap TidyWise, tap Notifications, and turn Allow Notifications on.';
+        return { ok: false, prompted: false, hard: false, message };
+      }
+      if (current !== 'granted') {
         prompted = true;
-        // The manual toggle times out so a stalled bridge can't spin forever.
-        // The post-login prompt does not: the system dialog stays open until
-        // the person taps it, and abandoning that promise would leave the
-        // Settings row without a device token.
-        const permStatus = quiet
-          ? await PushNotifications.requestPermissions()
-          : await withTimeout(
-              PushNotifications.requestPermissions(),
-              PERMISSION_TIMEOUT_MS,
-              'PushNotifications.requestPermissions()',
-            );
-        if (permStatus.receive !== 'granted') {
-          if (!quiet) toast.error('Push notification permission denied');
-          return { ok: false, prompted: true };
+        const permStatus = permissionState(await withTimeout(
+          PushNotifications.requestPermissions(),
+          REQUEST_TIMEOUT_MS,
+          'PushNotifications.requestPermissions()',
+        ));
+        if (permStatus === 'missing') {
+          const message = `TidyWise asked the iPhone to show the notification prompt, but the push plugin did not return a permission state, so the system dialog was not shown. ${describePushRuntime(facts)}`;
+          console.error('[PUSH]', message);
+          return { ok: false, prompted: true, hard: true, message };
+        }
+        if (permStatus !== 'granted') {
+          const message = 'Notifications were not allowed. To turn them on later, open the iPhone Settings app, tap TidyWise, then Notifications.';
+          return { ok: false, prompted: true, hard: false, message };
         }
       }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
+      const message = `Couldn't enable notifications. ${detail} ${describePushRuntime(facts)}`;
       console.error('[PUSH] requestPermissions failed or stalled:', detail);
-      toast.error(`Couldn't enable notifications: ${detail}`);
-      return { ok: false, prompted };
+      return { ok: false, prompted, hard: true, message };
     }
 
     await attachNativeListeners();
@@ -308,16 +365,16 @@ export function usePushNotifications(staffId?: string) {
       }
 
       if (!tokenSaved) {
-        toast.error("Your device registered, but we couldn't save your notification settings. Please try again.");
-        return { ok: false, prompted };
+        const message = "Your iPhone registered with Apple, but TidyWise couldn't save the device token. Pull to refresh and tap Enable Notifications again.";
+        return { ok: false, prompted, hard: true, message };
       }
 
       publishTokenSaved(true);
-      return { ok: true, prompted };
+      return { ok: true, prompted, hard: false, message: 'Notifications are enabled on this iPhone.' };
     } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Failed to register for push notifications';
       console.error('[PUSH] Push registration error:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to register for push notifications');
-      return { ok: false, prompted };
+      return { ok: false, prompted, hard: true, message: `${detail} ${describePushRuntime(readPushRuntimeFacts())}` };
     } finally {
       await Promise.allSettled([
         handles.registration?.remove() ?? Promise.resolve(),
@@ -326,58 +383,92 @@ export function usePushNotifications(staffId?: string) {
     }
   };
 
-  const registerWeb = async () => {
+  const registerWeb = async (): Promise<PushAttempt> => {
     const permission = await Notification.requestPermission();
     if (permission === 'granted') {
       setIsRegistered(true);
-      return true;
+      return { ok: true, prompted: true, hard: false, message: 'Notifications are enabled in this browser.' };
     }
     if (permission === 'denied') {
-      toast.error('Notifications blocked. Enable them in your browser settings.');
+      return {
+        ok: false,
+        prompted: true,
+        hard: false,
+        message: 'Notifications are blocked in this browser. Allow them for this site in the browser settings, then try again.',
+      };
     }
-    return false;
+    return {
+      ok: false,
+      prompted: true,
+      hard: false,
+      message: 'The browser did not grant notification permission.',
+    };
   };
 
   const registerDevice = useCallback(async (options?: PushRegistrationOptions) => {
     const quiet = options?.quiet === true;
-    if (isNativePlatform() && nativeRegisterInFlight) {
-      return nativeRegisterInFlight;
-    }
+    const facts = readPushRuntimeFacts();
+    const decision = routePushEnable(facts);
 
-    setIsRegistering(true);
-    const run = (async () => {
-      try {
-        let result: { ok: boolean; prompted: boolean } = { ok: false, prompted: false };
-        if (isNativePlatform()) {
-          result = await registerNative(options);
-        } else if ('Notification' in window) {
-          const ok = await registerWeb();
-          result = { ok, prompted: true };
-        } else if (!quiet) {
-          toast.error('Push notifications are not supported on this device');
-        }
-        // Already-granted launches re-save the token quietly. The first
-        // Allow still confirms, and the settings button always confirms.
-        if (result.ok && (!quiet || result.prompted)) {
-          toast.success('Notifications enabled!');
-        }
-        return result.ok;
-      } catch (error) {
-        console.error('[PUSH] Error enabling notifications:', error);
-        if (!quiet) toast.error('Failed to enable notifications');
-        return false;
-      } finally {
-        setIsRegistering(false);
+    // A tap must change the screen even when a quiet post-login call is
+    // already waiting. Joining that promise used to return before
+    // setIsRegistering, so the button looked dead.
+    if (!quiet) setIsRegistering(true);
+    publishPushStatus({
+      phase: 'working',
+      message: decision.route === 'native'
+        ? `Asking iOS to show the notification prompt… ${describePushRuntime(facts)}`
+        : 'Asking this device for notification permission…',
+    });
+
+    const finish = (result: PushAttempt) => {
+      if (result.ok) {
+        publishPushStatus({ phase: 'saved', message: result.message });
+        if (!quiet || result.prompted) toast.success('Notifications enabled!');
+      } else {
+        publishPushStatus({ phase: 'failed', message: result.message });
+        // A quiet cold start should not toast when the person simply
+        // declines. A stall, a missing bridge, or a plugin error should.
+        if (!quiet || result.hard) toast.error(result.message, { duration: 12000 });
       }
-    })();
+      return result.ok;
+    };
 
-    if (isNativePlatform()) {
-      nativeRegisterInFlight = run.finally(() => {
-        nativeRegisterInFlight = null;
+    try {
+      if (decision.route === 'unavailable') {
+        const result: PushAttempt = {
+          ok: false,
+          prompted: false,
+          hard: true,
+          message: decision.reason ?? `Push notifications are not available. ${describePushRuntime(facts)}`,
+        };
+        console.error('[PUSH]', result.message);
+        return finish(result);
+      }
+
+      if (decision.route === 'native') {
+        if (!nativeRegisterInFlight) {
+          const run = registerNative(options).finally(() => {
+            nativeRegisterInFlight = null;
+          });
+          nativeRegisterInFlight = run;
+        }
+        return finish(await nativeRegisterInFlight);
+      }
+
+      return finish(await registerWeb());
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Failed to enable notifications';
+      console.error('[PUSH] Error enabling notifications:', error);
+      return finish({
+        ok: false,
+        prompted: false,
+        hard: true,
+        message: `${detail} ${describePushRuntime(facts)}`,
       });
-      return nativeRegisterInFlight;
+    } finally {
+      if (!quiet) setIsRegistering(false);
     }
-    return run;
   // registerNative closes over stable listener handles and staffId. Recreating
   // this callback every render resets the post-login timer before it fires.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -390,6 +481,8 @@ export function usePushNotifications(staffId?: string) {
     isSupported,
     isRegistered,
     isRegistering,
+    status,
+    runtimeFacts: readPushRuntimeFacts(),
     requestPermission,
     registerDevice,
   };

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { useAuth } from '@/hooks/useAuth';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
+import { isIosAppShell } from '@/lib/pushRuntime';
 import { supabase } from '@/lib/supabase';
 
 const PUSH_ROLES = new Set(['owner', 'admin', 'manager', 'member']);
@@ -37,7 +37,7 @@ export function NativePushRegistrar() {
   const roleEligible = allOrganizations.some((entry) => PUSH_ROLES.has(entry.role));
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform() || !userId || resolution !== 'empty') {
+    if (!isIosAppShell() || !userId || resolution !== 'empty') {
       setHasStaffRow(false);
       return;
     }
@@ -65,7 +65,11 @@ export function NativePushRegistrar() {
   }, [userId, resolution]);
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
+    // User agent "TidyWise-iOS" is set on the web view even when the Capacitor
+    // bridge was not injected. Skipping that case used to do nothing at all;
+    // registerDevice then records a visible error instead of calling the
+    // website Notification API.
+    if (!isIosAppShell()) return;
     if (authLoading || orgLoading || !userId) return;
     if (resolution === 'loading') return;
     if (resolution === 'error') {

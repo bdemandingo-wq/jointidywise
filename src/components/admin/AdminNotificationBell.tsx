@@ -15,6 +15,7 @@ import { formatInTimezone } from '@/lib/timezoneUtils';
 import { useNavigate } from 'react-router-dom';
 import { useOrgId } from '@/hooks/useOrgId';
 import { showBrowserNotification } from '@/hooks/usePushNotifications';
+import { isIosAppShell } from '@/lib/pushRuntime';
 import { useNotificationPreferences, useUpdateNotificationPreferences } from '@/hooks/useNotificationPreferences';
 import { isChannelEnabled, typeByKey } from '@/lib/notificationCatalog';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -66,7 +67,9 @@ export function AdminNotificationBell() {
   // One-time prompt for browser notification permission so desktop notifications
   // actually fire when realtime events arrive (booking requests, new leads, etc.).
   useEffect(() => {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    // Inside the iOS app, window.Notification is not the app's push permission.
+    // Calling it here never creates Settings → Notifications and can hang.
+    if (typeof window === 'undefined' || !('Notification' in window) || isIosAppShell()) return;
     if (Notification.permission !== 'default') return;
     const KEY = 'admin-notif-permission-asked-v1';
     if (localStorage.getItem(KEY)) return;
@@ -83,6 +86,7 @@ export function AdminNotificationBell() {
     if (
       typeof window !== 'undefined' &&
       'Notification' in window &&
+      !isIosAppShell() &&
       Notification.permission === 'default'
     ) {
       Notification.requestPermission().catch(() => {});
