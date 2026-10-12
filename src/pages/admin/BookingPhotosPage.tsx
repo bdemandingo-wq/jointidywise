@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { PlanFeatureGate } from '@/components/admin/PlanFeatureGate';
 import { QueryError } from '@/components/QueryError';
@@ -12,7 +12,7 @@ import { SignedImage } from '@/components/ui/signed-image';
 import { Capacitor } from '@capacitor/core';
 import { Share } from '@capacitor/share';
 import { Filesystem, Directory } from '@capacitor/filesystem';
-import { Search, Camera, Calendar, User, Loader2, Image as ImageIcon, Trash2, Play, Download, Video, ArrowLeftRight } from 'lucide-react';
+import { Search, Camera, Calendar, User, Loader2, Image as ImageIcon, Trash2, Play, Download, Video, ArrowLeftRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useOrganization } from '@/contexts/OrganizationContext';
@@ -22,6 +22,9 @@ import { formatInTimezone } from '@/lib/timezoneUtils';
 import { toast } from 'sonner';
 import { SEOHead } from '@/components/SEOHead';
 import { confirmDialog } from "@/components/AppDialogs";
+import { stepGalleryIndex } from '@/lib/photoGallery';
+import { proofOverlayLabel } from '@/lib/photoProofStamp';
+import { useGalleryNavigation } from '@/hooks/useGalleryNavigation';
 
 interface BookingPhoto {
   id: string;
@@ -31,6 +34,11 @@ interface BookingPhoto {
   photo_type: string | null;
   caption: string | null;
   created_at: string | null;
+  /** EXIF or upload instant. Present after the proof-stamp migration. */
+  captured_at?: string | null;
+  /** 'exif' (Taken) or 'upload' (Uploaded). */
+  timestamp_source?: string | null;
+  proof_stamped?: boolean | null;
   media_type?: string;
   inspection_note?: string | null;
   issue_category?: string | null;
@@ -98,7 +106,7 @@ export default function BookingPhotosPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [mediaFilter, setMediaFilter] = useState<string>('all');
-  const [selectedPhoto, setSelectedPhoto] = useState<BookingPhoto | null>(null);
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -231,6 +239,30 @@ export default function BookingPhotosPage() {
     return matchesType && matchesMedia && (customerName.includes(term) || staffName.includes(term) || bookingNum.includes(term));
   });
 
+  // Gallery order is the grid the user is looking at, filters included.
+  // This page is a flat list, so it is not regrouped here.
+  const filteredRef = useRef(filtered);
+  filteredRef.current = filtered;
+  const viewerIndex = filtered.findIndex((photo) => photo.id === viewerId);
+  const selectedPhoto = viewerIndex >= 0 ? filtered[viewerIndex] : null;
+
+  const showDelta = (delta: number) => {
+    setViewerId((current) => {
+      const list = filteredRef.current;
+      const index = list.findIndex((photo) => photo.id === current);
+      if (index < 0) return current;
+      const next = stepGalleryIndex(index, list.length, delta);
+      return list[next]?.id ?? current;
+    });
+  };
+
+  const galleryNav = useGalleryNavigation(viewerIndex >= 0, showDelta, () => setViewerId(null));
+  const timestampOverlay = selectedPhoto ? proofOverlayLabel(selectedPhoto, orgTz) : null;
+  const visibleIds = filtered.map((photo) => photo.id).join('\n');
+  useEffect(() => {
+    if (viewerId && !filteredRef.current.some((photo) => photo.id === viewerId)) setViewerId(null);
+  }, [viewerId, visibleIds]);
+
   // Reclassify a misfiled photo. The stage is stored twice — as this column
   // and inside the storage path (`.../{photoType}/{ts}.jpg`) — but nothing
   // reads the path for classification, so the column is authoritative and the
@@ -245,8 +277,10 @@ export default function BookingPhotosPage() {
         .eq('id', photo.id);
       if (error) throw error;
 
+      queryClient.setQueryData<BookingPhoto[]>(['booking-photos', organization?.id], (current) =>
+        current?.map((row) => (row.id === photo.id ? { ...row, photo_type: target } : row)),
+      );
       queryClient.invalidateQueries({ queryKey: ['booking-photos'] });
-      setSelectedPhoto({ ...photo, photo_type: target });
       toast.success(`Moved to ${target}`);
     } catch (error) {
       console.error(error);
@@ -273,7 +307,10 @@ export default function BookingPhotosPage() {
 
       queryClient.invalidateQueries({ queryKey: ['booking-photos'] });
       toast.success(`${isVideoMedia(photo) ? 'Video' : 'Photo'} deleted`);
-      if (selectedPhoto?.id === photo.id) setSelectedPhoto(null);
+      if (viewerId === photo.id) {
+        const neighbor = filtered[viewerIndex + 1] ?? filtered[viewerIndex - 1] ?? null;
+        setViewerId(neighbor?.id ?? null);
+      }
     } catch (error) {
       console.error(error);
       toast.error('Failed to delete');
@@ -402,7 +439,7 @@ export default function BookingPhotosPage() {
                   <Card
                     key={photo.id}
                     className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow group"
-                    onClick={() => setSelectedPhoto(photo)}
+                    onClick={() => setViewerId(photo.id)}
                   >
                     <div className="aspect-square relative bg-muted">
                       {isVideo ? (
@@ -457,25 +494,46 @@ export default function BookingPhotosPage() {
           )}
         </div>
 
-        <Dialog open={!!selectedPhoto} onOpenChange={(open) => !open && setSelectedPhoto(null)}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                {selectedPhoto && isVideoMedia(selectedPhoto) ? <Video className="w-5 h-5" /> : <Camera className="w-5 h-5" />}
-                {selectedPhoto?.photo_type === 'inspection' ? 'Inspection Report' : selectedPhoto?.photo_type === 'before' ? 'Before' : 'After'} {selectedPhoto && isVideoMedia(selectedPhoto) ? 'Video' : 'Photo'} — Booking #{selectedPhoto?.booking?.booking_number}
-              </DialogTitle>
+        <Dialog open={!!selectedPhoto} onOpenChange={(open) => !open && setViewerId(null)}>
+          <DialogContent
+            className="max-w-2xl"
+            onEscapeKeyDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setViewerId(null);
+            }}
+          >
+            <DialogHeader className="pr-8">
+              <div className="flex items-start justify-between gap-3">
+                <DialogTitle className="flex items-center gap-2 text-left">
+                  {selectedPhoto && isVideoMedia(selectedPhoto) ? <Video className="w-5 h-5" /> : <Camera className="w-5 h-5" />}
+                  {selectedPhoto?.photo_type === 'inspection' ? 'Inspection Report' : selectedPhoto?.photo_type === 'before' ? 'Before' : 'After'} {selectedPhoto && isVideoMedia(selectedPhoto) ? 'Video' : 'Photo'} — Booking #{selectedPhoto?.booking?.booking_number}
+                </DialogTitle>
+                {viewerIndex >= 0 && (
+                  <p className="shrink-0 pt-0.5 text-sm font-medium tabular-nums text-muted-foreground" aria-live="polite">
+                    {viewerIndex + 1} / {filtered.length}
+                  </p>
+                )}
+              </div>
             </DialogHeader>
             {selectedPhoto && (
               <div className="space-y-4">
-                <div className="rounded-lg overflow-hidden bg-muted">
+                <div
+                  className="relative rounded-lg overflow-hidden bg-muted touch-pan-y"
+                  onPointerDown={galleryNav.onPointerDown}
+                  onPointerUp={galleryNav.onPointerUp}
+                  onPointerCancel={galleryNav.onPointerCancel}
+                >
                   {isVideoMedia(selectedPhoto) ? (
                     <SignedVideo
+                      key={selectedPhoto.id}
                       src={selectedPhoto.photo_url}
                       bucket="booking-photos"
                       className="w-full max-h-[60vh]"
                     />
                   ) : (
                     <SignedImage
+                      key={selectedPhoto.id}
                       src={selectedPhoto.photo_url}
                       bucket="booking-photos"
                       alt="Full size"
@@ -488,6 +546,33 @@ export default function BookingPhotosPage() {
                       }
                     />
                   )}
+                  {timestampOverlay && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/75 px-3 py-2 text-center text-xs font-medium text-white">
+                      {timestampOverlay}
+                    </div>
+                  )}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    className="hidden md:inline-flex absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90 shadow"
+                    disabled={viewerIndex <= 0}
+                    aria-label="Previous photo"
+                    onClick={() => showDelta(-1)}
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    className="hidden md:inline-flex absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90 shadow"
+                    disabled={viewerIndex < 0 || viewerIndex >= filtered.length - 1}
+                    aria-label="Next photo"
+                    onClick={() => showDelta(1)}
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </Button>
                 </div>
                 {selectedPhoto.photo_type === 'inspection' && (
                   <div className="rounded-lg border bg-orange-50 dark:bg-orange-950/20 p-3 space-y-1">
