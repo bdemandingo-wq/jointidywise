@@ -347,7 +347,7 @@ test.describe("Security regression — 8 spoofed-value checks hardened 2026-07-1
     expect(resp.status()).toBe(401);
 
     const src = readFileSync(join(process.cwd(), "supabase/functions/send-booking-email/index.ts"), "utf8");
-    expect(src).toMatch(/resolveCallerOrg\(req\)/);
+    expect(src).toMatch(/resolveCallerOrg\(\s*req/);
     expect(src).toMatch(/booking\.organizationId = callerOrg\.ctx\.organizationId;/);
   });
 

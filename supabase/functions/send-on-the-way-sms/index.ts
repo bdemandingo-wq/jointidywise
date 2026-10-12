@@ -4,6 +4,7 @@ import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { parseAlertPhones } from '../_shared/alertPhones.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
+import { rejectUnauthenticated } from "../_shared/require-caller-org.ts";
 import { notifyOffice } from "../_shared/office-notify.ts";
 
 const corsHeaders = {
@@ -37,7 +38,32 @@ const handler = async (req: Request): Promise<Response> => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { bookingId, staffId, etaMinutes, trackingToken } = await req.json() as OnTheWayRequest;
+    // Caller before the body. Staff and admins send their user JWT.
+    // Service-role still passes; assertAssignedStaffEvent allows it after the
+    // booking id is known. An empty unauthenticated POST must be 401, not a
+    // JSON parse 500.
+    const denied = await rejectUnauthenticated(req, corsHeaders, {
+      success: false,
+      error: "Unauthorized",
+    });
+    if (denied) return denied;
+
+    let bookingId: string | undefined;
+    let staffId: string | undefined;
+    let etaMinutes: number | undefined;
+    let trackingToken: string | undefined;
+    try {
+      const parsed = await req.json() as OnTheWayRequest | null;
+      bookingId = parsed?.bookingId;
+      staffId = parsed?.staffId;
+      etaMinutes = parsed?.etaMinutes;
+      trackingToken = parsed?.trackingToken;
+    } catch {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid JSON body" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     if (!bookingId || !staffId) {
       console.error("[send-on-the-way-sms] Missing bookingId or staffId");

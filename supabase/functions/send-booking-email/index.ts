@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getOrgEmailSettings } from "../_shared/get-org-email-settings.ts";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { loadOrgBrand, renderBrandedEmail } from "../_shared/org-email-renderer.ts";
-import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
+import { isServiceRoleRequest, rejectUnauthenticated, resolveCallerOrg } from "../_shared/require-caller-org.ts";
 import { formatFullAddress } from "../_shared/format-address.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
@@ -116,6 +116,13 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Caller before the body. A public booking page does not call this function;
+  // the admin app sends the user JWT. Service-role (another function) is allowed
+  // through and may name the organization in the body, because resolveCallerOrg
+  // only accepts a user session.
+  const denied = await rejectUnauthenticated(req, corsHeaders, { error: "Unauthorized" });
+  if (denied) return denied;
+
   if (!RESEND_API_KEY) {
     console.error("Missing RESEND_API_KEY secret");
     return new Response(JSON.stringify({ error: "Email service is not configured" }), {
@@ -126,7 +133,10 @@ const handler = async (req: Request): Promise<Response> => {
 
   let bookingBody: Partial<BookingEmailRequest> = {};
   try {
-    bookingBody = (await req.json()) as Partial<BookingEmailRequest>;
+    const parsed = await req.json();
+    if (parsed && typeof parsed === "object") {
+      bookingBody = parsed as Partial<BookingEmailRequest>;
+    }
   } catch (parseErr) {
     console.error("[send-booking-email] Failed to parse request body:", parseErr);
     return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
@@ -149,17 +159,26 @@ const handler = async (req: Request): Promise<Response> => {
       });
     }
 
-    // SECURITY: never trust organizationId from the request body — resolve it
-    // from the caller's own JWT + org_memberships instead. The body's value
-    // (if any) is ignored below.
-    const callerOrg = await resolveCallerOrg(req, booking.organizationId ?? null);
-    if (!callerOrg.ok) {
-      return new Response(JSON.stringify({ error: callerOrg.error }), {
-        status: callerOrg.status,
-        headers: { "Content-Type": "application/json", ...corsHeaders },
-      });
+    // SECURITY: a user JWT never gets to pick an org from the body. Service-role
+    // callers (cron or another function) have no membership row, so they keep
+    // the organizationId they sent.
+    if (isServiceRoleRequest(req)) {
+      if (!booking.organizationId) {
+        return new Response(JSON.stringify({ error: "Missing organizationId" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      }
+    } else {
+      const callerOrg = await resolveCallerOrg(req, booking.organizationId ?? null);
+      if (!callerOrg.ok) {
+        return new Response(JSON.stringify({ error: callerOrg.error }), {
+          status: callerOrg.status,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      }
+      booking.organizationId = callerOrg.ctx.organizationId;
     }
-    booking.organizationId = callerOrg.ctx.organizationId;
     if (booking.appointmentTime) {
       booking.appointmentTime = timeSlotOnly(booking.appointmentTime);
     }
