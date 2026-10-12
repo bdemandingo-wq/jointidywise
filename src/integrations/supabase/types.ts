@@ -5822,6 +5822,7 @@ export type Database = {
           notes: string | null
           organization_id: string | null
           paid_at: string | null
+          payment_method: string | null
           recurring_interval: string | null
           scheduled_send_at: string | null
           send_copy_to_self: boolean | null
@@ -5852,6 +5853,7 @@ export type Database = {
           notes?: string | null
           organization_id?: string | null
           paid_at?: string | null
+          payment_method?: string | null
           recurring_interval?: string | null
           scheduled_send_at?: string | null
           send_copy_to_self?: boolean | null
@@ -5882,6 +5884,7 @@ export type Database = {
           notes?: string | null
           organization_id?: string | null
           paid_at?: string | null
+          payment_method?: string | null
           recurring_interval?: string | null
           scheduled_send_at?: string | null
           send_copy_to_self?: boolean | null
