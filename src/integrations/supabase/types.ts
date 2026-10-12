@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.1"
   }
   public: {
     Tables: {
@@ -11525,6 +11525,27 @@ export type Database = {
         }
         Relationships: []
       }
+      winback_campaign_halt: {
+        Row: {
+          detail: string | null
+          halted_at: string
+          id: number
+          reason: string
+        }
+        Insert: {
+          detail?: string | null
+          halted_at?: string
+          id?: number
+          reason: string
+        }
+        Update: {
+          detail?: string | null
+          halted_at?: string
+          id?: number
+          reason?: string
+        }
+        Relationships: []
+      }
       winback_drip_log: {
         Row: {
           customer_id: string | null
@@ -11601,6 +11622,56 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      winback_sends: {
+        Row: {
+          created_at: string
+          email: string
+          error: string | null
+          id: string
+          organization_id: string | null
+          resend_id: string | null
+          segment: string
+          sent_at: string | null
+          status: string
+          step: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          error?: string | null
+          id?: string
+          organization_id?: string | null
+          resend_id?: string | null
+          segment: string
+          sent_at?: string | null
+          status: string
+          step: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          error?: string | null
+          id?: string
+          organization_id?: string | null
+          resend_id?: string | null
+          segment?: string
+          sent_at?: string | null
+          status?: string
+          step?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "winback_sends_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       working_hours: {
         Row: {
@@ -12672,6 +12743,22 @@ export type Database = {
       verify_external_booking_secret: {
         Args: { _org_id: string; _secret: string }
         Returns: boolean
+      }
+      winback_recipient_candidates: {
+        Args: never
+        Returns: {
+          bookings: number
+          business_name: string
+          email: string
+          first_name: string
+          is_lifetime: boolean
+          last_booking_at: string
+          last_sign_in_at: string
+          organization_id: string
+          segment: string
+          signed_up_at: string
+          user_id: string
+        }[]
       }
     }
     Enums: {
