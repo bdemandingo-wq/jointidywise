@@ -25,6 +25,16 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -86,6 +96,7 @@ export default function InventoryPage() {
   const [perPage, setPerPage] = useState(25);
   const [editingCell, setEditingCell] = useState<{ id: string; field: 'quantity' | 'min_quantity' } | null>(null);
   const [editingCellValue, setEditingCellValue] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<{ kind: 'one'; id: string } | { kind: 'bulk'; ids: string[] } | null>(null);
   const queryClient = useQueryClient();
   const { organization } = useOrganization();
 
@@ -355,11 +366,7 @@ export default function InventoryPage() {
               size="sm"
               variant="destructive"
               className="h-7 text-xs"
-              onClick={() => {
-                if (confirm(`Delete ${selectedIds.size} items?`)) {
-                  bulkDeleteMutation.mutate(Array.from(selectedIds));
-                }
-              }}
+              onClick={() => setPendingDelete({ kind: 'bulk', ids: Array.from(selectedIds) })}
             >
               Delete selected
             </Button>
@@ -517,7 +524,7 @@ export default function InventoryPage() {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="text-destructive"
-                                onClick={() => { if (confirm('Delete this item?')) deleteMutation.mutate(item.id); }}
+                                onSelect={() => setPendingDelete({ kind: 'one', id: item.id })}
                               >
                                 <Trash2 className="w-4 h-4 mr-2" /> Delete
                               </DropdownMenuItem>
@@ -584,6 +591,34 @@ export default function InventoryPage() {
           categories={customCategories}
           organizationId={organization?.id || ''}
         />
+
+        <AlertDialog open={pendingDelete !== null} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {pendingDelete?.kind === 'bulk'
+                  ? `Delete ${pendingDelete.ids.length} items?`
+                  : 'Delete this item?'}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                This removes the inventory record. It cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  if (pendingDelete?.kind === 'one') deleteMutation.mutate(pendingDelete.id);
+                  if (pendingDelete?.kind === 'bulk') bulkDeleteMutation.mutate(pendingDelete.ids);
+                  setPendingDelete(null);
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </PlanFeatureGate>
     </div>
 </AdminLayout>
@@ -662,13 +697,55 @@ function InventorySettingsDialog({
   const queryClient = useQueryClient();
   const [newCategoryName, setNewCategoryName] = useState('');
   const [editingCategory, setEditingCategory] = useState<InventoryCategory | null>(null);
+  const [pendingCategoryId, setPendingCategoryId] = useState<string | null>(null);
+  // The list is a prop from the page query. Invalidating that query does not
+  // repaint this open dialog until the refetch lands, so keep a local copy of
+  // adds, renames, and deletes in the meantime.
+  const [optimistic, setOptimistic] = useState<InventoryCategory[]>([]);
+  const [removedIds, setRemovedIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setOptimistic((prev) => {
+      const next = prev.filter(
+        (row) => !categories.some((c) => c.id === row.id || c.name.toLowerCase() === row.name.toLowerCase()),
+      );
+      return next.length === prev.length ? prev : next;
+    });
+    setRemovedIds((prev) => {
+      const next = prev.filter((id) => categories.some((c) => c.id === id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [categories]);
+
+  const visibleCategories = (() => {
+    const rows = new Map<string, InventoryCategory>();
+    const serverNames = new Set(categories.map((c) => c.name.toLowerCase()));
+    for (const category of categories) {
+      if (!removedIds.includes(category.id)) rows.set(category.id, category);
+    }
+    for (const row of optimistic) {
+      if (removedIds.includes(row.id)) continue;
+      if (row.id.startsWith('pending-') && serverNames.has(row.name.toLowerCase())) continue;
+      rows.set(row.id, row);
+    }
+    return [...rows.values()];
+  })();
 
   const createCategoryMutation = useMutation({
     mutationFn: async (name: string) => {
       const { error } = await supabase.from('inventory_categories').insert([{ name, organization_id: organizationId }]);
       if (error) throw error;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['inventory-categories'] }); setNewCategoryName(''); toast.success('Category added'); },
+    onSuccess: (_data, name) => {
+      const trimmed = name.trim();
+      setOptimistic((prev) => [
+        ...prev.filter((row) => row.name.toLowerCase() !== trimmed.toLowerCase()),
+        { id: `pending-${trimmed.toLowerCase()}`, name: trimmed, organization_id: organizationId },
+      ]);
+      setNewCategoryName('');
+      toast.success('Category added');
+      void queryClient.refetchQueries({ queryKey: ['inventory-categories', organizationId] });
+    },
     onError: (error: any) => toast.error(error.message),
   });
 
@@ -677,7 +754,15 @@ function InventorySettingsDialog({
       const { error } = await supabase.from('inventory_categories').update({ name }).eq('id', id);
       if (error) throw error;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['inventory-categories'] }); setEditingCategory(null); toast.success('Category updated'); },
+    onSuccess: (_data, { id, name }) => {
+      setOptimistic((prev) => [
+        ...prev.filter((row) => row.id !== id),
+        { id, name, organization_id: organizationId },
+      ]);
+      setEditingCategory(null);
+      toast.success('Category updated');
+      void queryClient.refetchQueries({ queryKey: ['inventory-categories', organizationId] });
+    },
     onError: (error: any) => toast.error(error.message),
   });
 
@@ -686,7 +771,12 @@ function InventorySettingsDialog({
       const { error } = await supabase.from('inventory_categories').delete().eq('id', id);
       if (error) throw error;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['inventory-categories'] }); toast.success('Category deleted'); },
+    onSuccess: (_data, id) => {
+      setRemovedIds((prev) => [...prev, id]);
+      setOptimistic((prev) => prev.filter((row) => row.id !== id));
+      toast.success('Category deleted');
+      void queryClient.refetchQueries({ queryKey: ['inventory-categories', organizationId] });
+    },
     onError: (error: any) => toast.error(error.message),
   });
 
@@ -710,9 +800,9 @@ function InventorySettingsDialog({
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-sm">Custom Categories</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              {categories.length === 0 ? (
+              {visibleCategories.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No custom categories yet.</p>
-              ) : categories.map(cat => (
+              ) : visibleCategories.map(cat => (
                 <div key={cat.id} className="flex items-center justify-between p-2 border rounded-md">
                   {editingCategory?.id === cat.id ? (
                     <Input value={editingCategory.name} onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })} className="flex-1 mr-2" autoFocus />
@@ -728,7 +818,7 @@ function InventorySettingsDialog({
                     ) : (
                       <>
                         <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditingCategory(cat)}><Edit className="w-4 h-4" /></Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => { if (confirm('Delete this category?')) deleteCategoryMutation.mutate(cat.id); }}><Trash2 className="w-4 h-4" /></Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => setPendingCategoryId(cat.id)}><Trash2 className="w-4 h-4" /></Button>
                       </>
                     )}
                   </div>
@@ -745,6 +835,28 @@ function InventorySettingsDialog({
         </div>
         <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button></DialogFooter>
       </DialogContent>
+      <AlertDialog open={pendingCategoryId !== null} onOpenChange={(open) => { if (!open) setPendingCategoryId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this category?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Items already filed under it keep their category name. The category itself is removed from this list.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (pendingCategoryId) deleteCategoryMutation.mutate(pendingCategoryId);
+                setPendingCategoryId(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

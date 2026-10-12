@@ -803,7 +803,7 @@ export function InvoiceFormDialog({
                           <p className="text-muted-foreground">{selectedCustomer.address || formData.address}</p>
                           {selectedCustomer.city && selectedCustomer.state && (
                             <p className="text-muted-foreground">
-                              {selectedCustomer.city}, {selectedCustomer.state} {selectedCustomer.zip_code}
+                              {`${selectedCustomer.city}, ${selectedCustomer.state} ${selectedCustomer.zip_code ?? ''}`.replace(/\s+/g, ' ').trim()}
                             </p>
                           )}
                         </>

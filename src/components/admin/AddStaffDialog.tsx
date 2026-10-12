@@ -59,7 +59,12 @@ export function AddStaffDialog({ open, onOpenChange }: AddStaffDialogProps) {
         return;
       }
 
-      if (!formData.password || formData.password.length < 6) {
+      const formEl = e.currentTarget as HTMLFormElement;
+      const typedPassword = (formEl.querySelector<HTMLInputElement>('#password')?.value || formData.password || '').trim();
+      if (typedPassword !== formData.password) {
+        setFormData((prev) => ({ ...prev, password: typedPassword }));
+      }
+      if (typedPassword.length < 6) {
         toast.error('Password must be at least 6 characters');
         setIsLoading(false);
         return;
@@ -71,7 +76,7 @@ export function AddStaffDialog({ open, onOpenChange }: AddStaffDialogProps) {
           email: formData.email,
           name: formData.name,
           phone: formData.phone || undefined,
-          password: formData.password,
+          password: typedPassword,
           hourly_rate: formData.hourly_rate ? parseFloat(formData.hourly_rate) : undefined,
           percentage_rate: formData.percentage_rate ? parseFloat(formData.percentage_rate) : undefined,
           default_hours: formData.default_hours ? parseFloat(formData.default_hours) : 5,
@@ -129,7 +134,7 @@ export function AddStaffDialog({ open, onOpenChange }: AddStaffDialogProps) {
         // Only show a temporary password when this request created the login.
         setCredentials({
           email: formData.email,
-          password: formData.password,
+          password: typedPassword,
         });
         setShowCredentials(true);
       }
@@ -222,7 +227,7 @@ export function AddStaffDialog({ open, onOpenChange }: AddStaffDialogProps) {
         <DialogHeader>
           <DialogTitle>Add Staff Member</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-2">
             <Label htmlFor="name">Full Name *</Label>
             <Input
@@ -247,7 +252,26 @@ export function AddStaffDialog({ open, onOpenChange }: AddStaffDialogProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="password">Password *</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="password">Password *</Label>
+              <Button
+                type="button"
+                variant="link"
+                className="h-auto p-0 text-xs"
+                onClick={() => {
+                  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+                  const bytes = new Uint8Array(10);
+                  crypto.getRandomValues(bytes);
+                  let generated = 'Tw';
+                  for (const b of bytes) generated += alphabet[b % alphabet.length];
+                  generated += '7';
+                  setFormData((prev) => ({ ...prev, password: generated }));
+                  setShowPassword(true);
+                }}
+              >
+                Generate password
+              </Button>
+            </div>
             <div className="relative">
               <Input
                 id="password"
@@ -255,8 +279,7 @@ export function AddStaffDialog({ open, onOpenChange }: AddStaffDialogProps) {
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                 placeholder="Enter password (min 6 characters)"
-                required
-                minLength={6}
+                autoComplete="new-password"
               />
               <Button
                 type="button"

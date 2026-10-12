@@ -40,7 +40,7 @@ import {
   writeOnboardingDraft,
 } from '@/lib/onboardingDraft';
 import { OnboardingWinback } from '@/components/onboarding/OnboardingWinback';
-import { validatePhone } from '@/lib/validation';
+import { validatePhone } from '@/lib/phoneValidation';
 import {
   readCapturedReferral,
   clearCapturedReferral,

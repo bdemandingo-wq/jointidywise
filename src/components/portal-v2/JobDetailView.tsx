@@ -10,6 +10,7 @@ import { InverseCard } from './Card';
 import { NoteWell } from './NoteWell';
 import { StatusBadge } from './StatusBadge';
 import { formatTimestampWithZone } from '@/lib/timezoneUtils';
+import { getMapsUrl } from '@/hooks/useMapsNavigation';
 
 /**
  * Screen 3a's presentation, with no data fetching in it.
@@ -51,11 +52,22 @@ export type JobDetailJob = {
   customer_notes: string | null;
   cleaner_checkin_at: string | null;
   cleaner_checkout_at: string | null;
-  customer: { first_name: string | null; last_name: string | null } | null;
+  customer: { first_name: string | null; last_name: string | null; phone?: string | null } | null;
   service: { name: string | null } | null;
 };
 
 const MONEY = (n: number) => n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+
+function maskPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 4) return 'On file';
+  return `··· ${digits.slice(-4)}`;
+}
+
+function openMaps(href: string) {
+  if (href.startsWith('http')) window.open(href, '_blank', 'noopener,noreferrer');
+  else window.location.href = href;
+}
 
 /* Both formatters pass an explicit timeZone, which is what
    local/no-device-local-dates asks for — the ban is on toLocale* WITHOUT one. */
@@ -228,6 +240,11 @@ export function JobDetailView({
     ? `${job.customer.first_name ?? ''} ${job.customer.last_name ?? ''}`.trim()
     : '';
   const addressLine = [job.address, job.city, job.state, job.zip_code].filter(Boolean).join(', ');
+  const customerPhone = job.customer?.phone?.trim() || '';
+  const callHref = customerPhone ? `tel:${customerPhone.replace(/[^\d+]/g, '')}` : '';
+  const mapsHref = addressLine
+    ? getMapsUrl({ address: job.address, city: job.city, state: job.state, label: customerName || addressLine })
+    : null;
   const start = job.scheduled_at ? timeLabel(job.scheduled_at, orgTz) : null;
   const end =
     job.scheduled_at && job.duration
@@ -318,15 +335,15 @@ export function JobDetailView({
           />
           <InfoRow
             icon={<Phone className="h-4 w-4" aria-hidden />}
-            title="Customer phone"
-            sub="Number hidden"
-            action={{ label: 'Call', onClick: () => {} }}
+            title={customerPhone ? maskPhone(customerPhone) : 'Customer phone'}
+            sub={customerPhone ? 'Customer' : 'No number on file'}
+            action={callHref ? { label: 'Call', href: callHref } : undefined}
           />
           <InfoRow
             icon={<MapPin className="h-4 w-4" aria-hidden />}
             title={addressLine || 'No address on file'}
             sub={addressLine ? undefined : 'Ask your admin to add one'}
-            action={addressLine ? { label: 'Map', href: '#' } : undefined}
+            action={mapsHref ? { label: 'Map', href: mapsHref } : undefined}
           />
         </div>
       </Card>
@@ -363,9 +380,10 @@ export function JobDetailView({
             On the way
           </Button>
           <Button
-            variant={addressLine ? 'secondary' : 'disabled-visible'}
+            variant={mapsHref ? 'secondary' : 'disabled-visible'}
             className="rounded-[10px]"
             icon={<MapPinned className="h-4 w-4" aria-hidden />}
+            onClick={() => { if (mapsHref) openMaps(mapsHref); }}
           >
             Directions
           </Button>

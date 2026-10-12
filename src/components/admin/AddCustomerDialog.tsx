@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { PERSON_NAME_MAX } from '@/lib/displayName';
 import { Loader2, User, Mail, Phone, Lock } from 'lucide-react';
 import { useCreateCustomer, useCustomers } from '@/hooks/useBookings';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -118,6 +119,7 @@ export function AddCustomerDialog({ open, onOpenChange }: AddCustomerDialogProps
               <Input
                 id="first_name"
                 value={formData.first_name}
+                maxLength={PERSON_NAME_MAX}
                 onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
                 placeholder="John"
               />
@@ -127,6 +129,7 @@ export function AddCustomerDialog({ open, onOpenChange }: AddCustomerDialogProps
               <Input
                 id="last_name"
                 value={formData.last_name}
+                maxLength={PERSON_NAME_MAX}
                 onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
                 placeholder="Doe"
               />

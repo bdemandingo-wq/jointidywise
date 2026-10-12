@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { PERSON_NAME_MAX } from '@/lib/displayName';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, User } from 'lucide-react';
@@ -106,6 +107,7 @@ export function YourProfileCard() {
             <Input
               id="profile-first-name"
               value={firstName}
+              maxLength={PERSON_NAME_MAX}
               disabled={loading}
               onChange={(e) => setFirstName(e.target.value)}
               placeholder="Emmanuel"
@@ -117,6 +119,7 @@ export function YourProfileCard() {
             <Input
               id="profile-last-name"
               value={lastName}
+              maxLength={PERSON_NAME_MAX}
               disabled={loading}
               onChange={(e) => setLastName(e.target.value)}
               placeholder="Forkuoh"

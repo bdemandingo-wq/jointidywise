@@ -26,6 +26,7 @@ export default function PortalLoginPage() {
   const [searchParams] = useSearchParams();
   const { user, signIn, loading: contextLoading } = useClientPortal();
   const [showPassword, setShowPassword] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   useEffect(() => {
     if (searchParams.get('reason') === 'session_expired') {
@@ -48,9 +49,11 @@ export default function PortalLoginPage() {
   }
 
   const onSubmit = async (values: LoginValues) => {
+    setLoginError(null);
     const result = await signIn(values.email, values.password);
     
     if (result.error) {
+      setLoginError(result.error);
       toast.error(result.error);
       return;
     }
@@ -146,6 +149,10 @@ export default function PortalLoginPage() {
                 )}
               </div>
 
+              {loginError && (
+                <p className="text-sm text-destructive" role="alert">{loginError}</p>
+              )}
+
               <Button type="submit" className="w-full" variant="premium" disabled={isSubmitting}>
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Sign In
@@ -153,7 +160,9 @@ export default function PortalLoginPage() {
             </form>
 
             <p className="mt-4 text-center text-sm text-muted-foreground">
-              Forgot your password? Contact the business to reset your login.
+              <Link to="/portal/reset-password" className="text-primary underline-offset-2 hover:underline">
+                Forgot your password?
+              </Link>
             </p>
 
             <p className="mt-2 text-center text-sm text-muted-foreground">

@@ -18,6 +18,7 @@ import { useClientPortal } from "@/contexts/ClientPortalContext";
 import { useOrgTiers } from "@/hooks/useOrgTiers";
 import { supabase } from "@/lib/supabase";
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import { PERSON_NAME_MAX } from '@/lib/displayName';
 import { fmt } from '@/lib/activeCurrency';
 
 const ADDRESS_LABELS = ["Home", "Office", "Airbnb", "Rental", "Other"];
@@ -424,6 +425,7 @@ export function PortalProfileTab() {
               <Input
                 id="first-name"
                 value={firstName}
+                maxLength={PERSON_NAME_MAX}
                 onChange={(e) => setFirstName(e.target.value)}
               />
             </div>
@@ -432,6 +434,7 @@ export function PortalProfileTab() {
               <Input
                 id="last-name"
                 value={lastName}
+                maxLength={PERSON_NAME_MAX}
                 onChange={(e) => setLastName(e.target.value)}
               />
             </div>

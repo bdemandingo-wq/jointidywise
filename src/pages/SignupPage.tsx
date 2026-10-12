@@ -19,7 +19,8 @@ import { SplashScreen } from '@/components/SplashScreen';
 import { toast } from 'sonner';
 import { Eye, EyeOff, Loader2, ArrowLeft, Mail, Lock, User, Phone, Crown, Sparkles, Zap, Settings as SettingsIcon } from 'lucide-react';
 import { z } from 'zod';
-import { validatePhone } from '@/lib/validation';
+import { validatePhone } from '@/lib/phoneValidation';
+import { PERSON_NAME_MAX } from '@/lib/displayName';
 
 // Plan metadata for the "you're signing up to start X" banner. Kept
 // inline so the signup page doesn't have to import the full features.ts
@@ -33,7 +34,7 @@ const PLAN_META: Record<string, { label: string; price: string; Icon: React.Comp
 
 // Validation schema
 const signupSchema = z.object({
-  fullName: z.string().min(2, 'Name must be at least 2 characters'),
+  fullName: z.string().trim().min(2, 'Name must be at least 2 characters').max(PERSON_NAME_MAX, `Name must be ${PERSON_NAME_MAX} characters or fewer`),
   email: z.string().trim().email('Please enter a valid email address'),
   password: z
     .string()
@@ -438,6 +439,7 @@ export default function SignupPage() {
                 </Label>
                 <Input
                   id="fullName"
+                  maxLength={PERSON_NAME_MAX}
                   type="text"
                   placeholder="John Doe"
                   value={formData.fullName}

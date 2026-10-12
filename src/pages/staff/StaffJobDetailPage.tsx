@@ -67,7 +67,7 @@ export default function StaffJobDetailPage() {
           total_amount, subtotal, discount_amount,
           cleaner_wage, cleaner_wage_type, cleaner_actual_payment, cleaner_pay_expected,
           cleaner_override_hours, cleaner_checkin_at, cleaner_checkout_at,
-          customer:customers(first_name, last_name),
+          customer:customers(first_name, last_name, phone),
           service:services(name)
         `)
         .eq('id', id!)

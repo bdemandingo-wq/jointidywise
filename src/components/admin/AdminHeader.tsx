@@ -1,8 +1,8 @@
 import { ReactNode, Suspense, lazy, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
+import { AdminHeaderSearch } from '@/components/admin/AdminHeaderSearch';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { ThemeToggle } from '@/components/admin/ThemeToggle';
 import { useTestMode } from '@/contexts/TestModeContext';
 import { AdminNotificationBell } from '@/components/admin/AdminNotificationBell';
@@ -47,10 +47,7 @@ export function AdminHeader({ title, actions }: AdminHeaderProps) {
 
             {/* Desktop: full action bar */}
             <div className="hidden md:flex items-center gap-4 shrink-0">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input placeholder="Search..." className="w-60 pl-10 bg-secondary/50 border-0 focus-visible:ring-1" />
-              </div>
+              <AdminHeaderSearch />
               {actions}
               <AdminNotificationBell />
               <ThemeToggle />

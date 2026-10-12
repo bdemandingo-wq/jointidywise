@@ -185,10 +185,13 @@ export function CampaignWizard({
         subject: campaignForm.channel === "email" || campaignForm.channel === "both"
           ? campaignForm.emailSubject : "SMS Campaign",
         body: campaignForm.channel === "sms" ? campaignForm.smsBody : campaignForm.emailBody,
-        is_active: campaignForm.schedule === "now",
+        // A draft is never live, even when the schedule picker still says "now".
+        is_active: false,
         throttle_seconds: campaignForm.throttleSeconds,
         scheduled_at: scheduledAtIso,
-      });
+        channel: campaignForm.channel,
+        sms_body: smsChannelActive ? campaignForm.smsBody : null,
+      } as never);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -252,6 +255,8 @@ export function CampaignWizard({
         if (err) throw new Error(err);
       }
 
+      const schedulingLater = campaignForm.schedule === "later" && !!scheduledAtIso;
+
       // Save the campaign record first (provides campaign_id for tracking)
       const { data: newCampaign, error: insertError } = await supabase.from("automated_campaigns").insert({
         organization_id: orgId,
@@ -260,8 +265,11 @@ export function CampaignWizard({
         days_inactive: campaignForm.days_inactive,
         subject: isEmail ? campaignForm.emailSubject : "SMS Campaign",
         body: isEmail ? campaignForm.emailBody : campaignForm.smsBody,
-        is_active: true,
-      }).select("id").single();
+        is_active: !schedulingLater,
+        scheduled_at: schedulingLater ? scheduledAtIso : null,
+        channel: campaignForm.channel,
+        sms_body: isSMS ? campaignForm.smsBody : null,
+      } as never).select("id").single();
       if (insertError) throw insertError;
 
       let smsResult: CampaignDispatchResult | null = null;
@@ -288,8 +296,13 @@ export function CampaignWizard({
         smsResult = smsData ?? null;
       }
 
-      // Email leg — send-followup-campaign handles email
-      if (isEmail) {
+      // Email has no later-send worker. A future date is stored on the row
+      // and is not sent now. SMS still goes through run-inactive-campaign,
+      // which honors scheduledAt.
+      let emailDeferred = false;
+      if (isEmail && schedulingLater) {
+        emailDeferred = true;
+      } else if (isEmail) {
         const { data: emailData, error: emailError } = await supabase.functions.invoke("send-followup-campaign", {
           body: {
             campaignId: newCampaign.id,
@@ -300,7 +313,7 @@ export function CampaignWizard({
         emailSentCount = emailData?.sentCount || 0;
       }
 
-      return { smsResult, emailSentCount, isSMS, isEmail };
+      return { smsResult, emailSentCount, isSMS, isEmail, emailDeferred, schedulingLater };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["campaigns"] });
@@ -314,10 +327,11 @@ export function CampaignWizard({
       // number would overstate what has actually gone out.
       const parts: string[] = [];
       if (data.isSMS) parts.push(describeCampaignDispatch(data.smsResult, { orgTimezone: (businessSettings as { timezone?: string | null } | null | undefined)?.timezone ?? null }).description);
-      if (data.isEmail) parts.push(`${data.emailSentCount} email${data.emailSentCount === 1 ? "" : "s"} sent`);
+      if (data.emailDeferred) parts.push("Email saved for that date. Nothing sends it automatically yet — open the campaign when you want it to go out.");
+      else if (data.isEmail) parts.push(`${data.emailSentCount} email${data.emailSentCount === 1 ? "" : "s"} sent`);
       const scheduledSms = data.isSMS && data.smsResult?.scheduledAt
         && new Date(data.smsResult.scheduledAt as string).getTime() > Date.now();
-      toast({ title: scheduledSms ? "Campaign scheduled" : "Campaign started", description: parts.join(" · ") });
+      toast({ title: scheduledSms || data.schedulingLater ? "Campaign scheduled" : "Campaign started", description: parts.join(" · ") });
 
       setCreateOpen(false);
       resetForm();

@@ -8,6 +8,7 @@ import { mustAffectRows } from '@/lib/mustAffectRows';
 import { describeJobComplete, type JobNotifyResult } from '@/lib/jobNotifyResult';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import type { WageBooking } from '@/lib/wageCalculation';
+import { sanitizeDisplayName } from '@/lib/displayName';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -980,7 +981,7 @@ export default function StaffPortal() {
           <div className="min-w-0 flex-1">
             <p className="pv-eyebrow">Cleaner Portal</p>
             <h1 className="pv-display text-[22px] sm:text-[30px] truncate mt-0.5">
-              {staffInfo?.name ? `Hi, ${staffInfo.name.split(' ')[0]}` : 'Welcome'}
+              {staffInfo?.name ? `Hi, ${sanitizeDisplayName(staffInfo.name, 'there')}` : 'Welcome'}
             </h1>
             {/* Which employer's jobs are on screen. Only shown when the answer
                 isn't obvious — a single-business cleaner doesn't need telling. */}
