@@ -6829,6 +6829,74 @@ export type Database = {
           },
         ]
       }
+      onboarding_winback: {
+        Row: {
+          checkout_attached_at: string | null
+          checkout_coupon_id: string | null
+          completed_at: string | null
+          draft: Json
+          email_1h_sent_at: string | null
+          email_24h_sent_at: string | null
+          id: string
+          last_seen_at: string
+          modal_shown_at: string | null
+          offer_used: string | null
+          offer_used_at: string | null
+          organization_id: string | null
+          resume_token: string
+          started_at: string
+          step: number
+          trial_30_accepted_at: string | null
+          user_id: string
+        }
+        Insert: {
+          checkout_attached_at?: string | null
+          checkout_coupon_id?: string | null
+          completed_at?: string | null
+          draft?: Json
+          email_1h_sent_at?: string | null
+          email_24h_sent_at?: string | null
+          id?: string
+          last_seen_at?: string
+          modal_shown_at?: string | null
+          offer_used?: string | null
+          offer_used_at?: string | null
+          organization_id?: string | null
+          resume_token: string
+          started_at?: string
+          step?: number
+          trial_30_accepted_at?: string | null
+          user_id: string
+        }
+        Update: {
+          checkout_attached_at?: string | null
+          checkout_coupon_id?: string | null
+          completed_at?: string | null
+          draft?: Json
+          email_1h_sent_at?: string | null
+          email_24h_sent_at?: string | null
+          id?: string
+          last_seen_at?: string
+          modal_shown_at?: string | null
+          offer_used?: string | null
+          offer_used_at?: string | null
+          organization_id?: string | null
+          resume_token?: string
+          started_at?: string
+          step?: number
+          trial_30_accepted_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "onboarding_winback_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       openphone_calls: {
         Row: {
           ai_summary: string | null
@@ -11266,6 +11334,45 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      trial_reminder_log: {
+        Row: {
+          id: string
+          organization_id: string
+          profile_id: string
+          reminder_day: number
+          sent_at: string
+        }
+        Insert: {
+          id?: string
+          organization_id: string
+          profile_id: string
+          reminder_day: number
+          sent_at?: string
+        }
+        Update: {
+          id?: string
+          organization_id?: string
+          profile_id?: string
+          reminder_day?: number
+          sent_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trial_reminder_log_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trial_reminder_log_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_page_views: {
         Row: {
