@@ -55,7 +55,24 @@ const escapeHtml = (value: string) =>
 
 const formatMoney = (value: number) => `$${Number(value || 0).toFixed(2)}`;
 const formatInvoiceNumber = (invoiceNumber: number) => `INV-${String(invoiceNumber).padStart(4, "0")}`;
-const formatDateLabel = (value?: string) => (value ? new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "");
+const formatDateLabel = (value?: string) => {
+  if (!value) return "";
+  // Date-only due dates are calendar days. `new Date("YYYY-MM-DD")` is UTC
+  // midnight, so a non-UTC runtime prints the previous day.
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (match) {
+    const utcNoon = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12));
+    return utcNoon.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+};
 
 const renderAddress = (address?: string) => {
   if (!address) return "";

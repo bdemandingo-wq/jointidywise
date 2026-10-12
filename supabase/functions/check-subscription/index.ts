@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { stripeKeyMode } from "../_shared/stripe-key-mode.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,6 +31,10 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Report the mode the key prefix implies. Do not log the key or switch it.
+  const stripeKey = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+  const stripeMode = stripeKeyMode(stripeKey);
+
   const supabaseClient = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
@@ -39,14 +44,13 @@ serve(async (req) => {
   try {
     logStep("Function started");
 
-    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
     if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
-    logStep("Stripe key verified");
+    logStep("Stripe key verified", { stripeMode });
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       logStep("Missing Authorization header");
-      return new Response(JSON.stringify({ error: "Not authenticated" }), {
+      return new Response(JSON.stringify({ stripe_mode: stripeMode, error: "Not authenticated" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 401,
       });
@@ -57,7 +61,7 @@ serve(async (req) => {
 
     if (!token || token.split(".").length !== 3) {
       logStep("Invalid auth token format");
-      return new Response(JSON.stringify({ error: "Not authenticated" }), {
+      return new Response(JSON.stringify({ stripe_mode: stripeMode, error: "Not authenticated" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 401,
       });
@@ -69,7 +73,7 @@ serve(async (req) => {
     if (userError) {
       logStep("Authentication failed", { message: userError.message });
       return new Response(
-        JSON.stringify({ error: `Authentication error: ${userError.message}` }),
+        JSON.stringify({ stripe_mode: stripeMode, error: `Authentication error: ${userError.message}` }),
         {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
           status: 401,
@@ -79,7 +83,7 @@ serve(async (req) => {
     const user = userData.user;
     if (!user?.email) {
       logStep("User not authenticated or email not available");
-      return new Response(JSON.stringify({ error: "Not authenticated" }), {
+      return new Response(JSON.stringify({ stripe_mode: stripeMode, error: "Not authenticated" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 401,
       });
@@ -117,7 +121,7 @@ serve(async (req) => {
     // (NOT user-supplied input). Keep this list short.
     if (FREE_ACCOUNTS.has(normalizedEmail)) {
       logBranch("free_account_granted", { email: normalizedEmail });
-      return new Response(JSON.stringify({
+      return new Response(JSON.stringify({ stripe_mode: stripeMode,
         subscribed: true,
         trial_active: false,
         product_id: "owner_free",
@@ -177,7 +181,7 @@ serve(async (req) => {
 
     if (lifetimePurchase || grandfatheredOrg) {
       logBranch("lifetime_access_granted", { email: normalizedEmail, source: lifetimePurchase ? "purchase" : "grandfathered_org" });
-      return new Response(JSON.stringify({
+      return new Response(JSON.stringify({ stripe_mode: stripeMode,
         subscribed: true,
         trial_active: false,
         product_id: "lifetime",
@@ -226,7 +230,7 @@ serve(async (req) => {
 
       if (comp) {
         logBranch("comped_access_granted", { eligibleOrgIds: compOrgIds, expiresAt: comp.expires_at });
-        return new Response(JSON.stringify({
+        return new Response(JSON.stringify({ stripe_mode: stripeMode,
           subscribed: true,
           trial_active: false,
           product_id: "comped",
@@ -272,7 +276,7 @@ serve(async (req) => {
       // If past_due, block access
       if (!activeSubscription && pastDueSubscription) {
         logBranch("past_due_access_denied", { subscriptionId: pastDueSubscription.id });
-        return new Response(JSON.stringify({
+        return new Response(JSON.stringify({ stripe_mode: stripeMode,
           subscribed: false,
           trial_active: false,
           product_id: null,
@@ -316,7 +320,7 @@ serve(async (req) => {
           subscriptionEnd
         });
 
-        return new Response(JSON.stringify({
+        return new Response(JSON.stringify({ stripe_mode: stripeMode,
           subscribed: true,
           trial_active: isTrialing,
           product_id: productId,
@@ -345,7 +349,7 @@ serve(async (req) => {
 
     if (membershipError || !membership) {
       logBranch("organization_membership_missing_access_denied", { userId: user.id, error: membershipError?.message });
-      return new Response(JSON.stringify({
+      return new Response(JSON.stringify({ stripe_mode: stripeMode,
         subscribed: false,
         trial_active: false,
         product_id: null,
@@ -382,12 +386,14 @@ serve(async (req) => {
       return new Response(JSON.stringify(
         trialActive
           ? {
+              stripe_mode: stripeMode,
               subscribed: true,
               trial_active: true,
               trial_end: trialEndsAt,
               product_id: "org_trial",
             }
           : {
+              stripe_mode: stripeMode,
               subscribed: false,
               trial_active: false,
               trial_end: trialEndsAt,
@@ -404,7 +410,7 @@ serve(async (req) => {
 
     if (!orgCreatedAt) {
       logBranch("organization_created_at_missing_access_denied", { orgId: membership.organization_id });
-      return new Response(JSON.stringify({
+      return new Response(JSON.stringify({ stripe_mode: stripeMode,
         subscribed: false,
         trial_active: false,
         product_id: null,
@@ -440,7 +446,7 @@ serve(async (req) => {
         orgId: membership.organization_id,
         trialEnd: trialEndIso,
       });
-      return new Response(JSON.stringify({
+      return new Response(JSON.stringify({ stripe_mode: stripeMode,
         subscribed: true,
         trial_active: true,
         product_id: "org_trial",
@@ -459,7 +465,7 @@ serve(async (req) => {
       orgCreatedAfterCutoff,
       trialEnd: trialEndIso,
     });
-    return new Response(JSON.stringify({
+    return new Response(JSON.stringify({ stripe_mode: stripeMode,
       subscribed: false,
       trial_active: false,
       product_id: null,
@@ -474,7 +480,7 @@ serve(async (req) => {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     logStep("ERROR in check-subscription", { message: errorMessage });
-    return new Response(JSON.stringify({ error: errorMessage }), {
+    return new Response(JSON.stringify({ stripe_mode: stripeMode, error: errorMessage }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 500,
     });

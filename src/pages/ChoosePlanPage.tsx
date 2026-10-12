@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Check, Crown, Loader2, Lock, LogOut, Sparkles } from 'lucide-react';
+import { StripeModeBadge } from '@/components/subscription/StripeModeBadge';
 import { SEOHead } from '@/components/SEOHead';
 import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
@@ -164,7 +165,7 @@ const PAIN_PITCH: Record<string, string> = {
  */
 export default function ChoosePlanPage() {
   const navigate = useNavigate();
-  const { user, loading: authLoading, signOut, checkSubscription } = useAuth();
+  const { user, loading: authLoading, signOut, checkSubscription, subscription } = useAuth();
   const { hasFullAccess, isLoading: subLoading } = useSubscription();
   const [billingInterval, setBillingInterval] = useState<Interval>('monthly');
   const [checkoutBusy, setCheckoutBusy] = useState<string | null>(null);
@@ -210,8 +211,14 @@ export default function ChoosePlanPage() {
       navigate('/login', { replace: true });
       return;
     }
-    if (hasFullAccess) navigate('/dashboard', { replace: true });
-  }, [authLoading, subLoading, user, hasFullAccess, navigate]);
+    // An unpaid org trial comes back as subscribed=true / product_id=org_trial,
+    // which hasFullAccess currently treats as paid. That sent /choose-plan
+    // straight to the dashboard, so there was no checkout. PR #5
+    // (cursor/p0-security-holes-8989) changes hasFullAccess itself; this check
+    // stays correct either way and does not edit that hook.
+    const unpaidOrgTrial = subscription?.product_id === 'org_trial';
+    if (hasFullAccess && !unpaidOrgTrial) navigate('/dashboard', { replace: true });
+  }, [authLoading, subLoading, user, hasFullAccess, subscription?.product_id, navigate]);
 
   async function startCheckout(planId: PlanId) {
     if (isRedirectingRef.current || checkoutBusy) return;
@@ -318,6 +325,7 @@ export default function ChoosePlanPage() {
       {/* Top bar — brand + logout only. No nav, no skip. */}
       <header className="flex items-center justify-between px-6 py-4 border-b">
         <span className="font-semibold text-lg">TidyWise</span>
+        <StripeModeBadge />
         <Button
           variant="ghost"
           size="sm"

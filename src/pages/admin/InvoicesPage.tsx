@@ -40,6 +40,10 @@ import { InvoiceViewDialog } from '@/components/admin/InvoiceViewDialog';
 import { InvoiceFormDialog } from '@/components/admin/InvoiceFormDialog';
 import { SEOHead } from '@/components/SEOHead';
 import { buildInvoiceEmailPayload, formatInvoiceNumber, getInvoiceContact } from '@/lib/invoiceUtils';
+import { offlinePaymentLabel, type OfflinePaymentMethod } from '@/lib/invoiceDraft';
+import { markInvoicePaidOffline, undoInvoicePaid } from '@/lib/invoicePayment';
+import { MarkPaidButton } from '@/components/admin/invoice/MarkPaidButton';
+import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { fmt } from '@/lib/activeCurrency';
 import { mustAffectRows } from '@/lib/mustAffectRows';
 
@@ -293,11 +297,7 @@ export default function InvoicesPage() {
   // wrong row rather than not meaning to click at all.
   const undoMarkPaidMutation = useMutation({
     mutationFn: async ({ id, previousStatus }: { id: string; previousStatus: Invoice['status'] }) => {
-      await mustAffectRows(
-        supabase.from('invoices').update({ status: previousStatus, paid_at: null }).eq('id', id),
-        'Payment not undone. The invoice was not writable.',
-        { table: 'invoices' },
-      );
+      await undoInvoicePaid(id, previousStatus);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
@@ -309,26 +309,23 @@ export default function InvoicesPage() {
   const markPaidMutation = useMutation({
     // The previous status is captured at click time so undo restores what was
     // actually there — an overdue invoice must not come back as merely sent.
-    mutationFn: async ({ id }: { id: string; previousStatus: Invoice['status'] }) => {
-      await mustAffectRows(
-        supabase
-          .from('invoices')
-          .update({ status: 'paid', paid_at: new Date().toISOString() })
-          .eq('id', id),
-        'Invoice not marked as paid. Nothing was written.',
-        { table: 'invoices' },
-      );
+    mutationFn: async ({ id, method }: { id: string; previousStatus: Invoice['status']; method: OfflinePaymentMethod }) => {
+      return markInvoicePaidOffline(id, method);
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (stored, variables) => {
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      toast.success('Invoice marked as paid', {
-        // Longer than the default so there is time to notice and react.
-        duration: 8000,
-        action: {
-          label: 'Undo',
-          onClick: () => undoMarkPaidMutation.mutate(variables),
+      const label = offlinePaymentLabel(variables.method);
+      toast.success(
+        stored === 'stored' ? `Invoice marked as paid (${label})` : `Invoice marked as paid (${label}). The method was not stored because the database column is not applied yet.`,
+        {
+          // Longer than the default so there is time to notice and react.
+          duration: 8000,
+          action: {
+            label: 'Undo',
+            onClick: () => undoMarkPaidMutation.mutate(variables),
+          },
         },
-      });
+      );
     },
     onError: (error: any) => toast.error(error.message),
   });
@@ -347,7 +344,7 @@ export default function InvoicesPage() {
         body: buildInvoiceEmailPayload(invoice, organization?.id || ''),
       });
 
-      if (error) throw error;
+      if (error) throw new Error(await readEdgeFunctionError(error, 'Failed to send invoice email'));
 
       if (invoice.status === 'draft') {
         await mustAffectRows(
@@ -529,8 +526,12 @@ export default function InvoicesPage() {
                         <TableCell>
                           <div className="flex items-center gap-1">
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setViewingInvoice(invoice); setViewDialogOpen(true); }} title="View invoice"><Eye className="w-4 h-4" /></Button>
-                            {['sent', 'overdue'].includes(invoice.status) && (
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-success hover:text-success/80" onClick={() => markPaidMutation.mutate({ id: invoice.id, previousStatus: invoice.status })} disabled={markPaidMutation.isPending} title="Mark as paid"><CheckCircle2 className="w-4 h-4" /></Button>
+                            {['draft', 'sent', 'overdue'].includes(invoice.status) && (
+                              <MarkPaidButton
+                                compact
+                                disabled={markPaidMutation.isPending}
+                                onPick={(method) => markPaidMutation.mutate({ id: invoice.id, previousStatus: invoice.status, method })}
+                              />
                             )}
                             {['draft', 'sent', 'overdue'].includes(invoice.status) && (
                               <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" onClick={() => sendInvoiceEmail(invoice)} disabled={sendingInvoice === invoice.id} title={invoice.status === 'draft' ? 'Send invoice email' : 'Resend invoice email'}>
@@ -593,8 +594,11 @@ export default function InvoicesPage() {
 
                     <div className="flex flex-wrap gap-2">
                       <Button variant="outline" size="sm" onClick={() => { setViewingInvoice(invoice); setViewDialogOpen(true); }}><Eye className="w-4 h-4 mr-2" />View</Button>
-                      {['sent', 'overdue'].includes(invoice.status) && (
-                        <Button size="sm" className="bg-success hover:bg-success/90 text-success-foreground border-0" onClick={() => markPaidMutation.mutate({ id: invoice.id, previousStatus: invoice.status })} disabled={markPaidMutation.isPending}><CheckCircle2 className="w-4 h-4 mr-2" />Mark Paid</Button>
+                      {['draft', 'sent', 'overdue'].includes(invoice.status) && (
+                        <MarkPaidButton
+                          disabled={markPaidMutation.isPending}
+                          onPick={(method) => markPaidMutation.mutate({ id: invoice.id, previousStatus: invoice.status, method })}
+                        />
                       )}
                       {['draft', 'sent', 'overdue'].includes(invoice.status) && (
                         <Button variant="outline" size="sm" onClick={() => sendInvoiceEmail(invoice)} disabled={sendingInvoice === invoice.id}>

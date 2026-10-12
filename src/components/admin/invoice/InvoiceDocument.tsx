@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
-import { format } from 'date-fns';
 import { fmt } from '@/lib/activeCurrency';
+import { formatInvoiceDateLabel } from '@/lib/invoiceUtils';
 
 interface InvoiceDocumentItem {
   description: string;
@@ -58,7 +58,7 @@ const tableCell: CSSProperties = {
 };
 
 const formatMoney = (value: number) => `${fmt(Number(value || 0))}`;
-const formatDateLabel = (value: string) => format(new Date(value), 'MMM d, yyyy');
+const formatDateLabel = (value: string) => formatInvoiceDateLabel(value);
 
 export function InvoiceDocument({
   businessName,

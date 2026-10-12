@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { usePlatform } from "@/hooks/usePlatform";
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from '@/lib/startSubscriptionCheckout';
 
 interface SubscriptionDialogProps {
   open: boolean;
@@ -106,20 +107,23 @@ export function SubscriptionDialog({
   }, [open]);
 
   const handleStandard = async () => {
+    // The simple dialog used to call create-subscription with no plan, which
+    // 400s ("Invalid plan"). /choose-plan is the checkout that sends a plan.
+    if (!PRICING_ENABLED) {
+      window.location.href = "/choose-plan";
+      return;
+    }
     setCheckingOut("standard");
     try {
-      const { data, error } = await supabase.functions.invoke("create-subscription");
-      if (error) {
-        if (await isAlreadyLifetimeError(error)) {
-          toast.success(ALREADY_LIFETIME_MESSAGE);
-          return;
-        }
-        throw new Error(await readEdgeFunctionError(error, "Failed to start subscription"));
+      // This card is $97/mo, which is the Pro price.
+      await startSubscriptionCheckout("pro", "monthly");
+    } catch (error: unknown) {
+      if (error instanceof AlreadyLifetimeCheckout) {
+        toast.success(ALREADY_LIFETIME_MESSAGE);
+        return;
       }
-      if (data?.error) throw new Error(data.error);
-      if (data?.url) window.location.href = data.url;
-    } catch (error: any) {
-      toast.error(error.message || "Failed to start subscription");
+      const message = error instanceof Error ? error.message : "Failed to start subscription";
+      toast.error(message);
     } finally {
       setCheckingOut(null);
     }
@@ -133,7 +137,13 @@ export function SubscriptionDialog({
     setCheckingOut("lifetime");
     try {
       const { data, error } = await supabase.functions.invoke("create-lifetime-checkout");
-      if (error) throw error;
+      if (error) {
+        if (await isAlreadyLifetimeError(error)) {
+          toast.success(ALREADY_LIFETIME_MESSAGE);
+          return;
+        }
+        throw new Error(await readEdgeFunctionError(error, "Failed to start checkout"));
+      }
       if (data?.error) throw new Error(data.error);
       if (data?.url) window.location.href = data.url;
     } catch (error: any) {

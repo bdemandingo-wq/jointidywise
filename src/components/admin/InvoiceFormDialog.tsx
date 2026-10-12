@@ -32,7 +32,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { format, addDays } from 'date-fns';
+import { format } from 'date-fns';
 import { PaymentMethodsSheet } from './invoice/PaymentMethodsSheet';
 import { PaymentRemindersSheet } from './invoice/PaymentRemindersSheet';
 import { DueDateSheet } from './invoice/DueDateSheet';
@@ -42,6 +42,18 @@ import { useInvoiceBusinessInfo } from '@/hooks/useInvoiceBusinessInfo';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { orgDateKey, orgAddDays, formatInOrgTz } from '@/lib/orgDateRange';
 import { formatInvoiceNumber } from '@/lib/invoiceUtils';
+import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import {
+  clearLocalInvoiceDraft,
+  invoiceAmountError,
+  offlinePaymentLabel,
+  readLocalInvoiceDraft,
+  writeLocalInvoiceDraft,
+  type LocalInvoiceDraft,
+  type OfflinePaymentMethod,
+} from '@/lib/invoiceDraft';
+import { markInvoicePaidOffline } from '@/lib/invoicePayment';
+import { MarkPaidButton } from './invoice/MarkPaidButton';
 import { fmt } from '@/lib/activeCurrency';
 import { mustAffectRows } from '@/lib/mustAffectRows';
 
@@ -95,6 +107,12 @@ export function InvoiceFormDialog({
   const [dueDateOpen, setDueDateOpen] = useState(false);
   const [sendScheduleOpen, setSendScheduleOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  const [draftState, setDraftState] = useState<'idle' | 'saving' | 'saved' | 'local'>('idle');
+  const persistedRef = useRef<{ id: string; invoiceNumber: number } | null>(null);
+  const sealedRef = useRef(false);
+  const saveQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const fieldsRef = useRef<Record<string, unknown>>({});
 
   const [formData, setFormData] = useState({
     customer_id: '',
@@ -136,7 +154,7 @@ export function InvoiceFormDialog({
   });
 
   // Check if Stripe is configured
-  const { data: stripeSettings, error: stripeSettingsError } = useQuery({
+  const { data: stripeSettings, error: stripeSettingsError, isPending: stripeLoading } = useQuery({
     queryKey: ['org-stripe-check', organizationId],
     queryFn: async () => {
       const { data: rows, error } = await supabase
@@ -167,8 +185,18 @@ export function InvoiceFormDialog({
 
   // Reset form when dialog opens with new data
   useEffect(() => {
+    if (!open) {
+      setHydrated(false);
+      return;
+    }
+    sealedRef.current = false;
+    if (invoice?.id && String(invoice.id).length > 10) {
+      persistedRef.current = { id: invoice.id, invoiceNumber: invoice.invoice_number };
+    } else {
+      persistedRef.current = null;
+    }
     if (open) {
-      if (invoice) {
+      if (invoice?.id && String(invoice.id).length > 10) {
         setFormData({
           customer_id: invoice.customer_id || '',
           lead_id: invoice.lead_id || '',
@@ -202,10 +230,10 @@ export function InvoiceFormDialog({
         setShowDiscount((invoice.discount_percent || 0) > 0);
         setShowTax((invoice.tax_percent || 0) > 0);
       } else {
-        setFormData({
+        const blank = {
           customer_id: '',
           lead_id: '',
-          customer_type: 'customer',
+          customer_type: 'customer' as const,
           address: '',
           tax_percent: defaultTaxPercent.toString(),
           discount_percent: '0',
@@ -218,15 +246,26 @@ export function InvoiceFormDialog({
           is_recurring: false,
           recurring_interval: 'monthly',
           email_copy: true,
-          cc_emails: [],
-        });
-        setLineItems([]);
-        setShowDiscount(false);
-        setShowTax(defaultTaxPercent > 0);
+          cc_emails: [] as string[],
+        };
+        const local = readLocalInvoiceDraft(organizationId);
+        if (local) {
+          setFormData({ ...blank, ...(local.formData as typeof blank) });
+          setLineItems(local.lineItems as LineItem[]);
+          setShowDiscount(local.showDiscount);
+          setShowTax(local.showTax);
+          toast.message('Restored an unsaved invoice from this device.');
+        } else {
+          setFormData(blank);
+          setLineItems([]);
+          setShowDiscount(false);
+          setShowTax(defaultTaxPercent > 0);
+        }
       }
     }
+    setHydrated(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- orgTimezone is stable per session; form resets on open/invoice/tax change, not timezone change
-  }, [open, invoice, defaultTaxPercent]);
+  }, [open, invoice, defaultTaxPercent, organizationId]);
 
   // Calculate totals (coerce for numeric safety)
   const subtotal = lineItems.reduce((sum, item) => {
@@ -240,6 +279,16 @@ export function InvoiceFormDialog({
   const taxPercent = parseFloat(formData.tax_percent) || 0;
   const taxAmount = subtotalAfterDiscount * (taxPercent / 100);
   const totalAmount = subtotalAfterDiscount + taxAmount;
+  const amountError = invoiceAmountError({
+    items: lineItems.map((item) => ({
+      description: item.description || '',
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.unit_price),
+    })),
+    discountPercent: Number.isFinite(parseFloat(formData.discount_percent)) ? parseFloat(formData.discount_percent) : 0,
+    taxPercent: showTax && Number.isFinite(parseFloat(formData.tax_percent)) ? parseFloat(formData.tax_percent) : 0,
+    total: totalAmount,
+  });
 
   const addLineItem = () => {
     const defaultHours = Number((paymentSettings as any)?.default_billable_hours) || 1;
@@ -294,148 +343,283 @@ export function InvoiceFormDialog({
     ? customers.find(c => c.id === formData.customer_id)
     : leads.find(l => l.id === formData.lead_id);
 
-  // Save and optionally send invoice
-  const saveMutation = useMutation({
-    mutationFn: async (sendMethod: 'none' | 'email' | 'sms' | 'both' = 'none') => {
-      const validLineItems = lineItems.filter(item => item.description);
+  const describedItems = lineItems.filter((item) => item.description.trim());
+  const canSave = !!selectedCustomer && describedItems.length > 0 && !amountError;
+  const canSaveRef = useRef(canSave);
+  canSaveRef.current = canSave;
 
-      if (validLineItems.length === 0) {
-        throw new Error('Please add at least one item to the invoice');
-      }
+  const localDraft = (): LocalInvoiceDraft => ({
+    version: 1,
+    savedAt: Date.now(),
+    formData: { ...formData },
+    lineItems,
+    showDiscount,
+    showTax,
+  });
+  const localDraftRef = useRef(localDraft());
+  localDraftRef.current = localDraft();
 
-      if (!selectedCustomer) {
-        throw new Error('Please select a customer or lead');
-      }
+  fieldsRef.current = {
+    formData,
+    lineItems: describedItems,
+    subtotal,
+    taxPercent,
+    taxAmount,
+    discountPercent,
+    discountAmount,
+    totalAmount,
+    showTax,
+    showDiscount,
+    selectedCustomer,
+    organizationId,
+  };
 
-      const invoiceData = {
-        organization_id: organizationId,
-        customer_id: formData.customer_type === 'customer' && formData.customer_id ? formData.customer_id : null,
-        lead_id: formData.customer_type === 'lead' && formData.lead_id ? formData.lead_id : null,
-        address: formData.address || null,
-        subtotal,
-        tax_percent: showTax ? taxPercent : 0,
-        tax_amount: showTax ? taxAmount : 0,
-        discount_percent: showDiscount ? discountPercent : 0,
-        discount_amount: showDiscount ? discountAmount : 0,
-        total_amount: totalAmount,
-        notes: formData.notes || null,
-        due_date: formData.due_label === 'Upon receipt' ? null : formData.due_date,
-        is_recurring: formData.is_recurring,
-        recurring_interval: formData.is_recurring ? formData.recurring_interval : null,
-        scheduled_send_at: formData.send_immediately ? null : formData.scheduled_send_at,
-        send_copy_to_self: formData.email_copy,
-        cc_emails: formData.cc_emails,
-      };
-
-      let invoiceId: string;
-      let invoiceNumber: number;
-
-      if (isEditing) {
-        await mustAffectRows(
-          supabase.from('invoices').update(invoiceData).eq('id', invoice.id),
-          'Invoice not saved. It may belong to a different business.',
-          { table: 'invoices' },
-        );
-        invoiceId = invoice.id;
-        invoiceNumber = invoice.invoice_number;
-        // Line items are replaced wholesale; zero deleted rows is legitimate
-        // for an invoice that had none, so this one stays unguarded.
-        const { error: itemsDeleteError } = await supabase
-          .from('invoice_items')
-          .delete()
-          .eq('invoice_id', invoiceId);
-        if (itemsDeleteError) throw itemsDeleteError;
-      } else {
-        const { data, error } = await supabase
-          .from('invoices')
-          .insert(invoiceData)
-          .select('id, invoice_number')
-          .single();
-        if (error) throw error;
-        invoiceId = data.id;
-        invoiceNumber = data.invoice_number;
-      }
-
-      if (validLineItems.length > 0) {
-        const itemsToInsert = validLineItems.map((item, index) => ({
-          invoice_id: invoiceId,
-          organization_id: organizationId,
-          service_id: item.service_id && item.service_id !== '__custom__' ? item.service_id : null,
-          description: item.description,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          total: item.total,
-          sort_order: index,
-        }));
-
-        const { error: itemsError } = await supabase.from('invoice_items').insert(itemsToInsert);
-        if (itemsError) throw itemsError;
-      }
-
-      // If we should send the invoice, call the edge function
-      if (sendMethod !== 'none') {
-        if (!isStripeConfigured) {
-          throw new Error('Stripe is not connected. Go to Settings → Payment Integration to add your Stripe API key before sending invoices.');
-        }
-        const customerEmail = selectedCustomer.email;
-        const customerName = formData.customer_type === 'customer' 
-          ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}`
-          : selectedCustomer.name;
-        const customerPhone = selectedCustomer.phone;
-
-        const wantsEmail = sendMethod === 'email' || sendMethod === 'both';
-        const wantsSms = sendMethod === 'sms' || sendMethod === 'both';
-
-        if (wantsEmail && !customerEmail) {
-          throw new Error('Customer has no email address');
-        }
-        if (wantsSms && !customerPhone) {
-          throw new Error('Customer has no phone number');
-        }
-
-        const { error: sendError } = await supabase.functions.invoke('create-stripe-invoice', {
-          body: {
-            invoiceId,
-            organizationId,
-            customerEmail: wantsEmail ? customerEmail : null,
-            customerName,
-            customerPhone: wantsSms ? customerPhone : null,
-            sendEmail: wantsEmail,
-            sendSms: wantsSms,
-            items: validLineItems.map(item => ({
-              description: item.description,
-              quantity: item.quantity,
-              unitPrice: item.unit_price,
-            })),
-            totalAmount,
-            taxAmount: showTax ? taxAmount : 0,
-            dueDate: formData.due_label === 'Upon receipt' ? null : formData.due_date,
-            notes: formData.notes || null,
-            ccEmails: wantsEmail ? formData.cc_emails : [],
-          },
-        });
-
-        if (sendError) throw sendError;
-        
-        return { sent: true, sendMethod, invoiceNumber };
-      }
-
-      return { sent: false, invoiceNumber };
-    },
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      if (result?.sent) {
-        const method = result.sendMethod === 'both' ? 'via email & SMS' : result.sendMethod === 'email' ? 'via email' : 'via SMS';
-        toast.success(`Invoice #${result.invoiceNumber} sent ${method}`);
-      } else {
-        toast.success(isEditing ? 'Invoice updated' : 'Invoice saved as draft');
-      }
-      onOpenChange(false);
-    },
-    onError: (error: any) => toast.error(error.message || 'Failed to save invoice'),
+  const persistDraftRef = useRef<() => Promise<{ id: string; invoiceNumber: number }>>(async () => {
+    throw new Error('Draft save is not ready');
   });
 
-  
+  persistDraftRef.current = async () => {
+    if (sealedRef.current && persistedRef.current) return persistedRef.current;
+    const fields = fieldsRef.current as {
+      formData: typeof formData;
+      lineItems: LineItem[];
+      subtotal: number;
+      taxPercent: number;
+      taxAmount: number;
+      discountPercent: number;
+      discountAmount: number;
+      totalAmount: number;
+      showTax: boolean;
+      showDiscount: boolean;
+      selectedCustomer: typeof selectedCustomer;
+      organizationId: string;
+    };
+    const blocked = invoiceAmountError({
+      items: fields.lineItems.map((item) => ({
+        description: item.description || '',
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unit_price),
+      })),
+      discountPercent: fields.showDiscount ? fields.discountPercent : 0,
+      taxPercent: fields.showTax ? fields.taxPercent : 0,
+      total: fields.totalAmount,
+    });
+    if (blocked) throw new Error(blocked);
+    if (!fields.selectedCustomer) throw new Error('Please select a customer or lead');
+    if (fields.lineItems.length === 0) throw new Error('Please add at least one item to the invoice');
+
+    const invoiceData = {
+      organization_id: fields.organizationId,
+      customer_id: fields.formData.customer_type === 'customer' && fields.formData.customer_id ? fields.formData.customer_id : null,
+      lead_id: fields.formData.customer_type === 'lead' && fields.formData.lead_id ? fields.formData.lead_id : null,
+      address: fields.formData.address || null,
+      subtotal: fields.subtotal,
+      tax_percent: fields.showTax ? fields.taxPercent : 0,
+      tax_amount: fields.showTax ? fields.taxAmount : 0,
+      discount_percent: fields.showDiscount ? fields.discountPercent : 0,
+      discount_amount: fields.showDiscount ? fields.discountAmount : 0,
+      total_amount: fields.totalAmount,
+      notes: fields.formData.notes || null,
+      due_date: fields.formData.due_label === 'Upon receipt' ? null : fields.formData.due_date,
+      is_recurring: fields.formData.is_recurring,
+      recurring_interval: fields.formData.is_recurring ? fields.formData.recurring_interval : null,
+      scheduled_send_at: fields.formData.send_immediately ? null : fields.formData.scheduled_send_at,
+      send_copy_to_self: fields.formData.email_copy,
+      cc_emails: fields.formData.cc_emails,
+      status: 'draft' as const,
+    };
+
+    let invoiceId: string;
+    let invoiceNumber: number;
+    const existing = persistedRef.current;
+    if (existing) {
+      const { status: _status, ...updateData } = invoiceData;
+      await mustAffectRows(
+        supabase.from('invoices').update(updateData).eq('id', existing.id),
+        'Invoice not saved. It may belong to a different business.',
+        { table: 'invoices' },
+      );
+      invoiceId = existing.id;
+      invoiceNumber = existing.invoiceNumber;
+      const { error: itemsDeleteError } = await supabase
+        .from('invoice_items')
+        .delete()
+        .eq('invoice_id', invoiceId);
+      if (itemsDeleteError) throw itemsDeleteError;
+    } else {
+      const { data, error } = await supabase
+        .from('invoices')
+        .insert(invoiceData)
+        .select('id, invoice_number')
+        .single();
+      if (error) throw error;
+      invoiceId = data.id;
+      invoiceNumber = data.invoice_number;
+      // Remember the id before line items, so a later failure updates this row
+      // instead of inserting a second invoice and orphaning what was typed.
+      persistedRef.current = { id: invoiceId, invoiceNumber };
+    }
+
+    const itemsToInsert = fields.lineItems.map((item, index) => ({
+      invoice_id: invoiceId,
+      organization_id: fields.organizationId,
+      service_id: item.service_id && item.service_id !== '__custom__' ? item.service_id : null,
+      description: item.description,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      total: item.total,
+      sort_order: index,
+    }));
+    const { error: itemsError } = await supabase.from('invoice_items').insert(itemsToInsert);
+    if (itemsError) throw itemsError;
+    return { id: invoiceId, invoiceNumber };
+  };
+
+  function persistDraft() {
+    const run = () => persistDraftRef.current();
+    const next = saveQueue.current.then(run, run);
+    saveQueue.current = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  const draftKey = JSON.stringify({ formData, lineItems, showDiscount, showTax });
+  useEffect(() => {
+    if (!open || !hydrated || sealedRef.current) return;
+    if (!isEditing) writeLocalInvoiceDraft(organizationId, localDraftRef.current);
+    if (!canSaveRef.current) return;
+    setDraftState('saving');
+    const timer = window.setTimeout(() => {
+      void persistDraft()
+        .then(() => setDraftState('saved'))
+        .catch(() => setDraftState('local'));
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  // persistDraft reads refs; draftKey is the change signal.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, hydrated, draftKey, organizationId]);
+
+  async function finishAndClose() {
+    sealedRef.current = true;
+    if (!isEditing) clearLocalInvoiceDraft(organizationId);
+    queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    onOpenChange(false);
+  }
+
+  async function requestClose(next: boolean) {
+    if (next) {
+      onOpenChange(true);
+      return;
+    }
+    if (!sealedRef.current && canSaveRef.current) {
+      try {
+        await persistDraft();
+        if (!isEditing) clearLocalInvoiceDraft(organizationId);
+        queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      } catch {
+        if (!isEditing) writeLocalInvoiceDraft(organizationId, localDraftRef.current);
+      }
+    } else if (!sealedRef.current && !isEditing) {
+      const draft = localDraftRef.current;
+      const hasContent = Boolean(
+        draft.formData.customer_id || draft.formData.lead_id || draft.formData.notes || draft.formData.address
+        || (Array.isArray(draft.lineItems) && draft.lineItems.some((item) => {
+          const row = item as LineItem;
+          return row.description || Number(row.unit_price) > 0;
+        })),
+      );
+      if (hasContent) writeLocalInvoiceDraft(organizationId, draft);
+    }
+    onOpenChange(false);
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: async (sendMethod: 'email' | 'sms' | 'both') => {
+      const saved = await persistDraft();
+      const fields = fieldsRef.current as {
+        formData: typeof formData;
+        lineItems: LineItem[];
+        totalAmount: number;
+        taxAmount: number;
+        showTax: boolean;
+        selectedCustomer: NonNullable<typeof selectedCustomer>;
+        organizationId: string;
+      };
+      if (!isStripeConfigured) {
+        throw new Error('Draft saved. Stripe is not connected, so this invoice was not emailed. Mark it paid for cash, check, or Zelle.');
+      }
+      const customer = fields.selectedCustomer;
+      const customerEmail = customer.email;
+      const customerName = fields.formData.customer_type === 'customer'
+        ? `${customer.first_name} ${customer.last_name}`
+        : customer.name;
+      const customerPhone = customer.phone;
+      const wantsEmail = sendMethod === 'email' || sendMethod === 'both';
+      const wantsSms = sendMethod === 'sms' || sendMethod === 'both';
+      if (wantsEmail && !customerEmail) throw new Error('Customer has no email address. The draft was kept.');
+      if (wantsSms && !customerPhone) throw new Error('Customer has no phone number. The draft was kept.');
+
+      const { error: sendError } = await supabase.functions.invoke('create-stripe-invoice', {
+        body: {
+          invoiceId: saved.id,
+          organizationId: fields.organizationId,
+          customerEmail: wantsEmail ? customerEmail : null,
+          customerName,
+          customerPhone: wantsSms ? customerPhone : null,
+          sendEmail: wantsEmail,
+          sendSms: wantsSms,
+          items: fields.lineItems.map((item) => ({
+            description: item.description,
+            quantity: item.quantity,
+            unitPrice: item.unit_price,
+          })),
+          totalAmount: fields.totalAmount,
+          taxAmount: fields.showTax ? fields.taxAmount : 0,
+          dueDate: fields.formData.due_label === 'Upon receipt' ? null : fields.formData.due_date,
+          notes: fields.formData.notes || null,
+          ccEmails: wantsEmail ? fields.formData.cc_emails : [],
+        },
+      });
+      if (sendError) {
+        const reason = await readEdgeFunctionError(sendError, 'Could not email or text this invoice.');
+        throw new Error(`${reason} The draft was kept.`);
+      }
+      return { invoiceNumber: saved.invoiceNumber, sendMethod };
+    },
+    onSuccess: async (result) => {
+      const method = result.sendMethod === 'both' ? 'via email & SMS' : result.sendMethod === 'email' ? 'via email' : 'via SMS';
+      toast.success(`Invoice #${result.invoiceNumber} sent ${method}`);
+      await finishAndClose();
+    },
+    onError: (error: Error) => toast.error(error.message || 'Failed to save invoice'),
+  });
+
+  async function saveAsDraft() {
+    try {
+      const saved = await persistDraft();
+      toast.success(`Invoice #${saved.invoiceNumber} saved as draft`);
+      await finishAndClose();
+    } catch (error) {
+      writeLocalInvoiceDraft(organizationId, localDraftRef.current);
+      toast.error(error instanceof Error ? error.message : 'Could not save the draft. It is still on this device.');
+    }
+  }
+
+  async function markPaid(method: OfflinePaymentMethod) {
+    try {
+      const saved = await persistDraft();
+      const stored = await markInvoicePaidOffline(saved.id, method);
+      const label = offlinePaymentLabel(method);
+      toast.success(
+        stored === 'stored'
+          ? `Invoice #${saved.invoiceNumber} marked paid (${label})`
+          : `Invoice #${saved.invoiceNumber} marked paid (${label}). The payment method was not stored because the database column is not applied yet.`,
+      );
+      await finishAndClose();
+    } catch (error) {
+      writeLocalInvoiceDraft(organizationId, localDraftRef.current);
+      toast.error(error instanceof Error ? error.message : 'Could not mark this invoice paid. The draft was kept.');
+    }
+  }
 
   const handlePreview = () => {
     if (!selectedCustomer || lineItems.length === 0) {
@@ -513,12 +697,12 @@ export function InvoiceFormDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={requestClose}>
         <DialogContent className="max-w-lg p-0 gap-0 max-h-[100vh] flex flex-col overflow-hidden">
           {/* Header */}
           <div className="flex items-center justify-between p-4 border-b">
             <button 
-              onClick={() => onOpenChange(false)}
+              onClick={() => void requestClose(false)}
               className="text-muted-foreground hover:text-foreground"
             >
               <ChevronLeft className="h-6 w-6" />
@@ -782,16 +966,17 @@ export function InvoiceFormDialog({
                           <label className="text-xs text-muted-foreground">Qty</label>
                           <Input
                             type="number"
-                            min="1"
+                            min="0"
                             placeholder="1"
                             value={item.quantity === 0 ? '' : item.quantity}
-                            onChange={(e) => updateLineItem(index, 'quantity', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                            onChange={(e) => updateLineItem(index, 'quantity', e.target.value === '' ? 0 : parseInt(e.target.value, 10) || 0)}
                           />
                         </div>
                         <div className="flex-1">
                           <label className="text-xs text-muted-foreground">Price</label>
                           <Input
                             type="number"
+                            min="0"
                             step="0.01"
                             placeholder="0.00"
                             value={item.unit_price === 0 ? '' : item.unit_price}
@@ -976,7 +1161,36 @@ export function InvoiceFormDialog({
             
             <div className="flex items-center justify-between">
               <span className="text-lg font-semibold">Total due</span>
-              <span className="text-lg font-semibold">{fmt(totalAmount)}</span>
+              <span className={`text-lg font-semibold ${amountError ? 'text-destructive' : ''}`}>{fmt(totalAmount)}</span>
+            </div>
+            {amountError && <p className="text-sm text-destructive">{amountError}</p>}
+            {!stripeLoading && !isStripeConfigured && (
+              <p className="text-xs text-muted-foreground">
+                Stripe is not connected. Save the draft, or mark it paid by cash, check, or Zelle. Email and SMS send stay off until Payments is connected.
+              </p>
+            )}
+            {draftState !== 'idle' && (
+              <p className="text-xs text-muted-foreground">
+                {draftState === 'saving' && 'Saving draft…'}
+                {draftState === 'saved' && 'Draft saved'}
+                {draftState === 'local' && 'Not saved to the server yet. A copy is on this device.'}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => void saveAsDraft()}
+                disabled={saveMutation.isPending || !canSave}
+              >
+                Save as draft
+              </Button>
+              <MarkPaidButton
+                className="flex-1"
+                disabled={saveMutation.isPending || !canSave}
+                onPick={(method) => void markPaid(method)}
+              />
             </div>
             <div className="flex gap-3">
               <Button
@@ -992,7 +1206,8 @@ export function InvoiceFormDialog({
                 <DropdownMenuTrigger asChild>
                   <Button
                     className="flex-1"
-                    disabled={saveMutation.isPending || lineItems.length === 0 || !selectedCustomer}
+                    disabled={saveMutation.isPending || !canSave || stripeLoading || !isStripeConfigured}
+                    title={stripeLoading ? 'Checking whether Stripe is connected…' : !isStripeConfigured ? 'Connect Stripe to email or text this invoice. Cash, check, and Zelle use Mark as paid.' : undefined}
                   >
                     {saveMutation.isPending ? (
                       <>
@@ -1052,6 +1267,7 @@ export function InvoiceFormDialog({
         open={dueDateOpen}
         onOpenChange={setDueDateOpen}
         value={formData.due_date}
+        timeZone={orgTimezone}
         onChange={(date, label) => setFormData({ ...formData, due_date: date || orgDateKey(new Date(), orgTimezone), due_label: label })}
       />
       <SendScheduleSheet
