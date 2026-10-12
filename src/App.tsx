@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
+import LandingPage from "./pages/LandingPage";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -12,6 +13,7 @@ import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/hooks/useAuth";
 import { AuthProviderNoSession } from "@/hooks/useAuthNoSession";
 import { OrganizationProvider } from "@/contexts/OrganizationContext";
+import { WarmListQueries } from "@/components/admin/WarmListQueries";
 import { AiCreditLimitModal } from "@/components/ai-credits/AiCreditLimitModal";
 import { CurrencySync } from "@/components/CurrencySync";
 import { TestModeProvider } from "@/contexts/TestModeContext";
@@ -35,8 +37,8 @@ import { requestTrackingPermission } from '@/lib/metaEvents';
 import { NativePushRegistrar } from '@/components/NativePushRegistrar';
 import { Sentry } from '@/lib/sentry';
 
-// Critical path: keep the shell light; lazy-load even the public entry pages
-const LandingPage = lazy(() => import("./pages/LandingPage"));
+// Landing is eager so the hero paints with the app shell. Heavy sections
+// inside the page stay lazy. Other public pages stay on their own chunks.
 const ScoreSearchPage = lazy(() => import("./pages/score/ScoreSearchPage"));
 const ScoreCityPage = lazy(() => import("./pages/score/ScoreCityPage"));
 const ScoreCompanyPage = lazy(() => import("./pages/score/ScoreCompanyPage"));
@@ -323,6 +325,7 @@ const App = () => (
         <AuthProvider>
           <SessionTrackerProvider>
             <OrganizationProvider>
+              <WarmListQueries />
               <CurrencySync />
               <TestModeProvider>
                 <ClientPortalProvider>
@@ -433,6 +436,7 @@ const App = () => (
                       <Route path="/dashboard/campaigns" element={<AdminRoute><ErrorBoundary featureName="Campaigns"><CampaignsPage /></ErrorBoundary></AdminRoute>} />
                       <Route path="/dashboard/checklists" element={<AdminRoute><ErrorBoundary featureName="Checklists"><ChecklistsPage /></ErrorBoundary></AdminRoute>} />
                       <Route path="/dashboard/payment-integration" element={<AdminRoute><ErrorBoundary featureName="Payment Integration"><PaymentIntegrationPage /></ErrorBoundary></AdminRoute>} />
+                      <Route path="/dashboard/billing" element={<Navigate to="/dashboard/subscription" replace />} />
                       <Route path="/dashboard/subscription" element={<AdminRoute><FinancialRoute><ErrorBoundary featureName="Subscription"><SubscriptionPage /></ErrorBoundary></FinancialRoute></AdminRoute>} />
                       <Route path="/dashboard/help" element={<AdminRoute><ErrorBoundary featureName="Help Center"><HelpPage /></ErrorBoundary></AdminRoute>} />
                       <Route path="/dashboard/discounts" element={<AdminRoute><ErrorBoundary featureName="Discounts"><DiscountsPage /></ErrorBoundary></AdminRoute>} />
@@ -584,7 +588,8 @@ const App = () => (
                     <Route path="/dashboard/campaigns" element={<AdminRoute><ErrorBoundary featureName="Campaigns"><CampaignsPage /></ErrorBoundary></AdminRoute>} />
                     <Route path="/dashboard/checklists" element={<AdminRoute><ErrorBoundary featureName="Checklists"><ChecklistsPage /></ErrorBoundary></AdminRoute>} />
                     <Route path="/dashboard/payment-integration" element={<AdminRoute><ErrorBoundary featureName="Payment Integration"><PaymentIntegrationPage /></ErrorBoundary></AdminRoute>} />
-                    <Route path="/dashboard/subscription" element={<AdminRoute><FinancialRoute><ErrorBoundary featureName="Subscription"><SubscriptionPage /></ErrorBoundary></FinancialRoute></AdminRoute>} />
+                    <Route path="/dashboard/billing" element={<AdminRoute><FinancialRoute><Navigate to="/dashboard/settings?tab=subscription" replace /></FinancialRoute></AdminRoute>} />
+                    <Route path="/dashboard/subscription" element={<AdminRoute><FinancialRoute><Navigate to="/dashboard/settings?tab=subscription" replace /></FinancialRoute></AdminRoute>} />
                     <Route path="/dashboard/help" element={<AdminRoute><ErrorBoundary featureName="Help Center"><HelpPage /></ErrorBoundary></AdminRoute>} />
                     
                     <Route path="/dashboard/discounts" element={<AdminRoute><ErrorBoundary featureName="Discounts"><DiscountsPage /></ErrorBoundary></AdminRoute>} />

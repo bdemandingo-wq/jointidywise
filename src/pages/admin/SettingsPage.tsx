@@ -52,6 +52,9 @@ import { SchedulingModeCard } from '@/components/admin/SchedulingModeCard';
 import { SidebarVisibilitySettings } from '@/components/admin/SidebarVisibilitySettings';
 import { TeamMembersCard } from '@/components/admin/TeamMembersCard';
 import { YourProfileCard } from '@/components/admin/YourProfileCard';
+import { SubscriptionPanel } from '@/pages/admin/SubscriptionPage';
+import { useOrgRole } from '@/hooks/useOrgRole';
+import { usePlatform } from '@/hooks/usePlatform';
 import { DemoModeSettingsCard } from '@/components/admin/DemoModeSettingsCard';
 import { MobileBottomNavSettings } from '@/components/admin/MobileBottomNavSettings';
 import { BookingFormShareCard } from '@/components/admin/BookingFormShareCard';
@@ -298,6 +301,8 @@ export default function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { organization, refetch: refetchOrganization } = useOrganization();
+  const { hasFinancialAccess, loading: roleLoading } = useOrgRole();
+  const { canShowPaymentFlows } = usePlatform();
   const [settings, setSettings] = useState<BusinessSettings>(defaultSettings);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
@@ -310,7 +315,8 @@ export default function SettingsPage() {
   useLegacyNotificationMigration();
   
   // Get active tab from URL query param, default to "general"
-  const activeTab = searchParams.get('tab') || 'general';
+  const requestedTab = searchParams.get('tab') || 'general';
+  const activeTab = requestedTab === 'billing' ? 'subscription' : requestedTab;
   const setActiveTab = (tab: string) => {
     setSearchParams({ tab });
   };
@@ -327,8 +333,15 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!organization?.id) return;
     fetchSettings();
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchSettings is recreated each render; runs once per org
-  }, [organization?.id]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchSettings is recreated each render; runs when the org or signup email is known
+  }, [organization?.id, user?.email]);
+
+  useEffect(() => {
+    if (roleLoading || hasFinancialAccess) return;
+    if (requestedTab === 'subscription' || requestedTab === 'billing') {
+      setSearchParams({ tab: 'general' }, { replace: true });
+    }
+  }, [roleLoading, hasFinancialAccess, requestedTab, setSearchParams]);
 
   const fetchSettings = async () => {
     try {
@@ -347,7 +360,7 @@ export default function SettingsPage() {
         setSettings({
           id: data.id,
           company_name: data.company_name || '',
-          company_email: data.company_email || '',
+          company_email: data.company_email || user?.email || '',
           company_phone: data.company_phone || '',
           /* Legacy orgs saved one number. Until they split it, that number is
              the alert cell — the migration backfilled it the same way. */
@@ -621,7 +634,10 @@ export default function SettingsPage() {
     }
   };
 
-  if (loadError) {
+  const billingTab = activeTab === 'subscription' || activeTab === 'billing';
+  const showBilling = !roleLoading && hasFinancialAccess;
+
+  if (loadError && !billingTab) {
     return (
       <AdminLayout title="Settings" subtitle="Manage your business preferences">
         <SEOHead title="Settings | TidyWise" description="Configure your business settings" noIndex />
@@ -630,7 +646,7 @@ export default function SettingsPage() {
     );
   }
 
-  if (loading) {
+  if (loading && !billingTab) {
     return (
       <AdminLayout title="Settings" subtitle="Manage your business preferences">
       <SEOHead title="Settings | TidyWise" description="Configure your business settings" noIndex />
@@ -651,6 +667,7 @@ export default function SettingsPage() {
         {/* Prominent Subscription / Billing entry — the Subscription tab
             below can scroll off the right edge when there are many tabs,
             making it easy to miss. This row keeps it always visible. */}
+        {showBilling && (
         <div className="flex items-center justify-between gap-3 rounded-lg border bg-card p-4">
           <div className="min-w-0 flex-1">
             <p className="font-medium truncate">Subscription &amp; billing</p>
@@ -658,10 +675,11 @@ export default function SettingsPage() {
               Update your payment method, change plan, or view invoices.
             </p>
           </div>
-          <Button size="sm" className="shrink-0" onClick={() => navigate('/dashboard/subscription')}>
+          <Button size="sm" variant="premium" className="shrink-0" onClick={() => setActiveTab('subscription')}>
             Manage
           </Button>
         </div>
+        )}
         {/*
           16 tabs do not fit on one line at any viewport, so this strip has two
           modes rather than one compromise.
@@ -691,33 +709,48 @@ export default function SettingsPage() {
           Mobile Safari can aggressively shrink inline-flex children, which can
           cause tab labels to visually overlap — hence shrink-0 on every trigger.
         */}
-        <div className="w-full overflow-x-auto overflow-y-hidden md:overflow-visible touch-pan-x md:touch-auto">
-           <TabsList className="w-max min-w-full md:w-full flex flex-nowrap md:flex-wrap justify-start gap-1 md:h-auto">
-            <TabsTrigger className="shrink-0" value="general">General</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="team">Team</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="booking-form">Booking Form</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="pricing">Pricing</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="loyalty">Loyalty</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="sms">SMS</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="emails">Emails</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="integrations">Integrations</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="reviews">Reviews</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="branding">Branding</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="sidebar">Sidebar</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="mobile-nav">Mobile Nav</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="import">Import Data</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="security">Security</TabsTrigger>
-            <TabsTrigger className="shrink-0" value="feedback">Feedback</TabsTrigger>
-            <TabsTrigger
-              className="shrink-0"
-              value="subscription"
-              onClick={(e) => { e.preventDefault(); navigate('/dashboard/subscription'); }}
-            >
-              Subscription
-            </TabsTrigger>
+        <div className="min-w-0 w-full overflow-x-auto overflow-y-hidden touch-pan-x">
+           <TabsList className="!h-auto w-max min-w-full flex-nowrap justify-start gap-1 md:w-full md:flex-wrap">
+            <TabsTrigger className="shrink-0 min-h-11" value="general">General</TabsTrigger>
+            {showBilling && (
+              <TabsTrigger className="shrink-0 min-h-11" value="subscription">
+                Subscription
+              </TabsTrigger>
+            )}
+            <TabsTrigger className="shrink-0 min-h-11" value="team">Team</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="booking-form">Booking Form</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="pricing">Pricing</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="loyalty">Loyalty</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="notifications">Notifications</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="sms">SMS</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="emails">Emails</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="integrations">Integrations</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="reviews">Reviews</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="branding">Branding</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="sidebar">Sidebar</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="mobile-nav">Mobile Nav</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="import">Import Data</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="security">Security</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="feedback">Feedback</TabsTrigger>
           </TabsList>
         </div>
+
+        {showBilling && (
+          <TabsContent value="subscription" className="space-y-6">
+            {canShowPaymentFlows ? (
+              <SubscriptionPanel />
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Subscription</CardTitle>
+                  <CardDescription>
+                    Plans and billing are managed in a browser at jointidywise.com.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            )}
+          </TabsContent>
+        )}
 
         {/* General Settings */}
         <TabsContent value="general" className="space-y-6">

@@ -24,48 +24,60 @@ export function TidyWiseScoreSection() {
   const [loc, setLoc] = useState("");
   const [searching, setSearching] = useState(false);
   const [city, setCity] = useState(DEFAULT_CITY);
-  const [top, setTop] = useState<TopRow[]>([]);
+  const [cityReady, setCityReady] = useState(false);
+  const [top, setTop] = useState<TopRow[] | null>(null);
 
-  // Best-effort IP geo (free, no key)
+  // Best-effort IP geo. The list stays on this city — never a national
+  // fallback under a different city's heading and link.
   useEffect(() => {
     let cancelled = false;
-    fetch("https://ipapi.co/json/")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (cancelled || !j?.city || !j?.region_code) return;
-        const slug = `${j.city}-${j.region_code}`
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-");
-        setCity({ city: j.city, state: j.region_code, city_slug: slug });
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 1500);
+    (async () => {
+      try {
+        const response = await fetch("https://ipapi.co/json/", { signal: controller.signal });
+        const geo = response.ok ? await response.json() : null;
+        if (!cancelled && geo?.city && geo?.region_code) {
+          const slug = `${geo.city}-${geo.region_code}`
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "");
+          setCity({ city: geo.city, state: geo.region_code, city_slug: slug });
+        }
+      } catch {
+        // Keep the default city.
+      }
+      if (!cancelled) setCityReady(true);
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      window.clearTimeout(timer);
+    };
   }, []);
 
-  // Fetch top 10 in detected city (fallback to any top 10 if empty)
   useEffect(() => {
+    if (!cityReady) return;
     let cancelled = false;
+    setTop(null);
     (async () => {
-      let { data } = await supabase
+      const { data, error } = await supabase
         .from("score_companies")
         .select("id, slug, name, city, state, score, score_grade")
         .eq("city_slug", city.city_slug)
         .not("score", "is", null)
         .order("score", { ascending: false })
         .limit(10);
-      if ((!data || data.length === 0)) {
-        const fallback = await supabase
-          .from("score_companies")
-          .select("id, slug, name, city, state, score, score_grade")
-          .not("score", "is", null)
-          .order("score", { ascending: false })
-          .limit(10);
-        data = fallback.data ?? [];
+      if (cancelled) return;
+      if (error) {
+        console.warn("[score] city rankings failed", error);
+        setTop([]);
+        return;
       }
-      if (!cancelled) setTop(data ?? []);
+      setTop(data ?? []);
     })();
     return () => { cancelled = true; };
-  }, [city.city_slug]);
+  }, [cityReady, city.city_slug]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,7 +94,7 @@ export function TidyWiseScoreSection() {
   return (
     <section
       id="tidywise-score"
-      className="relative py-16 md:py-24 px-4 sm:px-6 lg:px-8 bg-secondary/40 border-t border-border/50"
+      className="relative z-10 py-16 md:py-24 px-4 sm:px-6 lg:px-8 bg-secondary/40 border-t border-border/50"
     >
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-10">
@@ -153,14 +165,24 @@ export function TidyWiseScoreSection() {
           </Link>
         </div>
 
-        <Card variant="elevated" className="overflow-hidden">
-          {top.length === 0 ? (
+        <Card variant="elevated" className="relative z-10 overflow-hidden">
+          {top === null ? (
+            <div className="space-y-3 p-5" aria-busy="true" aria-label="Loading rankings">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-10 animate-pulse rounded bg-muted" />
+              ))}
+            </div>
+          ) : top.length === 0 ? (
             <div className="p-10 text-center text-sm text-muted-foreground">
-              No companies scored in {cityLabel} yet — be the first to look one up above.
+              No companies scored in {cityLabel} yet. Look one up above.
             </div>
           ) : (
             <ol>
-              {top.map((c, i) => (
+              {top.map((c, i) => {
+                const companyPath = /^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(c.slug)
+                  ? `/score/c/${c.slug}`
+                  : null;
+                return (
                 <li
                   key={c.id}
                   className="flex items-center gap-4 px-5 py-3.5 border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors"
@@ -169,12 +191,16 @@ export function TidyWiseScoreSection() {
                     {i + 1}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <Link
-                      to={`/score/c/${c.slug}`}
-                      className="font-medium text-foreground hover:text-primary truncate block"
-                    >
-                      {c.name}
-                    </Link>
+                    {companyPath ? (
+                      <Link
+                        to={companyPath}
+                        className="font-medium text-foreground hover:text-primary truncate block"
+                      >
+                        {c.name}
+                      </Link>
+                    ) : (
+                      <span className="font-medium text-foreground truncate block">{c.name}</span>
+                    )}
                     <p className="text-xs text-muted-foreground truncate">
                       {c.city}, {c.state}
                     </p>
@@ -188,7 +214,8 @@ export function TidyWiseScoreSection() {
                     </div>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ol>
           )}
         </Card>

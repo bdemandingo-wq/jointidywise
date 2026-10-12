@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/
 import { Badge } from '@/components/ui/badge';
 import { TOS_VERSION } from '@/components/legal/termsContent';
 import { TermsOfServiceDialog } from '@/components/legal/TermsOfServiceDialog';
+import { PrivacyPolicyDialog } from '@/components/legal/PrivacyPolicyDialog';
 import { SplashScreen } from '@/components/SplashScreen';
 import { toast } from 'sonner';
 import { Eye, EyeOff, Loader2, ArrowLeft, Mail, Lock, User, Phone, Crown, Sparkles, Zap, Settings as SettingsIcon } from 'lucide-react';
@@ -376,7 +377,7 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="portal-v2 portal-v2-scroll min-h-screen bg-background flex flex-col">
+    <div className="portal-v2 portal-v2-scroll min-h-screen overflow-x-hidden bg-background flex flex-col">
       <SEOHead title="Sign Up | TidyWise – Cleaning Business Software" description="Create your TidyWise account. Pick a plan from $49/mo (Basic), $97/mo (Pro), $197/mo (Custom), or grab one of 100 lifetime spots at $300." canonical="/signup" noIndex />
       <div className="flex-1 flex items-center justify-center p-4 w-full">
       <div className="w-full max-w-md">
@@ -426,7 +427,7 @@ export default function SignupPage() {
             <CardDescription>
               {planMeta
                 ? `One quick step before checkout for ${planMeta.label}.`
-                : 'Pick a plan after signup, or start with our Basic plan.'}
+                : '14-day free trial, no card required.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -480,7 +481,7 @@ export default function SignupPage() {
                 {errors.phone ? (
                   <p className="text-xs text-destructive">{errors.phone}</p>
                 ) : (
-                  <p className="text-xs text-muted-foreground">Optional. Use a real number if you want a welcome text.</p>
+                  <p className="text-xs text-muted-foreground">Optional. If you add a number, we send one welcome text.</p>
                 )}
               </div>
 
@@ -602,13 +603,19 @@ export default function SignupPage() {
                   className="mt-0.5"
                 />
                 <label htmlFor="tos" className="text-xs text-muted-foreground leading-relaxed cursor-pointer">
-                  I agree to the TidyWise{' '}
+                  I agree to the{' '}
                   <TermsOfServiceDialog>
                     <button type="button" className="underline underline-offset-2 hover:text-foreground transition-colors">
                       Terms of Service
                     </button>
                   </TermsOfServiceDialog>
-                  . All payments are non-refundable. Subscriptions can be cancelled anytime but no refunds are issued for time already paid.
+                  {' '}and{' '}
+                  <PrivacyPolicyDialog>
+                    <button type="button" className="underline underline-offset-2 hover:text-foreground transition-colors">
+                      Privacy Policy
+                    </button>
+                  </PrivacyPolicyDialog>
+                  . The refund policy is in the Terms.
                 </label>
               </div>
 

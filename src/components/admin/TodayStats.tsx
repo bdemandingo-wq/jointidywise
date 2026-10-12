@@ -34,7 +34,7 @@ export function TodayStats({ grossVolume, payments, customers }: TodayStatsProps
   }, [grossVolume, payments, customers]);
 
   return (
-    <div className="mb-5 min-w-0">
+    <div className="mb-5 min-w-0" data-tour-id="today-stats">
       <h2 className="text-lg font-semibold text-foreground mb-3">Today</h2>
       <div
         className={cn(

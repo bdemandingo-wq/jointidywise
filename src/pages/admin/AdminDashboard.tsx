@@ -27,7 +27,7 @@ function DashboardSkeleton() {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
       <div className="xl:col-span-2 space-y-6">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" data-tour-id="today-stats">
           {[1, 2, 3].map((i) => (
             <div key={i} className="bg-card rounded-xl p-4 border border-border shadow-sm animate-pulse">
               <div className="flex items-center gap-3 mb-3">

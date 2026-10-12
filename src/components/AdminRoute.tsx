@@ -14,9 +14,38 @@ interface AdminRouteProps {
 // pay / log out / view billing / complete onboarding.
 const PAYWALL_ALLOWED_PATHS = [
   '/dashboard/subscription',
+  '/dashboard/billing',
   '/onboarding',
   '/logout',
 ];
+
+function isPaywallAllowed(pathname: string, search: string) {
+  if (PAYWALL_ALLOWED_PATHS.some(
+    (allowed) => pathname === allowed || pathname.startsWith(`${allowed}/`),
+  )) {
+    return true;
+  }
+  if (pathname !== '/dashboard/settings') return false;
+  const tab = new URLSearchParams(search).get('tab');
+  return tab === 'subscription' || tab === 'billing';
+}
+
+function RouteSkeleton() {
+  return (
+    <div className="flex min-h-screen bg-background" aria-busy="true" aria-label="Loading">
+      <div className="hidden w-64 shrink-0 border-r border-border bg-muted/40 md:block" />
+      <div className="min-w-0 flex-1 space-y-4 p-4 sm:p-6">
+        <div className="h-8 w-40 animate-pulse rounded bg-muted" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="h-24 animate-pulse rounded-xl bg-muted" />
+          <div className="h-24 animate-pulse rounded-xl bg-muted" />
+          <div className="h-24 animate-pulse rounded-xl bg-muted" />
+        </div>
+        <div className="h-64 animate-pulse rounded-xl bg-muted" />
+      </div>
+    </div>
+  );
+}
 
 const INVITE_JOIN_KEY = 'tidywise_invite_joined_workspace';
 
@@ -146,11 +175,7 @@ export function AdminRoute({ children }: AdminRouteProps) {
 
 
   if (authLoading || orgLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <RouteSkeleton />;
   }
 
   // Not logged in - redirect to login
@@ -218,11 +243,7 @@ export function AdminRoute({ children }: AdminRouteProps) {
 
   // Wait for the auto-switch above to take effect before deciding to bounce.
   if (membership && !isAdmin && adminOrgElsewhere) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <RouteSkeleton />;
   }
 
   // User is a member but NOT an admin/owner anywhere - send to staff portal
@@ -242,16 +263,10 @@ export function AdminRoute({ children }: AdminRouteProps) {
   // Billing unknown: do not mount the product. A check that never returns
   // used to fall through to {children}. The subscription page stays
   // reachable so a failed check cannot trap someone who is trying to pay.
-  const onPaywallAllowedPath = PAYWALL_ALLOWED_PATHS.some(
-    (allowed) => location.pathname === allowed || location.pathname.startsWith(allowed + '/')
-  );
+  const onPaywallAllowedPath = isPaywallAllowed(location.pathname, location.search);
 
   if (!onPaywallAllowedPath && (subscriptionCheck === 'idle' || subscriptionCheck === 'loading')) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <RouteSkeleton />;
   }
 
   if (!onPaywallAllowedPath && subscriptionCheck === 'error') {

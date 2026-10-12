@@ -23,10 +23,10 @@ import { useOrgId } from '@/hooks/useOrgId';
 
 const STEPS: Step[] = [
   {
-    target: '[data-tour-id="dashboard-home"]',
-    title: 'This is your dashboard',
+    target: '[data-tour-id="today-stats"]',
+    title: 'Today at a glance',
     content:
-      'Today’s jobs and your setup checklist live here. You can leave this tour any time — it will not move you to another page.',
+      'Today’s jobs, payments, and new customers show up here. You can leave this tour any time — it will not move you to another page.',
     disableBeacon: true,
     placement: 'auto',
     spotlightClicks: true,
@@ -35,7 +35,7 @@ const STEPS: Step[] = [
     target: '[data-tour-id="sidebar-nav"]',
     title: 'The menu is grouped',
     content:
-      'Open a section to find bookings, customers, money, and the rest. Help stays pinned at the top.',
+      'Open a section to find bookings, customers, money, and the rest. Settings and Help stay pinned at the top.',
     disableBeacon: true,
     placement: 'right',
     spotlightClicks: true,
@@ -53,6 +53,38 @@ const STEPS: Step[] = [
 
 const TARGET_WAIT_MS = 100;
 const TARGET_WAIT_MAX_ATTEMPTS = 20;
+
+const TOUR_LOCK_PROPS = [
+  'overflow',
+  'position',
+  'top',
+  'left',
+  'right',
+  'width',
+  'height',
+  'paddingRight',
+  'paddingTop',
+  'marginTop',
+  'transform',
+] as const;
+
+/** Joyride writes scroll-lock styles and a portal. Unmounting it on Finish
+ *  leaves those behind: a dark strip, a missing header, and a ~20px shift. */
+function releaseTourLock() {
+  if (typeof document === 'undefined') return;
+  const root = document.getElementById('root');
+  for (const el of [document.documentElement, document.body, root]) {
+    if (!el) continue;
+    for (const prop of TOUR_LOCK_PROPS) {
+      el.style[prop] = '';
+    }
+  }
+  document
+    .querySelectorAll(
+      '#react-joyride-portal, .react-joyride__overlay, .react-joyride__spotlight',
+    )
+    .forEach((node) => node.remove());
+}
 
 function useNarrowViewport() {
   const query = '(max-width: 767px)';
@@ -83,7 +115,7 @@ export function ProductTour() {
           target: '[data-tour-id="mobile-nav-toggle"]',
           placement: 'bottom' as const,
           content:
-            'Tap the menu. Bookings, customers, money, and the rest are grouped inside it. Help stays pinned at the top.',
+            'Tap the menu. Bookings, customers, money, and the rest are grouped inside it. Settings and Help stay pinned at the top.',
         }
       : STEPS[1];
     return [STEPS[0], menu, STEPS[2]];
@@ -262,6 +294,7 @@ export function ProductTour() {
         if (action === ACTIONS.NEXT) {
           const next = index + 1;
           if (next >= steps.length) {
+            releaseTourLock();
             setRun(false);
             setEligible(false);
             await Promise.all([
@@ -286,6 +319,7 @@ export function ProductTour() {
       // Skip button. ACTIONS.CLOSE on the X button is also treated as skip
       // so users don't accidentally lose progress.
       if (action === ACTIONS.SKIP || action === ACTIONS.CLOSE || status === STATUS.SKIPPED) {
+        releaseTourLock();
         setRun(false);
         setEligible(false);
         await Promise.all([
@@ -298,6 +332,7 @@ export function ProductTour() {
       // Joyride finished (tour reached its last step naturally — usually
       // covered by the NEXT-overflow branch above, but kept as a safety net).
       if (status === STATUS.FINISHED) {
+        releaseTourLock();
         setRun(false);
         setEligible(false);
         await Promise.all([
@@ -314,6 +349,15 @@ export function ProductTour() {
     },
     [logEvent, markCompleted, markSkipped, saveStep, steps],
   );
+
+  useEffect(() => {
+    if (eligible) return;
+    releaseTourLock();
+    const soon = window.setTimeout(releaseTourLock, 50);
+    return () => window.clearTimeout(soon);
+  }, [eligible]);
+
+  useEffect(() => () => releaseTourLock(), []);
 
   if (!eligible) return null;
 

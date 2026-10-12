@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
+import { isPlatformOwner } from "@/lib/platformOwner";
 import { readReportedStripeMode, type ReportedStripeMode } from "@/lib/stripeMode";
 
 const COPY: Record<ReportedStripeMode, { label: string; className: string }> = {
@@ -31,7 +32,8 @@ const COPY: Record<ReportedStripeMode, { label: string; className: string }> = {
  * choose a mode.
  */
 export function StripeModeBadge() {
-  const { subscription } = useAuth();
+  const { user, subscription } = useAuth();
+  if (!isPlatformOwner(user)) return null;
   const mode = readReportedStripeMode(subscription);
   const copy = COPY[mode];
   return (

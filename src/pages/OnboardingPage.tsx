@@ -268,14 +268,22 @@ export default function OnboardingPage() {
       const name = businessName.trim();
       const initialSlug = slugify(name);
       
-      // If user provided phone during onboarding (Google OAuth users), save it and send welcome SMS
-      if (needsPhoneCollection && phoneNumber.trim()) {
-        await supabase
-          .from('profiles')
-          .update({ phone: phoneNumber.trim() })
-          .eq('id', user.id);
+      // Phone save and the existing-org lookup do not depend on each other.
+      const phoneWrite = (needsPhoneCollection && phoneNumber.trim())
+        ? supabase.from('profiles').update({ phone: phoneNumber.trim() }).eq('id', user.id)
+        : Promise.resolve({ error: null });
 
-        // Send welcome SMS for Google OAuth users
+      const orgLookup = supabase
+        .from('organizations')
+        .select('id, needs_onboarding')
+        .eq('owner_id', user.id)
+        .eq('needs_onboarding', true)
+        .maybeSingle();
+
+      const [phoneResult, orgLookupResult] = await Promise.all([phoneWrite, orgLookup]);
+      if (phoneResult.error) {
+        console.warn('[ONBOARDING-SUBMIT] phone save failed', phoneResult.error);
+      } else if (needsPhoneCollection && phoneNumber.trim()) {
         supabase.functions.invoke('send-signup-welcome-sms', {
           body: {
             to: phoneNumber.trim(),
@@ -299,12 +307,7 @@ export default function OnboardingPage() {
       // Query the DB authoritatively at submit time rather than trusting
       // context — OrganizationProvider may not have loaded yet if the page
       // mounted while the async fetch was still in flight.
-      const { data: existingOrg } = await supabase
-        .from('organizations')
-        .select('id, needs_onboarding')
-        .eq('owner_id', user.id)
-        .eq('needs_onboarding', true)
-        .maybeSingle();
+      const existingOrg = orgLookupResult.data;
 
       console.log('[ONBOARDING-SUBMIT] context org:', organization?.id, 'needs_onboarding:', organization?.needs_onboarding);
       console.log('[ONBOARDING-SUBMIT] DB query org:', existingOrg?.id, 'needs_onboarding:', existingOrg?.needs_onboarding);
@@ -404,22 +407,17 @@ export default function OnboardingPage() {
       // never double-attribute.
       const capturedCode = readCapturedReferral();
       if (capturedCode) {
-        try {
-          const { error: refErr } = await supabase.functions.invoke('claim-referral', {
-            body: { organization_id: orgData.id, referral_code: capturedCode },
-          });
-          // invoke() RESOLVES with an error object on non-2xx rather than
-          // throwing, so this branch is the real failure path.
+        void supabase.functions.invoke('claim-referral', {
+          body: { organization_id: orgData.id, referral_code: capturedCode },
+        }).then(({ error: refErr }) => {
           if (refErr) {
             console.error('[referral] claim failed:', refErr);
-          } else {
-            // Clear only on success. Left in place, a second org created from
-            // this browser would attribute to the same referrer again.
-            clearCapturedReferral();
+            return;
           }
-        } catch (err) {
+          clearCapturedReferral();
+        }).catch((err) => {
           console.error('[referral] claim threw:', err);
-        }
+        });
       }
 
       // Upsert, not insert. A settings row may already exist (the column
@@ -431,30 +429,29 @@ export default function OnboardingPage() {
         currency,
         timezone,
       };
-      const { error: settingsError } = await supabase
-        .from('business_settings')
-        .upsert(settingsPayload, { onConflict: 'organization_id' });
-      if (settingsError) {
-        console.error('business_settings upsert failed:', settingsError);
-        const { error: updateError } = await supabase
+      const settingsWrite = (async () => {
+        const { error: settingsError } = await supabase
           .from('business_settings')
-          .update({ company_name: name, currency, timezone })
-          .eq('organization_id', orgData.id);
-        if (updateError) console.error('business_settings update failed:', updateError);
-      }
+          .upsert(settingsPayload, { onConflict: 'organization_id' });
+        if (settingsError) {
+          console.error('business_settings upsert failed:', settingsError);
+          const { error: updateError } = await supabase
+            .from('business_settings')
+            .update({ company_name: name, currency, timezone })
+            .eq('organization_id', orgData.id);
+          if (updateError) console.error('business_settings update failed:', updateError);
+        }
+      })();
 
-      // Create service categories if defined
-      if (cleaningTemplate.categories && cleaningTemplate.categories.length > 0) {
-        const categoryInserts = cleaningTemplate.categories.map((cat, index) => ({
-          organization_id: orgData.id,
-          name: cat,
-          color: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'][index % 5],
-        }));
-
-        await supabase
-          .from('service_categories')
-          .insert(categoryInserts);
-      }
+      const categoryWrite = (cleaningTemplate.categories && cleaningTemplate.categories.length > 0)
+        ? supabase.from('service_categories').insert(
+            cleaningTemplate.categories.map((cat, index) => ({
+              organization_id: orgData.id,
+              name: cat,
+              color: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'][index % 5],
+            })),
+          )
+        : Promise.resolve({ error: null });
 
       // Create selected services from template
       const templateServices = cleaningTemplate.services
@@ -484,23 +481,27 @@ export default function OnboardingPage() {
 
       const allServicesToCreate = [...templateServices, ...customServiceInserts];
 
-      if (allServicesToCreate.length > 0) {
-        const { error: servicesError } = await supabase
-          .from('services')
-          .insert(allServicesToCreate);
+      const servicesWrite = allServicesToCreate.length > 0
+        ? supabase.from('services').insert(allServicesToCreate)
+        : Promise.resolve({ error: null });
 
-        if (servicesError) {
-          console.error('Error creating services:', servicesError);
-          toast.error('Your business was created, but the services did not save. Add them from the Services page.');
-        }
-      }
-
-      // Get user's phone from profile for onboarding complete SMS
-      const { data: profileData } = await supabase
+      const profileRead = supabase
         .from('profiles')
         .select('phone, full_name')
         .eq('id', user.id)
         .maybeSingle();
+
+      const [, , servicesResult, profileResult] = await Promise.all([
+        settingsWrite,
+        categoryWrite,
+        servicesWrite,
+        profileRead,
+      ]);
+      if (servicesResult.error) {
+        console.error('Error creating services:', servicesResult.error);
+        toast.error('Your business was created, but the services did not save. Add them from the Services page.');
+      }
+      const profileData = profileResult.data;
 
       // Send onboarding complete SMS (non-blocking) - uses org's SMS settings
       if (profileData?.phone) {
@@ -514,16 +515,15 @@ export default function OnboardingPage() {
         }).catch(err => console.log('Onboarding SMS failed (non-critical):', err));
       }
 
-      try {
-        const { data: winback } = await supabase.functions.invoke('onboarding-winback', {
-          body: { action: 'complete' },
-        });
+      void supabase.functions.invoke('onboarding-winback', {
+        body: { action: 'complete' },
+      }).then(({ data: winback }) => {
         if ((winback as { trialExtended?: boolean } | null)?.trialExtended) {
           toast.success('Your free trial is 30 days.');
         }
-      } catch (winbackError) {
+      }).catch((winbackError) => {
         console.error('[onboarding-winback] complete failed', winbackError);
-      }
+      });
 
       toast.success('Business created. Your services are ready.');
       clearOnboardingDraft(window.localStorage, user.id);
@@ -757,7 +757,7 @@ export default function OnboardingPage() {
                 {phoneError ? (
                   <p className="text-xs text-destructive">{phoneError}</p>
                 ) : (
-                  <p className="text-xs text-muted-foreground">Optional. We'll text setup tips to this number.</p>
+                  <p className="text-xs text-muted-foreground">Optional. If you add a number, we send one welcome text.</p>
                 )}
               </div>
 
@@ -993,7 +993,7 @@ export default function OnboardingPage() {
       </Card>
 
       <div className="mt-6 text-center text-xs text-muted-foreground max-w-2xl">
-        By creating an account you agree to our{' '}
+        By continuing you agree to our{' '}
         <TermsOfServiceDialog>
           <button type="button" className="underline underline-offset-4 hover:text-foreground transition-colors">Terms</button>
         </TermsOfServiceDialog>
