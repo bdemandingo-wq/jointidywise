@@ -15,6 +15,13 @@
       "when": 1791770582265,
       "tag": "0001_lock_client_portal_rpc_execute",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791770693872,
+      "tag": "0002_booking_photos_private_policies",
+      "breakpoints": true
     }
   ]
 }
