@@ -36,7 +36,7 @@ export async function decryptToken(payload: string): Promise<string> {
   const iv = unb64(parts[1]);
   const ct = unb64(parts[2]);
   const key = await getKey();
-  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct as unknown as ArrayBuffer);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as unknown as ArrayBuffer }, key, ct as unknown as ArrayBuffer);
   return dec.decode(pt);
 }
 
