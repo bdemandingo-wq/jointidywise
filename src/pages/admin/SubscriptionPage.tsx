@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { SEOHead } from "@/components/SEOHead";
 import { Button } from "@/components/ui/button";
@@ -10,12 +11,17 @@ import { Loader2, PauseCircle, PlayCircle, CreditCard } from "lucide-react";
 import CancellationFlowDialog from "@/components/subscription/CancellationFlowDialog";
 import { PlanSwitcher } from "@/components/subscription/PlanSwitcher";
 import { RedeemAccessCodeCard } from "@/components/subscription/RedeemAccessCodeCard";
+import { StripeModeBadge } from "@/components/subscription/StripeModeBadge";
+import { readEdgeFunctionError, readEdgeFunctionErrorBody } from "@/lib/edgeFunctionError";
+import { billingNextStep, isActiveOrgTrial } from "@/lib/stripeMode";
 
 export default function SubscriptionPage() {
   const { subscription, checkSubscription } = useAuth();
+  const navigate = useNavigate();
   const [cancelOpen, setCancelOpen] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [openingPortal, setOpeningPortal] = useState(false);
+  const nextStep = billingNextStep(subscription);
 
 
   const isSubscribed = subscription?.subscribed === true;
@@ -27,7 +33,7 @@ export default function SubscriptionPage() {
       const { data, error } = await supabase.functions.invoke("resume-subscription", {
         body: {},
       });
-      if (error) throw error;
+      if (error) throw new Error(await readEdgeFunctionError(error, "Could not resume subscription"));
       if ((data as any)?.error) throw new Error((data as any).error);
       toast.success("Subscription resumed.");
       await checkSubscription();
@@ -42,9 +48,21 @@ export default function SubscriptionPage() {
     setOpeningPortal(true);
     try {
       const { data, error } = await supabase.functions.invoke("customer-portal", { body: {} });
-      if (error) throw error;
-      const url = (data as any)?.url;
-      if (!url) throw new Error("Could not open billing portal");
+      if (error) {
+        const body = await readEdgeFunctionErrorBody(error);
+        if (body?.code === "no_customer") {
+          toast.error(
+            typeof body.error === "string"
+              ? body.error
+              : "No card on file yet. Choose a plan to add one at checkout.",
+          );
+          navigate("/choose-plan?upgrade=1");
+          return;
+        }
+        throw new Error(await readEdgeFunctionError(error, "Could not open the billing portal."));
+      }
+      const url = (data as { url?: string; error?: string } | null)?.url;
+      if (!url) throw new Error((data as { error?: string } | null)?.error || "Could not open the billing portal.");
 
       // Use Capacitor Browser on native (iOS blocks window.open), fallback to window.open on web
       const { Capacitor } = await import("@capacitor/core");
@@ -69,6 +87,7 @@ export default function SubscriptionPage() {
       <SEOHead title="Subscription | TidyWise" description="TidyWise subscription" noIndex />
 
       <div className="mx-auto max-w-2xl space-y-4">
+        <StripeModeBadge />
         <PlanSwitcher />
         <RedeemAccessCodeCard />
 
@@ -80,7 +99,11 @@ export default function SubscriptionPage() {
             {isSubscribed ? (
               <>
                 <p className="text-sm text-muted-foreground">
-                  Your subscription is active.
+                  {nextStep === "checkout" && isActiveOrgTrial(subscription)
+                    ? "Your trial is active. Choose a plan when you want to add a card. Checkout is optional, and nothing is charged until you finish it."
+                    : nextStep === "checkout"
+                      ? "This account does not have a card on file yet. Choose a plan to open Stripe Checkout."
+                      : "Your subscription is active."}
                   {periodEnd && (
                     <>
                       {" "}Next billing date:{" "}
@@ -107,18 +130,25 @@ export default function SubscriptionPage() {
                     )}
                     Resume now
                   </Button>
-                  <Button
-                    variant="outline"
-                    onClick={openBillingPortal}
-                    disabled={openingPortal}
-                  >
-                    {openingPortal ? (
-                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    ) : (
+                  {nextStep === "portal" ? (
+                    <Button
+                      variant="outline"
+                      onClick={openBillingPortal}
+                      disabled={openingPortal}
+                    >
+                      {openingPortal ? (
+                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                      ) : (
+                        <CreditCard className="mr-1 h-4 w-4" />
+                      )}
+                      Update payment method
+                    </Button>
+                  ) : nextStep === "checkout" ? (
+                    <Button variant="outline" onClick={() => navigate("/choose-plan?upgrade=1")}>
                       <CreditCard className="mr-1 h-4 w-4" />
-                    )}
-                    Update payment method
-                  </Button>
+                      Choose a plan
+                    </Button>
+                  ) : null}
                   <Button
                     variant="ghost"
                     onClick={() => setCancelOpen(true)}
@@ -132,17 +162,29 @@ export default function SubscriptionPage() {
             ) : (
               <div className="space-y-4 text-center">
                 <p className="text-sm text-muted-foreground">
-                  Your subscription isn't active. If your card on file expired or a payment
-                  failed, update your payment method to restore access.
+                  {nextStep === "portal"
+                    ? "A payment failed or the card on file needs an update. This opens Stripe's billing portal."
+                    : nextStep === "lifetime"
+                      ? "Lifetime access does not have a payment method to update."
+                      : nextStep === "comped"
+                        ? "This account's access is comped. There is no card on file to update."
+                        : "There is no card on file yet. Choose a plan and Stripe Checkout will collect it. Nothing is charged until you finish that page."}
                 </p>
-                <Button onClick={openBillingPortal} disabled={openingPortal}>
-                  {openingPortal ? (
-                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                  ) : (
+                {nextStep === "portal" ? (
+                  <Button onClick={openBillingPortal} disabled={openingPortal}>
+                    {openingPortal ? (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    ) : (
+                      <CreditCard className="mr-1 h-4 w-4" />
+                    )}
+                    Update payment method
+                  </Button>
+                ) : nextStep === "checkout" ? (
+                  <Button onClick={() => navigate("/choose-plan?upgrade=1")}>
                     <CreditCard className="mr-1 h-4 w-4" />
-                  )}
-                  Update payment method
-                </Button>
+                    Choose a plan
+                  </Button>
+                ) : null}
               </div>
             )}
           </CardContent>

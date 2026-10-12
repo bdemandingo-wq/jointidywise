@@ -8,12 +8,18 @@ import {
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Check } from 'lucide-react';
-import { format, addDays } from 'date-fns';
+import { format, startOfDay } from 'date-fns';
+// The calendar widget is a device-local day grid. The cell the user taps is
+// the calendar day to store; orgDateKey() on that instant would shift it when
+// the device zone and the org zone disagree. Presets above use orgAddDays.
+import { orgAddDays, orgDateKey } from '@/lib/orgDateRange';
+import { parseCalendarDate } from '@/lib/invoiceDraft';
 
 interface DueDateSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   value: string;
+  timeZone: string;
   onChange: (date: string, label: string) => void;
 }
 
@@ -23,24 +29,26 @@ const DUE_DATE_OPTIONS = [
   { label: 'In 14 days', days: 14 },
   { label: 'In 30 days', days: 30 },
   { label: 'In 45 days', days: 45 },
-  { label: 'In 30 days', days: 60 },
+  { label: 'In 60 days', days: 60 },
   { label: 'In 90 days', days: 90 },
 ];
 
-export function DueDateSheet({ open, onOpenChange, value, onChange }: DueDateSheetProps) {
+export function DueDateSheet({ open, onOpenChange, value, timeZone, onChange }: DueDateSheetProps) {
   const [showCalendar, setShowCalendar] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(
-    value ? new Date(value) : undefined
+    value ? parseCalendarDate(value) ?? undefined : undefined
   );
+
+  // Whole org-calendar days. `new Date(yyyy-mm-dd)` is UTC midnight and lands
+  // a day early west of UTC, which is how "In 7 days" showed as 6 days out.
+  const dateForDays = (days: number) =>
+    orgDateKey(orgAddDays(new Date(), days, timeZone), timeZone);
 
   const handleSelect = (days: number, label: string) => {
     if (days === 0) {
       onChange('', 'Upon receipt');
     } else {
-      const date = addDays(new Date(), days);
-      // Everything here is the calendar day the user picked from the sheet.
-    /* eslint-disable local/no-device-local-dates -- picker tokens throughout */
-    onChange(format(date, 'yyyy-MM-dd'), label);
+      onChange(dateForDays(days), label);
     }
     onOpenChange(false);
   };
@@ -48,6 +56,7 @@ export function DueDateSheet({ open, onOpenChange, value, onChange }: DueDateShe
   const handleCustomDate = (date: Date | undefined) => {
     if (date) {
       setSelectedDate(date);
+      // eslint-disable-next-line local/no-device-local-dates -- picker cell, not an org-midnight instant
       onChange(format(date, 'yyyy-MM-dd'), format(date, 'MMM d, yyyy'));
       onOpenChange(false);
     }
@@ -66,7 +75,8 @@ export function DueDateSheet({ open, onOpenChange, value, onChange }: DueDateShe
               mode="single"
               selected={selectedDate}
               onSelect={handleCustomDate}
-              disabled={(date) => date < new Date()}
+              // eslint-disable-next-line local/no-device-local-dates -- same grid as the picker cells
+              disabled={(date) => date < startOfDay(new Date())}
               className="rounded-md border"
             />
             <Button 
@@ -80,14 +90,13 @@ export function DueDateSheet({ open, onOpenChange, value, onChange }: DueDateShe
         ) : (
           <div className="py-4 space-y-1">
             {DUE_DATE_OPTIONS.map((option) => {
-              const isSelected = option.days === 0 
-                ? !value 
-                : value === format(addDays(new Date(), option.days), 'yyyy-MM-dd');
-  /* eslint-enable local/no-device-local-dates */
-              
+              const isSelected = option.days === 0
+                ? !value
+                : value === dateForDays(option.days);
+
               return (
                 <button
-                  key={option.label}
+                  key={option.days}
                   className="flex items-center justify-between w-full py-3 px-4 hover:bg-muted rounded-lg transition-colors"
                   onClick={() => handleSelect(option.days, option.label)}
                 >

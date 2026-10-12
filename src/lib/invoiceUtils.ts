@@ -1,3 +1,5 @@
+export { formatInvoiceDateLabel } from "./invoiceDraft";
+
 export interface InvoicePartyLike {
   first_name?: string;
   last_name?: string;

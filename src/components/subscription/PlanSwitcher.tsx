@@ -20,8 +20,13 @@ import {
 } from "./PlanChangeDialogs";
 import { useAuth } from "@/hooks/useAuth";
 import { useOrgId } from "@/hooks/useOrgId";
+import { usePlatform } from "@/hooks/usePlatform";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { readEdgeFunctionError, readEdgeFunctionErrorBody } from "@/lib/edgeFunctionError";
+import { hasChangeableStripeSubscription, isActiveOrgTrial } from "@/lib/stripeMode";
+import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from "@/lib/startSubscriptionCheckout";
+import { ALREADY_LIFETIME_MESSAGE } from "@/lib/alreadyLifetime";
 
 const PLANS: PlanInfo[] = [
   {
@@ -85,7 +90,9 @@ export function PlanSwitcher() {
   const planState = usePlanState();
   const { subscription, checkSubscription } = useAuth();
   const { organizationId } = useOrgId();
+  const { canShowPaymentFlows } = usePlatform();
   const [upgradeTarget, setUpgradeTarget] = useState<PlanInfo | null>(null);
+  const [checkoutBusy, setCheckoutBusy] = useState<string | null>(null);
   const [downgradeTarget, setDowngradeTarget] = useState<PlanInfo | null>(null);
   const [downgrade, setDowngrade] = useState<DowngradeState>({ to: null, date: null });
   const [cancellingDowngrade, setCancellingDowngrade] = useState(false);
@@ -140,7 +147,7 @@ export function PlanSwitcher() {
         "change-subscription-plan",
         { body: { mode: "cancel_downgrade", organization_id: organizationId } },
       );
-      if (error) throw error;
+      if (error) throw new Error(await readEdgeFunctionError(error, "Could not cancel downgrade"));
       if ((data as any)?.error) throw new Error((data as any).error);
       toast.success("Downgrade cancelled. You'll stay on your current plan.");
       setDowngrade({ to: null, date: null });
@@ -155,6 +162,48 @@ export function PlanSwitcher() {
 
   const hasScheduledDowngrade =
     !!downgrade.to && !!targetDowngradePlan && !isLifetime;
+  const canChangePlan = hasChangeableStripeSubscription(subscription);
+
+  async function subscribe(plan: PlanInfo) {
+    if (!canShowPaymentFlows) {
+      window.open("https://jointidywise.com/choose-plan?upgrade=1", "_blank", "noopener,noreferrer");
+      return;
+    }
+    setCheckoutBusy(plan.id);
+    try {
+      await startSubscriptionCheckout(plan.id, "monthly");
+    } catch (err) {
+      if (err instanceof AlreadyLifetimeCheckout) {
+        toast.success(ALREADY_LIFETIME_MESSAGE);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Could not start checkout. Nothing was charged.");
+      }
+      setCheckoutBusy(null);
+    }
+  }
+
+  async function openPortal() {
+    setCheckoutBusy("portal");
+    try {
+      const { data, error } = await supabase.functions.invoke("customer-portal", { body: {} });
+      if (error) {
+        const body = await readEdgeFunctionErrorBody(error);
+        if (body?.code === "no_customer") {
+          toast.error(typeof body.error === "string" ? body.error : "No card on file yet.");
+          if (canShowPaymentFlows) window.location.href = "/choose-plan?upgrade=1";
+          return;
+        }
+        throw new Error(await readEdgeFunctionError(error, "Could not open the billing portal."));
+      }
+      const url = (data as { url?: string; error?: string } | null)?.url;
+      if (!url) throw new Error((data as { error?: string } | null)?.error || "Could not open the billing portal.");
+      window.location.href = url;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not open the billing portal.");
+    } finally {
+      setCheckoutBusy(null);
+    }
+  }
 
   return (
     <Card className="p-5">
@@ -265,9 +314,25 @@ export function PlanSwitcher() {
                 <Button variant="outline" size="sm" disabled className="w-full">
                   Current plan
                 </Button>
-              ) : !subscription?.subscribed ? (
-                <Button variant="outline" size="sm" disabled className="w-full">
-                  No active subscription
+              ) : !canChangePlan && subscription?.payment_failed ? (
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={() => void openPortal()}
+                  disabled={checkoutBusy !== null}
+                >
+                  {checkoutBusy === "portal" && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  Update payment method
+                </Button>
+              ) : !canChangePlan ? (
+                <Button
+                  size="sm"
+                  className="w-full"
+                  onClick={() => void subscribe(plan)}
+                  disabled={checkoutBusy !== null}
+                >
+                  {checkoutBusy === plan.id && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  {canShowPaymentFlows ? `Choose ${plan.name}` : "Subscribe on the web"}
                 </Button>
               ) : isPendingTarget ? (
                 <Button variant="outline" size="sm" disabled className="w-full">
@@ -288,6 +353,18 @@ export function PlanSwitcher() {
           );
         })}
       </div>
+
+      {!isLifetime && !canChangePlan && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {subscription?.payment_failed
+            ? "The last payment failed. Update payment method opens Stripe's billing portal."
+            : isActiveOrgTrial(subscription)
+              ? "Your trial is active. Choosing a plan opens Stripe Checkout when you want to upgrade. The card is entered on Stripe, and your trial stays in place until that checkout finishes."
+              : canShowPaymentFlows
+                ? "There is no card on file, so these open Stripe Checkout. The card is entered on Stripe, not in this screen."
+                : "Subscriptions are managed at jointidywise.com. This app cannot take a card."}
+        </p>
+      )}
 
       <UpgradePlanDialog
         open={!!upgradeTarget}

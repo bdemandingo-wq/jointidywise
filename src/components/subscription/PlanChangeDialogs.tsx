@@ -15,34 +15,34 @@ import { Loader2, AlertTriangle, BadgePercent, CheckCircle2 } from "lucide-react
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useOrgId } from "@/hooks/useOrgId";
-import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from "@/lib/alreadyLifetime";
+import { ALREADY_LIFETIME_MESSAGE } from "@/lib/alreadyLifetime";
 import {
   readEdgeFunctionError,
   readEdgeFunctionErrorBody,
 } from "@/lib/edgeFunctionError";
+import {
+  AlreadyLifetimeCheckout,
+  startSubscriptionCheckout,
+  type CheckoutPlanId,
+} from "@/lib/startSubscriptionCheckout";
 
 /**
  * Someone on a trial has no Stripe subscription to modify, so the plan-change
- * function correctly refuses. Rather than dead-ending them on an error, send
- * them straight to checkout for the plan they just picked.
+ * function correctly refuses. Send them to Stripe Checkout for the plan they
+ * picked. The card form is on Stripe. Returns true when that handoff started
+ * or when they already have lifetime access.
  */
-async function startCheckout(planId: string): Promise<boolean> {
-  const { data, error } = await supabase.functions.invoke("create-subscription", {
-    body: { plan: planId, interval: "monthly" },
-  });
-  if (error) {
-    // A lifetime owner has nothing to buy. Tell them so and treat it as
-    // handled, rather than falling through to "could not upgrade plan".
-    if (await isAlreadyLifetimeError(error)) {
+async function startCheckout(planId: CheckoutPlanId): Promise<boolean> {
+  try {
+    await startSubscriptionCheckout(planId, "monthly");
+    return true;
+  } catch (err) {
+    if (err instanceof AlreadyLifetimeCheckout) {
       toast.success(ALREADY_LIFETIME_MESSAGE);
       return true;
     }
-    return false;
+    throw err;
   }
-  const url = (data as { url?: string } | null)?.url;
-  if (!url) return false;
-  window.location.href = url;
-  return true;
 }
 
 export interface PlanInfo {
@@ -88,6 +88,7 @@ export function UpgradePlanDialog({
   const [discountCode, setDiscountCode] = useState("");
   const [appliedCode, setAppliedCode] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [needsCheckout, setNeedsCheckout] = useState(false);
   const { organizationId } = useOrgId();
 
 
@@ -95,6 +96,7 @@ export function UpgradePlanDialog({
     if (!open || !targetPlan) return;
     setDiscountCode("");
     setAppliedCode(null);
+    setNeedsCheckout(false);
     void fetchPreview(undefined);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchPreview/targetPlan are recreated each render; runs when dialog opens or plan id changes
   }, [open, targetPlan?.id]);
@@ -103,12 +105,19 @@ export function UpgradePlanDialog({
     if (!targetPlan) return;
     setLoading(true);
     setPreviewError(null);
+    setNeedsCheckout(false);
     try {
       const { data, error } = await supabase.functions.invoke("preview-plan-change", {
         body: { plan: targetPlan.id, interval: "monthly", discount_code: code },
       });
       if (error) {
-        throw new Error(await readEdgeFunctionError(error, "Could not load preview"));
+        const body = await readEdgeFunctionErrorBody(error);
+        if (body?.code === "no_subscription") {
+          setNeedsCheckout(true);
+          setPreview(null);
+          return;
+        }
+        throw new Error(await readEdgeFunctionError(error, "Could not load the upgrade price"));
       }
       if ((data as any)?.error) throw new Error((data as any).error);
       setPreview(data as PreviewData);
@@ -130,6 +139,11 @@ export function UpgradePlanDialog({
     if (!targetPlan) return;
     setConfirming(true);
     try {
+      if (needsCheckout) {
+        const started = await startCheckout(targetPlan.id);
+        if (started) return;
+        throw new Error("Could not start checkout. Nothing was charged.");
+      }
       const { data, error } = await supabase.functions.invoke("change-subscription-plan", {
         body: {
           plan: targetPlan.id,
@@ -144,6 +158,7 @@ export function UpgradePlanDialog({
         if (body?.code === "no_subscription") {
           const started = await startCheckout(targetPlan.id);
           if (started) return;
+          throw new Error("Could not start checkout. Nothing was charged.");
         }
         throw new Error(await readEdgeFunctionError(error, "Could not upgrade plan"));
       }
@@ -168,11 +183,20 @@ export function UpgradePlanDialog({
         <DialogHeader>
           <DialogTitle>Upgrade to {targetPlan.name}</DialogTitle>
           <DialogDescription>
-            Switch immediately. You'll be charged a prorated amount for the rest of this billing period.
+            {needsCheckout
+              ? "There is no Stripe subscription to prorate. Checkout collects the card on Stripe."
+              : "Switch immediately. You'll be charged a prorated amount for the rest of this billing period."}
           </DialogDescription>
         </DialogHeader>
 
-        {loading && !preview ? (
+        {needsCheckout ? (
+          <Alert>
+            <AlertTitle>No card on file</AlertTitle>
+            <AlertDescription>
+              {targetPlan.name} is ${targetPlan.monthlyPrice}/mo. Continue opens Stripe Checkout, where the card is entered. This dialog does not collect card numbers.
+            </AlertDescription>
+          </Alert>
+        ) : loading && !preview ? (
           <div className="flex justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
@@ -213,6 +237,7 @@ export function UpgradePlanDialog({
           </div>
         ) : null}
 
+        {!needsCheckout && (
         <div className="space-y-2">
           <Label htmlFor="discount" className="text-xs uppercase tracking-wide text-muted-foreground">
             Discount code
@@ -240,14 +265,15 @@ export function UpgradePlanDialog({
             </p>
           )}
         </div>
+        )}
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={confirming}>
             Cancel
           </Button>
-          <Button onClick={confirm} disabled={confirming || loading || !!previewError}>
+          <Button onClick={confirm} disabled={confirming || (!needsCheckout && (loading || !!previewError))}>
             {confirming && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Upgrade to {targetPlan.name}
+            {needsCheckout ? "Continue to Stripe checkout" : `Upgrade to ${targetPlan.name}`}
           </Button>
         </DialogFooter>
       </DialogContent>
