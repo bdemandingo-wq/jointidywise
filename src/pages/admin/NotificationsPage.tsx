@@ -16,7 +16,7 @@ import {
   XCircle,
   Users,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useOrganization } from '@/contexts/OrganizationContext';
@@ -25,6 +25,10 @@ import { SEOHead } from '@/components/SEOHead';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
 import { NotificationPreferencesCard } from '@/components/admin/NotificationPreferencesCard';
 import { useLegacyNotificationMigration } from '@/hooks/useLegacyNotificationMigration';
+import { useQueryClient } from '@tanstack/react-query';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { PullToRefreshIndicator } from '@/components/admin/PullToRefreshIndicator';
+import { requestAdminNotificationRefresh } from '@/lib/adminNotificationRefresh';
 
 const PUSH_CATEGORIES = [
   { key: 'new_booking', label: 'New Booking', description: 'When a customer submits a booking request', icon: Bell },
@@ -47,39 +51,45 @@ export default function NotificationsPage() {
   const [sendingBrief, setSendingBrief] = useState(false);
   const [sendingEvening, setSendingEvening] = useState(false);
   const { isSupported, isRegistered, isRegistering, requestPermission } = usePushNotifications();
+  const queryClient = useQueryClient();
 
   // Shared, non-destructive migration of the three legacy notify_* flags into
   // the new organization_notification_preferences matrix.
   useLegacyNotificationMigration();
 
-  useEffect(() => {
+  const loadBriefs = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!orgId) return;
-    let cancelled = false;
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      const { data, error: err } = await supabase
-        .from('business_settings')
-        .select('notify_evening_brief, notify_morning_brief')
-        .eq('organization_id', orgId)
-        .maybeSingle();
-      if (cancelled) return;
-      if (err) {
-        setError(err.message);
-        setLoading(false);
-        return;
-      }
-      setBriefsAutoSend({
-        morning: (data as any)?.notify_morning_brief ?? true,
-        evening: (data as any)?.notify_evening_brief ?? true,
-      });
+    if (!opts?.quiet) setLoading(true);
+    setError(null);
+    const { data, error: err } = await supabase
+      .from('business_settings')
+      .select('notify_evening_brief, notify_morning_brief')
+      .eq('organization_id', orgId)
+      .maybeSingle();
+    if (err) {
+      setError(err.message);
       setLoading(false);
-    };
-    load();
-    return () => {
-      cancelled = true;
-    };
+      return;
+    }
+    setBriefsAutoSend({
+      morning: (data as { notify_morning_brief?: boolean } | null)?.notify_morning_brief ?? true,
+      evening: (data as { notify_evening_brief?: boolean } | null)?.notify_evening_brief ?? true,
+    });
+    setLoading(false);
   }, [orgId]);
+
+  useEffect(() => {
+    void loadBriefs();
+  }, [loadBriefs]);
+
+  const handlePullRefresh = useCallback(async () => {
+    await Promise.all([
+      loadBriefs({ quiet: true }),
+      queryClient.invalidateQueries({ queryKey: ['org-notification-prefs'] }),
+    ]);
+    requestAdminNotificationRefresh();
+  }, [loadBriefs, queryClient]);
+  const { refreshing, pullDistance, handlers: pullHandlers } = usePullToRefresh(handlePullRefresh);
 
   const toggleBrief = async (which: 'morning' | 'evening', value: boolean) => {
     if (!orgId) return;
@@ -157,7 +167,8 @@ export default function NotificationsPage() {
 
   return (
     <AdminLayout title="Notifications" subtitle="Manage how you receive notifications">
-<div className="portal-v2 portal-v2-scroll">
+<div className="portal-v2 portal-v2-scroll" {...pullHandlers}>
+      <PullToRefreshIndicator pullDistance={pullDistance} refreshing={refreshing} />
       <SEOHead title="Notifications | TidyWise" description="Configure notification preferences" noIndex />
       {loading ? (
         <div className="space-y-6">

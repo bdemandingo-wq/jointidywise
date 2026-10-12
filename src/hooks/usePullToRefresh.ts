@@ -11,6 +11,11 @@ export function usePullToRefresh(onRefresh: () => Promise<void>) {
   const scrollTop = useRef(0);
 
   const threshold = 64;
+  // The last move and the finger-up can land in the same frame, before React
+  // has committed pullDistance into the handler closure. A ref is what the
+  // gesture actually reached.
+  const pullDistanceRef = useRef(0);
+  const refreshingRef = useRef(false);
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     // Support both inner scroll containers and body-scrolled pages
@@ -21,27 +26,33 @@ export function usePullToRefresh(onRefresh: () => Promise<void>) {
   }, []);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
-    if (startY.current === null || refreshing) return;
+    if (startY.current === null || refreshingRef.current) return;
     const currentY = e.touches[0].clientY;
     const dy = currentY - startY.current;
     if (dy > 0 && scrollTop.current <= 0) {
       // Apply resistance
-      setPullDistance(Math.min(dy * 0.4, threshold * 1.5));
+      const next = Math.min(dy * 0.4, threshold * 1.5);
+      pullDistanceRef.current = next;
+      setPullDistance(next);
     }
-  }, [refreshing]);
+  }, []);
 
   const onTouchEnd = useCallback(async () => {
-    if (pullDistance >= threshold && !refreshing) {
+    const distance = pullDistanceRef.current;
+    if (distance >= threshold && !refreshingRef.current) {
+      refreshingRef.current = true;
       setRefreshing(true);
       try {
         await onRefresh();
       } finally {
+        refreshingRef.current = false;
         setRefreshing(false);
       }
     }
+    pullDistanceRef.current = 0;
     setPullDistance(0);
     startY.current = null;
-  }, [pullDistance, refreshing, onRefresh]);
+  }, [onRefresh]);
 
   return {
     refreshing,

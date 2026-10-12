@@ -22,6 +22,7 @@ import { orgDayOfWeek, orgDateKey } from '@/lib/orgDateRange';
 import { useQueryClient } from '@tanstack/react-query';
 import { refreshBadges } from '@/lib/badgeRefresh';
 import { OrgTimestamp } from '@/components/OrgTimestamp';
+import { ADMIN_NOTIFICATION_REFRESH } from '@/lib/adminNotificationRefresh';
 
 interface AdminNotification {
   id: string;
@@ -362,9 +363,25 @@ export function AdminNotificationBell() {
             }
           }
         )
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'admin_system_notifications',
+            filter: `organization_id=eq.${organizationId}`,
+          },
+          () => {
+            fetchNotifications();
+          }
+        )
         .subscribe();
 
+      const onPullRefresh = () => { fetchNotifications(); };
+      window.addEventListener(ADMIN_NOTIFICATION_REFRESH, onPullRefresh);
+
       return () => {
+        window.removeEventListener(ADMIN_NOTIFICATION_REFRESH, onPullRefresh);
         supabase.removeChannel(channel);
       };
     }

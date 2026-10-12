@@ -34,10 +34,11 @@ serve(async (req) => {
       });
     }
 
-    const { token, platform = "ios", apns_env } = await req.json() as {
+    const { token, platform = "ios", apns_env, organization_id: requestedOrgId } = await req.json() as {
       token: string;
       platform?: string;
       apns_env?: string;
+      organization_id?: string;
     };
     if (!token) {
       return new Response(JSON.stringify({ error: "token required" }), {
@@ -46,24 +47,53 @@ serve(async (req) => {
       });
     }
 
-    // Get user's org — try org_memberships first, then fall back to staff table
-    // (cleaner accounts have no org_memberships row).
+    // Attach the token to a company this user actually belongs to.
+    // maybeSingle() on every membership failed (PGRST116) for an owner of
+    // more than one business, the error was ignored, and the token was stored
+    // with a null organization_id — send-push-notification then could not
+    // find it. Prefer the org the app is signed into, then any
+    // owner/admin/manager membership, then a staff row.
     let organizationId: string | null = null;
-    const { data: membership } = await supabase
-      .from("org_memberships")
-      .select("organization_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
+    if (requestedOrgId) {
+      const { data: member } = await supabase
+        .from("org_memberships")
+        .select("organization_id")
+        .eq("user_id", user.id)
+        .eq("organization_id", requestedOrgId)
+        .maybeSingle();
+      if (member?.organization_id) organizationId = member.organization_id;
 
-    if (membership?.organization_id) {
-      organizationId = membership.organization_id;
-    } else {
-      const { data: staffRow } = await supabase
+      if (!organizationId) {
+        const { data: staffRows } = await supabase
+          .from("staff")
+          .select("organization_id")
+          .eq("user_id", user.id)
+          .eq("organization_id", requestedOrgId)
+          .limit(1);
+        const staffOrg = staffRows?.[0]?.organization_id;
+        if (staffOrg) organizationId = staffOrg;
+      }
+    }
+
+    if (!organizationId) {
+      const { data: memberships } = await supabase
+        .from("org_memberships")
+        .select("organization_id, role")
+        .eq("user_id", user.id);
+      const rank = (role: string) =>
+        role === "owner" ? 0 : role === "admin" ? 1 : role === "manager" ? 2 : 3;
+      const preferred = [...(memberships ?? [])].sort((a, b) => rank(a.role) - rank(b.role))[0];
+      if (preferred?.organization_id) organizationId = preferred.organization_id;
+    }
+
+    if (!organizationId) {
+      const { data: staffRows } = await supabase
         .from("staff")
         .select("organization_id")
         .eq("user_id", user.id)
-        .maybeSingle();
-      if (staffRow?.organization_id) organizationId = staffRow.organization_id;
+        .limit(1);
+      const staffOrg = staffRows?.[0]?.organization_id;
+      if (staffOrg) organizationId = staffOrg;
     }
 
     // Upsert token (one row per user+token pair). apns_env is only written

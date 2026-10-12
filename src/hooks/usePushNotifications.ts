@@ -3,15 +3,33 @@ import { Capacitor } from '@capacitor/core';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 
-// Check if running in Capacitor native
+// The native runtime sets this before the webview evaluates JS (it looks for
+// webkit.messageHandlers.bridge). A second check against window.Capacitor
+// covers a bridge that injected the global without the import seeing it.
 const isNativePlatform = () => {
   try {
-    const win = window as any;
-    return win?.Capacitor?.isNativePlatform?.() === true;
+    if (Capacitor.isNativePlatform()) return true;
+    const win = window as Window & { Capacitor?: { isNativePlatform?: () => boolean } };
+    return win.Capacitor?.isNativePlatform?.() === true;
   } catch {
     return false;
   }
 };
+
+// Shared across hook instances. The settings page and the post-login
+// registrar each call this hook; only a saved device token counts as
+// registered, and both screens need to see that.
+let nativeTokenSaved = false;
+const registeredListeners = new Set<(value: boolean) => void>();
+
+function publishTokenSaved(value: boolean) {
+  nativeTokenSaved = value;
+  registeredListeners.forEach((listener) => listener(value));
+}
+
+// One OS permission dialog at a time. The registrar and a settings toggle
+// can both fire during the same launch.
+let nativeRegisterInFlight: Promise<boolean> | null = null;
 
 // Lazy load the push notifications plugin
 const getPushPlugin = async () => {
@@ -76,10 +94,17 @@ export const showBrowserNotification = ({ title, body, tag, onClick }: Notificat
   }
 };
 
+export type PushRegistrationOptions = {
+  /** Automatic post-login call: no error toast if the user declines. */
+  quiet?: boolean;
+  /** Active company. register-push-token checks the caller belongs to it. */
+  organizationId?: string | null;
+};
+
 export function usePushNotifications(staffId?: string) {
   const [token, setToken] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState(false);
-  const [isRegistered, setIsRegistered] = useState(false);
+  const [isRegistered, setIsRegistered] = useState(nativeTokenSaved);
   const [isRegistering, setIsRegistering] = useState(false);
   const nativeListenersAttachedRef = useRef(false);
   const nativeListenerHandlesRef = useRef<Array<{ remove: () => Promise<void> }>>([]);
@@ -99,12 +124,12 @@ export function usePushNotifications(staffId?: string) {
     if (!PushNotifications) return;
 
     const handles = await Promise.all([
-      PushNotifications.addListener('pushNotificationReceived', (notification: any) => {
+      PushNotifications.addListener('pushNotificationReceived', (notification: { title?: string; body?: string }) => {
         toast.info(notification.title || 'New notification', {
           description: notification.body,
         });
       }),
-      PushNotifications.addListener('pushNotificationActionPerformed', (notification: any) => {
+      PushNotifications.addListener('pushNotificationActionPerformed', (notification: { notification: { data?: { bookingId?: string } } }) => {
         const data = notification.notification.data;
         if (data?.bookingId) {
           window.location.href = `/staff?booking=${data.bookingId}`;
@@ -117,10 +142,18 @@ export function usePushNotifications(staffId?: string) {
   }, []);
 
   useEffect(() => {
-    // Check support for native or web
+    registeredListeners.add(setIsRegistered);
+    return () => {
+      registeredListeners.delete(setIsRegistered);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Check support for native or web. OS permission "granted" is not the
+    // same as a token saved on our server — checkPermissions used to flip
+    // isRegistered and the staff portal then skipped register() entirely.
     if (isNativePlatform()) {
       setIsSupported(true);
-      void checkNativePermission();
       void attachNativeListeners();
     } else if ('Notification' in window) {
       setIsSupported(true);
@@ -133,45 +166,49 @@ export function usePushNotifications(staffId?: string) {
     };
   }, [attachNativeListeners, cleanupNativeListeners, staffId]);
 
-  const checkNativePermission = async () => {
-    try {
-      const PushNotifications = await getPushPlugin();
-      if (!PushNotifications) return;
-      const perm = await PushNotifications.checkPermissions();
-      if (perm.receive === 'granted') {
-        setIsRegistered(true);
-      }
-    } catch {
-      // ignore
-    }
-  };
-
-  const registerNative = async () => {
+  const registerNative = async (options?: PushRegistrationOptions): Promise<{ ok: boolean; prompted: boolean }> => {
+    const quiet = options?.quiet === true;
+    const organizationId = options?.organizationId ?? null;
     const PushNotifications = await getPushPlugin();
     if (!PushNotifications) {
-      toast.error('Push notifications are not available on this device');
-      return false;
+      const message = 'Push notifications are not available on this device';
+      console.error('[PUSH]', message);
+      toast.error(message);
+      return { ok: false, prompted: false };
     }
 
-    // requestPermissions() had no timeout: if the native call stalls (no OS
-    // prompt, no resolve), the flow hung here forever and the toggle spun with
-    // no feedback. Time it out and surface whatever the native layer returns.
-    let permStatus: { receive: string };
+    // Already-denied is a settled OS state. Calling requestPermissions again
+    // does not show a dialog and must not toast on every cold start.
+    let prompted = false;
     try {
-      permStatus = await withTimeout(
-        PushNotifications.requestPermissions(),
-        PERMISSION_TIMEOUT_MS,
-        'PushNotifications.requestPermissions()',
-      );
+      const current = await PushNotifications.checkPermissions();
+      if (current.receive === 'denied') {
+        if (!quiet) toast.error('Push notification permission denied. Enable notifications for TidyWise in iOS Settings.');
+        return { ok: false, prompted: false };
+      }
+      if (current.receive !== 'granted') {
+        prompted = true;
+        // The manual toggle times out so a stalled bridge can't spin forever.
+        // The post-login prompt does not: the system dialog stays open until
+        // the person taps it, and abandoning that promise would leave the
+        // Settings row without a device token.
+        const permStatus = quiet
+          ? await PushNotifications.requestPermissions()
+          : await withTimeout(
+              PushNotifications.requestPermissions(),
+              PERMISSION_TIMEOUT_MS,
+              'PushNotifications.requestPermissions()',
+            );
+        if (permStatus.receive !== 'granted') {
+          if (!quiet) toast.error('Push notification permission denied');
+          return { ok: false, prompted: true };
+        }
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       console.error('[PUSH] requestPermissions failed or stalled:', detail);
       toast.error(`Couldn't enable notifications: ${detail}`);
-      return false;
-    }
-    if (permStatus.receive !== 'granted') {
-      toast.error('Push notification permission denied');
-      return false;
+      return { ok: false, prompted };
     }
 
     await attachNativeListeners();
@@ -202,7 +239,7 @@ export function usePushNotifications(staffId?: string) {
               resolve(tokenData.value);
             });
 
-            handles.error = await PushNotifications.addListener('registrationError', (error: any) => {
+            handles.error = await PushNotifications.addListener('registrationError', (error: { error?: string }) => {
               window.clearTimeout(timeoutId);
               reject(new Error(error?.error || 'Failed to register for push notifications'));
             });
@@ -219,7 +256,6 @@ export function usePushNotifications(staffId?: string) {
       // arbitrary push notifications to this device until it rotates.
       console.log('[PUSH] Push registration success');
       setToken(nativeToken);
-      setIsRegistered(true);
 
       // The device itself is registered with APNs/FCM at this point — that
       // part genuinely succeeded. But if the token never reaches our
@@ -231,14 +267,14 @@ export function usePushNotifications(staffId?: string) {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.access_token) {
           const { error: saveError } = await supabase.functions.invoke('register-push-token', {
-            // Was hardcoded 'ios', so every row in device_push_tokens claimed
-            // iOS regardless of the device that wrote it. That column is
-            // currently the only server-side evidence that anyone has a native
-            // app at all, and a constant is not evidence of anything.
-            // register-push-token already reads platform from the body (and
-            // defaults to 'ios' only when it's absent), so this needs no
-            // backend change. Returns 'ios' | 'android' | 'web'; we are inside
-            // registerNative(), so it is never 'web' here.
+            // register-push-token reads platform from the body (and defaults to
+            // 'ios' only when it's absent). Returns 'ios' | 'android' | 'web';
+            // we are inside registerNative(), so it is never 'web' here.
+            //
+            // organization_id is the company the app is signed into. The
+            // function confirms this user is a member or staff there. Without
+            // it, an owner of more than one business used to fail the
+            // single-row membership lookup and store a token with no org.
             //
             // apns_env is a hint. TestFlight and App Store ship a production
             // bundle (import.meta.env.PROD) and Apple issues production tokens.
@@ -247,6 +283,7 @@ export function usePushNotifications(staffId?: string) {
             body: {
               token: nativeToken,
               platform: Capacitor.getPlatform(),
+              ...(organizationId ? { organization_id: organizationId } : {}),
               ...(Capacitor.getPlatform() === 'ios'
                 ? { apns_env: import.meta.env.PROD ? 'production' : 'sandbox' }
                 : {}),
@@ -272,14 +309,15 @@ export function usePushNotifications(staffId?: string) {
 
       if (!tokenSaved) {
         toast.error("Your device registered, but we couldn't save your notification settings. Please try again.");
-        return false;
+        return { ok: false, prompted };
       }
 
-      return true;
+      publishTokenSaved(true);
+      return { ok: true, prompted };
     } catch (error) {
       console.error('[PUSH] Push registration error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to register for push notifications');
-      return false;
+      return { ok: false, prompted };
     } finally {
       await Promise.allSettled([
         handles.registration?.remove() ?? Promise.resolve(),
@@ -300,30 +338,52 @@ export function usePushNotifications(staffId?: string) {
     return false;
   };
 
-  const requestPermission = useCallback(async () => {
-    setIsRegistering(true);
-    try {
-      let success = false;
-      if (isNativePlatform()) {
-        success = await registerNative();
-      } else if ('Notification' in window) {
-        success = await registerWeb();
-      } else {
-        toast.error('Push notifications are not supported on this device');
-      }
-      if (success) {
-        toast.success('Notifications enabled!');
-      }
-      return success;
-    } catch (error) {
-      console.error('[PUSH] Error enabling notifications:', error);
-      toast.error('Failed to enable notifications');
-      return false;
-    } finally {
-      setIsRegistering(false);
+  const registerDevice = useCallback(async (options?: PushRegistrationOptions) => {
+    const quiet = options?.quiet === true;
+    if (isNativePlatform() && nativeRegisterInFlight) {
+      return nativeRegisterInFlight;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- registerNative is recreated each render; runs once per staff member
+
+    setIsRegistering(true);
+    const run = (async () => {
+      try {
+        let result: { ok: boolean; prompted: boolean } = { ok: false, prompted: false };
+        if (isNativePlatform()) {
+          result = await registerNative(options);
+        } else if ('Notification' in window) {
+          const ok = await registerWeb();
+          result = { ok, prompted: true };
+        } else if (!quiet) {
+          toast.error('Push notifications are not supported on this device');
+        }
+        // Already-granted launches re-save the token quietly. The first
+        // Allow still confirms, and the settings button always confirms.
+        if (result.ok && (!quiet || result.prompted)) {
+          toast.success('Notifications enabled!');
+        }
+        return result.ok;
+      } catch (error) {
+        console.error('[PUSH] Error enabling notifications:', error);
+        if (!quiet) toast.error('Failed to enable notifications');
+        return false;
+      } finally {
+        setIsRegistering(false);
+      }
+    })();
+
+    if (isNativePlatform()) {
+      nativeRegisterInFlight = run.finally(() => {
+        nativeRegisterInFlight = null;
+      });
+      return nativeRegisterInFlight;
+    }
+    return run;
+  // registerNative closes over stable listener handles and staffId. Recreating
+  // this callback every render resets the post-login timer before it fires.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [staffId]);
+
+  const requestPermission = useCallback(() => registerDevice(), [registerDevice]);
 
   return {
     token,
@@ -331,5 +391,6 @@ export function usePushNotifications(staffId?: string) {
     isRegistered,
     isRegistering,
     requestPermission,
+    registerDevice,
   };
 }

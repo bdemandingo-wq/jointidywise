@@ -18,21 +18,26 @@ export async function notifyOffice(
     message: string;
     link?: string;
     metadata?: Record<string, unknown>;
+    /** One bell row per key. A repeat insert of the same key is treated as already sent. */
+    dedupeKey?: string;
     pushTitle: string;
     pushBody: string;
     pushData?: Record<string, string>;
   },
 ): Promise<{ bell: boolean; push: boolean }> {
   let bell = false;
-  const { error } = await supabase.from("admin_system_notifications").insert({
+  const row: Record<string, unknown> = {
     organization_id: args.organizationId,
     type: "staff_activity",
     title: args.title,
     message: args.message,
     link: args.link ?? "/dashboard/bookings",
     metadata: args.metadata ?? {},
-  });
-  if (error) console.warn("[notifyOffice] bell insert failed:", error);
+  };
+  if (args.dedupeKey) row.dedupe_key = args.dedupeKey;
+  const { error } = await supabase.from("admin_system_notifications").insert(row);
+  const duplicate = !!error && /duplicate key|23505/i.test(error.message ?? "");
+  if (error && !duplicate) console.warn("[notifyOffice] bell insert failed:", error);
   else bell = true;
 
   const push = await sendPushToOrg(

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { QueryError } from '@/components/QueryError';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -23,8 +23,6 @@ import { NotificationBell } from '@/components/staff/NotificationBell';
 import { ThemeToggle } from '@/components/admin/ThemeToggle';
 import { OnboardingProgress } from '@/components/staff/OnboardingProgress';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
-import { usePushNotifications } from '@/hooks/usePushNotifications';
-import { Capacitor } from '@capacitor/core';
 import { PullToRefreshIndicator } from '@/components/admin/PullToRefreshIndicator';
 import { SEOHead } from '@/components/SEOHead';
 import { StaffLocationPrompt } from '@/components/staff/StaffLocationPrompt';
@@ -136,6 +134,7 @@ export default function StaffPortal() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { refreshing, pullDistance, handlers: pullHandlers } = usePullToRefresh(async () => {
+    // Reloads the job list (staff-bookings) and the rest of the portal.
     await queryClient.invalidateQueries();
   });
 
@@ -232,18 +231,10 @@ export default function StaffPortal() {
     return () => { cancelled = true; };
   }, [staffInfo?.id]);
 
-  // Push notifications: register this cleaner's device so job alerts can
-  // ring even when the app is closed. Prompt once per install after login.
-  const { isSupported: pushSupported, isRegistered: pushRegistered, requestPermission: requestPushPermission } = usePushNotifications(staffInfo?.id);
-  const pushPromptedRef = useRef(false);
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    if (!staffInfo?.id || !pushSupported || pushRegistered || pushPromptedRef.current) return;
-    pushPromptedRef.current = true;
-    // Small delay so the permission prompt doesn't collide with login/location prompts
-    const t = setTimeout(() => { void requestPushPermission(); }, 3000);
-    return () => clearTimeout(t);
-  }, [staffInfo?.id, pushSupported, pushRegistered, requestPushPermission]);
+  // Push permission is requested by NativePushRegistrar for every signed-in
+  // owner, admin, manager, and staff member. It used to live here and waited
+  // on staffInfo.id, so an owner who never opens the staff portal never
+  // called UNUserNotificationCenter and iOS Settings never showed Notifications.
   const payoutSetupRequired = useCleanerPayoutSetupRequired(staffInfo?.organization_id);
   const [newJobAlert, setNewJobAlert] = useState(false);
   const [claimingBookingId, setClaimingBookingId] = useState<string | null>(null);

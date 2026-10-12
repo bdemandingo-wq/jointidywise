@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { useOrgCountryCode } from '@/hooks/useDistanceUnit';
 import { geoFailureCode, geoFailureLabel, getPositionWithFallback } from '@/lib/geo';
+import { isFarFromProperty, propertyDistancePhrase } from '@/lib/usDistance';
 import { toast } from 'sonner';
 
 interface GpsCheckinProps {
@@ -17,7 +18,7 @@ interface GpsCheckinProps {
   disabledReason?: string;
 }
 
-const NEARBY_METERS = 500; // within 500m counts as "at property"
+const NEARBY_METERS = 0.25 * 1609.344; // ~0.25 miles still counts as at the property
 
 function toRad(deg: number) { return deg * (Math.PI / 180); }
 
@@ -99,8 +100,21 @@ export function GpsCheckin({ bookingId, staffId, organizationId, bookingAddress,
         return;
       }
 
-      if (addressMatch === false && distanceMeters !== null) {
-        toast.warning(`Checked in ${distanceMeters > 1000 ? `${(distanceMeters / 1000).toFixed(1)}km` : `${distanceMeters}m`} from the property address`, { duration: 5000 });
+      if (distanceMeters !== null && isFarFromProperty(distanceMeters)) {
+        const phrase = propertyDistancePhrase(distanceMeters);
+        toast.warning(
+          `${type === 'check_in' ? 'Checked in' : 'Checked out'} ${phrase}`,
+          { duration: 5000 },
+        );
+        // The row is already saved. The office flag is best-effort: a failed
+        // notify must not look like the check-in itself failed.
+        if (type === 'check_in') {
+          void supabase.functions.invoke('flag-far-checkin', {
+            body: { bookingId, staffId },
+          }).then(({ error: flagError }) => {
+            if (flagError) console.warn('[GpsCheckin] office was not notified of a far check-in', flagError);
+          });
+        }
       } else {
         toast.success(type === 'check_in' ? 'Checked in at property' : 'Checked out from property');
       }
