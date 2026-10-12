@@ -110,13 +110,16 @@ async function sendApns(
   const bundleId = Deno.env.get("APNS_BUNDLE_ID") || "com.TidyWiseApp.app";
   const jwt = await getApnsJwt();
 
+  // aps is assigned after custom keys so a data field cannot replace it.
+  // sound must be the string "default" — a missing sound is a silent push,
+  // which is what iOS delivers when the key is absent.
   const payload = {
+    ...(data ?? {}),
     aps: {
       alert: { title, body },
       sound: "default",
       badge: 1,
     },
-    ...data,
   };
 
   const url = `https://${hostFor(env)}/3/device/${deviceToken}`;

@@ -31,6 +31,7 @@ import { Capacitor } from "@capacitor/core";
 import { useAppStateHandler } from '@/hooks/useAppStateHandler';
 import { captureReferralFromUrl } from '@/lib/referralAttribution';
 import { requestTrackingPermission } from '@/lib/metaEvents';
+import { NativePushRegistrar } from '@/components/NativePushRegistrar';
 
 // Critical path: keep the shell light; lazy-load even the public entry pages
 const LandingPage = lazy(() => import("./pages/LandingPage"));
@@ -311,6 +312,7 @@ const App = () => (
                 <Toaster />
                 <Sonner />
                 <AppStateHandler />
+                <NativePushRegistrar />
                 <AiCreditLimitModal />
                 {/*
                   Native (Capacitor) builds should use HashRouter to avoid blank screens on launch
