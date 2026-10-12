@@ -87,7 +87,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     // Caller must be this cleaner, or an owner/admin/manager, and the staff
     // row must be assigned to this booking in this organization.
-    const auth = await assertAssignedStaffEvent(req, supabase, booking.organization_id, staffId, bookingId);
+    const auth = await assertAssignedStaffEvent(req, supabase as any, booking.organization_id, staffId, bookingId);
     if (!auth.ok) {
       return new Response(
         JSON.stringify({ success: false, error: auth.error }),
@@ -162,7 +162,7 @@ const handler = async (req: Request): Promise<Response> => {
     const customerLabelForOffice = typedCustomer
       ? `${typedCustomer.first_name} ${typedCustomer.last_name}`
       : 'Customer';
-    const office = await notifyOffice(supabase, {
+    const office = await notifyOffice(supabase as any, {
       organizationId: booking.organization_id,
       title: '🚗 Cleaner on the way',
       message: `${staff.name} is on the way to Booking #${booking.booking_number} for ${customerLabelForOffice}.`,

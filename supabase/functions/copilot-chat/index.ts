@@ -9,7 +9,7 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Anthropic from "npm:@anthropic-ai/sdk@0.40.0";
+import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.40.0";
 import { requireOrgAdmin, sharedCorsHeaders } from "../_shared/requireOrgAdmin.ts";
 
 const MODEL = "claude-haiku-4-5";

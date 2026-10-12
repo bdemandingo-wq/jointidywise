@@ -8,7 +8,7 @@
 // connected-account payout created at/after the transfer. Approximate by design.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { sendStaffSms } from "../_shared/staff-notify.ts";
 
 const corsHeaders = {
