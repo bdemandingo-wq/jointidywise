@@ -16,6 +16,8 @@ interface InspectionItem {
   previewUrl: string;
   category: 'broken' | 'missing' | 'low_inventory' | 'general';
   note: string;
+  captureExif?: unknown;
+  liveCapture?: boolean;
 }
 
 interface PropertyInspectionUploadProps {
@@ -39,7 +41,7 @@ export function PropertyInspectionUpload({ bookingId, staffId, organizationId, o
   const [isOpen, setIsOpen] = useState(false);
   const [items, setItems] = useState<InspectionItem[]>([]);
   const [activeCategory, setActiveCategory] = useState<InspectionItem['category']>('broken');
-  const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl: string } | null>(null);
+  const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl: string; captureExif?: unknown; liveCapture?: boolean } | null>(null);
   const [pendingNote, setPendingNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -56,22 +58,26 @@ export function PropertyInspectionUpload({ bookingId, staffId, organizationId, o
     if (galleryRef.current) galleryRef.current.value = '';
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, fromCamera: boolean) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     if (file.size > PHOTO_MAX_SIZE) { toast.error('Photo must be under 10MB'); return; }
-    setPendingFile({ file, previewUrl: URL.createObjectURL(file) });
+    setPendingFile({ file, previewUrl: URL.createObjectURL(file), liveCapture: fromCamera });
   };
 
   const handleNativeCamera = async () => {
     const result = await takePicture('camera');
-    if (result?.file && result.dataUrl) setPendingFile({ file: result.file, previewUrl: result.dataUrl });
+    if (result?.file && result.dataUrl) {
+      setPendingFile({ file: result.file, previewUrl: result.dataUrl, captureExif: result.exif, liveCapture: true });
+    }
   };
 
   const handleNativeGallery = async () => {
     const result = await pickFromGallery();
-    if (result?.file && result.dataUrl) setPendingFile({ file: result.file, previewUrl: result.dataUrl });
+    if (result?.file && result.dataUrl) {
+      setPendingFile({ file: result.file, previewUrl: result.dataUrl, captureExif: result.exif, liveCapture: false });
+    }
   };
 
   const addItem = () => {
@@ -81,6 +87,8 @@ export function PropertyInspectionUpload({ bookingId, staffId, organizationId, o
       previewUrl: pendingFile.previewUrl,
       category: activeCategory,
       note: pendingNote.trim(),
+      captureExif: pendingFile.captureExif,
+      liveCapture: pendingFile.liveCapture,
     }]);
     setPendingFile(null);
     setPendingNote('');
@@ -127,6 +135,8 @@ export function PropertyInspectionUpload({ bookingId, staffId, organizationId, o
             photoType: 'inspection',
             organizationIdFallback: organizationId,
             index: i,
+            captureExif: item.captureExif,
+            liveCapture: item.liveCapture,
             extra: {
               inspection_note: item.note || null,
               issue_category: item.category,
@@ -244,8 +254,8 @@ export function PropertyInspectionUpload({ bookingId, staffId, organizationId, o
           {!pendingFile ? (
             <div>
               <p className="text-sm font-medium mb-2">Take a photo</p>
-              <input ref={cameraRef} type="file" accept="image/*" capture="environment" tabIndex={-1} className={PICKER_CLASS} onChange={handleFileSelect} />
-              <input ref={galleryRef} type="file" accept="image/*" tabIndex={-1} className={PICKER_CLASS} onChange={handleFileSelect} />
+              <input ref={cameraRef} type="file" accept="image/*" capture="environment" tabIndex={-1} className={PICKER_CLASS} onChange={(event) => handleFileSelect(event, true)} />
+              <input ref={galleryRef} type="file" accept="image/*" tabIndex={-1} className={PICKER_CLASS} onChange={(event) => handleFileSelect(event, false)} />
               <div className="flex gap-2">
                 {isNative && Capacitor.isNativePlatform() ? (
                   <>

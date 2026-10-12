@@ -1,5 +1,21 @@
+import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/lib/supabase';
+import type { Database } from '@/integrations/supabase/types';
 import { isVideoFile, type MediaType } from '@/lib/bookingMediaErrors';
+import {
+  burnProofStamp,
+  chooseStampGps,
+  deviceTimeZone,
+  formatPropertyAddress,
+  isMissingProofColumn,
+  mergeCaptureExif,
+  parseImageExif,
+  parsePluginExif,
+  proofStampLines,
+  resolveProofClock,
+  type GeoPoint,
+  type TimestampSource,
+} from '@/lib/photoProofStamp';
 
 export { isVideoFile, getUploadErrorMessage } from '@/lib/bookingMediaErrors';
 export type { MediaType } from '@/lib/bookingMediaErrors';
@@ -36,6 +52,13 @@ export interface UploadBookingMediaArgs {
   extra?: Record<string, unknown>;
   /** Disambiguates filenames inside a batch uploaded in the same millisecond. */
   index?: number;
+  /**
+   * Capacitor Camera's `exif` object. The data-URL it returns has already
+   * dropped the EXIF segment, so this is the only capture time on iOS.
+   */
+  captureExif?: unknown;
+  /** True when the cleaner just took the photo, not when they picked one from the library. */
+  liveCapture?: boolean;
 }
 
 export interface UploadBookingMediaResult {
@@ -59,6 +82,58 @@ const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
  * bare "upload failed". Re-encode to JPEG in the browser when we can; if the
  * browser cannot decode it, fall through and let storage give its own error.
  */
+interface ProofColumns {
+  captured_at: string;
+  timestamp_source: TimestampSource;
+  capture_latitude: number | null;
+  capture_longitude: number | null;
+  proof_stamped: boolean;
+}
+
+/**
+ * A short budget, raced here rather than inside the geolocation call.
+ * The platform timeout does not start until the permission prompt is
+ * dismissed, and a cleaner waiting on that must not sit on a spinner
+ * while the photo is ready. A fix that is already granted comes back
+ * from cache well inside this window.
+ */
+function readCaptureGps(): Promise<GeoPoint | null> {
+  return new Promise((resolve) => {
+    const giveUp = setTimeout(() => resolve(null), 2500);
+    const finish = (point: GeoPoint | null) => {
+      clearTimeout(giveUp);
+      resolve(point);
+    };
+    void (async () => {
+      try {
+        if (Capacitor.isNativePlatform()) {
+          const { Geolocation } = await import('@capacitor/geolocation');
+          const pos = await Geolocation.getCurrentPosition({
+            enableHighAccuracy: false,
+            timeout: 2500,
+            maximumAge: 120_000,
+          });
+          const latitude = pos.coords.latitude;
+          const longitude = pos.coords.longitude;
+          finish(Number.isFinite(latitude) && Number.isFinite(longitude) ? { latitude, longitude } : null);
+          return;
+        }
+        if (typeof navigator === 'undefined' || !navigator.geolocation) {
+          finish(null);
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (pos) => finish({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+          () => finish(null),
+          { enableHighAccuracy: false, timeout: 2500, maximumAge: 120_000 },
+        );
+      } catch {
+        finish(null);
+      }
+    })();
+  });
+}
+
 async function normalizeImage(file: File): Promise<File> {
   if (ALLOWED_IMAGE_TYPES.includes(file.type)) return file;
   try {
@@ -80,16 +155,112 @@ async function normalizeImage(file: File): Promise<File> {
   }
 }
 
+type BookingPhotoInsert = Database['public']['Tables']['booking_photos']['Insert'];
+
+async function insertBookingPhoto(row: BookingPhotoInsert & Partial<ProofColumns>) {
+  return supabase.from('booking_photos').insert(row as BookingPhotoInsert);
+}
+
+async function preparePhotoFile(args: {
+  file: File;
+  bookingNumber: number | null;
+  address: string | null;
+  businessTimeZone: string;
+  captureExif: unknown;
+  liveCapture: boolean;
+  deviceGps: GeoPoint | null;
+  uploadedAt: Date;
+}): Promise<{ file: File; proof: ProofColumns }> {
+  const bytes = new Uint8Array(await args.file.arrayBuffer());
+  const exif = mergeCaptureExif(parseImageExif(bytes), parsePluginExif(args.captureExif));
+  const clock = resolveProofClock({
+    exif,
+    uploadedAt: args.uploadedAt,
+    deviceTimeZone: deviceTimeZone(),
+  });
+  const gps = chooseStampGps({
+    exifGps: exif?.latitude != null && exif?.longitude != null
+      ? { latitude: exif.latitude, longitude: exif.longitude }
+      : null,
+    deviceGps: args.deviceGps,
+    liveCapture: args.liveCapture,
+  });
+  const lines = proofStampLines({
+    label: clock.label,
+    at: clock.at,
+    businessTimeZone: args.businessTimeZone,
+    bookingNumber: args.bookingNumber,
+    address: args.address,
+    latitude: gps?.latitude ?? null,
+    longitude: gps?.longitude ?? null,
+  });
+
+  let file = args.file;
+  let stamped = false;
+  try {
+    file = await burnProofStamp(args.file, lines);
+    stamped = true;
+  } catch (firstError) {
+    // HEIC that the canvas cannot decode is re-encoded to JPEG first, then
+    // stamped. A second failure uploads the unstamped file: losing the
+    // cleaner's photo is worse than a missing bar, and the viewer overlays
+    // the stored time when proof_stamped is false.
+    const normalized = await normalizeImage(args.file);
+    if (normalized !== args.file) {
+      try {
+        file = await burnProofStamp(normalized, lines);
+        stamped = true;
+      } catch (secondError) {
+        console.error('[booking-photos] proof stamp failed', secondError);
+        file = normalized;
+      }
+    } else {
+      console.error('[booking-photos] proof stamp failed', firstError);
+    }
+  }
+
+  return {
+    file,
+    proof: {
+      captured_at: clock.at.toISOString(),
+      timestamp_source: clock.source,
+      capture_latitude: gps?.latitude ?? null,
+      capture_longitude: gps?.longitude ?? null,
+      proof_stamped: stamped,
+    },
+  };
+}
+
 export async function uploadBookingMedia(
   args: UploadBookingMediaArgs,
 ): Promise<UploadBookingMediaResult> {
-  const { file: originalFile, bookingId, staffId, photoType, organizationIdFallback, extra, index } = args;
+  const {
+    file: originalFile,
+    bookingId,
+    staffId,
+    photoType,
+    organizationIdFallback,
+    extra,
+    index,
+    captureExif,
+    liveCapture = false,
+  } = args;
+  const uploadedAt = new Date();
 
   const { data: bookingData, error: bookingError } = await supabase
     .from('bookings')
-    .select('id, organization_id')
+    .select('id, organization_id, booking_number, address, apt_suite, city, state, zip_code')
     .eq('id', bookingId)
-    .maybeSingle<{ id: string; organization_id: string | null }>();
+    .maybeSingle<{
+      id: string;
+      organization_id: string | null;
+      booking_number: number;
+      address: string | null;
+      apt_suite: string | null;
+      city: string | null;
+      state: string | null;
+      zip_code: string | null;
+    }>();
 
   if (bookingError) throw bookingError;
   if (!bookingData?.id) throw new Error('Selected booking was not found.');
@@ -99,7 +270,43 @@ export async function uploadBookingMedia(
 
   // Derived from the FILE, never from a UI mode. See the note at the top.
   const mediaType: MediaType = isVideoFile(originalFile) ? 'video' : 'photo';
-  const file = mediaType === 'photo' ? await normalizeImage(originalFile) : originalFile;
+
+  let file = originalFile;
+  let proof: ProofColumns | null = null;
+  if (mediaType === 'photo') {
+    const [settingsRes, deviceGps] = await Promise.all([
+      supabase
+        .from('business_settings')
+        .select('timezone')
+        .eq('organization_id', organizationId)
+        .maybeSingle<{ timezone: string | null }>(),
+      readCaptureGps(),
+    ]);
+    if (settingsRes.error) {
+      console.error('[booking-photos] timezone lookup failed; stamping in America/New_York', settingsRes.error);
+    }
+    const prepared = await preparePhotoFile({
+      file: originalFile,
+      bookingNumber: bookingData.booking_number,
+      address: formatPropertyAddress(bookingData),
+      businessTimeZone: settingsRes.data?.timezone || 'America/New_York',
+      captureExif,
+      liveCapture,
+      deviceGps,
+      uploadedAt,
+    });
+    file = prepared.file;
+    proof = prepared.proof;
+  } else {
+    proof = {
+      captured_at: uploadedAt.toISOString(),
+      timestamp_source: 'upload',
+      capture_latitude: null,
+      capture_longitude: null,
+      proof_stamped: false,
+    };
+  }
+
   const ext = file.name.split('.').pop() || (mediaType === 'video' ? 'mp4' : 'jpg');
   const suffix = index === undefined ? '' : `_${index}`;
   const filePath = `${organizationId}/${bookingId}/${staffId}/${photoType}/${Date.now()}${suffix}.${ext}`;
@@ -116,7 +323,7 @@ export async function uploadBookingMedia(
 
 
   try {
-    const { error: dbError } = await supabase.from('booking_photos').insert({
+    const baseRow: BookingPhotoInsert = {
       booking_id: bookingId,
       photo_url: filePath,
       photo_type: photoType,
@@ -124,7 +331,17 @@ export async function uploadBookingMedia(
       staff_id: staffId,
       organization_id: organizationId,
       ...extra,
-    });
+    };
+    // created_at is left to the database default so the row keeps the upload
+    // instant even when captured_at is the earlier EXIF time.
+    let { error: dbError } = await insertBookingPhoto({ ...baseRow, ...proof });
+    if (dbError && proof && isMissingProofColumn(dbError)) {
+      console.warn(
+        '[booking-photos] proof columns are not on the live table yet. The stamp is in the image; created_at still records the upload. Run the booking photo proof migration.',
+        dbError.message,
+      );
+      ({ error: dbError } = await insertBookingPhoto(baseRow));
+    }
     if (dbError) throw dbError;
   } catch (e) {
     // The object is written but unreferenced. Remove it rather than leave it

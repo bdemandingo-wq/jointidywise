@@ -84,6 +84,8 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
   const [mediaMode, setMediaMode] = useState<MediaMode>('photo');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [captureExif, setCaptureExif] = useState<unknown>(null);
+  const [liveCapture, setLiveCapture] = useState(false);
   const [videoDuration, setVideoDuration] = useState<number | null>(null);
 
   // Ref mirrors typeInferred so the async inference above reads the current
@@ -110,11 +112,13 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
 
     setPreviewUrl(null);
     setSelectedFile(null);
+    setCaptureExif(null);
+    setLiveCapture(false);
     setVideoDuration(null);
     resetPickerInputs();
   };
 
-  const setPreviewForFile = (file: File, nextPreviewUrl: string) => {
+  const setPreviewForFile = (file: File, nextPreviewUrl: string, exif?: unknown, fromCamera = false) => {
     const validationError = getValidationError(file, mediaMode);
     if (validationError) {
       if (nextPreviewUrl.startsWith('blob:')) {
@@ -129,6 +133,8 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
     }
 
     setSelectedFile(file);
+    setCaptureExif(exif ?? null);
+    setLiveCapture(fromCamera);
     setPreviewUrl(nextPreviewUrl);
     setVideoDuration(null);
 
@@ -142,26 +148,26 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
     }
   };
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>, fromCamera: boolean) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
 
     const objectUrl = URL.createObjectURL(file);
-    setPreviewForFile(file, objectUrl);
+    setPreviewForFile(file, objectUrl, undefined, fromCamera);
   };
 
   const handleNativeCamera = async () => {
     const result = await takePicture('camera');
     if (result?.file && result.dataUrl) {
-      setPreviewForFile(result.file, result.dataUrl);
+      setPreviewForFile(result.file, result.dataUrl, result.exif, true);
     }
   };
 
   const handleNativeGallery = async () => {
     const result = await pickFromGallery();
     if (result?.file && result.dataUrl) {
-      setPreviewForFile(result.file, result.dataUrl);
+      setPreviewForFile(result.file, result.dataUrl, result.exif, false);
     }
   };
 
@@ -190,6 +196,8 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
         staffId,
         photoType,
         organizationIdFallback: organizationId,
+        captureExif,
+        liveCapture: liveCapture && mediaMode === 'photo',
       });
 
       clearInterval(progressInterval);
@@ -323,7 +331,7 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
             capture="environment"
             tabIndex={-1}
             className={PICKER_INPUT_CLASS}
-            onChange={handleFileSelect}
+            onChange={(event) => handleFileSelect(event, true)}
           />
           <input
             ref={libraryPhotoInputRef}
@@ -331,7 +339,7 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
             accept="image/*"
             tabIndex={-1}
             className={PICKER_INPUT_CLASS}
-            onChange={handleFileSelect}
+            onChange={(event) => handleFileSelect(event, false)}
           />
           <input
             ref={cameraVideoInputRef}
@@ -340,7 +348,7 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
             capture="environment"
             tabIndex={-1}
             className={PICKER_INPUT_CLASS}
-            onChange={handleFileSelect}
+            onChange={(event) => handleFileSelect(event, true)}
           />
           <input
             ref={libraryVideoInputRef}
@@ -348,7 +356,7 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
             accept="video/mp4,video/quicktime,video/x-m4v,.mov,.mp4"
             tabIndex={-1}
             className={PICKER_INPUT_CLASS}
-            onChange={handleFileSelect}
+            onChange={(event) => handleFileSelect(event, false)}
           />
 
           {!previewUrl ? (
