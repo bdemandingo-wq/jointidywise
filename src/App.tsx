@@ -269,7 +269,9 @@ const App = () => (
         maxAge: 1000 * 60 * 60 * 24,
         // Bump to discard previously-persisted caches (2026-07-20: old
         // caches contain Map data serialized to plain objects).
-        buster: 'v2-no-maps',
+        // v3 drops caches that stored every booking row. Parsing that blob
+        // on the WKWebView main thread was part of the slow first paint.
+        buster: 'v3-bounded-lists',
         dehydrateOptions: {
           // Persist only successful reads; never persist mutations or
           // huge/ephemeral queries. Also exclude 'service-pricing': its
@@ -311,7 +313,11 @@ const App = () => (
             // org. A stale cached list can show the user in an org they've
             // been removed from, rendering data they can no longer write to.
             !JSON.stringify(q.queryKey).includes('org-memberships') &&
-            !JSON.stringify(q.queryKey).includes('my-staff-orgs'),
+            !JSON.stringify(q.queryKey).includes('my-staff-orgs') &&
+            // The archive is the long tail of booking history. It fills in
+            // after the recent window and must not be parsed back into the
+            // first paint.
+            !JSON.stringify(q.queryKey).includes('"archive"'),
         },
       }}
       onSuccess={() => {

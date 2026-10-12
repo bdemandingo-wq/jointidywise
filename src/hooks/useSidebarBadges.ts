@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useOrganization } from '@/contexts/OrganizationContext';
@@ -80,7 +80,19 @@ export function useSidebarBadgesFull(): SidebarBadgeData {
   const on = (k: string) =>
     showBadges && sb[k] !== false && sidebarAllowedByLegacyKey[k] !== false;
 
-  const enabled = !!orgId;
+  // Twelve badge queries used to leave with the dashboard's first bookings
+  // read. On a large org that stampede sat on the same connection pool and
+  // the auth lock, and the jobs the owner is waiting to see waited with it.
+  const [badgesReady, setBadgesReady] = useState(false);
+  useEffect(() => {
+    if (!orgId) {
+      setBadgesReady(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setBadgesReady(true), 2000);
+    return () => window.clearTimeout(timer);
+  }, [orgId]);
+  const enabled = !!orgId && badgesReady;
   /*
     Badge polling used to be a flat 60s across all 12 queries — 12 requests a
     minute on every admin page, forever, whether or not anything changed.
@@ -234,7 +246,11 @@ export function useSidebarBadgesFull(): SidebarBadgeData {
     ...REALTIME_BACKED,
     queryFn: async () => {
       if (!orgId) return { unreadConvs: 0, unreadTotal: 0 };
-      const { data } = await supabase.from('sms_conversations').select('unread_count').eq('organization_id', orgId);
+      const { data } = await supabase
+        .from('sms_conversations')
+        .select('unread_count')
+        .eq('organization_id', orgId)
+        .gt('unread_count', 0);
       const rows = data || [];
       const unreadConvs = rows.filter((c: any) => (c.unread_count || 0) > 0).length;
       const unreadTotal = rows.reduce((s: number, c: any) => s + (c.unread_count || 0), 0);

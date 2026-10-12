@@ -80,6 +80,29 @@ export default defineConfig(({ mode }) => ({
       avif: { quality: 70 },
       includePublic: true,
       logStats: true,
+      // svgo is a direct devDependency. Without it the plugin skips every
+      // SVG and logs a failed import, which is how the public SVGs shipped raw.
+      svg: {
+        multipass: true,
+        plugins: [
+          {
+            name: 'preset-default',
+            params: {
+              overrides: {
+                cleanupNumericValues: false,
+                removeViewBox: false,
+                cleanupIds: { minify: false, remove: false },
+                convertPathData: false,
+              },
+            },
+          },
+          'sortAttrs',
+          {
+            name: 'addAttributesToSVGElement',
+            params: { attributes: [{ xmlns: 'http://www.w3.org/2000/svg' }] },
+          },
+        ],
+      },
     }),
     /*
       Installable desktop app (Chrome/Edge on macOS + Windows, and Safari's
@@ -156,10 +179,22 @@ export default defineConfig(({ mode }) => ({
         // the cached copy (directoryIndex), so returning visitors saw a stale
         // homepage — including the SEO text flash — until they accepted an
         // update. Page HTML now always comes network-first (below).
-        globPatterns: ["**/*.{js,css}"],
+        // The app shell only. Precaching every lazy route (379 files, ~7.7MB)
+        // made the service worker install compete with first paint. Route
+        // chunks are cached on use via runtimeCaching below.
+        globPatterns: ["assets/index-*.js", "assets/index-*.css", "assets/vendor-*.js"],
         globIgnores: ["**/images/**", "**/blog/**", "**/locations/**"],
         navigateFallback: null,
         runtimeCaching: [
+          {
+            urlPattern: ({ url }) =>
+              url.pathname.startsWith('/assets/') && /\.(?:js|css)$/.test(url.pathname),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'app-chunks',
+              expiration: { maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 14 },
+            },
+          },
           {
             // Newest HTML from the server; cached copy only when offline.
             urlPattern: ({ request, url }) =>
@@ -202,14 +237,21 @@ export default defineConfig(({ mode }) => ({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Keep React + Radix UI together to prevent duplicate React instances
-          'vendor-react': ['react', 'react-dom', 'react-router-dom', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-popover', '@radix-ui/react-select', '@radix-ui/react-tabs', '@radix-ui/react-tooltip'],
-          'vendor-query': ['@tanstack/react-query'],
-          'vendor-charts': ['recharts'],
-          'vendor-forms': ['react-hook-form', '@hookform/resolvers', 'zod'],
-          'vendor-dates': ['date-fns', 'react-day-picker'],
-          'vendor-supabase': ['@supabase/supabase-js'],
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+          if (id.includes('recharts') || id.includes('/d3-')) return 'vendor-charts';
+          if (id.includes('leaflet')) return 'vendor-maps';
+          if (id.includes('jspdf') || id.includes('xlsx') || id.includes('html2canvas')) return 'vendor-export';
+          if (id.includes('@supabase')) return 'vendor-supabase';
+          if (id.includes('@tanstack')) return 'vendor-query';
+          if (id.includes('date-fns') || id.includes('react-day-picker')) return 'vendor-dates';
+          if (id.includes('react-hook-form') || id.includes('@hookform') || id.includes('/zod/')) return 'vendor-forms';
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('react-router') ||
+            id.includes('@radix-ui/')
+          ) return 'vendor-react';
         },
       },
     },

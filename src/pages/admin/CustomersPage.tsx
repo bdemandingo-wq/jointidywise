@@ -276,7 +276,8 @@ export default function CustomersPage() {
         .select('customer_id, campaign_id, status, automated_campaigns:campaign_id ( id, name )')
         .eq('organization_id', organization.id)
         .not('customer_id', 'is', null)
-        .in('status', ['pending', 'queued', 'scheduled']);
+        .in('status', ['pending', 'queued', 'scheduled'])
+        .limit(400);
       if (error) throw error;
       const m = new Map<string, { id: string; name: string }[]>();
       for (const row of (data as any[]) || []) {

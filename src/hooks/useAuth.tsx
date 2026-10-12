@@ -6,9 +6,17 @@
  */
 
 import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { User, Session } from '@supabase/supabase-js';
 import { useAuthNoSession, supabaseNoSession } from './useAuthNoSession';
 import { isInvalidSessionError } from '@/lib/authErrors';
+import {
+  clearStartupCache,
+  readStartupSection,
+  STARTUP_SUBSCRIPTION_STALE_MS,
+  startupSubscriptionKey,
+  writeStartupSection,
+} from '@/lib/startupCache';
 
 interface SubscriptionStatus {
   subscribed: boolean;
@@ -38,182 +46,128 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+async function fetchSubscription(userId: string, token: string): Promise<SubscriptionStatus> {
+  // NOTE: The free-account allowlist is enforced server-side in the
+  // `check-subscription` edge function (keyed by auth.users.id and email).
+  // Do NOT add a client-side bypass here — it would be trivially spoofable.
+  const { data, error } = await supabaseNoSession.functions.invoke('check-subscription', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (error) throw error;
+  const status = data as SubscriptionStatus;
+  writeStartupSection(userId, 'subscription', status);
+  return status;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Use the no-session auth as the source of truth
   const noSessionAuth = useAuthNoSession();
-  
-  const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
-  const [subscriptionCheck, setSubscriptionCheck] = useState<SubscriptionCheck>('idle');
+  const queryClient = useQueryClient();
+  const userId = noSessionAuth.user?.id ?? null;
+  const token = noSessionAuth.session?.access_token ?? null;
+  const cached = userId ? readStartupSection<SubscriptionStatus>(userId, 'subscription') : null;
+
   const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false);
-  const checkGen = useRef(0);
+  const signOutRef = useRef<() => Promise<void>>(async () => {});
+
+  const subscriptionQuery = useQuery({
+    queryKey: userId ? startupSubscriptionKey(userId) : ['startup-subscription', 'signed-out'],
+    queryFn: () => fetchSubscription(userId as string, token as string),
+    enabled: !!userId && !!token,
+    staleTime: STARTUP_SUBSCRIPTION_STALE_MS,
+    gcTime: 1000 * 60 * 60 * 24,
+    retry: 1,
+    ...(cached ? { initialData: cached.value, initialDataUpdatedAt: cached.at } : {}),
+  });
+
+  const subscription = token ? (subscriptionQuery.data ?? cached?.value ?? null) : null;
+  const subscriptionCheck: SubscriptionCheck = !token
+    ? 'idle'
+    : subscription
+      ? 'ready'
+      : subscriptionQuery.isError
+        ? 'error'
+        : 'loading';
 
   const signOut = async () => {
-    // Purge per-user/per-org sidebar visibility cache so the next signed-in
-    // user (e.g. on a shared device) never inherits stale hidden tabs.
     const { clearSidebarHiddenItemsCache } = await import('@/hooks/useSidebarHiddenItems');
     clearSidebarHiddenItemsCache();
-    // Clear the deliberate org choice so the next login defaults to the
-    // highest-priority org instead of inheriting a stale pick.
     try { localStorage.removeItem('tidywise_org_chosen'); } catch { /* ignore */ }
+    clearStartupCache();
     await noSessionAuth.signOut();
-    setSubscription(null);
-    setSubscriptionCheck('idle');
     setShowSubscriptionDialog(false);
   };
+  signOutRef.current = signOut;
 
   const checkSubscription = async (accessToken?: string) => {
-    const gen = ++checkGen.current;
-    try {
-      const token =
-        accessToken ?? noSessionAuth.session?.access_token;
-
-      if (!token) {
-        if (gen === checkGen.current) setSubscriptionCheck('idle');
-        return;
-      }
-
-      setSubscriptionCheck('loading');
-
-      // NOTE: The free-account allowlist is enforced server-side in the
-      // `check-subscription` edge function (keyed by auth.users.id and email).
-      // Do NOT add a client-side bypass here — it would be trivially spoofable.
-
-      const { data, error } = await supabaseNoSession.functions.invoke("check-subscription", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (error) throw error;
-      if (gen !== checkGen.current) return;
-
-      setSubscription(data);
-      setSubscriptionCheck('ready');
-      // Open the subscription dialog only when:
-      //   1. The user genuinely doesn't have a subscription, AND
-      //   2. We are NOT in the post-checkout grace window — the
-      //      /checkout/success page polls this function several times
-      //      right after Stripe redirects, and the webhook can race
-      //      that by a second or two. Without the guard, the paywall
-      //      dialog flashes open during the polling and creates the
-      //      "screen glitching" the user reported.
-      if (!data?.subscribed) {
-        const inGrace = (() => {
-          try {
-            return sessionStorage.getItem("tw_post_checkout") === "1";
-          } catch { return false; }
-        })();
-        if (!inGrace) setShowSubscriptionDialog(true);
-      } else {
-        // Subscription confirmed — exit the grace window if we were in
-        // one so a later state change (downgrade, cancel) opens the
-        // dialog normally.
-        try { sessionStorage.removeItem("tw_post_checkout"); } catch { /* no-op */ }
-      }
-    } catch (error: unknown) {
-      // This function no longer signs anyone out.
-      //
-      // It used to: two consecutive 401s from check-subscription ended the
-      // session. But check-subscription returns 401 from four places, and one
-      // of them is its OWN server-side auth.getUser(token) call failing — so a
-      // hiccup inside an edge function was logging a browser out. It also
-      // returns 401 for a missing header and a malformed token, neither of
-      // which is proof the stored session is bad.
-      //
-      // Session validity is now decided in exactly one place: the getUser()
-      // check in the effect below, which asks the auth server directly and
-      // classifies the answer via isInvalidSessionError. A billing endpoint's
-      // status code is not evidence about a credential, so this only logs.
-      const e = error as { context?: { status?: number }; message?: string } | null;
-      console.error("[useAuth] check-subscription failed", {
-        status: e?.context?.status,
-        message: e?.message,
-      });
-      // Leave subscription empty and record the failure. Callers must not
-      // treat "still null" as access — that was the paywall bypass when this
-      // request hung or 500'd.
-      if (gen === checkGen.current) {
-        setSubscription(null);
-        setSubscriptionCheck('error');
-      }
-    }
+    const uid = noSessionAuth.user?.id;
+    const nextToken = accessToken ?? noSessionAuth.session?.access_token;
+    if (!uid || !nextToken) return;
+    await queryClient.fetchQuery({
+      queryKey: startupSubscriptionKey(uid),
+      queryFn: () => fetchSubscription(uid, nextToken),
+      staleTime: 0,
+    });
   };
 
   useEffect(() => {
-    if (!noSessionAuth.session?.access_token) {
-      checkGen.current += 1;
-      setSubscription(null);
-      setSubscriptionCheck('idle');
-      setShowSubscriptionDialog(false);
-      return;
+    const data = subscriptionQuery.data;
+    if (!data || !token) return;
+    if (!data.subscribed) {
+      const inGrace = (() => {
+        try {
+          return sessionStorage.getItem('tw_post_checkout') === '1';
+        } catch { return false; }
+      })();
+      if (!inGrace) setShowSubscriptionDialog(true);
+    } else {
+      try { sessionStorage.removeItem('tw_post_checkout'); } catch { /* no-op */ }
     }
+  }, [subscriptionQuery.data, token]);
 
-    const t = window.setTimeout(async () => {
+  // Session validity is decided here, and only on proof from getUser().
+  // It used to run BEFORE check-subscription and hold the auth lock for a
+  // full network round trip, so the org read and the billing check waited
+  // behind it. The check now starts with the session token; this confirmation
+  // runs after the dashboard has had a chance to paint from cache.
+  useEffect(() => {
+    if (!token) return;
+    const timer = window.setTimeout(async () => {
       try {
         const { data, error } = await supabaseNoSession.auth.getUser();
-
-        // This is the ONLY place that ends a session automatically, and it
-        // only does so on proof. getUser() returns `{ error }` rather than
-        // throwing for an unreachable auth server, so `if (error)` used to
-        // catch a network blip and a rejected JWT identically — and the
-        // manual refreshSession() that followed was both a third refresher
-        // (see useAuthNoSession) and a second chance to sign someone out.
-        // Both are gone. Anything that isn't provably an invalid session
-        // leaves the session alone and skips this cycle's check.
         if (error && isInvalidSessionError(error)) {
           const session = noSessionAuth.session;
           const expiresAt = session?.expires_at ? new Date(session.expires_at * 1000).toISOString() : 'unknown';
-          const now = new Date().toISOString();
           console.error('[useAuth] SIGNING OUT — getUser returned invalid session', {
-            errorStatus: (error as any)?.status ?? (error as any)?.context?.status ?? 'unknown',
+            errorStatus: (error as { status?: number }).status ?? 'unknown',
             errorMessage: error.message,
             isInvalidSession: true,
             sessionExpiresAt: expiresAt,
-            currentTime: now,
+            currentTime: new Date().toISOString(),
             tokenPrefix: session?.access_token?.substring(0, 20) ?? 'none',
           });
-          await signOut();
+          await signOutRef.current();
           return;
         }
         if (error) {
           console.warn('[useAuth] could not verify session, keeping it:', error.message);
-          // The session stays, but billing was not confirmed. Do not leave
-          // subscriptionCheck idle — AdminRoute treats that as "unknown"
-          // and must not render the product.
-          setSubscription(null);
-          setSubscriptionCheck('error');
-          return;
         }
-        if (!data?.user) {
-          // No error but no user: nothing to check against. Don't infer a
-          // dead session from it — autoRefreshToken may still be mid-flight.
-          setSubscription(null);
-          setSubscriptionCheck('error');
-          return;
+        if (!error && !data?.user) {
+          console.warn('[useAuth] getUser returned no user; keeping the session');
         }
-
-        await checkSubscription(noSessionAuth.session?.access_token);
       } catch (e) {
-        // Thrown (rather than returned) failures are transport-level. Never
-        // a reason to sign out. Billing is still unconfirmed, so the
-        // dashboard stays locked until a retry succeeds.
         console.warn('[useAuth] auth check threw, keeping session:', e);
-        setSubscription(null);
-        setSubscriptionCheck('error');
       }
-    }, 0);
-
-    return () => window.clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- checkSubscription/signOut are recreated each render; re-checking on every token refresh is correct, not on callback identity
-  }, [noSessionAuth.session?.access_token]);
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [token, noSessionAuth.session]);
 
   return (
-    <AuthContext.Provider value={{ 
-      user: noSessionAuth.user, 
-      session: noSessionAuth.session, 
-      loading: noSessionAuth.loading || !noSessionAuth.initialCleanupDone, 
-      signOut, 
-      subscription, 
+    <AuthContext.Provider value={{
+      user: noSessionAuth.user,
+      session: noSessionAuth.session,
+      loading: noSessionAuth.loading || !noSessionAuth.initialCleanupDone,
+      signOut,
+      subscription,
       subscriptionCheck,
       checkSubscription,
       showSubscriptionDialog,

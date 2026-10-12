@@ -3,6 +3,32 @@ import { registerSW } from 'virtual:pwa-register';
 import { toast } from 'sonner';
 
 /**
+ * The iOS shell sets this on the web view even when the Capacitor bridge has
+ * not been injected yet. isNativePlatform() alone has registered a service
+ * worker inside WKWebView, which then precaches the whole build.
+ */
+export function isNativeAppShell(): boolean {
+  if (typeof navigator !== 'undefined' && navigator.userAgent.includes('TidyWise-iOS')) return true;
+  try {
+    return Capacitor.isNativePlatform() || Capacitor.getPlatform() === 'ios';
+  } catch {
+    return false;
+  }
+}
+
+function unregisterNativeServiceWorkers(): void {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  void navigator.serviceWorker.getRegistrations().then((regs) => {
+    for (const reg of regs) void reg.unregister();
+  });
+  if (typeof caches !== 'undefined') {
+    void caches.keys().then((keys) => {
+      for (const key of keys) void caches.delete(key);
+    });
+  }
+}
+
+/**
  * Registers the service worker that makes TidyWise installable on desktop.
  *
  * NEVER on native. Capacitor bundles its own assets locally with no
@@ -23,7 +49,10 @@ import { toast } from 'sonner';
  * long-lived tab still needs remain resolvable rather than 404ing.
  */
 export function registerPwa(): void {
-  if (Capacitor.isNativePlatform()) return;
+  if (isNativeAppShell()) {
+    unregisterNativeServiceWorkers();
+    return;
+  }
   if (import.meta.env.DEV) return;
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
 

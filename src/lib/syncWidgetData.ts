@@ -92,6 +92,7 @@ async function syncNextBooking(): Promise<void> {
     .neq('status', 'cancelled')
     .gt('scheduled_at', new Date().toISOString())
     .order('scheduled_at', { ascending: true })
+    .order('id', { ascending: true })
     .limit(1)
     .maybeSingle();
 
@@ -147,6 +148,7 @@ async function syncUpcomingSchedule(): Promise<void> {
     .neq('status', 'cancelled')
     .gt('scheduled_at', new Date().toISOString())
     .order('scheduled_at', { ascending: true })
+    .order('id', { ascending: true })
     .limit(10);
 
   if (error) {
@@ -198,7 +200,9 @@ async function syncDailyStats(): Promise<void> {
     .neq('status', 'cancelled')
     .gte('scheduled_at', startOfDay)
     .lt('scheduled_at', endOfDay)
-    .order('scheduled_at', { ascending: true });
+    .order('scheduled_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(100);
 
   if (error) {
     console.error('[WidgetSync:dailyStats] query error:', error.message);
@@ -240,7 +244,8 @@ async function syncDailyPay(): Promise<void> {
     `)
     .gte('bookings.scheduled_at', startOfDay)
     .lt('bookings.scheduled_at', endOfDay)
-    .neq('bookings.status', 'cancelled');
+    .neq('bookings.status', 'cancelled')
+    .limit(200);
 
   if (error) {
     // Fallback: query bookings directly for cleaner_pay_expected
@@ -249,7 +254,9 @@ async function syncDailyPay(): Promise<void> {
       .select('cleaner_pay_expected, status, staff:staff(name)')
       .neq('status', 'cancelled')
       .gte('scheduled_at', startOfDay)
-      .lt('scheduled_at', endOfDay);
+      .lt('scheduled_at', endOfDay)
+      .order('id', { ascending: true })
+      .limit(100);
 
     if (fbErr) {
       console.error('[WidgetSync:dailyPay] query error:', fbErr.message);
@@ -303,7 +310,10 @@ async function syncWeeklyRevenue(): Promise<void> {
     .select('total_amount, scheduled_at, status')
     .eq('status', 'completed')
     .gte('scheduled_at', lastMonday.toISOString())
-    .lt('scheduled_at', nextMonday.toISOString());
+    .lt('scheduled_at', nextMonday.toISOString())
+    .order('scheduled_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(500);
 
   if (error) {
     console.error('[WidgetSync:weeklyRevenue] query error:', error.message);

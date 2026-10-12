@@ -30,3 +30,21 @@ export function hasPaidDashboardAccess(opts: {
   if (opts.trialActive) return true;
   return false;
 }
+
+export type SubscriptionCheckState = 'idle' | 'loading' | 'ready' | 'error';
+export type SubscriptionRenderGate = 'ready' | 'skeleton' | 'error';
+
+/**
+ * The dashboard paints from a cached subscription while check-subscription
+ * revalidates. With nothing cached, a check that has not succeeded still
+ * holds the skeleton — an unanswered check used to render the product.
+ */
+export function subscriptionRenderGate(opts: {
+  paywallAllowed: boolean;
+  hasSubscription: boolean;
+  check: SubscriptionCheckState;
+}): SubscriptionRenderGate {
+  if (opts.paywallAllowed || opts.hasSubscription) return 'ready';
+  if (opts.check === 'idle' || opts.check === 'loading') return 'skeleton';
+  return 'error';
+}
