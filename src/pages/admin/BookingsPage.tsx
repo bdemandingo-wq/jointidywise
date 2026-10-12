@@ -115,6 +115,7 @@ import { useOrganization } from '@/contexts/OrganizationContext';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { PullToRefreshIndicator } from '@/components/admin/PullToRefreshIndicator';
+import { requestAdminNotificationRefresh } from '@/lib/adminNotificationRefresh';
 import { BookingActionSheet } from '@/components/admin/BookingActionSheet';
 import { CancelBookingDialog, type CancellationCategory } from '@/components/admin/CancelBookingDialog';
 import { BulkEditBookingsDialog } from '@/components/admin/BulkEditBookingsDialog';
@@ -262,7 +263,11 @@ export default function BookingsPage() {
   const queryClient = useQueryClient();
 
   const handlePullRefresh = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['bookings'] }),
+      queryClient.invalidateQueries({ queryKey: ['booking-far-checkin'] }),
+    ]);
+    requestAdminNotificationRefresh();
   }, [queryClient]);
 
   const { refreshing, pullDistance, handlers: pullHandlers } = usePullToRefresh(handlePullRefresh);

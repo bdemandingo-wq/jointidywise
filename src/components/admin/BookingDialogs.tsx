@@ -31,6 +31,7 @@ import { orgDateKey, formatInOrgTz } from "@/lib/orgDateRange";
 import { AdminLiveTracking } from "./AdminLiveTracking";
 import { fmt } from '@/lib/activeCurrency';
 import { CustomerNotesBlock } from '@/components/CustomerNotesBlock';
+import { FarCheckinNotice } from '@/components/admin/FarCheckinNotice';
 
 const STATUS_OPTIONS: Array<{ value: BookingWithDetails["status"]; label: string }> = [
   { value: "pending", label: "Pending Payment" },
@@ -274,6 +275,8 @@ export function BookingDetailsDialog({
               )}
             </dl>
           </div>
+
+          <FarCheckinNotice bookingId={booking.id} />
 
           {booking.notes ? (
             <div className="rounded-lg border bg-card p-4">

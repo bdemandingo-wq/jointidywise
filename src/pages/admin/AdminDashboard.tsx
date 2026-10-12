@@ -1,4 +1,4 @@
-import { useMemo, useEffect, lazy, Suspense } from 'react';
+import { useMemo, useEffect, useCallback, lazy, Suspense } from 'react';
 import { isOrgToday } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -15,6 +15,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { PageSkeleton, BookingCardSkeleton } from '@/components/ui/page-skeleton';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { SEOHead } from '@/components/SEOHead';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { PullToRefreshIndicator } from '@/components/admin/PullToRefreshIndicator';
+import { requestAdminNotificationRefresh } from '@/lib/adminNotificationRefresh';
 
 
 // Lazy load the heavy ReportsOverview component
@@ -94,6 +97,16 @@ export default function AdminDashboard() {
   }, [queryClient]);
   const { timezone: orgTimezone } = useOrgTimezone();
 
+  const handlePullRefresh = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['bookings'] }),
+      queryClient.invalidateQueries({ queryKey: ['customers'] }),
+      queryClient.invalidateQueries({ queryKey: ['onboarding-checklist'] }),
+    ]);
+    requestAdminNotificationRefresh();
+  }, [queryClient]);
+  const { refreshing, pullDistance, handlers: pullHandlers } = usePullToRefresh(handlePullRefresh);
+
 
   const todayStats = useMemo(() => {
     // isOrgToday, not date-fns isToday. isToday compares against the BROWSER's
@@ -129,7 +142,8 @@ export default function AdminDashboard() {
       title="Dashboard"
       subtitle="Welcome back! Here's what's happening."
     >
-      <div className="portal-v2">
+      <div className="portal-v2" {...pullHandlers}>
+      <PullToRefreshIndicator pullDistance={pullDistance} refreshing={refreshing} />
       <OnboardingChecklist />
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-fade-in">
         <div className="xl:col-span-2 space-y-6">

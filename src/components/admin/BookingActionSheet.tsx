@@ -17,6 +17,7 @@ import {
   Heart, Banknote, UserPlus, ChevronDown, CheckCircle,
 } from 'lucide-react';
 import { BookingWithDetails } from '@/hooks/useBookings';
+import { FarCheckinNotice } from '@/components/admin/FarCheckinNotice';
 
 
 interface BookingActionSheetProps {
@@ -235,6 +236,8 @@ export function BookingActionSheet({
             </div>
           </DrawerTitle>
         </DrawerHeader>
+
+        <FarCheckinNotice bookingId={booking.id} />
 
         {/* ── Quick Actions ── */}
         <div className="py-3 grid grid-cols-1 gap-2">

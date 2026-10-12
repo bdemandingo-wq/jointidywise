@@ -128,6 +128,7 @@ export default function StaffPortal() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { refreshing, pullDistance, handlers: pullHandlers } = usePullToRefresh(async () => {
+    // Reloads the job list (staff-bookings) and the rest of the portal.
     await queryClient.invalidateQueries();
   });
 

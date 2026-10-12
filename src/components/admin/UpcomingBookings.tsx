@@ -21,6 +21,7 @@ import { AddBookingDialog } from './AddBookingDialog';
 import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { formatInOrgTz } from '@/lib/orgDateRange';
+import { FarCheckinNotice } from '@/components/admin/FarCheckinNotice';
 
 interface UpcomingBookingsProps {
   bookings: BookingWithDetails[];
@@ -288,6 +289,7 @@ export function UpcomingBookings({ bookings }: UpcomingBookingsProps) {
           </DialogHeader>
           {selectedBooking && (
             <div className="space-y-4">
+              <FarCheckinNotice bookingId={selectedBooking.id} />
               <div className="flex items-center justify-between">
                 <span className="text-lg font-semibold">
                   {selectedBooking.service?.name || 'Cleaning Service'}
