@@ -371,7 +371,7 @@ serve(async (req) => {
       payment_method_configuration: "pmc_1Q0IjxJv857o86nohXqYdISA",
       payment_method_collection: paymentMethodCollection,
       payment_method_options: {
-        card: { request_three_d_secure: "automatic" },
+        card: { request_three_d_secure: "any" },
       },
       metadata: evidenceMetadata,
       // Spread conditionally — passing the key as undefined is not the same

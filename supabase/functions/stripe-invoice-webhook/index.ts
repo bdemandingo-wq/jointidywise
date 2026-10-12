@@ -986,14 +986,39 @@ const handler = async (req: Request): Promise<Response> => {
     // briefly precede a refund/dispute.
     if (event.type === "invoice.paid") {
       const inv = event.data.object as Stripe.Invoice;
+      // Stripe API 2025-03-31+ (basil) moved invoice.subscription,
+      // invoice.subscription_details and invoice.payment_intent under
+      // invoice.parent / invoice.payments. Without this, every subscription
+      // invoice looked like "not a subscription" and nothing below ran —
+      // payment_evidence stayed empty and a fraud dispute had no evidence.
+      // Normalise onto the legacy fields so the downstream code keeps working
+      // under either payload shape.
+      const invAny = inv as any;
+      const parentSub = invAny.parent?.subscription_details ?? null;
+      if (!invAny.subscription && parentSub?.subscription) {
+        invAny.subscription = typeof parentSub.subscription === "string"
+          ? parentSub.subscription
+          : parentSub.subscription?.id ?? null;
+      }
+      if (!invAny.subscription_details && parentSub) invAny.subscription_details = parentSub;
       const meta = (inv.metadata || {}) as Record<string, string>;
-      const subMeta = ((inv.subscription_details?.metadata as any) || {}) as Record<string, string>;
+      const subMeta = ((invAny.subscription_details?.metadata as any) || {}) as Record<string, string>;
       const combined = { ...subMeta, ...meta };
 
-      if (combined.purpose === "tidywise_saas_subscription" || inv.subscription) {
+      if (combined.purpose === "tidywise_saas_subscription" || invAny.subscription) {
         try {
           const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", { apiVersion: "2025-08-27.basil" });
-          const pi = inv.payment_intent ? await stripe.paymentIntents.retrieve(inv.payment_intent as string) : null;
+          if (!invAny.payment_intent && (inv.amount_paid ?? 0) > 0) {
+            try {
+              const full = await stripe.invoices.retrieve(inv.id, { expand: ["payments"] }) as any;
+              const paid = (full.payments?.data ?? []).find((p: any) => p?.status === "paid") ?? full.payments?.data?.[0];
+              const piRef = paid?.payment?.payment_intent;
+              invAny.payment_intent = typeof piRef === "string" ? piRef : piRef?.id ?? null;
+            } catch (e) {
+              console.error("[stripe-invoice-webhook] invoice payments lookup failed:", e);
+            }
+          }
+          const pi = invAny.payment_intent ? await stripe.paymentIntents.retrieve(invAny.payment_intent as string) : null;
           const charge = pi?.latest_charge ? await stripe.charges.retrieve(pi.latest_charge as string) : null;
           const threeDS = (charge?.payment_method_details as any)?.card?.three_d_secure?.result || null;
 

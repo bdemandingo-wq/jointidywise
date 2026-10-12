@@ -134,7 +134,7 @@ serve(async (req) => {
       mode: "payment",
       line_items: [{ price: LIFETIME_PRICE_ID, quantity: 1 }],
       payment_method_options: {
-        card: { request_three_d_secure: "automatic" },
+        card: { request_three_d_secure: "any" },
       },
       metadata,
       success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}&plan=lifetime`,
