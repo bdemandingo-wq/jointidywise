@@ -11,6 +11,30 @@ export interface OnboardingItem {
   icon: string;
 }
 
+async function hasAnyRow(
+  table: 'services' | 'staff' | 'bookings',
+  organizationId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from(table)
+    .select('id')
+    .eq('organization_id', organizationId)
+    .limit(1);
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
+}
+
+async function hasActiveService(organizationId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('services')
+    .select('id')
+    .eq('organization_id', organizationId)
+    .eq('is_active', true)
+    .limit(1);
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
+}
+
 export function useOnboardingChecklist() {
   const { organizationId } = useOrgId();
 
@@ -19,21 +43,22 @@ export function useOnboardingChecklist() {
     queryFn: async () => {
       if (!organizationId) return [];
 
-      // Run all checks in parallel
-      const [services, staff, sms, stripe, bookings] = await Promise.all([
-        supabase.from('services').select('id', { count: 'exact', head: true }).eq('organization_id', organizationId),
-        supabase.from('staff').select('id', { count: 'exact', head: true }).eq('organization_id', organizationId),
+      // A head/count request was returning a null count while the Services
+      // page (a normal select) showed the six services onboarding just
+      // inserted, so "Add your first service" stayed unticked forever.
+      const [hasServices, hasStaff, sms, stripe, hasBookings] = await Promise.all([
+        hasActiveService(organizationId),
+        hasAnyRow('staff', organizationId),
         supabase.rpc('has_openphone_api_key', { _org_id: organizationId }),
         supabase.rpc('get_org_stripe_settings_safe', { p_organization_id: organizationId }),
-        supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('organization_id', organizationId),
+        hasAnyRow('bookings', organizationId),
       ]);
 
-      const hasServices = (services.count ?? 0) > 0;
-      const hasStaff = (staff.count ?? 0) > 0;
+      if (sms.error) throw sms.error;
+      if (stripe.error) throw stripe.error;
       const hasOpenPhone = sms.data === true;
       const stripeRow = (stripe.data as any)?.[0] ?? null;
       const hasStripe = !!(stripeRow?.stripe_account_id);
-      const hasBookings = (bookings.count ?? 0) > 0;
 
       const items: OnboardingItem[] = [
         {
@@ -81,6 +106,9 @@ export function useOnboardingChecklist() {
       return items;
     },
     enabled: !!organizationId,
-    staleTime: 2 * 60 * 1000,
+    // The checklist is the first thing a new owner sees. A persisted
+    // "0 services" from the second before the insert committed must not
+    // stick for the default 5 minute stale time.
+    staleTime: 0,
   });
 }

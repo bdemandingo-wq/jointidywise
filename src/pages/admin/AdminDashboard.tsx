@@ -144,6 +144,7 @@ export default function AdminDashboard() {
     >
       <div className="portal-v2" {...pullHandlers}>
       <PullToRefreshIndicator pullDistance={pullDistance} refreshing={refreshing} />
+      <div data-tour-id="dashboard-home">
       <OnboardingChecklist />
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-fade-in">
         <div className="xl:col-span-2 space-y-6">
@@ -171,6 +172,7 @@ export default function AdminDashboard() {
         <div>
           <UpcomingBookings bookings={bookings as BookingWithDetails[]} />
         </div>
+      </div>
       </div>
       </div>
     </AdminLayout>

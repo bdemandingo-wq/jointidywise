@@ -52,6 +52,7 @@ import { SchedulingModeCard } from '@/components/admin/SchedulingModeCard';
 import { SidebarVisibilitySettings } from '@/components/admin/SidebarVisibilitySettings';
 import { TeamMembersCard } from '@/components/admin/TeamMembersCard';
 import { YourProfileCard } from '@/components/admin/YourProfileCard';
+import { DemoModeSettingsCard } from '@/components/admin/DemoModeSettingsCard';
 import { MobileBottomNavSettings } from '@/components/admin/MobileBottomNavSettings';
 import { BookingFormShareCard } from '@/components/admin/BookingFormShareCard';
 import { LoyaltyTierEditor } from '@/components/admin/LoyaltyTierEditor';
@@ -723,6 +724,7 @@ export default function SettingsPage() {
           {/* First on the tab, above the business details: it is about the person,
               and it is the setting people come to Settings looking for. */}
           <YourProfileCard />
+          <DemoModeSettingsCard />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

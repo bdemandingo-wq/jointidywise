@@ -153,7 +153,7 @@ export default function PortalLoginPage() {
                 <p className="text-sm text-destructive" role="alert">{loginError}</p>
               )}
 
-              <Button type="submit" className="w-full" disabled={isSubmitting}>
+              <Button type="submit" className="w-full" variant="premium" disabled={isSubmitting}>
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Sign In
               </Button>

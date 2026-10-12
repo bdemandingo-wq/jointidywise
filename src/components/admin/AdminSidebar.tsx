@@ -1,5 +1,4 @@
 import { Link, useLocation, useNavigate, matchPath } from 'react-router-dom';
-import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Calendar,
   Users,
@@ -51,6 +50,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { getSignedUrl } from '@/hooks/useSignedUrl';
+import { displayBusinessName } from '@/lib/businessDisplayName';
+import { SIDEBAR_SECTIONS, groupNavItems } from '@/lib/sidebarSections';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -133,6 +134,22 @@ const defaultNavigation = [
  */
 const PINNED_HELP: NavItem = { name: 'Help', href: '/dashboard/help', icon: HelpCircle };
 
+const SECTION_ICONS: Record<string, typeof Home> = {
+  home: Home,
+  schedule: Calendar,
+  customers: Users,
+  money: DollarSign,
+  team: UserCircle,
+  growth: Zap,
+  catalog: Briefcase,
+  payments: CreditCard,
+  more: Sparkles,
+};
+
+function sectionIdForHref(href: string): string {
+  return SIDEBAR_SECTIONS.find((section) => section.hrefs.includes(href))?.id ?? 'more';
+}
+
 const iconMap: Record<string, typeof Home> = {
   Home, Calendar, ClipboardList, Repeat, Users, Target, MapPin, MessageSquare,
   Briefcase, UserCircle, CheckSquare, Package, DollarSign, Receipt, BarChart3,
@@ -185,9 +202,11 @@ interface SortableNavItemProps {
   onNavClick: () => void;
   /** Accent styling for the pinned Help row — keeps it visually distinct from regular nav. */
   accent?: boolean;
+  /** Grip handles only while the owner is reordering the menu. */
+  reorderMode?: boolean;
 }
 
-function SortableNavItem({ item, isActive, isOpen, isMobile, onNavClick }: SortableNavItemProps) {
+function SortableNavItem({ item, isActive, isOpen, isMobile, onNavClick, reorderMode = false }: SortableNavItemProps) {
   const {
     attributes,
     listeners,
@@ -209,17 +228,19 @@ function SortableNavItem({ item, isActive, isOpen, isMobile, onNavClick }: Sorta
       style={style}
       className="flex items-center group pointer-events-auto touch-manipulation"
     >
-      <button
-        {...attributes}
-        {...listeners}
-        className={cn(
-          "p-1 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity touch-manipulation",
-          isDragging && "opacity-100",
-          isMobile && "hidden"
-        )}
-      >
-        <GripVertical className="w-4 h-4 text-muted-foreground" />
-      </button>
+      {reorderMode && !isMobile && (
+        <button
+          {...attributes}
+          {...listeners}
+          className={cn(
+            "p-1 cursor-grab active:cursor-grabbing touch-manipulation",
+            isDragging && "opacity-100",
+          )}
+          aria-label={`Reorder ${item.name}`}
+        >
+          <GripVertical className="w-4 h-4 text-muted-foreground" />
+        </button>
+      )}
       <Link
         to={item.href}
         onClick={onNavClick}
@@ -269,7 +290,6 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
   const { user, signOut } = useAuth();
   const { organization, isOwner, allOrganizations, switchOrganization } = useOrganization();
   const { staffOrgs } = useMyStaffOrgs();
-  const isMobileDevice = useIsMobile();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -286,8 +306,19 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
     };
   }, []);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [businessDisplayName, setBusinessDisplayName] = useState<string>('My Business');
+  const [companyName, setCompanyName] = useState<string | null>(null);
+  const businessDisplayName = displayBusinessName(organization?.name, companyName);
   const [navigation, setNavigation] = useState<NavItem[]>(defaultNavigation);
+  const [reorderMode, setReorderMode] = useState(false);
+  const [openSectionIds, setOpenSectionIds] = useState<string[] | null>(() => {
+    try {
+      const raw = localStorage.getItem('tidywise_nav_sections');
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : null;
+    } catch {
+      return null;
+    }
+  });
   const { hiddenItems, isLoading: hiddenItemsLoading } = useSidebarHiddenItems();
   const [orgToDelete, setOrgToDelete] = useState<{ id: string; name: string } | null>(null);
   const [isDeletingOrg, setIsDeletingOrg] = useState(false);
@@ -409,12 +440,15 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
   useEffect(() => {
     const fetchLogoAndName = async () => {
       if (!organization?.id) return;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('business_settings')
         .select('logo_url, company_name')
         .eq('organization_id', organization.id)
         .limit(1)
         .maybeSingle();
+      if (error) {
+        console.error('Failed to load business name:', error);
+      }
       
       if (data?.logo_url) {
         const raw = data.logo_url as string;
@@ -431,12 +465,7 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
           setLogoUrl(raw);
         }
       }
-      // Use company_name from business_settings if available, otherwise fall back to organization name
-      if (data?.company_name) {
-        setBusinessDisplayName(data.company_name);
-      } else if (organization?.name) {
-        setBusinessDisplayName(organization.name);
-      }
+      setCompanyName(data?.company_name ?? null);
     };
     fetchLogoAndName();
   }, [organization?.id, organization?.name]);
@@ -445,6 +474,7 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
     const { active, over } = event;
 
     if (over && active.id !== over.id) {
+      if (sectionIdForHref(String(active.id)) !== sectionIdForHref(String(over.id))) return;
       setNavigation((items) => {
         const oldIndex = items.findIndex(item => item.href === active.id);
         const newIndex = items.findIndex(item => item.href === over.id);
@@ -516,54 +546,129 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
         />
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 pt-2 pb-4 pointer-events-auto touch-manipulation relative z-10">
-        {(isMobile || isMobileDevice) ? (
-          <div className="space-y-0.5">
-            {visibleNavigation.map((item) => {
-              const isActive = location.pathname === item.href ||
-                (item.href !== '/dashboard' && location.pathname.startsWith(item.href));
-              return (
-                <StaticNavItem
-                  key={item.href}
-                  item={item}
-                  isActive={isActive}
-                  isOpen={isOpen}
-                  isMobile={isMobile}
-                  onNavClick={handleNavClick}
-                />
-              );
-            })}
-          </div>
-        ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={visibleNavigation.map(item => item.href)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="space-y-1">
-                {visibleNavigation.map((item) => {
-                  const isActive = location.pathname === item.href || 
-                    (item.href !== '/dashboard' && location.pathname.startsWith(item.href));
+      {/* Navigation. Top level is about 8 sections; the rest sit inside them.
+          Drag handles exist only while Reorder menu is on. */}
+      <nav
+        data-tour-id="sidebar-nav"
+        className="flex-1 overflow-y-auto px-3 pt-2 pb-4 pointer-events-auto touch-manipulation relative z-10"
+      >
+        {(() => {
+          const itemIsActive = (href: string) =>
+            location.pathname === href ||
+            (href !== '/dashboard' && location.pathname.startsWith(href));
+          const groups = groupNavItems(visibleNavigation);
+          const activeSectionId = groups.find((group) =>
+            group.items.some((item) => itemIsActive(item.href)),
+          )?.id ?? null;
+          const iconOnly = !isOpen && !isMobile;
+          const sectionIsOpen = (id: string) => {
+            if (reorderMode) return true;
+            if (openSectionIds === null) return id === activeSectionId;
+            return openSectionIds.includes(id);
+          };
+          const toggleSection = (id: string) => {
+            setOpenSectionIds((prev) => {
+              const base = prev ?? (activeSectionId ? [activeSectionId] : []);
+              const next = base.includes(id) ? base.filter((value) => value !== id) : [...base, id];
+              localStorage.setItem('tidywise_nav_sections', JSON.stringify(next));
+              return next;
+            });
+          };
+          const renderLink = (item: NavItem, nested: boolean, sortable: boolean) => {
+            const shared = {
+              item,
+              isActive: itemIsActive(item.href),
+              isOpen,
+              isMobile,
+              onNavClick: handleNavClick,
+              reorderMode: sortable,
+            };
+            const node = sortable
+              ? <SortableNavItem key={item.href} {...shared} />
+              : <StaticNavItem key={item.href} {...shared} />;
+            return nested ? <div key={item.href} className="pl-3">{node}</div> : node;
+          };
+          const list = (
+            <div className="space-y-0.5">
+              {groups.map((group) => {
+                const Icon = SECTION_ICONS[group.id] ?? group.items[0].icon;
+                const groupActive = group.items.some((item) => itemIsActive(item.href));
+                if (iconOnly) {
                   return (
-                    <SortableNavItem
-                      key={item.href}
-                      item={item}
-                      isActive={isActive}
-                      isOpen={isOpen}
-                      isMobile={isMobile}
-                      onNavClick={handleNavClick}
-                    />
+                    <Link
+                      key={group.id}
+                      to={group.items[0].href}
+                      onClick={handleNavClick}
+                      title={group.name}
+                      className={cn(
+                        'sidebar-link min-h-[44px] justify-center px-2',
+                        groupActive && 'active',
+                      )}
+                    >
+                      <Icon className="w-5 h-5 flex-shrink-0" />
+                    </Link>
                   );
-                })}
-              </div>
-            </SortableContext>
-          </DndContext>
-        )}
+                }
+                if (group.items.length === 1) {
+                  return renderLink(group.items[0], false, false);
+                }
+                const badge = group.items.reduce((sum, item) => sum + (item.badge ?? 0), 0);
+                const open = sectionIsOpen(group.id);
+                const children = group.items.map((item) =>
+                  renderLink(item, true, reorderMode && !isMobile),
+                );
+                return (
+                  <div key={group.id}>
+                    <button
+                      type="button"
+                      onClick={() => toggleSection(group.id)}
+                      aria-expanded={open}
+                      className={cn(
+                        'sidebar-link w-full min-h-[44px]',
+                        groupActive && !open && 'active',
+                      )}
+                    >
+                      <Icon className="w-5 h-5 flex-shrink-0" />
+                      <span className="flex-1 text-left">{group.name}</span>
+                      {badge > 0 && (
+                        <Badge variant="destructive" className="h-5 min-w-5 px-1 flex items-center justify-center text-xs rounded-full">
+                          {badge > 9 ? '9+' : badge}
+                        </Badge>
+                      )}
+                      <ChevronDown className={cn('w-4 h-4 flex-shrink-0 transition-transform', open && 'rotate-180')} />
+                    </button>
+                    {open && (
+                      reorderMode && !isMobile ? (
+                        <SortableContext items={group.items.map((item) => item.href)} strategy={verticalListSortingStrategy}>
+                          {children}
+                        </SortableContext>
+                      ) : (
+                        children
+                      )
+                    )}
+                  </div>
+                );
+              })}
+              {!iconOnly && !isMobile && (
+                <button
+                  type="button"
+                  onClick={() => setReorderMode((value) => !value)}
+                  className="mt-3 w-full min-h-[44px] rounded-lg px-3 text-left text-xs font-medium text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                >
+                  {reorderMode ? 'Done reordering' : 'Reorder menu'}
+                </button>
+              )}
+            </div>
+          );
+          if (reorderMode && !isMobile && !iconOnly) {
+            return (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                {list}
+              </DndContext>
+            );
+          }
+          return list;
+        })()}
 
         {/* Platform Admin Links - Only visible for support@tidywisecleaning.com */}
         {user?.email === 'support@tidywisecleaning.com' && (
@@ -750,6 +855,7 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
         className="hamburger-menu-btn fixed top-[calc(0.25rem+env(safe-area-inset-top))] left-1 z-50 min-w-[44px] min-h-[44px] md:hidden bg-background/80 backdrop-blur-sm touch-manipulation pointer-events-auto"
         onClick={() => setMobileOpen(true)}
         aria-label="Open navigation menu"
+        data-tour-id="mobile-nav-toggle"
       >
         <Menu className="w-6 h-6" />
       </Button>

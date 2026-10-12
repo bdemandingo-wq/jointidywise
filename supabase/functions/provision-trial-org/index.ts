@@ -88,6 +88,20 @@ serve(async (req) => {
     const fullName = profile?.full_name?.trim();
     const orgName = fullName ? `${fullName}'s Business` : "My Cleaning Business";
 
+    // New orgs only (the already-provisioned branch returned above). If the
+    // signup trigger did not stamp a trial end, give this new profile 14 days.
+    // Never overwrite a date that is already set.
+    let trialEndsAt = profile?.trial_ends_at ?? null;
+    if (!trialEndsAt) {
+      trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+      const { error: trialError } = await supabase
+        .from("profiles")
+        .update({ trial_ends_at: trialEndsAt })
+        .eq("id", user.id)
+        .is("trial_ends_at", null);
+      if (trialError) throw trialError;
+    }
+
     const { data: org, error: orgError } = await supabase
       .from("organizations")
       .insert({ name: orgName, plan_type: "trial", owner_id: user.id, needs_onboarding: true })
@@ -101,7 +115,7 @@ serve(async (req) => {
     if (membershipError) throw membershipError;
 
     log("provisioned", { organization_id: org.id });
-    return json({ organization_id: org.id, trial_ends_at: profile?.trial_ends_at ?? null });
+    return json({ organization_id: org.id, trial_ends_at: trialEndsAt });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     log("ERROR", { msg });

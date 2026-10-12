@@ -55,6 +55,7 @@ import {
 import { useCustomFrequencies, resolveCustomFrequencyDiscountPct } from '@/hooks/useCustomFrequencies';
 import { supabase } from '@/lib/supabase';
 import { isValidPhone } from '@/lib/errorHandling';
+import { validatePhone } from '@/lib/phoneValidation';
 import { toast } from 'sonner';
 import { applyPublicBranding, clearPublicBranding } from '@/hooks/useBrandingColors';
 import { StripeCardForm } from '@/components/stripe/StripeCardForm';
@@ -590,6 +591,14 @@ export default function PublicBookingPage() {
   };
 
   const handleNext = async () => {
+    if (!canProceed()) {
+      if (step === 3 && validatePhone(customerInfo.phone, true)) {
+        toast.error(validatePhone(customerInfo.phone, true) || 'Enter a valid phone number.');
+      } else {
+        toast.error('Finish this step before continuing.');
+      }
+      return;
+    }
     if (step === 4) {
       // Step 4 is card step — submit booking after card is saved
       setIsSubmitting(true);
@@ -771,7 +780,12 @@ export default function PublicBookingPage() {
     switch (step) {
       case 1: return selectedService !== null;
       case 2: return selectedDate !== undefined && selectedTime !== null;
-      case 3: return customerInfo.name && customerInfo.email && customerInfo.phone && customerInfo.address;
+      case 3: return Boolean(
+        customerInfo.name &&
+        customerInfo.email &&
+        customerInfo.address &&
+        !validatePhone(customerInfo.phone, true),
+      );
       case 4: return cardSaved;
       default: return true;
     }
@@ -1502,7 +1516,10 @@ export default function PublicBookingPage() {
                       <Label htmlFor="phone">Phone Number <span className="text-destructive" aria-hidden="true">*</span></Label>
                       <div className="relative">
                         <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                        <Input id="phone" required type="tel" inputMode="tel" autoComplete="tel" placeholder="(555) 123-4567" className="pl-9" value={customerInfo.phone} onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })} />
+                        <Input id="phone" required type="tel" inputMode="tel" autoComplete="tel" placeholder="(555) 123-4567" className="pl-9" value={customerInfo.phone} onChange={(e) => setCustomerInfo({ ...customerInfo, phone: e.target.value })} aria-invalid={customerInfo.phone.trim() && validatePhone(customerInfo.phone, true) ? true : undefined} />
+                        {customerInfo.phone.trim() && validatePhone(customerInfo.phone, true) && (
+                          <p className="text-xs text-destructive">{validatePhone(customerInfo.phone, true)}</p>
+                        )}
                       </div>
                       {/* Its own checkbox, unticked by default, and the label
                           says a text is coming. This is the only record of
@@ -1849,6 +1866,7 @@ export default function PublicBookingPage() {
               <Button
                 onClick={handleNext}
                 size="lg"
+                variant="premium"
                 disabled={!canProceed() || isSubmitting}
                 className="gap-2 sm:w-auto sm:ml-auto"
                 style={formColors.button ? {

@@ -8,6 +8,7 @@ import { useNavigate, Link, useLocation, useSearchParams } from 'react-router-do
 import { useAuthNoSession, supabaseNoSession } from '@/hooks/useAuthNoSession';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import { safeOnboardingNext } from '@/lib/onboardingWinback';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -109,6 +110,8 @@ export default function LoginPage() {
           if (e.path[0] === 'password') fieldErrors.password = e.message;
         });
         setErrors(fieldErrors);
+        const first = err.errors[0]?.message;
+        if (first) toast.error(first);
       }
       return false;
     }
@@ -153,6 +156,12 @@ export default function LoginPage() {
   const handleSplashComplete = async () => {
     if (claimSlug) {
       navigate(`/score/c/${encodeURIComponent(claimSlug)}?claim=1`, { replace: true });
+      return;
+    }
+
+    const resumeOnboarding = safeOnboardingNext(searchParams.get('next'));
+    if (resumeOnboarding) {
+      navigate(resumeOnboarding, { replace: true });
       return;
     }
 
@@ -352,7 +361,7 @@ export default function LoginPage() {
               </>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
               {/* Email field */}
               <div className="space-y-2">
                 <Label htmlFor="email" className="flex items-center gap-2">
@@ -426,7 +435,7 @@ export default function LoginPage() {
               </div>
 
               {/* Submit button */}
-              <Button type="submit" className="w-full" disabled={loading} style={{ touchAction: 'manipulation' }}>
+              <Button type="submit" className="w-full" variant="premium" disabled={loading} style={{ touchAction: 'manipulation' }}>
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Sign In
               </Button>
