@@ -8,7 +8,7 @@
 //  - PLATFORM Stripe only. Never touch an org's Connect account.
 //  - Money is integer cents from Stripe, stored as-is. No division, no rounding, no floats.
 import Stripe from "https://esm.sh/stripe@18.5.0";
-import { createClient } from "npm:@supabase/supabase-js@2.57.2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 
 const corsHeaders = {

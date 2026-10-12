@@ -17,7 +17,7 @@ import { isValidEmail } from "../_shared/email-address.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { parse as parseCsv } from "https://deno.land/std@0.224.0/csv/parse.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Anthropic from "npm:@anthropic-ai/sdk@0.40.0";
+import Anthropic from "https://esm.sh/@anthropic-ai/sdk@0.40.0";
 import { requireOrgAdmin, sharedCorsHeaders } from "../_shared/requireOrgAdmin.ts";
 
 const MODEL = "claude-opus-4-7";

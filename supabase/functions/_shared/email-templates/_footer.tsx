@@ -1,6 +1,6 @@
 /// <reference types="npm:@types/react@18.3.1" />
 import * as React from 'npm:react@18.3.1'
-import { Hr, Link, Section, Text } from 'npm:@react-email/components@0.0.22'
+import { Hr, Link, Section, Text } from 'https://esm.sh/@react-email/components@0.0.22?deps=react@18.3.1'
 import { BRAND, styles } from './_brand.ts'
 
 export const Footer = () => (
