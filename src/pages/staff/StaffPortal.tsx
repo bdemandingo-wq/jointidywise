@@ -856,9 +856,14 @@ export default function StaffPortal() {
       }
     },
     onError: (error) => {
+      const fromObject = error && typeof error === 'object' && 'message' in error
+        ? (error as { message?: unknown }).message
+        : undefined;
       const message = error instanceof Error && error.message
         ? error.message
-        : 'Failed to update status';
+        : typeof fromObject === 'string' && fromObject.trim()
+          ? fromObject
+          : 'Failed to update status';
       toast.error(message);
       console.error(error);
     },
