@@ -50,6 +50,13 @@
       "when": 1791778353780,
       "tag": "0006_invoice_payment_method",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791780240294,
+      "tag": "0007_campaign_channel_inactive_seeds",
+      "breakpoints": true
     }
   ]
 }

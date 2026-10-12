@@ -871,6 +871,7 @@ export type Database = {
       automated_campaigns: {
         Row: {
           body: string
+          channel: string
           created_at: string
           days_inactive: number | null
           id: string
@@ -879,6 +880,7 @@ export type Database = {
           name: string
           organization_id: string | null
           scheduled_at: string | null
+          sms_body: string | null
           subject: string
           throttle_seconds: number
           type: string
@@ -886,6 +888,7 @@ export type Database = {
         }
         Insert: {
           body: string
+          channel?: string
           created_at?: string
           days_inactive?: number | null
           id?: string
@@ -894,6 +897,7 @@ export type Database = {
           name: string
           organization_id?: string | null
           scheduled_at?: string | null
+          sms_body?: string | null
           subject: string
           throttle_seconds?: number
           type: string
@@ -901,6 +905,7 @@ export type Database = {
         }
         Update: {
           body?: string
+          channel?: string
           created_at?: string
           days_inactive?: number | null
           id?: string
@@ -909,6 +914,7 @@ export type Database = {
           name?: string
           organization_id?: string | null
           scheduled_at?: string | null
+          sms_body?: string | null
           subject?: string
           throttle_seconds?: number
           type?: string
