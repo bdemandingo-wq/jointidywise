@@ -382,7 +382,8 @@ export function useCreateBooking() {
       queryClient.invalidateQueries({ queryKey: ['booking-team-assignments'] });
       queryClient.invalidateQueries({ queryKey: ['all-team-assignments'] });
       syncWidgetData(); // Update widget with latest booking
-      toast.success('Booking created successfully');
+      // BookingStepper already toasts the create result (including the
+      // recurring-schedule wording). A second toast here doubled it.
     },
     onError: (error: Error) => {
       toast.error(`Failed to create booking: ${error.message}`);
@@ -394,7 +395,7 @@ export function useUpdateBooking() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, ...data }: UpdateBookingData) => {
+    mutationFn: async ({ id, suppressToast: _suppressToast, ...data }: UpdateBookingData & { suppressToast?: boolean }) => {
       // Detect a new assignment so we can notify the cleaner (only when
       // staff_id actually changes — edit dialogs resend unchanged fields)
       let previousStaffId: string | null | undefined;
@@ -461,12 +462,14 @@ export function useUpdateBooking() {
 
       return booking;
     },
-    onSuccess: () => {
+    onSuccess: (_booking, variables) => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       queryClient.invalidateQueries({ queryKey: ['booking-team-assignments'] });
       queryClient.invalidateQueries({ queryKey: ['all-team-assignments'] });
       syncWidgetData(); // Update widget with latest booking
-      toast.success('Booking updated successfully');
+      if (!variables.suppressToast) {
+        toast.success('Booking updated successfully');
+      }
     },
     onError: (error: Error) => {
       toast.error(`Failed to update booking: ${error.message}`);

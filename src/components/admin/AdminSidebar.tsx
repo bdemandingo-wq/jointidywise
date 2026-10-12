@@ -508,12 +508,11 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
           item={PINNED_HELP}
           isActive={
             location.pathname === PINNED_HELP.href ||
-            location.pathname.startsWith(PINNED_HELP.href)
+            location.pathname.startsWith(`${PINNED_HELP.href}/`)
           }
           isOpen={isOpen}
           isMobile={isMobile}
           onNavClick={handleNavClick}
-          accent
         />
       </div>
 

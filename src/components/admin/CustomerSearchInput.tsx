@@ -3,6 +3,10 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { Search, User, X, Pencil } from 'lucide-react';
 
+function customerDisplayName(customer: { first_name?: string | null; last_name?: string | null }) {
+  return [customer.first_name, customer.last_name].filter((part) => part && part.trim() && part !== 'null').join(' ');
+}
+
 interface Customer {
   id: string;
   first_name: string;
@@ -38,7 +42,7 @@ export function CustomerSearchInput({
 
   // Filter customers based on search term
   const filteredCustomers = customers.filter(customer => {
-    const fullName = `${customer.first_name} ${customer.last_name}`.toLowerCase();
+    const fullName = customerDisplayName(customer).toLowerCase();
     const email = (customer.email ?? '').toLowerCase();
     const search = searchTerm.toLowerCase();
     return fullName.includes(search) || email.includes(search);
@@ -117,7 +121,7 @@ export function CustomerSearchInput({
           <User className="h-4 w-4 text-muted-foreground" />
           <div className="flex-1 min-w-0">
             <p className="font-medium truncate">
-              {selectedCustomer.first_name} {selectedCustomer.last_name}
+              {customerDisplayName(selectedCustomer)}
             </p>
             <p className="text-sm text-muted-foreground truncate">
               {selectedCustomer.email}
@@ -193,7 +197,7 @@ export function CustomerSearchInput({
                       <User className="h-6 w-6 flex-shrink-0" />
                       <div className="min-w-0 flex-1">
                         <p className="font-semibold text-lg leading-tight">
-                          {customer.first_name} {customer.last_name}
+                          {customerDisplayName(customer)}
                         </p>
                         <p className={cn(
                           "text-sm mt-0.5",

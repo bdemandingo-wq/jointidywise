@@ -109,7 +109,7 @@ export function MobileBottomNavSettings() {
                   return (
                     <div key={s.id} className="flex flex-col items-center gap-0.5 text-[10px] text-muted-foreground">
                       {Icon && <Icon className="h-4 w-4" />}
-                      <span className="truncate max-w-[56px]">{s.label}</span>
+                      <span className="text-center leading-tight break-words w-full">{s.label}</span>
                     </div>
                   );
                 })}
@@ -123,7 +123,7 @@ export function MobileBottomNavSettings() {
                   return (
                     <div key={s.id} className="flex flex-col items-center gap-0.5 text-[10px] text-muted-foreground">
                       {Icon && <Icon className="h-4 w-4" />}
-                      <span className="truncate max-w-[56px]">{s.label}</span>
+                      <span className="text-center leading-tight break-words w-full">{s.label}</span>
                     </div>
                   );
                 })}
