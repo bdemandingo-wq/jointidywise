@@ -43,6 +43,13 @@
       "when": 1791777636564,
       "tag": "0005_consistent_payable_hours",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791778353780,
+      "tag": "0006_invoice_payment_method",
+      "breakpoints": true
     }
   ]
 }
