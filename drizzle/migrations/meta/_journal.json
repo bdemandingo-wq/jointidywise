@@ -71,6 +71,13 @@
       "when": 1791780274750,
       "tag": "0009_client_portal_password_resets",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791781825008,
+      "tag": "0010_p4_abandoned_booking_rate_limit",
+      "breakpoints": true
     }
   ]
 }
