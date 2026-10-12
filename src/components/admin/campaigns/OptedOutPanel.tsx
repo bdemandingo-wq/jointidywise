@@ -32,7 +32,7 @@ function ManualOptOutForm({
   onSubmit: (customerId: string) => void;
 }) {
   const [search, setSearch] = useState("");
-  const { data: results = [] } = useOptOutCustomerSearch(orgId, search);
+  const { data: results = [], isError } = useOptOutCustomerSearch(orgId, search);
 
   return (
     <Card className="mt-4">
@@ -72,7 +72,10 @@ function ManualOptOutForm({
             })}
           </div>
         )}
-        {search.trim().length >= 2 && results.length === 0 && (
+        {isError && (
+          <p className="text-xs text-destructive">Could not search contacts. Try again.</p>
+        )}
+        {search.trim().length >= 2 && !isError && results.length === 0 && (
           <p className="text-xs text-muted-foreground">No active contacts match.</p>
         )}
       </CardContent>

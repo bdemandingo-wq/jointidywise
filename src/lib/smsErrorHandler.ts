@@ -13,20 +13,28 @@ export const SMS_ERROR_CODES = {
  * Parses SMS edge function responses and shows appropriate toasts
  * Returns true if there was an error that was handled
  */
-export async function handleSmsError(response: { data?: any; error?: any }): Promise<boolean> {
+export interface SmsErrorOptions {
+  /** Booking (or quote) already saved. Do not surface raw provider text such as "API key is invalid". */
+  afterBookingSave?: boolean;
+}
+
+export async function handleSmsError(
+  response: { data?: any; error?: any },
+  options?: SmsErrorOptions,
+): Promise<boolean> {
   const { data, error } = response;
 
   // Check for edge function error
   if (error) {
     const { message, code } = await extractEdgeFunctionError(error, data);
-    return showSmsErrorToast(message, code);
+    return showSmsErrorToast(message, code, options);
   }
 
   // Check for error in response data (edge functions return 200 with error in body)
   if (data && data.success === false) {
     const errorMessage = data.error || 'SMS sending failed';
     const errorCode = data.errorCode;
-    return showSmsErrorToast(errorMessage, errorCode);
+    return showSmsErrorToast(errorMessage, errorCode, options);
   }
 
   return false;
@@ -91,7 +99,24 @@ async function extractEdgeFunctionError(error: any, data?: any): Promise<{ messa
 /**
  * Shows appropriate toast based on error type
  */
-function showSmsErrorToast(errorMessage: string, errorCode?: string): boolean {
+function showSmsErrorToast(errorMessage: string, errorCode?: string, options?: SmsErrorOptions): boolean {
+  // A saved booking must not be followed by a credential alarm. The text
+  // failed; the booking did not. Raw provider copy ("API key is invalid")
+  // reads as if the save itself was rejected.
+  if (options?.afterBookingSave) {
+    toast.error('Confirmation text not sent', {
+      description: 'The booking was saved. The confirmation text did not go out. Check Settings → SMS if texts keep failing.',
+      action: {
+        label: 'Go to Settings',
+        onClick: () => {
+          window.location.href = '/dashboard/settings';
+        },
+      },
+      duration: 8000,
+    });
+    return true;
+  }
+
   // Payments not configured (common root cause for payment link SMS)
   if (
     errorMessage.includes('Stripe not configured') ||

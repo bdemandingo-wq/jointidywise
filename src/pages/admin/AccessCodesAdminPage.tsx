@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, Plus, Ban, RotateCcw, Copy, Gift, History } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { confirmDialog } from "@/components/AppDialogs";
 
 interface AccessCode {
   id: string;
@@ -158,7 +159,7 @@ export default function AccessCodesAdminPage() {
   }
 
   async function revokeComp(id: string) {
-    if (!confirm("Revoke this comped access grant?")) return;
+    if (!(await confirmDialog("Revoke this comped access grant?"))) return;
     try {
       await invoke("revoke_comp", { id });
       toast.success("Revoked");

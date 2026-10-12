@@ -855,7 +855,7 @@ export default function PortalDashboardPage() {
                 <SheetHeader>
                   <SheetTitle>Settings</SheetTitle>
                 </SheetHeader>
-                <div className="mt-4 space-y-6">
+                <div className="mt-4 space-y-6 pb-[calc(var(--pv-nav-h,60px)+env(safe-area-inset-bottom,0px)+32px)]">
                   {/* Kept here too — someone already in Settings should not
                       have to close the sheet to sign out. The header button is
                       the discoverable one. */}

@@ -3,6 +3,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import { Button } from "@/components/ui/button";
+import { promptDialog } from "@/components/AppDialogs";
 import {
   Bold, Italic, List, ListOrdered, Heading2, Heading3,
   Quote, Link as LinkIcon, Image as ImageIcon, Undo, Redo, Code,
@@ -33,15 +34,17 @@ export function RichTextEditor({ value, onChange }: RichTextEditorProps) {
   if (!editor) return null;
 
   const addLink = () => {
-    const url = window.prompt("Enter URL");
-    if (!url) return;
-    editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+    void promptDialog("Enter URL").then((url) => {
+      if (!url) return;
+      editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
+    });
   };
 
   const addImage = () => {
-    const url = window.prompt("Enter image URL");
-    if (!url) return;
-    editor.chain().focus().setImage({ src: url }).run();
+    void promptDialog("Enter image URL").then((url) => {
+      if (!url) return;
+      editor.chain().focus().setImage({ src: url }).run();
+    });
   };
 
   return (

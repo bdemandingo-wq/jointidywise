@@ -198,6 +198,21 @@ export function calendarDayKey(pickerDate: Date): string {
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
+/**
+ * Inverse of calendarDayKey. A DATE column (`yyyy-MM-dd`) is a calendar day,
+ * not an instant. `new Date('yyyy-MM-dd')` parses as UTC midnight and lands on
+ * the previous evening in US timezones — that is how an expense opened on
+ * yesterday's date. Build a local-midnight Date from the fields instead.
+ */
+export function calendarDayFromKey(key: string): Date {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(key);
+  if (!match) return new Date(NaN);
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = Number(match[3]);
+  return new Date(y, m - 1, d);
+}
+
 /** First instant of the org-local day containing `instant`. */
 export function orgStartOfDay(instant: Date, timeZone: string): Date {
   const { y, m, d } = orgYMD(instant, timeZone);

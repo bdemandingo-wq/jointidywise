@@ -24,6 +24,7 @@ import { supabase } from '@/lib/supabase';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { confirmDialog } from "@/components/AppDialogs";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -575,9 +576,9 @@ export default function CustomersDuplicatesPage() {
               className="text-destructive hover:text-destructive"
               disabled={bulkDeleteMutation.isPending}
               onClick={() => {
-                if (window.confirm(`Delete ${selectedIds.size} selected ${selectedIds.size === 1 ? 'record' : 'records'}? This cannot be undone.`)) {
-                  bulkDeleteMutation.mutate();
-                }
+                void confirmDialog(`Delete ${selectedIds.size} selected ${selectedIds.size === 1 ? 'record' : 'records'}? This cannot be undone.`).then((ok) => {
+                  if (ok) bulkDeleteMutation.mutate();
+                });
               }}
             >
               {bulkDeleteMutation.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1.5" />}
@@ -625,9 +626,9 @@ export default function CustomersDuplicatesPage() {
               selectedIds={selectedIds}
               onToggleSelected={toggleSelected}
               onDelete={(customer) => {
-                if (window.confirm(`Delete ${customer.first_name} ${customer.last_name}? This cannot be undone.`)) {
-                  deleteMutation.mutate(customer);
-                }
+                void confirmDialog(`Delete ${customer.first_name} ${customer.last_name}? This cannot be undone.`).then((ok) => {
+                  if (ok) deleteMutation.mutate(customer);
+                });
               }}
               ignoring={ignoreMutation.isPending}
             />

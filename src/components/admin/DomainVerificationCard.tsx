@@ -9,6 +9,7 @@ import { Globe, Plus, RefreshCw, Trash2, Loader2, CheckCircle, AlertTriangle, Cl
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { useOrganization } from '@/contexts/OrganizationContext';
+import { confirmDialog } from "@/components/AppDialogs";
 
 interface DnsRecord {
   record: string;
@@ -126,7 +127,7 @@ export function DomainVerificationCard() {
   };
 
   const removeDomain = async (resendDomainId: string) => {
-    if (!confirm('Remove this domain? You will no longer be able to send emails from it.')) return;
+    if (!(await confirmDialog('Remove this domain? You will no longer be able to send emails from it.'))) return;
     setActionLoading(resendDomainId);
     try {
       await callEdgeFunction('remove', { resendDomainId });

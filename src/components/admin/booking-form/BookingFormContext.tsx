@@ -13,6 +13,7 @@ import { calculateBasePrice } from '@/lib/pricingEngine';
 import { useRecurringDiscounts } from '@/hooks/useRecurringDiscounts';
 import { getFrequencyDiscountMultiplier } from '@/lib/recurringDiscount';
 import { useCustomFrequencies, resolveCustomFrequencyDiscountPct } from '@/hooks/useCustomFrequencies';
+import { toast } from 'sonner';
 
 interface CardInfo {
   hasCard: boolean;
@@ -316,19 +317,24 @@ export function BookingFormProvider({
 
   // Fetch saved locations for the selected customer
   const { data: customerLocations = [], error: customerLocationsError } = useQuery({
-    queryKey: ['customer-locations', selectedCustomerId],
+    queryKey: ['customer-locations', selectedCustomerId, organizationId],
     queryFn: async () => {
-      if (!selectedCustomerId) return [];
+      if (!selectedCustomerId || !organizationId) return [];
       const { data, error } = await supabase
         .from('locations')
         .select('id, name, address, apt_suite, city, state, zip_code, is_primary, price_override')
         .eq('customer_id', selectedCustomerId)
+        .eq('organization_id', organizationId)
         .order('is_primary', { ascending: false });
-      if (error) return [];
+      if (error) throw error;
       return (data || []) as SavedLocation[];
     },
-    enabled: !!selectedCustomerId,
+    enabled: !!selectedCustomerId && !!organizationId,
   });
+
+  useEffect(() => {
+    if (customerLocationsError) toast.error('Could not load saved addresses');
+  }, [customerLocationsError]);
   
   // Empty string, not null: every consumer here treats falsy as "no email"
   // and the card-on-file lookup below is already guarded on truthiness.

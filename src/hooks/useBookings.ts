@@ -9,6 +9,7 @@ import type { Json } from '@/integrations/supabase/types';
 import { dispatchZapier } from '@/lib/zapier';
 import { buildBookingZapierPayload } from '@/lib/buildBookingZapierPayload';
 import { STAFF_SELECTABLE_COLUMNS } from '@/lib/staffColumns';
+import { mustAffectRows } from '@/lib/mustAffectRows';
 import type { Tables } from '@/integrations/supabase/types';
 
 export interface TeamAssignment {
@@ -393,9 +394,12 @@ export function useCreateBooking() {
 
 export function useUpdateBooking() {
   const queryClient = useQueryClient();
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
 
   return useMutation({
     mutationFn: async ({ id, suppressToast: _suppressToast, ...data }: UpdateBookingData & { suppressToast?: boolean }) => {
+      if (!organizationId) throw new Error('No organization found');
       // Detect a new assignment so we can notify the cleaner (only when
       // staff_id actually changes — edit dialogs resend unchanged fields)
       let previousStaffId: string | null | undefined;
@@ -404,7 +408,8 @@ export function useUpdateBooking() {
           .from('bookings')
           .select('staff_id')
           .eq('id', id)
-          .single();
+          .eq('organization_id', organizationId)
+          .maybeSingle();
         previousStaffId = prev?.staff_id ?? null;
       }
 
@@ -412,6 +417,7 @@ export function useUpdateBooking() {
         .from('bookings')
         .update(data)
         .eq('id', id)
+        .eq('organization_id', organizationId)
         .select()
         .single();
 
@@ -479,18 +485,17 @@ export function useUpdateBooking() {
 
 export function useDeleteBooking() {
   const queryClient = useQueryClient();
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('bookings')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        console.error('Error deleting booking:', error);
-        throw error;
-      }
+      if (!organizationId) throw new Error('No organization found');
+      await mustAffectRows(
+        supabase.from('bookings').delete().eq('id', id).eq('organization_id', organizationId),
+        'Booking not deleted. It may belong to a different business.',
+        { table: 'bookings' },
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
@@ -600,18 +605,17 @@ export function useCreateCustomer() {
 
 export function useDeleteCustomer() {
   const queryClient = useQueryClient();
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('customers')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        console.error('Error deleting customer:', error);
-        throw error;
-      }
+      if (!organizationId) throw new Error('No organization found');
+      await mustAffectRows(
+        supabase.from('customers').delete().eq('id', id).eq('organization_id', organizationId),
+        'Customer not deleted. It may belong to a different business.',
+        { table: 'customers' },
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });

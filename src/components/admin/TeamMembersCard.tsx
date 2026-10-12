@@ -15,6 +15,7 @@ import { Loader2, Trash2, Mail, Copy, Check, AlertTriangle } from 'lucide-react'
 import { readEdgeFunctionError, readEdgeFunctionErrorBody } from '@/lib/edgeFunctionError';
 import { plainInviteEmailError } from '@/lib/inviteEmailError';
 import { QueryError } from '@/components/QueryError';
+import { confirmDialog } from "@/components/AppDialogs";
 
 type Role = 'owner' | 'manager';
 
@@ -290,7 +291,7 @@ export function TeamMembersCard() {
                   {canManageTeam && m.role !== 'member' && (
                     <Button variant="ghost" size="icon"
                       onClick={() => {
-                        if (confirm(`Remove ${m.email} from this workspace?`)) removeMember.mutate(m.user_id);
+                        void confirmDialog(`Remove ${m.email} from this workspace?`).then((ok) => { if (ok) removeMember.mutate(m.user_id); });
                       }}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>

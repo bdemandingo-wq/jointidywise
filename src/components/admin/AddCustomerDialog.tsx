@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { PERSON_NAME_MAX } from '@/lib/displayName';
 import { Loader2, User, Mail, Phone, Lock } from 'lucide-react';
 import { useCreateCustomer, useCustomers } from '@/hooks/useBookings';
+import { validateOptionalState, validateOptionalZip } from '@/lib/validation';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -74,6 +75,12 @@ export function AddCustomerDialog({ open, onOpenChange }: AddCustomerDialogProps
       toast.error('Please fill in first name, last name, and email');
       return;
     }
+    const stateError = validateOptionalState(formData.state);
+    const zipError = validateOptionalZip(formData.zip_code);
+    if (stateError || zipError) {
+      toast.error(stateError || zipError || 'Check the address');
+      return;
+    }
 
     setSubmitting(true);
 
@@ -85,8 +92,8 @@ export function AddCustomerDialog({ open, onOpenChange }: AddCustomerDialogProps
         phone: formData.phone || undefined,
         address: formData.address || undefined,
         city: formData.city || undefined,
-        state: formData.state || undefined,
-        zip_code: formData.zip_code || undefined,
+        state: formData.state.trim() ? formData.state.trim().toUpperCase() : undefined,
+        zip_code: formData.zip_code.trim() || undefined,
         latitude: formData.latitude ?? undefined,
         longitude: formData.longitude ?? undefined,
       });

@@ -296,7 +296,7 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
         .select('staff_id, staff:staff(id, name)')
         .eq('booking_id', selectedBooking.id)
         .eq('organization_id', organization.id);
-      if (error) return [];
+      if (error) throw error;
       return (data || []).map((a: any) => a.staff).filter(Boolean);
     },
     enabled: !!selectedBooking?.id && !!organization?.id,
@@ -311,7 +311,7 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
         .from('booking_team_assignments')
         .select('booking_id, staff_id')
         .eq('organization_id', organization.id);
-      if (error) return [];
+      if (error) throw error;
       return data || [];
     },
     enabled: !!organization?.id,

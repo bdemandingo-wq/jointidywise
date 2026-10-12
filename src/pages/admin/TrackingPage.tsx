@@ -368,8 +368,10 @@ export default function TrackingPage() {
 
     const { error } = await supabase
       .from('organization_sms_settings')
-      .update({ [field]: value } as any)
-      .eq('organization_id', orgId!);
+      .upsert(
+        { organization_id: orgId!, ...updated },
+        { onConflict: 'organization_id' },
+      );
 
     if (error) {
       toast.error('Failed to save setting');

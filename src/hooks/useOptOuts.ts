@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
+import { useOrganization } from "@/contexts/OrganizationContext";
+import { mustAffectRows } from "@/lib/mustAffectRows";
 
 /**
  * Opt-out data layer for the Campaigns page.
@@ -36,7 +38,7 @@ export function useOptOutCustomerSearch(orgId: string | null, search: string) {
         .eq("marketing_status", "active")
         .or(`first_name.ilike.${term},last_name.ilike.${term},phone.ilike.${term},email.ilike.${term}`)
         .limit(8);
-      if (error) return [];
+      if (error) throw error;
       return data || [];
     },
     enabled: !!orgId && search.trim().length >= 2,
@@ -83,6 +85,7 @@ export function useOptedOutList(orgId: string | null) {
 export function useSetOptOutStatus() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { organization } = useOrganization();
 
   return useMutation({
     mutationFn: async ({ customerId, optedOut }: { customerId: string; optedOut: boolean }) => {
@@ -105,8 +108,12 @@ export function useSetOptOutStatus() {
             opted_out_method: null,
             opted_out_campaign_id: null,
           };
-      const { error } = await supabase.from("customers").update(update).eq("id", customerId);
-      if (error) throw error;
+      if (!organization?.id) throw new Error("No organization found");
+      await mustAffectRows(
+        supabase.from("customers").update(update).eq("id", customerId).eq("organization_id", organization.id),
+        "Contact not updated. It may belong to a different business.",
+        { table: "customers" },
+      );
     },
     onSuccess: (_d, vars) => {
       queryClient.invalidateQueries({ queryKey: ["opted-out-list"] });

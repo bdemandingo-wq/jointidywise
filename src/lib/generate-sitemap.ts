@@ -22,6 +22,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { COMPETITORS, NICHES } from "../data/compareNicheData";
 import { STATIC_ROUTE_META } from "./routeMeta";
+import { SUPABASE_PUBLIC_ANON_KEY, SUPABASE_PUBLIC_URL } from "./supabasePublicEnv";
 
 /**
  * Marker the build plugin greps for to tell a route-meta mismatch — which must
@@ -80,9 +81,8 @@ function shouldExclude(path: string): boolean {
 }
 
 async function fetchPublishedBlogSlugs(): Promise<string[]> {
-  const SUPABASE_URL = "https://slwfkaqczvwvvvavkgpr.supabase.co";
-  const ANON_KEY =
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsd2ZrYXFjenZ3dnZ2YXZrZ3ByIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwNjk4OTQsImV4cCI6MjA4MTY0NTg5NH0.M0OhzHsrqA0oYh6Ykx_4gVK_SrdSi1V_CiFxU-n4Lec";
+  const SUPABASE_URL = SUPABASE_PUBLIC_URL;
+  const ANON_KEY = SUPABASE_PUBLIC_ANON_KEY;
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/blog_posts?select=slug&status=eq.published&limit=5000`,
@@ -106,9 +106,8 @@ async function fetchPublishedBlogSlugs(): Promise<string[]> {
 }
 
 async function fetchScoreCompanies(): Promise<Array<{ slug: string; lastmod?: string }>> {
-  const SUPABASE_URL = "https://slwfkaqczvwvvvavkgpr.supabase.co";
-  const ANON_KEY =
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsd2ZrYXFjenZ3dnZ2YXZrZ3ByIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwNjk4OTQsImV4cCI6MjA4MTY0NTg5NH0.M0OhzHsrqA0oYh6Ykx_4gVK_SrdSi1V_CiFxU-n4Lec";
+  const SUPABASE_URL = SUPABASE_PUBLIC_URL;
+  const ANON_KEY = SUPABASE_PUBLIC_ANON_KEY;
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/score_companies?select=slug,last_scored_at,updated_at&limit=5000`,
@@ -136,9 +135,8 @@ async function fetchScoreCompanies(): Promise<Array<{ slug: string; lastmod?: st
 }
 
 async function fetchScoreCitySlugs(): Promise<string[]> {
-  const SUPABASE_URL = "https://slwfkaqczvwvvvavkgpr.supabase.co";
-  const ANON_KEY =
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsd2ZrYXFjenZ3dnZ2YXZrZ3ByIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwNjk4OTQsImV4cCI6MjA4MTY0NTg5NH0.M0OhzHsrqA0oYh6Ykx_4gVK_SrdSi1V_CiFxU-n4Lec";
+  const SUPABASE_URL = SUPABASE_PUBLIC_URL;
+  const ANON_KEY = SUPABASE_PUBLIC_ANON_KEY;
   try {
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/score_top_cities?select=city_slug&limit=5000`,

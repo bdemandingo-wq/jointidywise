@@ -18,6 +18,7 @@ import { PERSON_NAME_MAX } from '@/lib/displayName';
 import { Loader2, User, Mail, Phone, ShieldAlert, UserCheck, CreditCard, Link2, Check, Clock, Send, MapPin, Plus, Trash2, Star } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { mustAffectRows } from '@/lib/mustAffectRows';
+import { validateOptionalState, validateOptionalZip } from '@/lib/validation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { StripeCardForm } from '@/components/stripe/StripeCardForm';
@@ -324,6 +325,12 @@ export function EditCustomerDialog({ open, onOpenChange, customer }: EditCustome
       toast.error('Please fill in first name, last name, and email');
       return;
     }
+    const stateError = validateOptionalState(formData.state);
+    const zipError = validateOptionalZip(formData.zip_code);
+    if (stateError || zipError) {
+      toast.error(stateError || zipError || 'Check the address');
+      return;
+    }
 
     setSubmitting(true);
 
@@ -337,8 +344,8 @@ export function EditCustomerDialog({ open, onOpenChange, customer }: EditCustome
           phone: formData.phone || null,
           address: formData.address || null,
           city: formData.city || null,
-          state: formData.state || null,
-          zip_code: formData.zip_code || null,
+          state: formData.state.trim() ? formData.state.trim().toUpperCase() : null,
+          zip_code: formData.zip_code.trim() || null,
           marketing_status: formData.marketing_status,
           customer_status: formData.customer_status,
         })

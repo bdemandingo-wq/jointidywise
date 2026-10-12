@@ -34,6 +34,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
+import { calendarDayFromKey, calendarDayKey } from '@/lib/orgDateRange';
 import { 
   Plus, 
   CalendarIcon, 
@@ -125,8 +126,7 @@ export default function ExpensesPage() {
         amount: parseFloat(data.amount),
         vendor: data.vendor || null,
         // data.expense_date is a picker token; expense_date is a DATE column.
-      /* eslint-disable-next-line local/no-device-local-dates -- picker token -> DATE column */
-      expense_date: format(data.expense_date, 'yyyy-MM-dd'),
+        expense_date: calendarDayKey(data.expense_date),
         organization_id: organization.id,
       });
       if (error) throw error;
@@ -155,8 +155,7 @@ export default function ExpensesPage() {
             description: data.description,
             amount: parseFloat(data.amount),
             vendor: data.vendor || null,
-            /* eslint-disable-next-line local/no-device-local-dates -- picker token -> DATE column */
-            expense_date: format(data.expense_date, 'yyyy-MM-dd'),
+            expense_date: calendarDayKey(data.expense_date),
           })
           .eq('id', id)
           .eq('organization_id', organization.id),
@@ -213,7 +212,7 @@ export default function ExpensesPage() {
       description: expense.description,
       amount: expense.amount.toString(),
       vendor: expense.vendor || '',
-      expense_date: new Date(expense.expense_date),
+      expense_date: calendarDayFromKey(expense.expense_date),
     });
     setEditExpense(expense);
   };
@@ -337,7 +336,7 @@ export default function ExpensesPage() {
                   return (
                     <TableRow key={expense.id}>
                       <TableCell className="whitespace-nowrap">
-                        {format(new Date(expense.expense_date), 'MMM d, yyyy')}
+                        {format(calendarDayFromKey(expense.expense_date), 'MMM d, yyyy')}
                       </TableCell>
                       <TableCell>
                         <Badge variant="secondary" className="gap-1">

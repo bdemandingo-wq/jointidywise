@@ -6,12 +6,14 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Save, Eye, EyeOff, Sun, Moon, Palette, RotateCcw } from 'lucide-react';
 import { useOrganizationSettings } from '@/hooks/useOrganizationSettings';
 import { toast } from 'sonner';
+import { parseSalesTaxPercent } from '@/lib/validation';
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 
 export function FormDisplaySettings() {
   const { settings, loading, saveSettings } = useOrganizationSettings();
   const [saving, setSaving] = useState(false);
+  const [salesTaxDraft, setSalesTaxDraft] = useState('0');
   const [localSettings, setLocalSettings] = useState({
     show_sqft_on_booking: true,
     show_addons_on_booking: true,
@@ -47,12 +49,20 @@ export function FormDisplaySettings() {
         form_button_text_color: settings.form_button_text_color,
         form_accent_color: settings.form_accent_color,
       });
+      setSalesTaxDraft(
+        settings.sales_tax_percent == null ? '0' : String(settings.sales_tax_percent),
+      );
     }
   }, [settings]);
 
   const handleSave = async () => {
+    const tax = parseSalesTaxPercent(salesTaxDraft);
+    if (!tax.ok) {
+      toast.error(tax.message);
+      return;
+    }
     setSaving(true);
-    const success = await saveSettings(localSettings);
+    const success = await saveSettings({ ...localSettings, sales_tax_percent: tax.value });
     setSaving(false);
     if (success) {
       toast.success('Display settings saved');
@@ -303,13 +313,8 @@ export function FormDisplaySettings() {
                 step="0.01"
                 min="0"
                 max="100"
-                value={localSettings.sales_tax_percent}
-                onChange={(e) =>
-                  setLocalSettings((prev) => ({
-                    ...prev,
-                    sales_tax_percent: parseFloat(e.target.value) || 0,
-                  }))
-                }
+                value={salesTaxDraft}
+                onChange={(e) => setSalesTaxDraft(e.target.value)}
                 className="w-24 h-10"
               />
               <span className="text-sm text-muted-foreground">%</span>

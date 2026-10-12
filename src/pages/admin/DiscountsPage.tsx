@@ -79,11 +79,21 @@ export default function DiscountsPage() {
       return;
     }
 
+    const discountValue = parseFloat(newDiscount.discount_value);
+    if (!Number.isFinite(discountValue) || discountValue <= 0) {
+      toast.error('Discount value must be greater than 0');
+      return;
+    }
+    if (newDiscount.discount_type === 'percentage' && discountValue > 100) {
+      toast.error('A percentage discount cannot be more than 100% off');
+      return;
+    }
+
     const result = await createDiscount({
       code: newDiscount.code.toUpperCase(),
       description: newDiscount.description || null,
       discount_type: newDiscount.discount_type,
-      discount_value: parseFloat(newDiscount.discount_value),
+      discount_value: discountValue,
       min_order_amount: parseFloat(newDiscount.min_order_amount) || 0,
       max_uses: newDiscount.max_uses ? parseInt(newDiscount.max_uses) : null,
       valid_from: newDiscount.valid_from ? new Date(newDiscount.valid_from).toISOString() : new Date().toISOString(),
@@ -226,6 +236,9 @@ export default function DiscountsPage() {
                       </Label>
                       <Input
                         type="number"
+                        min="0"
+                        max={newDiscount.discount_type === 'percentage' ? '100' : undefined}
+                        step="0.01"
                         value={newDiscount.discount_value}
                         onChange={(e) => setNewDiscount({ ...newDiscount, discount_value: e.target.value })}
                         placeholder={newDiscount.discount_type === 'percentage' ? '20' : '25'}
