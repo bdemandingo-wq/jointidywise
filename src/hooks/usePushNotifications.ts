@@ -1,12 +1,23 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { NotificationAuth } from '@/lib/notificationAuth';
 import {
   describePushRuntime,
   readPushRuntimeFacts,
   routePushEnable,
+  type PushDiagnosticDetail,
 } from '@/lib/pushRuntime';
+
+// PushNotifications is created here, at module scope, the same way MetaEvents
+// is. App Tracking Transparency shows because requestTrackingPermission awaits
+// MetaEvents.requestTracking() — a real Promise. Awaiting a helper that
+// *returns* the push plugin does not. Capacitor 8.0.0's proxy answers `.then`
+// with a native method wrapper, the engine treats that return value as a
+// thenable, and the await hangs before requestPermissions runs
+// (ionic-team/capacitor#8469). Do not return this proxy from an async function.
 
 // The native runtime sets this before the webview evaluates JS (it looks for
 // webkit.messageHandlers.bridge). A second check against window.Capacitor
@@ -60,26 +71,50 @@ function publishPushStatus(next: PushStatus) {
   statusListeners.forEach((listener) => listener(next));
 }
 
-// Lazy load the push notifications plugin
-const getPushPlugin = async () => {
-  try {
-    const { PushNotifications } = await import('@capacitor/push-notifications');
-    return PushNotifications;
-  } catch (error) {
-    console.log('[PUSH] Push notifications plugin not available:', error);
-    return null;
-  }
-};
+// checkPermissions and a plugin call that never reached iOS must not spin.
+// requestAuthorization on the direct plugin waits until the person taps the
+// system dialog, so that call gets a longer limit.
+const NATIVE_RESPONSE_TIMEOUT_MS = 10_000;
+const SYSTEM_PROMPT_TIMEOUT_MS = 60_000;
 
-// checkPermissions should return immediately. A hang means the bridge accepted
-// the call and never answered (plugin not on the bridge). The system dialog
-// itself is requestPermissions, so that wait is long enough for a person to
-// read the prompt and tap it.
-const CHECK_TIMEOUT_MS = 8000;
-const REQUEST_TIMEOUT_MS = 45000;
+type PermissionReceive = 'granted' | 'denied' | 'prompt' | 'missing';
+
+interface PermissionRead {
+  receive: PermissionReceive;
+  source: string;
+  authorizationStatus?: string;
+  error?: string;
+}
+
+function asPermissionRead(
+  status: { receive?: string; authorizationStatus?: string; error?: string; source?: string } | null | undefined,
+  source: string,
+): PermissionRead {
+  const receive: PermissionReceive = status?.receive === 'granted' || status?.receive === 'denied' || status?.receive === 'prompt'
+    ? status.receive
+    : 'missing';
+  return {
+    receive,
+    source: status?.source || source,
+    authorizationStatus: status?.authorizationStatus,
+    error: status?.error,
+  };
+}
+
+function diagnosticFrom(read: PermissionRead | null, error?: string | null): PushDiagnosticDetail {
+  const reportedError = error || read?.error || null;
+  return {
+    permission: read?.receive ?? (reportedError ? 'no result' : null),
+    authorizationStatus: read?.authorizationStatus ?? null,
+    source: read?.source ?? null,
+    error: reportedError,
+  };
+}
 
 // Race a native call against a timeout so a stalled bridge (no resolve, no
-// reject) becomes a visible error. Rejects with `label` context.
+// reject) becomes a visible error. Rejects with `label` context. A late
+// rejection from the abandoned call is swallowed so it does not surface as
+// an unhandled rejection after the timeout already won.
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timeoutId: number;
   const timeout = new Promise<never>((_, reject) => {
@@ -88,6 +123,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
       ms,
     );
   });
+  void promise.catch(() => {});
   return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timeoutId));
 }
 
@@ -152,9 +188,6 @@ export function usePushNotifications(staffId?: string) {
   const attachNativeListeners = useCallback(async () => {
     if (!isNativePlatform() || nativeListenersAttachedRef.current) return;
 
-    const PushNotifications = await getPushPlugin();
-    if (!PushNotifications) return;
-
     const handles = await Promise.all([
       PushNotifications.addListener('pushNotificationReceived', (notification: { title?: string; body?: string }) => {
         toast.info(notification.title || 'New notification', {
@@ -208,64 +241,113 @@ export function usePushNotifications(staffId?: string) {
   const registerNative = async (options?: PushRegistrationOptions): Promise<PushAttempt> => {
     const organizationId = options?.organizationId ?? null;
     const facts = readPushRuntimeFacts();
-    const PushNotifications = await getPushPlugin();
-    if (!PushNotifications) {
-      const message = `Push notifications are not available on this device. ${describePushRuntime(facts)}`;
-      console.error('[PUSH]', message);
-      return { ok: false, prompted: false, hard: true, message };
-    }
-
-    const permissionState = (status: { receive?: string } | null | undefined): 'granted' | 'denied' | 'prompt' | 'missing' => {
-      if (status?.receive === 'granted' || status?.receive === 'denied' || status?.receive === 'prompt') {
-        return status.receive;
-      }
-      return 'missing';
-    };
 
     // Already-denied is a settled OS state. Calling requestPermissions again
     // does not show a dialog and must not toast on every cold start.
-    // Both calls are timed out. A missing plugin makes Capacitor drop the
-    // call without resolving the promise, and a quiet caller used to wait
-    // forever — the Enable button then joined that same promise and the
-    // screen never changed.
+    // The official plugin is tried first. If that call does not return in
+    // 10s, NotificationAuth calls requestAuthorization in the app target.
+    // That is the call that creates Settings → TidyWise → Notifications.
     let prompted = false;
+    let permission: PermissionRead | null = null;
+    let officialError: string | null = null;
+
+    const reportPermission = (phase: 'working' | 'failed', message: string, error?: string | null) => {
+      publishPushStatus({
+        phase,
+        message: `${message} ${describePushRuntime(facts, diagnosticFrom(permission, error))}`,
+      });
+    };
+
     try {
-      const current = permissionState(await withTimeout(
-        PushNotifications.checkPermissions(),
-        CHECK_TIMEOUT_MS,
-        'PushNotifications.checkPermissions()',
-      ));
-      if (current === 'missing') {
-        const message = `TidyWise asked the iPhone for notification permission, but the push plugin did not return a permission state, so the system dialog was not shown. ${describePushRuntime(facts)}`;
-        console.error('[PUSH]', message);
-        return { ok: false, prompted: false, hard: true, message };
+      permission = asPermissionRead(
+        await withTimeout(
+          PushNotifications.checkPermissions(),
+          NATIVE_RESPONSE_TIMEOUT_MS,
+          'PushNotifications.checkPermissions()',
+        ),
+        'PushNotifications',
+      );
+      if (permission.receive === 'missing') {
+        throw new Error('PushNotifications.checkPermissions() returned no permission state.');
       }
-      if (current === 'denied') {
-        const message = 'Notifications are off for TidyWise. Open the iPhone Settings app, tap TidyWise, tap Notifications, and turn Allow Notifications on.';
-        return { ok: false, prompted: false, hard: false, message };
-      }
-      if (current !== 'granted') {
+      if (permission.receive !== 'granted' && permission.receive !== 'denied') {
         prompted = true;
-        const permStatus = permissionState(await withTimeout(
-          PushNotifications.requestPermissions(),
-          REQUEST_TIMEOUT_MS,
-          'PushNotifications.requestPermissions()',
-        ));
-        if (permStatus === 'missing') {
-          const message = `TidyWise asked the iPhone to show the notification prompt, but the push plugin did not return a permission state, so the system dialog was not shown. ${describePushRuntime(facts)}`;
-          console.error('[PUSH]', message);
-          return { ok: false, prompted: true, hard: true, message };
-        }
-        if (permStatus !== 'granted') {
-          const message = 'Notifications were not allowed. To turn them on later, open the iPhone Settings app, tap TidyWise, then Notifications.';
-          return { ok: false, prompted: true, hard: false, message };
+        reportPermission('working', 'iOS has not asked yet. Asking the push plugin to show the notification prompt…');
+        permission = asPermissionRead(
+          await withTimeout(
+            PushNotifications.requestPermissions(),
+            NATIVE_RESPONSE_TIMEOUT_MS,
+            'PushNotifications.requestPermissions()',
+          ),
+          'PushNotifications',
+        );
+        if (permission.receive !== 'granted' && permission.receive !== 'denied') {
+          throw new Error(`PushNotifications.requestPermissions() returned ${permission.receive}. The system dialog was not completed.`);
         }
       }
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      const message = `Couldn't enable notifications. ${detail} ${describePushRuntime(facts)}`;
-      console.error('[PUSH] requestPermissions failed or stalled:', detail);
+      officialError = error instanceof Error ? error.message : String(error);
+      console.error('[PUSH] PushNotifications permission call failed:', officialError);
+      try {
+        reportPermission(
+          'working',
+          'No permission result yet. Asking iOS directly…',
+          officialError,
+        );
+        permission = asPermissionRead(
+          await withTimeout(
+            NotificationAuth.checkPermissions(),
+            NATIVE_RESPONSE_TIMEOUT_MS,
+            'NotificationAuth.checkPermissions()',
+          ),
+          'NotificationAuth',
+        );
+        if (permission.receive !== 'granted' && permission.receive !== 'denied') {
+          prompted = true;
+          reportPermission(
+            'working',
+            'Waiting for the iOS notification prompt…',
+            officialError,
+          );
+          permission = asPermissionRead(
+            await withTimeout(
+              NotificationAuth.requestPermissions(),
+              SYSTEM_PROMPT_TIMEOUT_MS,
+              'NotificationAuth.requestPermissions()',
+            ),
+            'NotificationAuth',
+          );
+        }
+      } catch (fallbackError) {
+        const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+        const combined = `${officialError} | ${fallbackMessage}`;
+        console.error('[PUSH] direct notification permission failed:', fallbackMessage);
+        return {
+          ok: false,
+          prompted,
+          hard: true,
+          message: `Couldn't enable notifications. ${combined} ${describePushRuntime(facts, diagnosticFrom(permission, combined))}`,
+        };
+      }
+    }
+
+    if (!permission || permission.receive === 'missing') {
+      const message = `TidyWise asked the iPhone for notification permission, but iOS did not return a permission state, so the system dialog was not shown. ${describePushRuntime(facts, diagnosticFrom(permission, officialError))}`;
+      console.error('[PUSH]', message);
       return { ok: false, prompted, hard: true, message };
+    }
+    if (permission.error) {
+      officialError = officialError ? `${officialError} | ${permission.error}` : permission.error;
+    }
+    if (permission.receive === 'denied') {
+      const message = `Notifications are off for TidyWise. Open the iPhone Settings app, tap TidyWise, tap Notifications, and turn Allow Notifications on. ${describePushRuntime(facts, diagnosticFrom(permission, officialError))}`;
+      return { ok: false, prompted, hard: false, message };
+    }
+    if (permission.receive !== 'granted') {
+      // Still `prompt` means iOS has not recorded a choice, so Settings has
+      // no Notifications row yet. Sending the person there cannot help.
+      const message = `iOS has not recorded a notification choice, so the system prompt did not finish. ${describePushRuntime(facts, diagnosticFrom(permission, officialError))}`;
+      return { ok: false, prompted: true, hard: true, message };
     }
 
     await attachNativeListeners();
@@ -287,7 +369,7 @@ export function usePushNotifications(staffId?: string) {
       const nativeToken = await new Promise<string>((resolve, reject) => {
         const timeoutId = window.setTimeout(() => {
           reject(new Error('Push registration timed out. Please try again.'));
-        }, 12000);
+        }, 25000);
 
         (async () => {
           try {
@@ -301,7 +383,20 @@ export function usePushNotifications(staffId?: string) {
               reject(new Error(error?.error || 'Failed to register for push notifications'));
             });
 
-            await PushNotifications.register();
+            try {
+              await withTimeout(
+                PushNotifications.register(),
+                NATIVE_RESPONSE_TIMEOUT_MS,
+                'PushNotifications.register()',
+              );
+            } catch (registerError) {
+              console.error('[PUSH] PushNotifications.register() failed; calling registerForRemoteNotifications directly', registerError);
+              await withTimeout(
+                NotificationAuth.register(),
+                NATIVE_RESPONSE_TIMEOUT_MS,
+                'NotificationAuth.register()',
+              );
+            }
           } catch (error) {
             window.clearTimeout(timeoutId);
             reject(error);
@@ -374,7 +469,12 @@ export function usePushNotifications(staffId?: string) {
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Failed to register for push notifications';
       console.error('[PUSH] Push registration error:', error);
-      return { ok: false, prompted, hard: true, message: `${detail} ${describePushRuntime(readPushRuntimeFacts())}` };
+      return {
+        ok: false,
+        prompted,
+        hard: true,
+        message: `${detail} ${describePushRuntime(readPushRuntimeFacts(), diagnosticFrom(permission, officialError))}`,
+      };
     } finally {
       await Promise.allSettled([
         handles.registration?.remove() ?? Promise.resolve(),

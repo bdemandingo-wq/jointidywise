@@ -2,13 +2,15 @@ import UIKit
 import Capacitor
 import UserNotifications
 import FBSDKCoreKit
+import CapApp_SPM
 
-/// Storyboard root. Registers the push plugin before the web view loads.
-/// WidgetBridge and MetaEvents are registered later from AppDelegate because
-/// they are local classes. Push lives in an SPM product; Capacitor only finds
-/// it via NSClassFromString("PushNotificationsPlugin"), and that lookup can
-/// miss the class even when the binary contains its symbols. Registering the
-/// instance here is the same call those local plugins use.
+/// Storyboard root. Registers notification plugins before the web view loads.
+///
+/// NotificationAuth is a class in this target, so it does not depend on
+/// NSClassFromString. It calls UNUserNotificationCenter.requestAuthorization
+/// directly. PushNotificationsPlugin lives in SPM; register it from the
+/// linked class when the package class list did not already put it on the
+/// bridge. Do not init a second copy over a plugin that is already registered.
 @objc(TidyWiseBridgeViewController)
 class TidyWiseBridgeViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
@@ -17,12 +19,9 @@ class TidyWiseBridgeViewController: CAPBridgeViewController {
             print("[Push] no bridge in capacitorDidLoad")
             return
         }
-        guard let pluginType = NSClassFromString("PushNotificationsPlugin") as? CAPPlugin.Type else {
-            print("[Push] NSClassFromString(PushNotificationsPlugin) returned nil — the system prompt cannot be shown")
-            return
-        }
-        bridge.registerPluginInstance(pluginType.init())
-        print("[Push] registered PushNotificationsPlugin before the web view loaded")
+        bridge.registerPluginInstance(NotificationAuthPlugin())
+        print("[Push] registered NotificationAuthPlugin")
+        registerLinkedPushNotificationsPlugin(on: bridge)
     }
 }
 
