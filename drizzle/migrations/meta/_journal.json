@@ -8,6 +8,13 @@
       "when": 1791769926983,
       "tag": "0000_complete_assigned_booking_gps_push",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791770582265,
+      "tag": "0001_lock_client_portal_rpc_execute",
+      "breakpoints": true
     }
   ]
 }
