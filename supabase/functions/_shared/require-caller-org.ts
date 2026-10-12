@@ -30,6 +30,53 @@ export function timingSafeEqualString(a: string, b: string): boolean {
 }
 
 /**
+ * Reject a request that has no caller, before the handler reads the body.
+ *
+ * A missing or non-user token used to fall through into `req.json()` / field
+ * checks and come back as 400 or 500 (`Cannot read properties of null`).
+ * Anonymous probes should be 401 instead.
+ *
+ * Passes two legitimate non-browser callers through so the handler can apply
+ * its own rules afterwards:
+ *   - the service-role key (cron and other edge functions)
+ *   - a user JWT that GoTrue accepts (web app, iOS app, staff portal)
+ *
+ * Returns a 401 Response, or null when the caller may continue.
+ */
+export async function rejectUnauthenticated(
+  req: Request,
+  headers: Record<string, string>,
+  payload: Record<string, unknown> = { error: "Unauthorized" },
+): Promise<Response | null> {
+  if (isServiceRoleRequest(req)) return null;
+
+  const authHeader = req.headers.get("Authorization");
+  const token = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice("Bearer ".length).trim()
+    : "";
+  if (!token) {
+    return new Response(JSON.stringify(payload), {
+      status: 401,
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  }
+
+  const supabaseAdmin = createClient(
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+    { auth: { persistSession: false } },
+  );
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !data?.user) {
+    return new Response(JSON.stringify(payload), {
+      status: 401,
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  }
+  return null;
+}
+
+/**
  * True only for a genuine service-role caller (another edge function or cron
  * presenting SUPABASE_SERVICE_ROLE_KEY).
  *

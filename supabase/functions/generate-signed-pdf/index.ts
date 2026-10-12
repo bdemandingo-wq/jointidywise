@@ -1,6 +1,33 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.88.0";
 import { PDFDocument, rgb, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
 
+function assertSignaturePayload(
+  signatureData: string,
+  signatureType: string,
+  organizationId: string,
+  staffId: string,
+): string | null {
+  if (signatureType === "draw") {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuid.test(organizationId) || !uuid.test(staffId)) return "Invalid signature path";
+    // StaffSignatureManager stores drawn signatures at this exact prefix.
+    // Anything else (../, another org, another bucket path) is rejected
+    // before the storage download.
+    const pathOk = new RegExp(
+      `^signatures/${organizationId}/${staffId}/[0-9a-f-]{36}_\\d+\\.png$`,
+      "i",
+    ).test(signatureData);
+    if (!pathOk || signatureData.includes("..") || signatureData.includes("\\") || signatureData.includes("\0")) {
+      return "Invalid signature path";
+    }
+    return null;
+  }
+  if (signatureData.length > 200 || signatureData.includes("\0")) {
+    return "Invalid signature";
+  }
+  return null;
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -43,6 +70,19 @@ Deno.serve(async (req) => {
 
     if (!document_id || !staff_id || !organization_id || !signature_data || !signature_type) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const signatureError = assertSignaturePayload(
+      String(signature_data),
+      String(signature_type),
+      String(organization_id),
+      String(staff_id),
+    );
+    if (signatureError) {
+      return new Response(JSON.stringify({ error: signatureError }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

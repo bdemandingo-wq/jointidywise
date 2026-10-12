@@ -3,6 +3,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { REFUND_POLICY, CANCELLATION_POLICY, POLICY_DISCLOSURE, TOS_VERSION } from "../_shared/policies.ts";
 import { rejectReason, isVested } from "../_shared/referral-eligibility.ts";
+import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
 
 /**
  * Count a redeemed referral month.
@@ -73,8 +74,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, stripe-signature",
 };
 
-// Platform admin phone number for notifications
-const PLATFORM_ADMIN_PHONE = "+18137356859";
+// Platform admin phone for notifications. Historical recipient was the
+// second founder number; PLATFORM_ADMIN_PHONES overrides both.
+const PLATFORM_ADMIN_PHONE = platformAdminPhone("secondary");
 
 // Fire-and-forget Zapier dispatch. Never throws into the webhook flow.
 async function fireZapier(

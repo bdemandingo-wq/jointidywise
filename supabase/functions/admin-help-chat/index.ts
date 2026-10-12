@@ -120,9 +120,48 @@ serve(async (req) => {
       });
     }
 
-    // AI rate limiting (per-user 30/min). No per-org scope: admin help chat has no org context here.
+    // A signed-in free account was enough to spend Anthropic credits. Require
+    // at least one org with an active, trialing, lifetime, comped, or
+    // in-window trial subscription — the same has_active_subscription rule
+    // the rest of the product uses. A lookup failure refuses the call.
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminClient = createClient(supaUrl, serviceKey);
+    const { data: memberships, error: membershipErr } = await adminClient
+      .from("org_memberships")
+      .select("organization_id")
+      .eq("user_id", userData.user.id);
+    if (membershipErr) {
+      console.error("admin-help-chat membership lookup failed:", membershipErr.message);
+      return new Response(JSON.stringify({ error: "Could not verify subscription" }), {
+        status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    let subscribed = false;
+    for (const membership of memberships ?? []) {
+      const { data: active, error: subErr } = await adminClient.rpc("has_active_subscription", {
+        _org_id: membership.organization_id,
+      });
+      if (subErr) {
+        console.error("admin-help-chat subscription check failed:", subErr.message);
+        return new Response(JSON.stringify({ error: "Could not verify subscription" }), {
+          status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (active === true) {
+        subscribed = true;
+        break;
+      }
+    }
+    if (!subscribed) {
+      return new Response(JSON.stringify({
+        error: "subscription_required",
+        message: "The help assistant is included with an active TidyWise subscription.",
+      }), {
+        status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // AI rate limiting (per-user 30/min).
     const { enforceAiRateLimit } = await import("../_shared/ai-rate-limit.ts");
     const limited = await enforceAiRateLimit(adminClient, {
       userId: userData.user.id, corsHeaders,

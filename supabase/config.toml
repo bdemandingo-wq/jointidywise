@@ -7,6 +7,10 @@ project_id = "slwfkaqczvwvvvavkgpr"
     verify_jwt = false
   [functions.ai-analysis-center]
     verify_jwt = false
+  [functions.ai-sms-reply]
+    # Called only by other edge functions. Gateway JWT check would force the
+    # caller to send the service-role key. Auth is isInternalDispatchRequest.
+    verify_jwt = false
   [functions.auth-email-hook]
     verify_jwt = false
   [functions.backfill-openphone-messages]
@@ -72,6 +76,9 @@ project_id = "slwfkaqczvwvvvavkgpr"
     # cannot present a user JWT. Gated internally by x-cron-secret.
     verify_jwt = false
   [functions.notify-platform-admin-subscription]
+    verify_jwt = false
+  [functions.openphone-ai-sms-reply]
+    # Called by openphone-webhook. Same internal-secret auth as ai-sms-reply.
     verify_jwt = false
   [functions.openphone-webhook]
     verify_jwt = false

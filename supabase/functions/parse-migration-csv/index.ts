@@ -207,8 +207,17 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_ANON_KEY") ?? ""
     );
 
-    const authHeader = req.headers.get("Authorization")!;
-    const token = authHeader.replace("Bearer ", "");
+    // 401 before the body. A missing Authorization header used to hit
+    // `authHeader.replace` and return 500 "Cannot read properties of null".
+    const authHeader = req.headers.get("Authorization");
+    const token = authHeader?.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length).trim()
+      : "";
+    if (!token) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token);
     if (authError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -216,7 +225,19 @@ serve(async (req) => {
       });
     }
 
-    const { csvContent, dataType, source, organizationId, filename } = await req.json();
+    let parsed: {
+      csvContent?: string;
+      dataType?: string;
+      source?: string;
+      organizationId?: string;
+      filename?: string;
+    } | null = null;
+    try {
+      parsed = await req.json();
+    } catch {
+      parsed = null;
+    }
+    const { csvContent, dataType, source, organizationId, filename } = parsed ?? {};
 
     if (!csvContent || !dataType || !source || !organizationId) {
       return new Response(JSON.stringify({ error: "Missing required fields" }), {

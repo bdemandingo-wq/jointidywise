@@ -6,6 +6,7 @@ import {
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { findCustomerIdByPhone } from "../_shared/marketing-guard.ts";
+import { internalDispatchHeaders } from "../_shared/internal-dispatch-auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -227,6 +228,17 @@ const handler = async (req: Request): Promise<Response> => {
       let diff = 0;
       for (let i = 0; i < expectedB64.length; i++) diff |= expectedB64.charCodeAt(i) ^ providedB64.charCodeAt(i);
       if (diff !== 0) {
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      // The signature covers the timestamp, but a captured valid request
+      // could be replayed forever without a freshness window.
+      const tsNum = Number(ts);
+      const tsMs = Number.isFinite(tsNum) ? (tsNum > 1e12 ? tsNum : tsNum * 1000) : NaN;
+      const MAX_SKEW_MS = 5 * 60 * 1000;
+      if (!Number.isFinite(tsMs) || Math.abs(Date.now() - tsMs) > MAX_SKEW_MS) {
+        console.error("[openphone-webhook] Signature timestamp outside 5 minute window");
         return new Response(JSON.stringify({ error: "Forbidden" }), {
           status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -1050,15 +1062,14 @@ const handler = async (req: Request): Promise<Response> => {
             .maybeSingle();
 
           const supabasePublicUrl = Deno.env.get("SUPABASE_URL");
-          const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-          // Fire-and-forget: don't await so webhook returns immediately
+          // Fire-and-forget: don't await so webhook returns immediately.
+          // internalDispatchHeaders sends x-internal-secret when
+          // INTERNAL_DISPATCH_SECRET is set, and only falls back to the
+          // service-role bearer while that secret is still unset.
           fetch(`${supabasePublicUrl}/functions/v1/openphone-ai-sms-reply`, {
             method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${serviceKey}`,
-              'Content-Type': 'application/json',
-            },
+            headers: internalDispatchHeaders({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
               conversationId,
               organizationId,
