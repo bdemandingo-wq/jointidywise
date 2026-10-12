@@ -1,3 +1,24 @@
+/**
+ * APNs sender.
+ *
+ * Secrets the project owner must set (Lovable Cloud → secrets, then redeploy
+ * this function):
+ *   APNS_KEY_ID       Apple key id for the .p8
+ *   APNS_TEAM_ID      Apple team id (JV99ZGTGR3)
+ *   APNS_PRIVATE_KEY  contents of the AuthKey .p8, including the BEGIN/END lines
+ *   APNS_BUNDLE_ID    optional, defaults to com.TidyWiseApp.app
+ *   APNS_ENV          "production" for TestFlight and App Store.
+ *                     "sandbox" only for Xcode debug installs.
+ *                     When unset, this function tries production first
+ *                     (TestFlight/App Store tokens) and, on BadDeviceToken,
+ *                     retries the other host and remembers which one worked
+ *                     on device_push_tokens.apns_env.
+ *
+ * The committed App.entitlements value aps-environment=development is what
+ * Xcode Debug uses. Archive/TestFlight/App Store re-signs that entitlement
+ * to production. A single global host cannot serve both; per-token apns_env
+ * is how mixed devices work.
+ */
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { isServiceRoleRequest } from "../_shared/require-caller-org.ts";
@@ -59,8 +80,33 @@ async function getApnsJwt(): Promise<string> {
   return token;
 }
 
+type ApnsEnv = "sandbox" | "production";
+
+type ApnsResult =
+  | { ok: true }
+  | { ok: false; status: number; reason: string };
+
+function hostFor(env: ApnsEnv): string {
+  return env === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
+}
+
+/** Unset APNS_ENV prefers production so TestFlight/App Store tokens work. */
+function defaultApnsEnv(): ApnsEnv {
+  return Deno.env.get("APNS_ENV") === "sandbox" ? "sandbox" : "production";
+}
+
+function otherEnv(env: ApnsEnv): ApnsEnv {
+  return env === "production" ? "sandbox" : "production";
+}
+
 // ── Send one APNs push ────────────────────────────────────────────────────────
-async function sendApns(deviceToken: string, title: string, body: string, data?: Record<string, string>) {
+async function sendApns(
+  deviceToken: string,
+  env: ApnsEnv,
+  title: string,
+  body: string,
+  data?: Record<string, string>,
+): Promise<ApnsResult> {
   const bundleId = Deno.env.get("APNS_BUNDLE_ID") || "com.TidyWiseApp.app";
   const jwt = await getApnsJwt();
 
@@ -73,12 +119,7 @@ async function sendApns(deviceToken: string, title: string, body: string, data?:
     ...data,
   };
 
-  // Use APNS_ENV secret to switch between sandbox and production APNs.
-  // "production" -> api.push.apple.com, anything else (or unset) -> sandbox.
-  const apnsHost = Deno.env.get("APNS_ENV") === "production"
-    ? "api.push.apple.com"
-    : "api.sandbox.push.apple.com";
-  const url = `https://${apnsHost}/3/device/${deviceToken}`;
+  const url = `https://${hostFor(env)}/3/device/${deviceToken}`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -92,11 +133,16 @@ async function sendApns(deviceToken: string, title: string, body: string, data?:
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    log("APNs error", { status: res.status, err, deviceToken: deviceToken.slice(0, 8) + "..." });
-    return false;
+    const errText = await res.text();
+    let reason = errText;
+    try {
+      const parsed = JSON.parse(errText) as { reason?: string };
+      if (parsed?.reason) reason = parsed.reason;
+    } catch { /* body was not JSON */ }
+    log("APNs error", { status: res.status, reason, env, deviceToken: deviceToken.slice(0, 8) + "..." });
+    return { ok: false, status: res.status, reason };
   }
-  return true;
+  return { ok: true };
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
@@ -110,12 +156,14 @@ serve(async (req) => {
   );
 
   try {
-    const { organization_id, title, body, data, staff_id } = await req.json() as {
+    const { organization_id, title, body, data, staff_id, audience } = await req.json() as {
       organization_id: string;
       title: string;
       body: string;
       data?: Record<string, string>;
       staff_id?: string;
+      /** "operators" = owner/admin/manager devices. Omit to broadcast to the org. */
+      audience?: "org" | "operators";
     };
 
     if (!organization_id || !title || !body) {
@@ -125,9 +173,12 @@ serve(async (req) => {
       });
     }
 
-    // SECURITY: accept service-role callers, OR an authenticated admin/owner
-    // of `organization_id`. Rejects cleaner-initiated or cross-org sends,
-    // preserving the anti-phishing gate while allowing admin app actions.
+    // SECURITY: accept service-role callers, OR an authenticated owner/admin/manager
+    // of `organization_id`. A cleaner's JWT is rejected here on purpose — a
+    // cleaner must not be able to push arbitrary text to the company.
+    // Cleaner job events (on the way, arrived, complete) call this function
+    // with the service role from their own edge function, after that function
+    // has checked the cleaner is assigned to the booking.
     if (!isServiceRoleRequest(req)) {
       const authHeader = req.headers.get("Authorization");
       if (!authHeader?.startsWith("Bearer ")) {
@@ -156,11 +207,25 @@ serve(async (req) => {
       }
     }
 
-    log("Sending push", { organization_id, title, staff_id });
+    log("Sending push", { organization_id, title, staff_id, audience });
 
     // Resolve target device tokens.
-    let targetUserId: string | null = null;
-    if (staff_id) {
+    let targetUserIds: string[] | null = null;
+    if (audience === "operators") {
+      const { data: mems, error: memErr } = await supabase
+        .from("org_memberships")
+        .select("user_id")
+        .eq("organization_id", organization_id)
+        .in("role", ["owner", "admin", "manager"]);
+      if (memErr) throw memErr;
+      targetUserIds = (mems ?? []).map((m: { user_id: string }) => m.user_id);
+      if (targetUserIds.length === 0) {
+        log("No operator memberships", { organization_id });
+        return new Response(JSON.stringify({ sent: 0, message: "No operator devices" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
+        });
+      }
+    } else if (staff_id) {
       const { data: staffRow, error: staffErr } = await supabase
         .from("staff")
         .select("user_id, organization_id")
@@ -182,23 +247,26 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200,
         });
       }
-      targetUserId = staffRow.user_id;
+      targetUserIds = [staffRow.user_id];
     }
 
-    let tokenQuery = supabase
-      .from("device_push_tokens")
-      .select("token, user_id")
-      .eq("platform", "ios");
-    if (targetUserId) {
-      tokenQuery = tokenQuery.eq("user_id", targetUserId);
-    } else {
-      tokenQuery = tokenQuery.eq("organization_id", organization_id);
+    const loadTokens = async (columns: string) => {
+      let q = supabase.from("device_push_tokens").select(columns).eq("platform", "ios");
+      if (targetUserIds) q = q.in("user_id", targetUserIds);
+      else q = q.eq("organization_id", organization_id);
+      return await q;
+    };
+
+    let tokenResult = await loadTokens("id, token, user_id, apns_env");
+    if (tokenResult.error && /apns_env|42703/i.test(tokenResult.error.message ?? "")) {
+      // Migration not applied yet. Send without a stored environment.
+      tokenResult = await loadTokens("id, token, user_id");
     }
-    const { data: tokens, error } = await tokenQuery;
+    const { data: tokens, error } = tokenResult;
 
     if (error) throw error;
     if (!tokens || tokens.length === 0) {
-      log("No device tokens found", { organization_id, staff_id });
+      log("No device tokens found", { organization_id, staff_id, audience });
       return new Response(JSON.stringify({ sent: 0, message: "No registered devices" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
         status: 200,
@@ -207,8 +275,45 @@ serve(async (req) => {
 
     log("Sending to devices", { count: tokens.length });
 
+    const deliver = async (row: { id?: string; token: string; apns_env?: string | null }) => {
+      const stored: ApnsEnv | null = row.apns_env === "sandbox" || row.apns_env === "production"
+        ? row.apns_env
+        : null;
+      const first = stored ?? defaultApnsEnv();
+      let resolved: ApnsEnv | null = null;
+      let result = await sendApns(row.token, first, title, body, data);
+
+      if (result.ok) {
+        resolved = first;
+      } else if (result.reason === "BadDeviceToken") {
+        // Sandbox token sent to production, or the reverse. Remember the host
+        // that actually accepted it so the next send doesn't pay this round trip.
+        const fallback = otherEnv(first);
+        const retry = await sendApns(row.token, fallback, title, body, data);
+        if (retry.ok) {
+          result = retry;
+          resolved = fallback;
+        } else if (retry.status === 410 || retry.reason === "Unregistered") {
+          if (row.id) await supabase.from("device_push_tokens").delete().eq("id", row.id);
+          return false;
+        }
+      }
+
+      if (result.ok) {
+        if (row.id && resolved && resolved !== stored) {
+          await supabase.from("device_push_tokens").update({ apns_env: resolved }).eq("id", row.id);
+        }
+        return true;
+      }
+
+      if (!result.ok && (result.status === 410 || result.reason === "Unregistered")) {
+        if (row.id) await supabase.from("device_push_tokens").delete().eq("id", row.id);
+      }
+      return false;
+    };
+
     const results = await Promise.allSettled(
-      tokens.map((t) => sendApns(t.token, title, body, data))
+      (tokens as { id?: string; token: string; apns_env?: string | null }[]).map((t) => deliver(t))
     );
 
     const sent = results.filter((r) => r.status === "fulfilled" && r.value).length;

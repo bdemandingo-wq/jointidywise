@@ -34,7 +34,11 @@ serve(async (req) => {
       });
     }
 
-    const { token, platform = "ios" } = await req.json() as { token: string; platform?: string };
+    const { token, platform = "ios", apns_env } = await req.json() as {
+      token: string;
+      platform?: string;
+      apns_env?: string;
+    };
     if (!token) {
       return new Response(JSON.stringify({ error: "token required" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -62,19 +66,31 @@ serve(async (req) => {
       if (staffRow?.organization_id) organizationId = staffRow.organization_id;
     }
 
-    // Upsert token (one row per user+token pair)
-    const { error } = await supabase
+    // Upsert token (one row per user+token pair). apns_env is only written
+    // when the client knows it, so a later server-side correction (the push
+    // function retries the other APNs host on BadDeviceToken) is not wiped
+    // by a registration that omits the field.
+    const row: Record<string, unknown> = {
+      user_id: user.id,
+      organization_id: organizationId,
+      token,
+      platform,
+      updated_at: new Date().toISOString(),
+    };
+    if (apns_env === "sandbox" || apns_env === "production") {
+      row.apns_env = apns_env;
+    }
+
+    let { error } = await supabase
       .from("device_push_tokens")
-      .upsert(
-        {
-          user_id: user.id,
-          organization_id: organizationId,
-          token,
-          platform,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id,token" }
-      );
+      .upsert(row, { onConflict: "user_id,token" });
+
+    if (error && row.apns_env && /apns_env|42703/i.test(error.message ?? "")) {
+      delete row.apns_env;
+      ({ error } = await supabase
+        .from("device_push_tokens")
+        .upsert(row, { onConflict: "user_id,token" }));
+    }
 
     if (error) throw error;
 

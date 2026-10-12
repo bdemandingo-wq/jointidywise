@@ -2,6 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!--
+	  development is correct for Xcode Debug (sandbox APNs).
+	  TestFlight and App Store archives are re-signed by the distribution
+	  profile, which sets this to production. The send-push-notification
+	  function needs the APNS_ENV=production secret so those tokens deliver.
+	  A debug install and a TestFlight install can both work: the function
+	  retries the other host on BadDeviceToken and stores the winner on
+	  device_push_tokens.apns_env.
+	-->
 	<key>aps-environment</key>
 	<string>development</string>
 	<key>com.apple.security.application-groups</key>
