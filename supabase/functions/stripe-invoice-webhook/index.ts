@@ -1167,7 +1167,7 @@ const handler = async (req: Request): Promise<Response> => {
             tosRow = tos;
           }
 
-          await supabase.from("payment_evidence").upsert({
+          const { error: evidenceErr } = await supabase.from("payment_evidence").upsert({
             user_id: userId,
             email: customerEmail || "",
             stripe_customer_id: inv.customer as string,
@@ -1187,7 +1187,8 @@ const handler = async (req: Request): Promise<Response> => {
             metadata: combined,
           }, { onConflict: "stripe_payment_intent_id" });
 
-          console.log("[stripe-invoice-webhook] Payment evidence captured for", inv.id);
+          if (evidenceErr) console.error("[stripe-invoice-webhook] payment_evidence upsert FAILED:", inv.id, evidenceErr);
+          else console.log("[stripe-invoice-webhook] Payment evidence captured for", inv.id);
 
           // Branded receipt email. Yearly subscribers in particular need
           // a clear "next billing date" so they know when the renewal
