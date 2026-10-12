@@ -3644,6 +3644,48 @@ export type Database = {
           },
         ]
       }
+      client_portal_password_resets: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          portal_user_id: string
+          token_hash: string
+          used_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          portal_user_id: string
+          token_hash: string
+          used_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          portal_user_id?: string
+          token_hash?: string
+          used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_portal_password_resets_portal_user_id_fkey"
+            columns: ["portal_user_id"]
+            isOneToOne: false
+            referencedRelation: "client_portal_users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_portal_password_resets_portal_user_id_fkey"
+            columns: ["portal_user_id"]
+            isOneToOne: false
+            referencedRelation: "client_portal_users_safe"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_portal_sessions: {
         Row: {
           client_user_id: string | null
