@@ -157,7 +157,7 @@ async function normalizeImage(file: File): Promise<File> {
 
 type BookingPhotoInsert = Database['public']['Tables']['booking_photos']['Insert'];
 
-async function insertBookingPhoto(row: BookingPhotoInsert & Partial<ProofColumns>) {
+async function insertBookingPhoto(row: BookingPhotoInsert) {
   return supabase.from('booking_photos').insert(row as BookingPhotoInsert);
 }
 
