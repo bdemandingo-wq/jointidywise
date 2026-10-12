@@ -3,6 +3,7 @@ import { AdminSidebar } from './AdminSidebar';
 import { AdminHeader } from './AdminHeader';
 
 import { PlanStateBanner } from './PlanStateBanner';
+import { TrialDaysBanner } from './TrialDaysBanner';
 import { OfflineIndicator } from './OfflineIndicator';
 import { MobileBottomNav } from '@/components/mobile/MobileBottomNav';
 import { cn } from '@/lib/utils';
@@ -141,6 +142,7 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
           )}
         >
           <PlanStateBanner />
+          <TrialDaysBanner />
           {children}
         </main>
       </div>

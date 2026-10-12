@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Joyride, {
   ACTIONS,
   CallBackProps,
@@ -6,93 +6,88 @@ import Joyride, {
   STATUS,
   Step,
 } from 'react-joyride';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useOrgId } from '@/hooks/useOrgId';
 
-// 6-step interactive product tour for new TidyWise signups. Auto-launches on
-// the first /dashboard visit if the org has never seen it. Coexists with the
-// Tidy bubble — both stay visible. The tour navigates between routes itself,
-// so steps go to dashboard/help → settings tabs → services → back to
-// dashboard for the final bubble spotlight.
+// Short tour on the dashboard only. It used to navigate Help → Settings tabs
+// on every Next, and the Joyride overlay kept capturing clicks when the
+// tooltip had nothing visible to anchor to. Steps stay on /dashboard, and
+// there is no full-screen overlay.
 //
 // Eligibility (computed against onboarding_progress):
 //   activated_at IS NULL AND tour_completed_at IS NULL AND tour_skipped_at IS NULL
 // All existing orgs at migration time were backfilled with tour_skipped_at,
 // so only post-migration signups are eligible.
 
-interface TourStep extends Step {
-  route: string;
-}
-
-const STEPS: TourStep[] = [
+const STEPS: Step[] = [
   {
-    route: '/dashboard/help',
-    target: '[data-tour-id="help-videos"]',
-    title: 'Watch quick tutorials',
+    target: '[data-tour-id="dashboard-home"]',
+    title: 'This is your dashboard',
     content:
-      "Two-minute videos walking you through every feature. Bookmark this page. It'll save you time later.",
+      'Today’s jobs and your setup checklist live here. You can leave this tour any time — it will not move you to another page.',
     disableBeacon: true,
     placement: 'auto',
+    spotlightClicks: true,
   },
   {
-    route: '/dashboard/settings?tab=integrations',
-    target: '[data-tour-id="stripe-connect"]',
-    title: 'Get paid by your customers',
+    target: '[data-tour-id="sidebar-nav"]',
+    title: 'The menu is grouped',
     content:
-      'TidyWise uses Stripe to charge customers, accept tips, and pay your team. Connect now or do it later from Settings.',
+      'Open a section to find bookings, customers, money, and the rest. Help stays pinned at the top.',
     disableBeacon: true,
-    placement: 'auto',
+    placement: 'right',
+    spotlightClicks: true,
   },
   {
-    route: '/dashboard/settings?tab=sms',
-    target: '[data-tour-id="openphone-connect"]',
-    title: 'Send SMS from your business number',
-    content:
-      "Connect OpenPhone to send booking reminders, payment links, and custom messages from your TidyWise account. Skip this if you'd rather use email only.",
-    disableBeacon: true,
-    placement: 'auto',
-  },
-  {
-    route: '/dashboard/services',
-    target: '[data-tour-id="services-list"]',
-    title: 'Define what you offer',
-    content:
-      'Add your cleaning packages, set base prices, and define add-ons. This is what your customers see when they book.',
-    disableBeacon: true,
-    placement: 'auto',
-  },
-  {
-    route: '/dashboard/settings?tab=emails',
-    target: '[data-tour-id="gmail-connect"]',
-    title: 'Send emails from your business',
-    content:
-      'Connect Gmail to send booking confirmations, invoices, and reminders from your own email address.',
-    disableBeacon: true,
-    placement: 'auto',
-  },
-  {
-    route: '/dashboard',
     target: '[data-tour-id="tidy-bubble"]',
     title: 'Need help? Just ask Tidy',
     content:
-      "Click this bubble anytime to chat with Tidy, your AI co-pilot. Tidy can answer questions, walk you through features, or help debug. You're all set.",
+      "Click this bubble anytime to chat with Tidy, your AI co-pilot. You're all set.",
     disableBeacon: true,
     placement: 'left',
     spotlightClicks: true,
   },
 ];
 
-const TOUR_ENTRY_ROUTE = '/dashboard';
 const TARGET_WAIT_MS = 100;
-const TARGET_WAIT_MAX_ATTEMPTS = 50; // 5 seconds total
+const TARGET_WAIT_MAX_ATTEMPTS = 20;
+
+function useNarrowViewport() {
+  const query = '(max-width: 767px)';
+  const [matches, setMatches] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+  return matches;
+}
 
 export function ProductTour() {
   const { user } = useAuth();
   const { organizationId } = useOrgId();
-  const navigate = useNavigate();
   const location = useLocation();
+  const narrow = useNarrowViewport();
+  // The desktop sidebar is display:none on a phone but still in the DOM.
+  // Anchoring the tour there floats a tooltip over a hidden menu.
+  const steps = useMemo<Step[]>(() => {
+    const menu = narrow
+      ? {
+          ...STEPS[1],
+          target: '[data-tour-id="mobile-nav-toggle"]',
+          placement: 'bottom' as const,
+          content:
+            'Tap the menu. Bookings, customers, money, and the rest are grouped inside it. Help stays pinned at the top.',
+        }
+      : STEPS[1];
+    return [STEPS[0], menu, STEPS[2]];
+  }, [narrow]);
 
   const [eligible, setEligible] = useState(false);
   const [run, setRun] = useState(false);
@@ -100,9 +95,6 @@ export function ProductTour() {
   // Refs prevent infinite useEffect loops when we're inside the joyride callback.
   const eligibilityCheckedFor = useRef<string | null>(null);
   const tourStartedLogged = useRef(false);
-  // Once we've routed the user onto a step, we must never auto-navigate them
-  // back to it — otherwise any nav click bounces them and traps them.
-  const positionedForStep = useRef<number | null>(null);
 
   // ── Eligibility check ──────────────────────────────────────────────────
   useEffect(() => {
@@ -133,7 +125,7 @@ export function ProductTour() {
         if (blocked) return;
 
         const startStep = Number(data?.tour_current_step ?? 0);
-        setStepIndex(Math.max(0, Math.min(startStep, STEPS.length - 1)));
+        setStepIndex(Math.max(0, Math.min(startStep, steps.length - 1)));
         setEligible(true);
       } catch (err) {
         console.warn('[ProductTour] Eligibility check threw:', err);
@@ -142,49 +134,20 @@ export function ProductTour() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, organizationId]);
+  }, [user?.id, organizationId, steps.length]);
 
   // ── Step navigator ─────────────────────────────────────────────────────
-  // When eligible: ensure we're on the right route + the target element is
-  // mounted, THEN start joyride. Polls for the target up to 5s; if it never
-  // appears, runs anyway (joyride falls back to center placement so the user
-  // doesn't get stuck on a hidden section).
+  // Only on the dashboard itself. Never calls navigate — a missing target
+  // skips that step instead of covering the page with an overlay.
   useEffect(() => {
     if (!eligible) return;
-    const step = STEPS[stepIndex];
-    if (!step) return;
-
-    const currentPath = `${location.pathname}${location.search}`;
-    if (currentPath !== step.route) {
-      // Only auto-route the user onto the tour step when they're already
-      // somewhere inside the admin shell. Otherwise we'd fight other
-      // redirects (paywall → /pricing, no-org → /onboarding, /login,
-      // Stripe return URLs, etc.) and produce an infinite navigation
-      // loop that Chrome throttles into a black screen.
-      if (!location.pathname.startsWith('/dashboard')) {
-        setRun(false);
-        return;
-      }
-      // Auto-route onto this step's page exactly ONCE. After that, never
-      // re-navigate — otherwise every nav click bounces the user back to
-      // the step route and traps them. Once positioned, if they click away
-      // or hit Skip, let them leave.
-      if (positionedForStep.current === stepIndex) {
-        setRun(false);
-        return;
-      }
-      positionedForStep.current = stepIndex;
+    if (location.pathname !== '/dashboard') {
       setRun(false);
-      navigate(step.route);
       return;
     }
+    const step = steps[stepIndex];
+    if (!step) return;
 
-    // We're on the right page — mark this step positioned so a later
-    // navigation away is treated as the user leaving, not a cue to bounce
-    // them back.
-    positionedForStep.current = stepIndex;
-
-    // Wait for the target element, then start joyride.
     let attempts = 0;
     const interval = setInterval(() => {
       attempts++;
@@ -198,25 +161,25 @@ export function ProductTour() {
           tourStartedLogged.current = true;
           void logEvent('tour_started', stepIndex);
         }
-      } else if (attempts >= TARGET_WAIT_MAX_ATTEMPTS) {
-        // Hard escape: the target never mounted (e.g. a step pointing at an
-        // element that isn't on the page). Rather than leave the user stuck,
-        // mark the tour skipped and stop — never trap them on a step that
-        // can't display.
-        clearInterval(interval);
-        setRun(false);
+        return;
+      }
+      if (attempts < TARGET_WAIT_MAX_ATTEMPTS) return;
+      clearInterval(interval);
+      setRun(false);
+      if (stepIndex >= steps.length - 1) {
         setEligible(false);
         void markSkipped();
         void logEvent('tour_skipped', stepIndex, { reason: 'target_not_found' });
+        return;
       }
+      setStepIndex(stepIndex + 1);
     }, TARGET_WAIT_MS);
 
     return () => clearInterval(interval);
-    // location.pathname + location.search are reactive; stepIndex changes
-    // when the user clicks Next/Back; eligible flips false once on
-    // skip/complete and stops the loop.
+    // markSkipped and logEvent are stable callbacks defined below; the effect
+    // only needs to restart when the step or the route changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eligible, stepIndex, location.pathname, location.search]);
+  }, [eligible, stepIndex, location.pathname, steps]);
 
   // ── Persistence helpers ────────────────────────────────────────────────
   const saveStep = useCallback(
@@ -298,7 +261,7 @@ export function ProductTour() {
       if (type === EVENTS.STEP_AFTER) {
         if (action === ACTIONS.NEXT) {
           const next = index + 1;
-          if (next >= STEPS.length) {
+          if (next >= steps.length) {
             setRun(false);
             setEligible(false);
             await Promise.all([
@@ -346,24 +309,26 @@ export function ProductTour() {
 
       // Target missing — log and let joyride fall back to center placement.
       if (type === EVENTS.TARGET_NOT_FOUND) {
-        console.warn(`[ProductTour] Target not found for step ${index}: ${STEPS[index]?.target}`);
+        console.warn(`[ProductTour] Target not found for step ${index}: ${steps[index]?.target}`);
       }
     },
-    [logEvent, markCompleted, markSkipped, saveStep],
+    [logEvent, markCompleted, markSkipped, saveStep, steps],
   );
 
   if (!eligible) return null;
 
   return (
     <Joyride
-      steps={STEPS}
+      steps={steps}
       run={run}
       stepIndex={stepIndex}
       continuous
       showSkipButton
       showProgress
+      disableOverlay
       disableScrollParentFix
       disableScrolling={false}
+      spotlightClicks
       spotlightPadding={8}
       callback={handleCallback}
       floaterProps={{

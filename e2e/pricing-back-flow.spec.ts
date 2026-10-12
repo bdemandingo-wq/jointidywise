@@ -171,7 +171,7 @@ test.describe("Pricing back-button flow (yearly)", () => {
     // The retry button is still the same, labeled with an SR-friendly
     // aria-label describing plan + billing interval.
     const retry = proCard
-      .getByRole("button", { name: /Pro plan, billed yearly/i })
+      .getByRole("link", { name: /Pro plan, billed yearly/i })
       .first();
     await expect(retry).toBeVisible();
   });

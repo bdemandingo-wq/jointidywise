@@ -104,6 +104,8 @@ export default function NativeSignupPage() {
           fieldErrors[field] = e.message;
         });
         setErrors(fieldErrors);
+        const first = err.errors[0]?.message;
+        if (first) toast.error(first);
       }
       return false;
     }
@@ -329,7 +331,7 @@ export default function NativeSignupPage() {
               </div>
 
               {/* ── Email / Password form ────────────────────────── */}
-              <form onSubmit={handleEmailSignup} className="space-y-4">
+              <form onSubmit={handleEmailSignup} className="space-y-4" noValidate>
                 {/* Full Name */}
                 <div className="space-y-2">
                   <Label htmlFor="fullName" className="flex items-center gap-2">
@@ -473,7 +475,8 @@ export default function NativeSignupPage() {
                 <Button
                   type="submit"
                   className="w-full"
-                  disabled={loading || !tosAccepted}
+                  variant="premium"
+                  disabled={loading}
                   style={{ touchAction: 'manipulation' }}
                 >
                   {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
