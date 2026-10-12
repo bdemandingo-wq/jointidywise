@@ -72,13 +72,41 @@ export function readPushRuntimeFacts(): PushRuntimeFacts {
   return { platform, native, bridge, iosShell, pushHeader, webNotification };
 }
 
-export function describePushRuntime(facts: PushRuntimeFacts): string {
-  return [
+export interface PushDiagnosticDetail {
+  /** receive value from checkPermissions / requestPermissions. */
+  permission?: string | null;
+  /** UNAuthorizationStatus name from the direct iOS call, when we have one. */
+  authorizationStatus?: string | null;
+  /** PushNotifications or NotificationAuth. */
+  source?: string | null;
+  error?: string | null;
+}
+
+export function describePushRuntime(facts: PushRuntimeFacts, detail?: PushDiagnosticDetail): string {
+  const parts = [
     `Platform: ${facts.platform}`,
     `Bridge: ${facts.bridge ? 'connected' : 'missing'}`,
     `Push plugin: ${facts.pushHeader ? 'registered' : 'not registered'}`,
     `Web Notification: ${facts.webNotification}`,
-  ].join('. ') + '.';
+  ];
+  if (detail?.permission) parts.push(`Permission: ${detail.permission}`);
+  if (detail?.authorizationStatus) parts.push(`iOS authorization: ${detail.authorizationStatus}`);
+  if (detail?.source) parts.push(`Source: ${detail.source}`);
+  if (detail?.error) parts.push(`Error: ${detail.error}`);
+  return parts.join('. ') + '.';
+}
+
+/**
+ * Capacitor 8.0.0's plugin proxy returns a callable for every property,
+ * including `then` (`core/src/runtime.ts`). An async function that returns
+ * that proxy makes the engine adopt it as a thenable and call `proxy.then()`.
+ * The native plugin has no `then` method, the call never settles, and the
+ * `await` hangs with no error at the call site (ionic-team/capacitor#8469).
+ * A plain wrapper is not a thenable, so the await resolves and the caller
+ * can use `.plugin` in the same turn.
+ */
+export function holdPlugin<T extends object>(plugin: T): { plugin: T } {
+  return { plugin };
 }
 
 export type PushRoute = 'native' | 'web' | 'unavailable';
