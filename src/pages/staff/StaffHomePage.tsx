@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { orgStartOfWeek, orgEndOfWeek } from '@/lib/orgDateRange';
 import { resolveCleanerPay } from '@/lib/wageCalculation';
+import { useHourCaps } from '@/hooks/useHourCaps';
 import { bookingStatusBadge } from '@/lib/bookingStatus';
 import { combinedPhase } from '@/lib/queryState';
 import { CleanerHomeView, type HomeJob, type SetupStep } from '@/components/portal-v2';
@@ -51,6 +52,7 @@ export default function StaffHomePage() {
   const anyActive = !!rows?.some((r) => r.is_active);
   const staffRow = useMemo(() => rows?.find((r) => r.is_active) ?? null, [rows]);
   const { timezone: orgTz } = useOrgTimezone(staffRow?.organization_id ?? null);
+  const { caps: hourCaps } = useHourCaps(staffRow?.organization_id);
 
   const profileQ = useQuery({
     queryKey: ['staff-profile', staffRow?.organization_id],
@@ -177,7 +179,7 @@ export default function StaffHomePage() {
   const jobs: HomeJob[] = useMemo(() => {
     if (!jobsQ.data || !profile) return [];
     return jobsQ.data.map((b) => {
-      const pay = resolveCleanerPay(b as never, profile as never, null);
+      const pay = resolveCleanerPay(b as never, profile as never, null, 1, hourCaps);
       const start = b.scheduled_at ? timeLabel(b.scheduled_at, orgTz) : '';
       const end =
         b.scheduled_at && b.duration
@@ -200,19 +202,19 @@ export default function StaffHomePage() {
             : 'Full controls are on My jobs',
       };
     });
-  }, [jobsQ.data, profile, orgTz]);
+  }, [jobsQ.data, profile, orgTz, hourCaps]);
 
   const week = useMemo(() => {
     if (!weekQ.data || !profile) return null;
     let earned = 0;
     let hours = 0;
     for (const b of weekQ.data) {
-      const p = resolveCleanerPay(b as never, profile as never, null);
+      const p = resolveCleanerPay(b as never, profile as never, null, 1, hourCaps);
       if (!p.isMissingPay) earned += p.calculatedPay;
       hours += p.hoursWorked;
     }
     return { earned: MONEY(earned), jobs: String(weekQ.data.length), hours: hours.toFixed(1) };
-  }, [weekQ.data, profile]);
+  }, [weekQ.data, profile, hourCaps]);
 
   /* Offline is ruled out before absence is allowed to mean anything — a
      paused read has no error and isLoading false, so this used to render

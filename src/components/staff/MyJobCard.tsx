@@ -18,6 +18,7 @@ import { useMapsNavigation } from '@/hooks/useMapsNavigation';
 import { useCleanerTracking } from '@/hooks/useCleanerTracking';
 import { supabase } from '@/lib/supabase';
 import { resolveCleanerPay, describeCleanerPay, type WageBooking, type WageStaff } from '@/lib/wageCalculation';
+import { useHourCaps } from '@/hooks/useHourCaps';
 import { CustomerNotesBlock } from '@/components/CustomerNotesBlock';
 import { toast } from 'sonner';
 
@@ -255,7 +256,9 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
   // Pay shown here is resolved by the one shared resolver, so this card, the
   // Earnings tab and admin Payroll can never show three different numbers for
   // the same job. Do not compute pay inline — change lib/wageCalculation.ts.
-  const payResult = resolveCleanerPay(booking, staffInfo, booking.team_pay_share);
+  const { caps: hourCaps } = useHourCaps(organizationId ?? booking.organization_id);
+  const teamSize = (booking.team_members?.length ?? 0) > 1 ? booking.team_members!.length : 1;
+  const payResult = resolveCleanerPay(booking, staffInfo, booking.team_pay_share, teamSize, hourCaps);
   const pay = {
     amount: payResult.calculatedPay,
     type: describeCleanerPay(payResult),

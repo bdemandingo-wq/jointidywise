@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { mustAffectRows } from '@/lib/mustAffectRows';
 import { describeJobComplete, type JobNotifyResult } from '@/lib/jobNotifyResult';
+import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import type { WageBooking } from '@/lib/wageCalculation';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,11 @@ import { resolveActiveStaffOrg } from '@/lib/staffOrgResolution';
 import { OrgSwitcherList } from '@/components/OrgSwitcherList';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useIsMutating } from '@tanstack/react-query';
+
+/** Email that was never set up is not a failed send. */
+function isReviewSendUnconfigured(reason: string): boolean {
+  return /not configured|email service is not configured|no resend api key|resend_api_key/i.test(reason);
+}
 
 
 // Lazy-load heavy tab components to speed up initial render
@@ -352,7 +358,7 @@ export default function StaffPortal() {
         .select(`
           id, organization_id, staff_id, customer_id, booking_number, scheduled_at, duration, status, address, city, state, zip_code, extras,
           total_amount, subtotal, discount_amount, cleaner_wage, cleaner_wage_type,
-          cleaner_actual_payment, cleaner_pay_expected, cleaner_override_hours,
+          cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
           cleaner_checkin_at, cleaner_checkout_at, notes, customer_notes,
           customer:customers(first_name, last_name, phone),
           service:services(name)
@@ -373,7 +379,7 @@ export default function StaffPortal() {
           booking:bookings(
             id, organization_id, staff_id, customer_id, booking_number, scheduled_at, duration, status, address, city, state, zip_code, extras,
             total_amount, subtotal, discount_amount, cleaner_wage, cleaner_wage_type,
-            cleaner_actual_payment, cleaner_pay_expected, cleaner_override_hours,
+            cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
             cleaner_checkin_at, cleaner_checkout_at, notes, customer_notes,
             customer:customers(first_name, last_name, phone),
             service:services(name)
@@ -508,7 +514,7 @@ export default function StaffPortal() {
         .select(`
           id, booking_number, scheduled_at, duration, status, address, city, state, zip_code, extras,
           total_amount, subtotal, discount_amount, cleaner_wage, cleaner_wage_type,
-          cleaner_actual_payment, cleaner_pay_expected, cleaner_override_hours,
+          cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
           cleaner_checkin_at, cleaner_checkout_at,
           square_footage, bedrooms, bathrooms, notes, customer_notes,
           customer:customers(first_name, last_name, phone),
@@ -574,7 +580,7 @@ export default function StaffPortal() {
         .select(`
           id, booking_number, scheduled_at, duration, status, address, city, state, zip_code,
           total_amount, subtotal, discount_amount, cleaner_wage, cleaner_wage_type,
-          cleaner_actual_payment, cleaner_pay_expected, cleaner_override_hours,
+          cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
           cleaner_checkin_at, cleaner_checkout_at,
           customer:customers(first_name, last_name),
           service:services(name)
@@ -823,16 +829,36 @@ export default function StaffPortal() {
                 organizationId: bookingData.organization_id,
               },
             });
-            
+
+            const skipped = reviewResult.data &&
+              typeof reviewResult.data === 'object' &&
+              (reviewResult.data as { skipped?: boolean }).skipped === true;
+            if (skipped) {
+              return { status, reviewSent: false, officeNotice };
+            }
+
             if (reviewResult.error) {
-              console.error('Review request failed:', reviewResult.error);
+              const reason = await readEdgeFunctionError(reviewResult.error, '');
+              // No email provider or no org email identity is a normal state.
+              // Completing the job must not surface that as a failure.
+              if (isReviewSendUnconfigured(reason)) {
+                console.warn('Review request skipped:', reason);
+                return { status, reviewSent: false, officeNotice };
+              }
+              console.error('Review request failed:', reason || reviewResult.error);
               toast.error('Job completed, but review request failed to send');
               return { status, reviewSent: false, officeNotice };
             }
           } else {
             console.warn('Missing customer email or organization ID for review request');
+            return { status, reviewSent: false, officeNotice };
           }
         } catch (reviewError) {
+          const reason = await readEdgeFunctionError(reviewError, '');
+          if (isReviewSendUnconfigured(reason)) {
+            console.warn('Review request skipped:', reason);
+            return { status, reviewSent: false, officeNotice };
+          }
           console.error('Failed to send review request:', reviewError);
           toast.error('Job completed, but review request failed');
           return { status, reviewSent: false, officeNotice };

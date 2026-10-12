@@ -35,7 +35,7 @@ import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrgId } from '@/hooks/useOrgId';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
-import { resolveCleanerPay } from '@/lib/wageCalculation';
+import { resolveCleanerPay, DEFAULT_HOURS_ABSOLUTE_CEILING, DEFAULT_HOURS_OVERAGE_CAP_RATIO, type HourCaps } from '@/lib/wageCalculation';
 import { usePayrollPeriodConfig } from '@/hooks/usePayrollPeriodConfig';
 import { getCurrentPeriod, getNextPeriod, getPeriodStart, getPeriodEnd, getPeriodTitle, formatPeriodLabel } from '@/lib/payrollPeriod';
 import { addDays as addDaysFn } from 'date-fns';
@@ -143,6 +143,8 @@ interface PayrollSettings {
   vendor_cost_percent: number;
   labor_percent_warning_threshold: number;
   margin_percent_good_threshold: number;
+  hours_overage_cap_ratio: number;
+  hours_absolute_ceiling: number;
 }
 
 const DEFAULT_SETTINGS: PayrollSettings = {
@@ -154,6 +156,8 @@ const DEFAULT_SETTINGS: PayrollSettings = {
   vendor_cost_percent: 0,
   labor_percent_warning_threshold: 60,
   margin_percent_good_threshold: 30,
+  hours_overage_cap_ratio: DEFAULT_HOURS_OVERAGE_CAP_RATIO,
+  hours_absolute_ceiling: DEFAULT_HOURS_ABSOLUTE_CEILING,
 };
 
 // Financial calculation helpers
@@ -325,6 +329,12 @@ export default function PayrollPage() {
         vendor_cost_percent: Number(data.vendor_cost_percent),
         labor_percent_warning_threshold: Number(data.labor_percent_warning_threshold),
         margin_percent_good_threshold: Number(data.margin_percent_good_threshold),
+        hours_overage_cap_ratio: Number(data.hours_overage_cap_ratio) > 0
+          ? Number(data.hours_overage_cap_ratio)
+          : DEFAULT_HOURS_OVERAGE_CAP_RATIO,
+        hours_absolute_ceiling: Number(data.hours_absolute_ceiling) > 0
+          ? Number(data.hours_absolute_ceiling)
+          : DEFAULT_HOURS_ABSOLUTE_CEILING,
       } as PayrollSettings;
     },
   });
@@ -758,8 +768,13 @@ export default function PayrollPage() {
   // mirrors the payout engine. The only thing added here is `actualPay` — the
   // "confirmed vs estimated" column this page renders. Never reorder the
   // priorities here; change the resolver so every surface moves together.
-  const calcWage = (booking: any, staffMember: any, payShareOverride?: number | null) => {
-    const r = resolveCleanerPay(booking, staffMember, payShareOverride);
+  const hourCaps: HourCaps = {
+    overageCapRatio: settings.hours_overage_cap_ratio,
+    absoluteCeiling: settings.hours_absolute_ceiling,
+  };
+
+  const calcWage = (booking: any, staffMember: any, payShareOverride?: number | null, teamSize?: number) => {
+    const r = resolveCleanerPay(booking, staffMember, payShareOverride, teamSize, hourCaps);
     return {
       calculatedPay: r.calculatedPay,
       actualPay: r.isExact ? r.calculatedPay : null,
@@ -777,7 +792,8 @@ export default function PayrollPage() {
     for (const b of primaryBookings) {
       const assignment = assignmentList.find((a: any) => a.booking_id === b.id && a.staff_id === staffId);
       const payShareOverride = assignment?.pay_share != null ? Number(assignment.pay_share) : null;
-      const wageInfo = calcWage(b, staffMember, payShareOverride);
+      const teamSize = assignmentList.filter((a: any) => a.booking_id === b.id).length || 1;
+      const wageInfo = calcWage(b, staffMember, payShareOverride, teamSize);
       entries.push({ booking: b, pay: wageInfo.calculatedPay, hours: wageInfo.hoursWorked });
     }
     const teamEntries = assignmentList.filter((a: any) => a.staff_id === staffId && !primaryBookings.find((b: any) => b.id === a.booking_id));
@@ -785,7 +801,8 @@ export default function PayrollPage() {
       const booking = bookingList.find((b: any) => b.id === a.booking_id && b.status !== 'cancelled');
       if (!booking) continue;
       const payShareOverride = a.pay_share != null ? Number(a.pay_share) : null;
-      const wageInfo = calcWage(booking, staffMember, payShareOverride);
+      const teamSize = assignmentList.filter((x: any) => x.booking_id === booking.id).length || 1;
+      const wageInfo = calcWage(booking, staffMember, payShareOverride, teamSize);
       entries.push({ booking, pay: wageInfo.calculatedPay, hours: wageInfo.hoursWorked });
     }
     return entries;
@@ -835,7 +852,7 @@ export default function PayrollPage() {
         const member = staff.find((s) => s.id === m.staffId);
         const wageInfo = isReclean
           ? { calculatedPay: 0, actualPay: 0, wageType: 'reclean', wageRate: 0, hoursWorked: 0, isMissingPay: false }
-          : calcWage(b, member, m.payShare);
+          : calcWage(b, member, m.payShare, members.length || 1);
         totalBookingLabor += wageInfo.calculatedPay;
         memberDetails.push({ m, member, wageInfo });
       }
@@ -962,7 +979,7 @@ export default function PayrollPage() {
           const member = staff.find((s) => s.id === id);
           const a = assignments.find((x: any) => x.staff_id === id);
           const ps = a?.pay_share != null ? Number(a.pay_share) : null;
-          totalLabor += calcWage(b, member, ps).calculatedPay;
+          totalLabor += calcWage(b, member, ps, memberIds.size || 1).calculatedPay;
         }
       }
 
@@ -1095,13 +1112,13 @@ export default function PayrollPage() {
         for (const a of assignments) {
           const member = staff.find((s) => s.id === a.staff_id);
           const ps = a.pay_share != null ? Number(a.pay_share) : null;
-          const w = calcWage(b, member, ps);
+          const w = calcWage(b, member, ps, assignments.length || 1);
           laborTotal += w.calculatedPay;
           if (w.calculatedPay === 0) missingPay++;
         }
       } else if (b.staff_id) {
         const sm = staff.find((s) => s.id === b.staff_id);
-        const w = calcWage(b, sm);
+        const w = calcWage(b, sm, null, 1);
         laborTotal += w.calculatedPay;
         if (w.calculatedPay === 0) missingPay++;
       }

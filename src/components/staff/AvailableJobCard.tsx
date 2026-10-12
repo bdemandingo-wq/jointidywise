@@ -17,6 +17,7 @@ import { Calendar, MapPin, Clock, User, CheckCircle2, DollarSign, TrendingUp, Lo
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { formatInTimezone } from '@/lib/timezoneUtils';
 import { resolveCleanerPay, describeCleanerPay, type WageBooking, type WageStaff } from '@/lib/wageCalculation';
+import { useHourCaps } from '@/hooks/useHourCaps';
 import { CustomerNotesBlock } from '@/components/CustomerNotesBlock';
 
 type StaffInfo = WageStaff;
@@ -68,7 +69,8 @@ export function AvailableJobCard({ booking, staffInfo, organizationId, orgExtras
   // Same resolver as MyJobCard, so the estimate a cleaner sees before claiming
   // a job matches what they see after claiming it — and what payroll pays.
   // No pay_share: an unclaimed job has no team assignment row yet.
-  const payResult = resolveCleanerPay(booking, staffInfo);
+  const { caps: hourCaps } = useHourCaps(organizationId);
+  const payResult = resolveCleanerPay(booking, staffInfo, null, 1, hourCaps);
   const earnings = {
     amount: payResult.calculatedPay,
     type: describeCleanerPay(payResult),

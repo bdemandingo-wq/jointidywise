@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { computeExpectedPay, syncCleanerPayShare } from '@/lib/cleanerPay';
+import { resolveCleanerPay, type WageBooking, type WageStaff } from '@/lib/wageCalculation';
+import { useHourCaps } from '@/hooks/useHourCaps';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -37,6 +39,10 @@ interface BookingWithWage {
   duration: number;
   cleaner_wage: number | null;
   cleaner_wage_type: string | null;
+  cleaner_checkin_at: string | null;
+  cleaner_checkout_at: string | null;
+  cleaner_override_hours: number | null;
+  pay_locked: boolean | null;
   customer: {
     first_name: string;
     last_name: string;
@@ -64,6 +70,7 @@ export function BulkEditCleanerWages() {
   const [saving, setSaving] = useState(false);
 
   const queryClient = useQueryClient();
+  const { caps: hourCaps } = useHourCaps(organizationId);
 
   const { data: bookings = [], isLoading, error: bookingsError } = useQuery({
     queryKey: ['bookings-wages', organizationId],
@@ -76,6 +83,7 @@ export function BulkEditCleanerWages() {
         .select(`
           id, booking_number, scheduled_at, total_amount, duration,
           cleaner_wage, cleaner_wage_type,
+          cleaner_checkin_at, cleaner_checkout_at, cleaner_override_hours, pay_locked,
           customer:customers(first_name, last_name),
           service:services(name),
           staff:staff(name, hourly_rate, percentage_rate)
@@ -204,8 +212,12 @@ export function BulkEditCleanerWages() {
             updateData.total_amount = jobTotalValue;
           }
 
-          const totalAmt = jobTotalValue !== undefined ? jobTotalValue : (booking?.total_amount ?? 0);
-          const wageDerivedPay = computeExpectedPay(edit.type || 'hourly', edit.value, '', booking?.duration ?? 0, totalAmt);
+          const pricedBooking = booking && jobTotalValue !== undefined
+            ? { ...booking, total_amount: jobTotalValue }
+            : booking;
+          const wageDerivedPay = pricedBooking
+            ? calculatePay(pricedBooking, edit.type || 'hourly', edit.value)
+            : computeExpectedPay(edit.type || 'hourly', edit.value, '', booking?.duration ?? 0, jobTotalValue ?? 0);
           updateData.cleaner_pay_expected = wageDerivedPay;
           if (wageDerivedPay != null) {
             updateData.cleaner_actual_payment = null;
@@ -275,26 +287,28 @@ export function BulkEditCleanerWages() {
   };
 
   const calculatePay = (booking: BookingWithWage, wageType: string, wageValue: string) => {
-    const value = parseFloat(wageValue);
-    if (!value || isNaN(value)) {
-      // Fallback to staff defaults
-      if (booking.staff?.percentage_rate) {
-        return (booking.total_amount * booking.staff.percentage_rate) / 100;
-      }
-      if (booking.staff?.hourly_rate) {
-        return booking.staff.hourly_rate * 5;
-      }
-      return 0;
-    }
-
-    if (wageType === 'percentage') {
-      return (booking.total_amount * value) / 100;
-    }
-    if (wageType === 'flat') {
-      return value; // Flat rate is direct payment amount
-    }
-    // Hourly
-    return value * 5;
+    const parsed = wageValue.trim() === '' ? null : Number(wageValue);
+    const wage = parsed != null && Number.isFinite(parsed) ? parsed : null;
+    const staff: WageStaff = {
+      hourly_rate: booking.staff?.hourly_rate ?? null,
+      base_wage: null,
+      default_hours: null,
+      percentage_rate: booking.staff?.percentage_rate ?? null,
+    };
+    const priced: WageBooking = {
+      cleaner_actual_payment: null,
+      cleaner_pay_expected: null,
+      pay_locked: false,
+      cleaner_wage: wage,
+      cleaner_wage_type: wageType || null,
+      cleaner_checkin_at: booking.cleaner_checkin_at,
+      cleaner_checkout_at: booking.cleaner_checkout_at,
+      cleaner_override_hours: booking.cleaner_override_hours,
+      duration: booking.duration,
+      total_amount: booking.total_amount,
+    };
+    // Solo preview. Team shares are edited on the booking, not in this grid.
+    return resolveCleanerPay(priced, staff, null, 1, hourCaps).calculatedPay;
   };
 
   const hasUnsavedChanges = Object.keys(localEdits).length > 0;
@@ -455,6 +469,9 @@ export function BulkEditCleanerWages() {
                         {booking.staff?.name || (
                           <span className="text-muted-foreground italic">Unassigned</span>
                         )}
+                        {booking.staff?.hourly_rate != null && (
+                          <p className="text-xs text-muted-foreground">${booking.staff.hourly_rate}/hr</p>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
@@ -506,7 +523,18 @@ export function BulkEditCleanerWages() {
                             type="number"
                             value={wage.value}
                             onChange={(e) => handleLocalEdit(booking.id, 'value', e.target.value)}
-                            placeholder={wage.type === 'percentage' ? '40' : wage.type === 'flat' ? '100' : '25'}
+                            placeholder={
+                              wage.type === 'percentage'
+                                ? (booking.staff?.percentage_rate != null ? String(booking.staff.percentage_rate) : '')
+                                : wage.type === 'flat'
+                                  ? ''
+                                  : (booking.staff?.hourly_rate != null ? String(booking.staff.hourly_rate) : '')
+                            }
+                            title={
+                              wage.type === 'hourly' || !wage.type
+                                ? 'Blank uses the staff hourly rate shown on the cleaner'
+                                : undefined
+                            }
                             className="w-[70px] h-8"
                           />
                           {wage.type === 'hourly' && <span className="text-muted-foreground text-xs">/hr</span>}

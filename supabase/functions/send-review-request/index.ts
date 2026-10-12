@@ -28,9 +28,13 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   if (!RESEND_API_KEY) {
-    console.error("Missing RESEND_API_KEY secret");
-    return new Response(JSON.stringify({ error: "Email service is not configured" }), {
-      status: 500,
+    console.warn("Review request skipped: RESEND_API_KEY is not set");
+    return new Response(JSON.stringify({
+      success: false,
+      skipped: true,
+      reason: "email_not_configured",
+    }), {
+      status: 200,
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
   }
@@ -65,11 +69,13 @@ const handler = async (req: Request): Promise<Response> => {
     const emailSettingsResult = await getOrgEmailSettings(organizationId);
     
     if (!emailSettingsResult.success || !emailSettingsResult.settings) {
-      console.error("Failed to get email settings:", emailSettingsResult.error);
-      return new Response(JSON.stringify({ 
-        error: emailSettingsResult.error || "Email settings not configured" 
+      console.warn("Review request skipped:", emailSettingsResult.error || "Email settings not configured");
+      return new Response(JSON.stringify({
+        success: false,
+        skipped: true,
+        reason: "email_not_configured",
       }), {
-        status: 400,
+        status: 200,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
