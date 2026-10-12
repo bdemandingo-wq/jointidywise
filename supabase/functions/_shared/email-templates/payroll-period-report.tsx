@@ -1,4 +1,3 @@
-/// <reference types="npm:@types/react@18.3.1" />
 import * as React from "npm:react@18.3.1";
 import {
   Body,
@@ -259,7 +258,7 @@ export const PayrollPeriodReport = ({
     <Html lang="en" dir="ltr">
       <Head />
       <Preview>
-        Payroll report for {orgName} — {fmtUsd(totals.payroll)} across {totals.jobs} jobs
+        Payroll report for {orgName} — {fmtUsd(totals.payroll)} across {String(totals.jobs)} jobs
       </Preview>
       <Body style={styles.main}>
         <Container style={containerStyle}>
