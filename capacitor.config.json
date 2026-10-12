@@ -9,7 +9,7 @@
     "appendUserAgent": "TidyWise-iOS",
     "backgroundColor": "#ffffff",
     "preferredContentMode": "mobile",
-    "limitsNavigationsToAppBoundDomains": true,
+    "limitsNavigationsToAppBoundDomains": false,
     "scrollEnabled": true,
     "allowNavigation": [
       "slwfkaqczvwvvvavkgpr.supabase.co",

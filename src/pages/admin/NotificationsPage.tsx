@@ -23,6 +23,7 @@ import { useOrganization } from '@/contexts/OrganizationContext';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SEOHead } from '@/components/SEOHead';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
+import { describePushRuntime } from '@/lib/pushRuntime';
 import { NotificationPreferencesCard } from '@/components/admin/NotificationPreferencesCard';
 import { useLegacyNotificationMigration } from '@/hooks/useLegacyNotificationMigration';
 import { useQueryClient } from '@tanstack/react-query';
@@ -50,7 +51,7 @@ export default function NotificationsPage() {
   const [savingBrief, setSavingBrief] = useState<'morning' | 'evening' | null>(null);
   const [sendingBrief, setSendingBrief] = useState(false);
   const [sendingEvening, setSendingEvening] = useState(false);
-  const { isSupported, isRegistered, isRegistering, requestPermission } = usePushNotifications();
+  const { isSupported, isRegistered, isRegistering, status, runtimeFacts, registerDevice } = usePushNotifications();
   const queryClient = useQueryClient();
 
   // Shared, non-destructive migration of the three legacy notify_* flags into
@@ -209,7 +210,7 @@ export default function NotificationsPage() {
                 </span>
               </div>
               <CardDescription>
-                Real-time alerts sent directly to your {typeof window !== 'undefined' && (window as any)?.Capacitor?.isNativePlatform?.() ? 'iPhone' : 'browser'} for all key business events
+                Real-time alerts sent directly to your {runtimeFacts.iosShell ? 'iPhone' : 'browser'} for all key business events
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-1">
@@ -232,7 +233,7 @@ export default function NotificationsPage() {
               </div>
 
               {!isRegistered && isSupported && (
-                typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'denied' ? (
+                !runtimeFacts.iosShell && runtimeFacts.webNotification === 'denied' ? (
                   <div className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-center space-y-1">
                     <p className="text-sm font-medium text-destructive">Notifications Blocked</p>
                     <p className="text-xs text-muted-foreground">
@@ -241,7 +242,7 @@ export default function NotificationsPage() {
                   </div>
                 ) : (
                   <Button
-                    onClick={requestPermission}
+                    onClick={() => { void registerDevice({ organizationId: orgId }); }}
                     disabled={isRegistering}
                     className="w-full mt-4 gap-2"
                     variant="outline"
@@ -250,6 +251,28 @@ export default function NotificationsPage() {
                     {isRegistering ? 'Enabling...' : 'Enable Notifications'}
                   </Button>
                 )
+              )}
+
+              {(runtimeFacts.iosShell || status.phase === 'failed' || status.phase === 'working') && !isRegistered && (
+                <div
+                  className={`mt-4 p-3 rounded-lg border space-y-1 ${
+                    status.phase === 'failed'
+                      ? 'bg-destructive/10 border-destructive/30'
+                      : 'bg-muted/60 border-border'
+                  }`}
+                  role="status"
+                >
+                  <p className={`text-sm font-medium ${status.phase === 'failed' ? 'text-destructive' : 'text-foreground'}`}>
+                    {status.phase === 'failed'
+                      ? 'Notifications were not enabled'
+                      : status.phase === 'working'
+                        ? 'Asking iOS…'
+                        : 'iPhone notification status'}
+                  </p>
+                  <p className="text-xs text-muted-foreground whitespace-pre-wrap">
+                    {status.message || describePushRuntime(runtimeFacts)}
+                  </p>
+                </div>
               )}
 
               {!isSupported && (
