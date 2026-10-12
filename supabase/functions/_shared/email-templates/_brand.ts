@@ -1,6 +1,6 @@
 // TidyWise email brand tokens — shared across all auth email templates.
 export const BRAND = {
-  logoUrl: 'https://jointidywise.lovable.app/email-logo.png',
+  logoUrl: 'https://jointidywise.com/email-logo.png',
   logoHeight: 56,
   siteName: 'TidyWise',
   primary: '#4f46e5',

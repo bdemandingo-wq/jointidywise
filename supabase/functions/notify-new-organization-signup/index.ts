@@ -1,11 +1,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
 };
 
-const ADMIN_PHONES = ["+15615718725", "+18137356859"];
+const ADMIN_PHONES = platformAdminPhones();
 
 function timingSafeEqualString(a: string, b: string): boolean {
   const enc = new TextEncoder();

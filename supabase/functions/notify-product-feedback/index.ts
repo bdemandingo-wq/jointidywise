@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 
 /**
  * Tells the founder that product feedback has arrived.
@@ -24,7 +25,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const ADMIN_PHONES = ["+15615718725", "+18137356859"];
+const ADMIN_PHONES = platformAdminPhones();
 const TIDYWISE_ORG_ID = "e95b92d0-7099-408e-a773-e4407b34f8b4";
 
 const TOPIC_LABEL: Record<string, string> = {

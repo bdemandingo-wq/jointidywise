@@ -78,8 +78,18 @@ export async function verifyAdminAuth(
     return { success: false, error: "User does not belong to any organization" };
   }
 
-  // Use the matching membership (first one if no specific org required)
-  const membership = memberships[0];
+  // Postgres does not order rows without ORDER BY, so memberships[0] was a
+  // different org on different calls for anyone in two organizations.
+  // Callers that know the active org pass requireOrganizationId and the
+  // query above already filtered to that row. Otherwise prefer owner, then
+  // admin, then manager, and break remaining ties by organization_id so the
+  // choice is stable.
+  const roleRank: Record<string, number> = { owner: 0, admin: 1, manager: 2 };
+  const membership = [...memberships].sort((a, b) => {
+    const byRole = (roleRank[a.role] ?? 9) - (roleRank[b.role] ?? 9);
+    if (byRole !== 0) return byRole;
+    return String(a.organization_id).localeCompare(String(b.organization_id));
+  })[0];
 
   // Role gate.
   // - Owner: everything

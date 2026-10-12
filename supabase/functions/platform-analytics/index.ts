@@ -7,7 +7,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const PLATFORM_ADMIN_EMAIL = "support@tidywisecleaning.com";
 const FREE_ACCOUNTS = new Set([
   "support@tidywisecleaning.com",
   "applereview@tidywise.com",
@@ -60,18 +59,36 @@ serve(async (req) => {
     }
 
     const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await supabaseClient.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
+    // getUser() checks the token with GoTrue, so a revoked or deleted
+    // account cannot keep using a still-unexpired JWT the way getClaims()
+    // allowed. Authorization is the DB helper is_platform_admin() (the
+    // same allowlist the rest of the app uses) plus any extra addresses
+    // in PLATFORM_ADMIN_EMAILS, not a single email baked into this file.
+    const { data: userData, error: userError } = await supabaseClient.auth.getUser(token);
+    if (userError || !userData?.user) {
       return new Response(JSON.stringify({ error: "Authentication error: Invalid token" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    
-    const userEmail = claimsData.claims.email as string | undefined;
+
+    const userEmail = userData.user.email;
     console.log("[PLATFORM-ANALYTICS] User email:", userEmail);
-    
-    if (!userEmail || userEmail !== PLATFORM_ADMIN_EMAIL) {
+
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const userClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      anonKey,
+      { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false } },
+    );
+    const { data: platformAdmin, error: adminErr } = await userClient.rpc("is_platform_admin");
+    const extraAdmins = (Deno.env.get("PLATFORM_ADMIN_EMAILS") ?? "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    const emailAllowed = !!userEmail && extraAdmins.includes(userEmail.trim().toLowerCase());
+    if (!emailAllowed && (adminErr || !platformAdmin)) {
+      if (adminErr) console.error("[PLATFORM-ANALYTICS] is_platform_admin failed:", adminErr.message);
       return new Response(JSON.stringify({ error: "Unauthorized: Platform admin access only" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
