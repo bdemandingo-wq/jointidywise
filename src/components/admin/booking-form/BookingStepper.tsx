@@ -602,6 +602,10 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
         }
         return true;
       case 'property':
+        if (!address.trim()) {
+          toast.error('Please enter a street address');
+          return false;
+        }
         return true;
       case 'service':
         if (!selectedServiceId) {
@@ -1000,7 +1004,12 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
       const isExistingBooking = booking?.id && booking.id.length > 10;
 
       if (isExistingBooking) {
-        await updateBooking.mutateAsync({ id: booking.id, ...bookingData });
+        await updateBooking.mutateAsync({
+          id: booking.id,
+          ...bookingData,
+          // The summary toast below covers this save when future visits change too.
+          suppressToast: updateFutureBookings,
+        });
         persistedBookingId = booking.id;
 
         // ALWAYS sync team assignments on update to prevent stale/duplicate entries
@@ -1167,11 +1176,12 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
               }
             }
             
-            await updateBooking.mutateAsync(updateData as { id: string } & Partial<typeof bookingData>);
+            await updateBooking.mutateAsync({
+              ...(updateData as { id: string } & Partial<typeof bookingData>),
+              suppressToast: true,
+            });
           }
           toast.success(`Booking updated and ${changedFields.length} change(s) applied to ${futureBookings.length} future booking(s)`);
-        } else {
-          toast.success('Booking updated successfully');
         }
       } else {
         const finalBookingData = {

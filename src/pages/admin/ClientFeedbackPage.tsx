@@ -393,12 +393,12 @@ export default function ClientFeedbackPage() {
                       )}
                     </TableCell>
                     <TableCell className="max-w-[300px]">
-                      <p className="truncate text-sm" title={entry.issue_description || ''}>
+                      <p className="whitespace-normal break-words text-sm" title={entry.issue_description || ''}>
                         {entry.issue_description || '-'}
                       </p>
                     </TableCell>
                     <TableCell className="max-w-[300px]">
-                      <p className="truncate text-sm" title={entry.resolution || ''}>
+                      <p className="whitespace-normal break-words text-sm" title={entry.resolution || ''}>
                         {entry.resolution || '-'}
                       </p>
                     </TableCell>

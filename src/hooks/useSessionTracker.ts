@@ -6,6 +6,27 @@ const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes of inactivity = idle
 const UPDATE_INTERVAL_MS = 30 * 1000; // Update session every 30 seconds
 const SESSION_RESUME_WINDOW_MS = 30 * 60 * 1000; // Resume sessions started within last 30 minutes
 
+// One patch for the life of the page. Re-wrapping pushState on every effect
+// run stacked listeners, so a single navigation recorded several page views
+// and printed [SESSION_TRACKER] once per wrap.
+let historyPatched = false;
+let pageTracker: (() => void) | null = null;
+
+function ensureHistoryPatch() {
+  if (historyPatched) return;
+  historyPatched = true;
+  const origPush = history.pushState.bind(history);
+  const origReplace = history.replaceState.bind(history);
+  history.pushState = function (...args: Parameters<History['pushState']>) {
+    origPush(...args);
+    pageTracker?.();
+  };
+  history.replaceState = function (...args: Parameters<History['replaceState']>) {
+    origReplace(...args);
+    pageTracker?.();
+  };
+}
+
 export function useSessionTracker() {
   const { user } = useAuth();
   const lastPathRef = useRef<string>('');
@@ -63,7 +84,6 @@ export function useSessionTracker() {
         activeTimeRef.current = (existingSession.duration_seconds ?? 0) * 1000;
         lastActivityRef.current = Date.now();
         sessionStartRef.current = new Date(existingSession.session_start).getTime();
-        console.log('[SESSION_TRACKER] resumed session', { sessionId: existingSession.id, previousDuration: existingSession.duration_seconds });
       } else {
         // Create brand new session
         const { data, error } = await supabase
@@ -83,7 +103,6 @@ export function useSessionTracker() {
         sessionStartRef.current = Date.now();
         activeTimeRef.current = 0;
         lastActivityRef.current = Date.now();
-        console.log('[SESSION_TRACKER] created new session', { sessionId: data.id });
       }
     } catch (err) {
       console.error('[SESSION_TRACKER] createSession failed', { userId: user.id, err });
@@ -185,22 +204,12 @@ export function useSessionTracker() {
     // Track initial page
     trackPage();
 
-    // Listen for pushState/popstate navigation
-    const origPush = history.pushState.bind(history);
-    const origReplace = history.replaceState.bind(history);
-    history.pushState = function (...args) {
-      origPush(...args);
-      trackPage();
-    };
-    history.replaceState = function (...args) {
-      origReplace(...args);
-      trackPage();
-    };
+    pageTracker = trackPage;
+    ensureHistoryPatch();
     window.addEventListener('popstate', trackPage);
 
     return () => {
-      history.pushState = origPush;
-      history.replaceState = origReplace;
+      if (pageTracker === trackPage) pageTracker = null;
       window.removeEventListener('popstate', trackPage);
     };
   }, [user]);

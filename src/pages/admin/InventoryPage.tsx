@@ -698,13 +698,54 @@ function InventorySettingsDialog({
   const [newCategoryName, setNewCategoryName] = useState('');
   const [editingCategory, setEditingCategory] = useState<InventoryCategory | null>(null);
   const [pendingCategoryId, setPendingCategoryId] = useState<string | null>(null);
+  // The list is a prop from the page query. Invalidating that query does not
+  // repaint this open dialog until the refetch lands, so keep a local copy of
+  // adds, renames, and deletes in the meantime.
+  const [optimistic, setOptimistic] = useState<InventoryCategory[]>([]);
+  const [removedIds, setRemovedIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setOptimistic((prev) => {
+      const next = prev.filter(
+        (row) => !categories.some((c) => c.id === row.id || c.name.toLowerCase() === row.name.toLowerCase()),
+      );
+      return next.length === prev.length ? prev : next;
+    });
+    setRemovedIds((prev) => {
+      const next = prev.filter((id) => categories.some((c) => c.id === id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [categories]);
+
+  const visibleCategories = (() => {
+    const rows = new Map<string, InventoryCategory>();
+    const serverNames = new Set(categories.map((c) => c.name.toLowerCase()));
+    for (const category of categories) {
+      if (!removedIds.includes(category.id)) rows.set(category.id, category);
+    }
+    for (const row of optimistic) {
+      if (removedIds.includes(row.id)) continue;
+      if (row.id.startsWith('pending-') && serverNames.has(row.name.toLowerCase())) continue;
+      rows.set(row.id, row);
+    }
+    return [...rows.values()];
+  })();
 
   const createCategoryMutation = useMutation({
     mutationFn: async (name: string) => {
       const { error } = await supabase.from('inventory_categories').insert([{ name, organization_id: organizationId }]);
       if (error) throw error;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['inventory-categories'] }); setNewCategoryName(''); toast.success('Category added'); },
+    onSuccess: (_data, name) => {
+      const trimmed = name.trim();
+      setOptimistic((prev) => [
+        ...prev.filter((row) => row.name.toLowerCase() !== trimmed.toLowerCase()),
+        { id: `pending-${trimmed.toLowerCase()}`, name: trimmed, organization_id: organizationId },
+      ]);
+      setNewCategoryName('');
+      toast.success('Category added');
+      void queryClient.refetchQueries({ queryKey: ['inventory-categories', organizationId] });
+    },
     onError: (error: any) => toast.error(error.message),
   });
 
@@ -713,7 +754,15 @@ function InventorySettingsDialog({
       const { error } = await supabase.from('inventory_categories').update({ name }).eq('id', id);
       if (error) throw error;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['inventory-categories'] }); setEditingCategory(null); toast.success('Category updated'); },
+    onSuccess: (_data, { id, name }) => {
+      setOptimistic((prev) => [
+        ...prev.filter((row) => row.id !== id),
+        { id, name, organization_id: organizationId },
+      ]);
+      setEditingCategory(null);
+      toast.success('Category updated');
+      void queryClient.refetchQueries({ queryKey: ['inventory-categories', organizationId] });
+    },
     onError: (error: any) => toast.error(error.message),
   });
 
@@ -722,7 +771,12 @@ function InventorySettingsDialog({
       const { error } = await supabase.from('inventory_categories').delete().eq('id', id);
       if (error) throw error;
     },
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['inventory-categories'] }); toast.success('Category deleted'); },
+    onSuccess: (_data, id) => {
+      setRemovedIds((prev) => [...prev, id]);
+      setOptimistic((prev) => prev.filter((row) => row.id !== id));
+      toast.success('Category deleted');
+      void queryClient.refetchQueries({ queryKey: ['inventory-categories', organizationId] });
+    },
     onError: (error: any) => toast.error(error.message),
   });
 
@@ -746,9 +800,9 @@ function InventorySettingsDialog({
           <Card>
             <CardHeader className="pb-2"><CardTitle className="text-sm">Custom Categories</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              {categories.length === 0 ? (
+              {visibleCategories.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No custom categories yet.</p>
-              ) : categories.map(cat => (
+              ) : visibleCategories.map(cat => (
                 <div key={cat.id} className="flex items-center justify-between p-2 border rounded-md">
                   {editingCategory?.id === cat.id ? (
                     <Input value={editingCategory.name} onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })} className="flex-1 mr-2" autoFocus />

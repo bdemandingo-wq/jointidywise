@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { AddressAutocomplete } from '@/components/address/AddressAutocomplete';
 import { maybeAdoptOrgCountry } from '@/lib/orgCountry';
 import { normalizeWebsiteUrl } from '@/lib/websiteUrl';
+import { BUSINESS_NAME_MAX } from '@/lib/displayName';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -652,7 +653,7 @@ export default function SettingsPage() {
         <div className="flex items-center justify-between gap-3 rounded-lg border bg-card p-4">
           <div className="min-w-0 flex-1">
             <p className="font-medium truncate">Subscription &amp; billing</p>
-            <p className="text-sm text-muted-foreground truncate">
+            <p className="text-sm text-muted-foreground">
               Update your payment method, change plan, or view invoices.
             </p>
           </div>
@@ -739,6 +740,7 @@ export default function SettingsPage() {
                   <Input
                     id="businessName"
                     value={settings.company_name}
+                    maxLength={BUSINESS_NAME_MAX}
                     onChange={(e) => updateField('company_name', e.target.value)}
                   />
                 </div>
