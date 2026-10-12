@@ -48,9 +48,9 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>TidyWise uses your location while you are on the way to a job so the customer can see your ETA and live route.</string>
+	<string>TidyWise uses your location while you are on the way to a job so the customer can see your ETA and live route, and to stamp job photos with where they were taken.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>TidyWise uses your location while you are on the way to a job so the customer can see your ETA and live route. Location is only used during an active job.</string>
+	<string>TidyWise uses your location while you are on the way to a job so the customer can see your ETA and live route, and to stamp job photos with where they were taken. Location is only used during an active job.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>TidyWise needs camera access to take before/after photos for cleaning jobs.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

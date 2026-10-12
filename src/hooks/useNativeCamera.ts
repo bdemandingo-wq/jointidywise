@@ -5,6 +5,8 @@ interface CameraPhoto {
   dataUrl: string;
   file?: File;
   format: string;
+  /** Present on device even when the data URL has had its EXIF segment stripped. */
+  exif?: unknown;
 }
 
 // Lazy load the camera plugin only when needed
@@ -55,6 +57,7 @@ export function useNativeCamera() {
         dataUrl: image.dataUrl,
         file,
         format: image.format || 'jpeg',
+        exif: image.exif,
       };
     } catch (error) {
       console.error('Error taking picture:', error);

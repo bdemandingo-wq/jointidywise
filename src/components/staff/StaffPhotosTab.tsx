@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Camera, Upload, X, CheckCircle, Loader2, ImageIcon, Video, Play } from 'lucide-react';
+import { Camera, Upload, X, CheckCircle, Loader2, ImageIcon, Video, Play, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { SignedImage } from '@/components/ui/signed-image';
 import { supabase } from '@/lib/supabase';
 import { uploadBookingMedia, getUploadErrorMessage, isVideoFile } from '@/lib/bookingMediaUpload';
+import { inBeforeAfterOrder, stepGalleryIndex } from '@/lib/photoGallery';
+import { isMissingProofColumn, proofOverlayLabel } from '@/lib/photoProofStamp';
+import { useGalleryNavigation } from '@/hooks/useGalleryNavigation';
+import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { toast } from 'sonner';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -34,6 +38,7 @@ interface UploadItem {
   progress: number;
   status: 'pending' | 'uploading' | 'done' | 'error';
   error?: string;
+  liveCapture?: boolean;
 }
 
 interface PhotoRecord {
@@ -43,6 +48,9 @@ interface PhotoRecord {
   photo_type: string | null;
   media_type: string;
   created_at: string | null;
+  captured_at?: string | null;
+  timestamp_source?: string | null;
+  proof_stamped?: boolean | null;
   booking?: {
     organization_id?: string | null;
     booking_number: number;
@@ -84,7 +92,8 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
   const [typeInferred, setTypeInferred] = useState(true);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
   const [isUploading, setIsUploading] = useState(false);
-  const [previewItem, setPreviewItem] = useState<{ url: string; type: string } | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const { timezone: orgTz } = useOrgTimezone(organizationId);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
 
@@ -143,9 +152,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
     queryFn: async () => {
       if (!staffId || !organizationId) return [];
 
-      const { data, error } = await supabase
-        .from('booking_photos')
-        .select(`
+      const photoColumns: string = `
           id, booking_id, photo_url, photo_type, media_type, created_at,
           booking:bookings!booking_photos_booking_id_fkey(
             organization_id,
@@ -153,13 +160,27 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
             scheduled_at,
             customer:customers!bookings_customer_id_fkey(first_name, last_name)
           )
-        `)
+        `;
+      // Proof columns are not in the generated types until the migration runs.
+      // A plain string select keeps this compiling either way; a missing-column
+      // error falls back to the columns that already exist.
+      const withProof = photoColumns.replace(
+        'created_at,',
+        'created_at, captured_at, timestamp_source, proof_stamped,',
+      );
+      const load = (columns: string) => supabase
+        .from('booking_photos')
+        .select(columns)
         .eq('staff_id', staffId)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      let result = await load(withProof);
+      if (result.error && isMissingProofColumn(result.error)) {
+        result = await load(photoColumns);
+      }
+      if (result.error) throw result.error;
 
-      return ((data || []) as PhotoRecord[]).filter((item) => item.booking?.organization_id === organizationId);
+      return ((result.data || []) as unknown as PhotoRecord[]).filter((item) => item.booking?.organization_id === organizationId);
     },
     enabled: !!staffId && !!organizationId,
   });
@@ -173,7 +194,28 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
     return acc;
   }, {});
 
-  const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Same order as the cards below: within each job, before, then after, then other.
+  const galleryItems = Object.values(groupedPhotos).flatMap((group) => inBeforeAfterOrder(group.items));
+  const galleryRef = useRef(galleryItems);
+  galleryRef.current = galleryItems;
+  const previewIndex = galleryItems.findIndex((item) => item.id === previewId);
+  const previewItem = previewIndex >= 0 ? galleryItems[previewIndex] : null;
+  const showDelta = (delta: number) => {
+    setPreviewId((current) => {
+      const list = galleryRef.current;
+      const index = list.findIndex((item) => item.id === current);
+      if (index < 0) return current;
+      return list[stepGalleryIndex(index, list.length, delta)]?.id ?? current;
+    });
+  };
+  const galleryNav = useGalleryNavigation(previewIndex >= 0, showDelta, () => setPreviewId(null));
+  const timestampOverlay = previewItem ? proofOverlayLabel(previewItem, orgTz) : null;
+  const visibleIds = galleryItems.map((item) => item.id).join('\n');
+  useEffect(() => {
+    if (previewId && !galleryRef.current.some((item) => item.id === previewId)) setPreviewId(null);
+  }, [previewId, visibleIds]);
+
+  const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>, fromCamera: boolean) => {
     const files = Array.from(event.target.files || []);
     event.target.value = '';
 
@@ -205,6 +247,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
         preview: URL.createObjectURL(file),
         progress: 0,
         status: 'pending',
+        liveCapture: fromCamera && !isVideo,
       });
     }
 
@@ -259,6 +302,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
           photoType,
           organizationIdFallback: organizationId,
           index,
+          liveCapture: uploads[index].liveCapture,
         });
 
         successCount += 1;
@@ -358,7 +402,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
             multiple
             tabIndex={-1}
             className={PICKER_INPUT_CLASS}
-            onChange={handleFilesSelected}
+            onChange={(event) => handleFilesSelected(event, true)}
           />
           <input
             ref={libraryInputRef}
@@ -367,7 +411,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
             multiple
             tabIndex={-1}
             className={PICKER_INPUT_CLASS}
-            onChange={handleFilesSelected}
+            onChange={(event) => handleFilesSelected(event, false)}
           />
 
           <div className="flex gap-2">
@@ -460,9 +504,10 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
         ) : (
           <div className="space-y-6">
             {Object.entries(groupedPhotos).map(([bookingId, group]) => {
-              const beforeItems = group.items.filter((item) => item.photo_type === 'before');
-              const afterItems = group.items.filter((item) => item.photo_type === 'after');
-              const otherItems = group.items.filter((item) => item.photo_type !== 'before' && item.photo_type !== 'after');
+              const ordered = inBeforeAfterOrder(group.items);
+              const beforeItems = ordered.filter((item) => item.photo_type === 'before');
+              const afterItems = ordered.filter((item) => item.photo_type === 'after');
+              const otherItems = ordered.filter((item) => item.photo_type !== 'before' && item.photo_type !== 'after');
 
               return (
                 <Card key={bookingId}>
@@ -488,7 +533,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
                         <p className="text-xs font-medium text-muted-foreground mb-1">📷 Before</p>
                         <div className="grid grid-cols-2 sm:flex gap-2 overflow-x-auto">
                           {beforeItems.map((item) => (
-                            <MediaThumbnail key={item.id} item={item} onClick={() => setPreviewItem({ url: item.photo_url, type: item.media_type || 'photo' })} />
+                            <MediaThumbnail key={item.id} item={item} onClick={() => setPreviewId(item.id)} />
                           ))}
                         </div>
                       </div>
@@ -499,7 +544,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
                         <p className="text-xs font-medium text-muted-foreground mb-1">✅ After</p>
                         <div className="grid grid-cols-2 sm:flex gap-2 overflow-x-auto">
                           {afterItems.map((item) => (
-                            <MediaThumbnail key={item.id} item={item} onClick={() => setPreviewItem({ url: item.photo_url, type: item.media_type || 'photo' })} />
+                            <MediaThumbnail key={item.id} item={item} onClick={() => setPreviewId(item.id)} />
                           ))}
                         </div>
                       </div>
@@ -510,7 +555,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
                         <p className="text-xs font-medium text-muted-foreground mb-1">📝 Other</p>
                         <div className="grid grid-cols-2 sm:flex gap-2 overflow-x-auto">
                           {otherItems.map((item) => (
-                            <MediaThumbnail key={item.id} item={item} onClick={() => setPreviewItem({ url: item.photo_url, type: item.media_type || 'photo' })} />
+                            <MediaThumbnail key={item.id} item={item} onClick={() => setPreviewId(item.id)} />
                           ))}
                         </div>
                       </div>
@@ -525,24 +570,75 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
         )}
       </div>
 
-      <Dialog open={!!previewItem} onOpenChange={(open) => !open && setPreviewItem(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Media Preview</DialogTitle>
+      <Dialog open={!!previewItem} onOpenChange={(open) => !open && setPreviewId(null)}>
+        <DialogContent
+          className="max-w-lg"
+          onEscapeKeyDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setPreviewId(null);
+          }}
+        >
+          <DialogHeader className="pr-8">
+            <div className="flex items-start justify-between gap-3">
+              <DialogTitle>Media Preview</DialogTitle>
+              {previewIndex >= 0 && (
+                <p className="shrink-0 text-sm font-medium tabular-nums text-muted-foreground" aria-live="polite">
+                  {previewIndex + 1} / {galleryItems.length}
+                </p>
+              )}
+            </div>
           </DialogHeader>
           {previewItem && (
-            previewItem.type === 'video' ? (
-              <SignedVideo src={previewItem.url} bucket="booking-photos" className="w-full rounded-lg" />
-            ) : (
-              <SignedImage
-                src={previewItem.url}
-                bucket="booking-photos"
-                alt="Preview"
-                className="w-full rounded-lg"
-                loading="eager"
-                fallback={<div className="w-full h-48 flex items-center justify-center bg-muted"><ImageIcon className="w-10 h-10 text-muted-foreground" /></div>}
-              />
-            )
+            <div
+              className="relative touch-pan-y"
+              onPointerDown={galleryNav.onPointerDown}
+              onPointerUp={galleryNav.onPointerUp}
+              onPointerCancel={galleryNav.onPointerCancel}
+            >
+              {previewItem.media_type === 'video'
+                || previewItem.photo_url?.toLowerCase().endsWith('.mp4')
+                || previewItem.photo_url?.toLowerCase().endsWith('.mov') ? (
+                <SignedVideo key={previewItem.id} src={previewItem.photo_url} bucket="booking-photos" className="w-full rounded-lg" />
+              ) : (
+                <SignedImage
+                  key={previewItem.id}
+                  src={previewItem.photo_url}
+                  bucket="booking-photos"
+                  alt="Preview"
+                  className="w-full rounded-lg"
+                  loading="eager"
+                  fallback={<div className="w-full h-48 flex items-center justify-center bg-muted"><ImageIcon className="w-10 h-10 text-muted-foreground" /></div>}
+                />
+              )}
+              {timestampOverlay && (
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 rounded-b-lg bg-black/75 px-3 py-2 text-center text-xs font-medium text-white">
+                  {timestampOverlay}
+                </div>
+              )}
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="hidden md:inline-flex absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90 shadow"
+                disabled={previewIndex <= 0}
+                aria-label="Previous photo"
+                onClick={() => showDelta(-1)}
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                className="hidden md:inline-flex absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90 shadow"
+                disabled={previewIndex < 0 || previewIndex >= galleryItems.length - 1}
+                aria-label="Next photo"
+                onClick={() => showDelta(1)}
+              >
+                <ChevronRight className="w-5 h-5" />
+              </Button>
+            </div>
           )}
         </DialogContent>
       </Dialog>
