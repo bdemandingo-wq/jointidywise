@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { usePlatform } from '@/hooks/usePlatform';
 import { trialDaysLeft } from '@/lib/trialClock';
@@ -12,6 +12,8 @@ import { trialDaysLeft } from '@/lib/trialClock';
 export function TrialDaysBanner() {
   const { subscription, subscriptionCheck } = useAuth();
   const { canShowPaymentFlows } = usePlatform();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   if (subscriptionCheck !== 'ready' || !subscription?.trial_active) return null;
   const days = trialDaysLeft(subscription.trial_end);
@@ -19,8 +21,8 @@ export function TrialDaysBanner() {
 
   const orgTrial = subscription.product_id === 'org_trial';
   const urgent = days <= 4;
-  const href = canShowPaymentFlows ? '/choose-plan?upgrade=1' : '/dashboard/subscription';
   const dayLabel = days === 1 ? '1 day left' : `${days} days left`;
+  const onSettings = location.pathname === '/dashboard/settings';
 
   return (
     <div
@@ -39,12 +41,26 @@ export function TrialDaysBanner() {
           ? ' No card is on file. When the trial ends, the dashboard locks until you pick a plan.'
           : ' Your current trial billing is unchanged.'}
       </p>
-      <Link
-        to={href}
-        className="inline-flex min-h-[44px] shrink-0 items-center text-sm font-medium text-primary underline-offset-2 hover:underline"
-      >
-        {orgTrial && canShowPaymentFlows ? 'Pick a plan' : 'View subscription'}
-      </Link>
+      {onSettings ? (
+        <button
+          type="button"
+          className="inline-flex min-h-[44px] shrink-0 items-center text-sm font-medium text-primary underline-offset-2 hover:underline"
+          onClick={() => {
+            const next = new URLSearchParams(searchParams);
+            next.set('tab', 'subscription');
+            setSearchParams(next);
+          }}
+        >
+          {orgTrial && canShowPaymentFlows ? 'Pick a plan' : 'View subscription'}
+        </button>
+      ) : (
+        <Link
+          to="/dashboard/settings?tab=subscription"
+          className="inline-flex min-h-[44px] shrink-0 items-center text-sm font-medium text-primary underline-offset-2 hover:underline"
+        >
+          {orgTrial && canShowPaymentFlows ? 'Pick a plan' : 'View subscription'}
+        </Link>
+      )}
     </div>
   );
 }

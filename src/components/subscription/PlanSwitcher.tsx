@@ -163,6 +163,7 @@ export function PlanSwitcher() {
   const hasScheduledDowngrade =
     !!downgrade.to && !!targetDowngradePlan && !isLifetime;
   const canChangePlan = hasChangeableStripeSubscription(subscription);
+  const choosingFirstPlan = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
 
   async function subscribe(plan: PlanInfo) {
     if (!canShowPaymentFlows) {
@@ -276,7 +277,7 @@ export function PlanSwitcher() {
                 isCurrent ? "border-primary bg-primary/5" : "border-border"
               }`}
             >
-              {isCurrent && (
+              {isCurrent && !choosingFirstPlan && (
                 <Badge className="absolute -top-2 right-3" variant="default">
                   Current
                 </Badge>
@@ -306,7 +307,18 @@ export function PlanSwitcher() {
                 ))}
               </ul>
 
-              {isLifetime ? (
+              {choosingFirstPlan ? (
+                <Button
+                  size="sm"
+                  variant="premium"
+                  className="w-full"
+                  onClick={() => void subscribe(plan)}
+                  disabled={checkoutBusy !== null}
+                >
+                  {checkoutBusy === plan.id && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                  {canShowPaymentFlows ? `Choose ${plan.name}` : "Subscribe on the web"}
+                </Button>
+              ) : isLifetime ? (
                 <Button variant="outline" size="sm" disabled className="w-full">
                   <Lock className="mr-1 h-3 w-3" /> Locked
                 </Button>

@@ -146,6 +146,73 @@ export interface NewCustomerData {
   longitude?: number;
 }
 
+const BOOKING_LIST_SELECT = `
+  id, booking_number, scheduled_at, duration, total_amount, deposit_paid,
+  status, payment_status, payment_intent_id, notes, customer_notes,
+  address, city, state, zip_code, apt_suite, latitude, longitude,
+  frequency, bedrooms, bathrooms, square_footage, extras, has_pets,
+  is_draft, created_at, updated_at, staff_id, customer_id, service_id, organization_id,
+  cleaner_wage, cleaner_wage_type, cleaner_override_hours, cleaner_actual_payment, cleaner_pay_expected,
+  cancellation_reason, cancellation_category, cancelled_at,
+  subtotal, tax_amount, discount_amount, discount_id, recurring_booking_id,
+  customer:customers(id, first_name, last_name, email, phone),
+  service:services(id, name, description, price, duration),
+  staff:staff(id, name, email, phone, hourly_rate),
+  booking_team_assignments(staff_id, pay_share, is_primary, staff:staff(id, name))
+`;
+
+const CUSTOMER_LIST_SELECT = `
+  id, first_name, last_name, email, phone, address, city, state, zip_code,
+  created_at, updated_at, customer_status, notes, organization_id, is_recurring,
+  marketing_status, credits, latitude, longitude, referral_code, user_id,
+  opted_out_at, opted_out_method, opted_out_campaign_id,
+  review_request_sent, review_request_sent_at,
+  stripe_customer_id, stripe_payment_method_id
+`;
+
+export async function fetchOrgBookings(organizationId: string): Promise<BookingWithDetails[]> {
+  let allBookings: BookingWithDetails[] = [];
+  let from = 0;
+  const PAGE_SIZE = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(BOOKING_LIST_SELECT)
+      .eq('organization_id', organizationId)
+      .or('is_draft.is.null,is_draft.eq.false')
+      .order('scheduled_at', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+
+    if (error) {
+      console.error('Error fetching bookings:', error);
+      throw error;
+    }
+    const page = (data ?? []) as unknown as BookingWithDetails[];
+    allBookings = allBookings.concat(page);
+    if (page.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return allBookings;
+}
+
+export async function fetchOrgCustomers(organizationId: string) {
+  const { data, error } = await supabase
+    .from('customers')
+    .select(CUSTOMER_LIST_SELECT)
+    .eq('organization_id', organizationId)
+    .is('merged_into', null)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(1000);
+
+  if (error) {
+    console.error('Error fetching customers:', error);
+    throw error;
+  }
+  return data ?? [];
+}
+
 export function useBookings() {
   const { organization } = useOrganization();
   const organizationId = organization?.id;
@@ -179,46 +246,7 @@ export function useBookings() {
 
   return useQuery({
     queryKey: ['bookings', organizationId],
-    queryFn: async () => {
-      if (!organizationId) {
-        return [];
-      }
-      // Fetch all bookings (bypass default 1000-row limit)
-      let allBookings: any[] = [];
-      let from = 0;
-      const PAGE_SIZE = 1000;
-      while (true) {
-        const { data, error } = await supabase
-          .from('bookings')
-          .select(`
-            *,
-            customer:customers(id, first_name, last_name, email, phone),
-            service:services(id, name, description, price, duration),
-            staff:staff(id, name, email, phone, hourly_rate),
-            booking_team_assignments(staff_id, pay_share, is_primary, staff:staff(id, name))
-          `)
-          .eq('organization_id', organizationId)
-          .or('is_draft.is.null,is_draft.eq.false')
-          // `scheduled_at` is not unique — a full Saturday has many bookings at
-          // 11:00 AM — and Postgres does not guarantee order for tied rows.
-          // Without a unique tiebreaker the tie can land differently on each
-          // page request, so a row can appear on both sides of a page boundary
-          // or on neither: duplicated, or silently missing from the list.
-          // `id` is the primary key, so ordering by it makes the sort total.
-          .order('scheduled_at', { ascending: true })
-          .order('id', { ascending: true })
-          .range(from, from + PAGE_SIZE - 1);
-
-        if (error) {
-          console.error('Error fetching bookings:', error);
-          throw error;
-        }
-        allBookings = allBookings.concat(data || []);
-        if (!data || data.length < PAGE_SIZE) break;
-        from += PAGE_SIZE;
-      }
-      return allBookings as BookingWithDetails[];
-    },
+    queryFn: () => (organizationId ? fetchOrgBookings(organizationId) : Promise.resolve([])),
     enabled: !!organizationId,
     staleTime: 1000 * 60 * 2,
     gcTime: 1000 * 60 * 10,
@@ -237,18 +265,13 @@ export function useBookingsByDateRange(startDate: Date, endDate: Date) {
       }
       const { data, error } = await supabase
         .from('bookings')
-        .select(`
-          *,
-          customer:customers(id, first_name, last_name, email, phone),
-          service:services(id, name, description, price, duration),
-          staff:staff(id, name, email, phone, hourly_rate),
-          booking_team_assignments(staff_id, pay_share, is_primary, staff:staff(id, name))
-        `)
+        .select(BOOKING_LIST_SELECT)
         .eq('organization_id', organizationId)
         .or('is_draft.is.null,is_draft.eq.false')
         .gte('scheduled_at', startDate.toISOString())
         .lte('scheduled_at', endDate.toISOString())
-        .order('scheduled_at', { ascending: true });
+        .order('scheduled_at', { ascending: true })
+        .order('id', { ascending: true });
 
       if (error) {
         console.error('Error fetching bookings:', error);
@@ -276,16 +299,11 @@ export function useDraftBookings() {
       if (!organizationId) return [];
       const { data, error } = await supabase
         .from('bookings')
-        .select(`
-          *,
-          customer:customers(id, first_name, last_name, email, phone),
-          service:services(id, name, description, price, duration),
-          staff:staff(id, name, email, phone, hourly_rate),
-          booking_team_assignments(staff_id, pay_share, is_primary, staff:staff(id, name))
-        `)
+        .select(BOOKING_LIST_SELECT)
         .eq('organization_id', organizationId)
         .eq('is_draft', true)
-        .order('scheduled_at', { ascending: false });
+        .order('scheduled_at', { ascending: false })
+        .order('id', { ascending: false });
       if (error) throw error;
       return (data || []) as BookingWithDetails[];
     },
@@ -521,20 +539,7 @@ export function useCustomers() {
       // Hide merged-out customers everywhere — they live on as audit history
       // (merged_into = primary.id) but should never appear in lists, counts,
       // or exports.
-      const { data, error } = await supabase
-        .from('customers')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .is('merged_into', null)
-        .order('created_at', { ascending: false })
-        .limit(1000); // Pagination limit
-
-      if (error) {
-        console.error('Error fetching customers:', error);
-        throw error;
-      }
-
-      return data;
+      return fetchOrgCustomers(organizationId);
     },
     enabled: !!organizationId,
     staleTime: 1000 * 60 * 5, // 5 minutes - customers change less frequently

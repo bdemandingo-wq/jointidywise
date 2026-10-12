@@ -160,7 +160,13 @@ export default function CustomersPage() {
         .from('bookings')
         .select('customer_id, total_amount, scheduled_at')
         .eq('organization_id', organization.id)
-        .neq('status', 'cancelled');
+        .neq('status', 'cancelled')
+        // PostgREST already capped an unordered select at 1000 rows, so totals
+        // for a huge history were incomplete and unstable. Keep the newest
+        // 1000, with id as a unique tiebreaker.
+        .order('scheduled_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(1000);
       if (error) throw error;
 
       const statsMap = new Map<string, BookingStats>();
@@ -1179,7 +1185,13 @@ export default function CustomersPage() {
                   </TableHeader>
                   <TableBody>
                     {isLoading ? (
-                      <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Loading customers...</TableCell></TableRow>
+                      Array.from({ length: 6 }).map((_, i) => (
+                        <TableRow key={i}>
+                          <TableCell colSpan={9}>
+                            <div className="h-8 animate-pulse rounded bg-muted" />
+                          </TableCell>
+                        </TableRow>
+                      ))
                     ) : (
                       filteredCustomers.map((customer) => {
                         const cStats = statsMap.get(customer.id);

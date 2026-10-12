@@ -367,10 +367,7 @@ export default function BookingPhotosPage() {
       <SEOHead title="Booking Media | TidyWise" description="View and manage photos and videos from your cleaning bookings" noIndex />
       <PlanFeatureGate feature="booking_photos">
         <div className="space-y-6">
-          <div>
-            <h1 className="text-2xl font-bold">Booking Media</h1>
-            <p className="text-muted-foreground">All before & after photos and videos uploaded by your cleaners</p>
-          </div>
+          <p className="text-muted-foreground">All before and after photos and videos uploaded by your cleaners</p>
 
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">

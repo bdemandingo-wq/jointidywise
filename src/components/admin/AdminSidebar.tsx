@@ -134,6 +134,7 @@ const defaultNavigation = [
  * /dashboard/help entry in a saved order is harmless now: the .find() below
  * returns undefined and it is filtered out, so no migration is needed.
  */
+const PINNED_SETTINGS: NavItem = { name: 'Settings', href: '/dashboard/settings', icon: Settings };
 const PINNED_HELP: NavItem = { name: 'Help', href: '/dashboard/help', icon: HelpCircle };
 
 const SECTION_ICONS: Record<string, typeof Home> = {
@@ -535,7 +536,17 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
           StaticNavItem, not SortableNavItem: a pinned row must not be draggable,
           and StaticNavItem is already the non-draggable renderer used on mobile,
           so the styling matches the rest of the list for free. */}
-      <div className="px-3 pt-4 pb-2 shrink-0 border-b border-sidebar-border">
+      <div className="px-3 pt-4 pb-2 shrink-0 space-y-1 border-b border-sidebar-border">
+        <StaticNavItem
+          item={PINNED_SETTINGS}
+          isActive={
+            location.pathname === PINNED_SETTINGS.href ||
+            location.pathname.startsWith(`${PINNED_SETTINGS.href}/`)
+          }
+          isOpen={isOpen}
+          isMobile={isMobile}
+          onNavClick={handleNavClick}
+        />
         <StaticNavItem
           item={PINNED_HELP}
           isActive={

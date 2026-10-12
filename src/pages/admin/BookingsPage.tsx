@@ -1971,11 +1971,10 @@ export default function BookingsPage() {
 
       <div className="bg-card rounded-2xl border border-border/50 shadow-sm overflow-hidden animate-fade-in" style={{ animationDelay: '0.2s' }}>
         {isLoading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="w-10 h-10 animate-spin text-primary" />
-              <p className="text-muted-foreground">Loading bookings...</p>
-            </div>
+          <div className="space-y-3 p-4" aria-busy="true" aria-label="Loading bookings">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="h-14 animate-pulse rounded-xl bg-muted" />
+            ))}
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center h-64 text-center p-8">

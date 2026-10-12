@@ -17,7 +17,7 @@ export function usePlatform() {
   
   // Website URL for directing users to web for payments/signup
   const websiteUrl = import.meta.env.VITE_APP_URL || 'https://jointidywise.com';
-  const billingUrl = `${websiteUrl}/dashboard/subscription`;
+  const billingUrl = `${websiteUrl}/dashboard/settings?tab=subscription`;
   const signupUrl = `${websiteUrl}/signup`;
   
   return {

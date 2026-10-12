@@ -101,6 +101,12 @@ export function YourProfileCard() {
         <CardDescription>How your name appears to the rest of your team.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {loading ? (
+          <div className="grid gap-4 sm:grid-cols-2" aria-busy="true" aria-label="Loading your name">
+            <div className="h-10 animate-pulse rounded-md bg-muted" />
+            <div className="h-10 animate-pulse rounded-md bg-muted" />
+          </div>
+        ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="profile-first-name">First name</Label>
@@ -108,9 +114,8 @@ export function YourProfileCard() {
               id="profile-first-name"
               value={firstName}
               maxLength={PERSON_NAME_MAX}
-              disabled={loading}
               onChange={(e) => setFirstName(e.target.value)}
-              placeholder="Emmanuel"
+              placeholder="First name"
               className="mt-1.5"
             />
           </div>
@@ -120,13 +125,13 @@ export function YourProfileCard() {
               id="profile-last-name"
               value={lastName}
               maxLength={PERSON_NAME_MAX}
-              disabled={loading}
               onChange={(e) => setLastName(e.target.value)}
-              placeholder="Forkuoh"
+              placeholder="Last name"
               className="mt-1.5"
             />
           </div>
         </div>
+        )}
 
         <p className="text-xs text-muted-foreground">
           Both names are used for the initials shown on leads and messages

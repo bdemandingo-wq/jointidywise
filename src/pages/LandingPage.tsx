@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense, useEffect, useRef } from "react";
+import { useState, lazy, Suspense, useEffect } from "react";
 import emmanuelPhoto from "@/assets/emmanuel-headshot.webp";
 
 const DemoBookingFormLazy = lazy(() => import("@/components/landing/DemoBookingForm").then(m => ({ default: m.DemoBookingForm })));
@@ -52,32 +52,6 @@ const SectionSkeleton = () => (
     </div>
   </div>
 );
-
-// Scroll reveal hook
-function useScrollReveal() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-          observer.disconnect();
-        }
-      },
-      { threshold: 0.1, rootMargin: '50px' }
-    );
-
-    if (ref.current) {
-      observer.observe(ref.current);
-    }
-
-    return () => observer.disconnect();
-  }, []);
-
-  return { ref, isVisible };
-}
 
 const cleaningConfig = {
   jobLabel: "Cleans",
@@ -175,11 +149,6 @@ export default function LandingPage() {
   const lifetime = useLifetimeCounter();
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
-
-  // Scroll reveal refs
-  const featuresReveal = useScrollReveal();
-  const statsReveal = useScrollReveal();
-  const testimonialsReveal = useScrollReveal();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -484,10 +453,7 @@ export default function LandingPage() {
       {/* Features Section - Enhanced with scroll reveal */}
       <section 
         id="features" 
-        ref={featuresReveal.ref}
-        className={`py-16 md:py-20 px-4 sm:px-6 lg:px-8 bg-secondary/30 transition-all duration-700 ${
-          featuresReveal.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
-        }`}
+        className="py-16 md:py-20 px-4 sm:px-6 lg:px-8 bg-secondary/30"
       >
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
@@ -610,12 +576,7 @@ export default function LandingPage() {
       </Suspense>
 
       {/* Stats Section - Enhanced with animations */}
-      <section 
-        ref={statsReveal.ref}
-        className={`py-16 md:py-20 px-4 sm:px-6 lg:px-8 transition-all duration-700 ${
-          statsReveal.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
-        }`}
-      >
+      <section className="py-16 md:py-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-7xl mx-auto">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             <div>
@@ -679,10 +640,7 @@ export default function LandingPage() {
       {/* Testimonials - Premium cards */}
       <section 
         id="testimonials" 
-        ref={testimonialsReveal.ref}
-        className={`py-16 md:py-24 px-4 sm:px-6 lg:px-8 bg-secondary/30 transition-all duration-700 ${
-          testimonialsReveal.isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
-        }`}
+        className="py-16 md:py-24 px-4 sm:px-6 lg:px-8 bg-secondary/30"
       >
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
