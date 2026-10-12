@@ -62,6 +62,7 @@ export interface BookingWithDetails {
     name: string;
     email: string;
     phone: string | null;
+    hourly_rate?: number | null;
   } | null;
   booking_team_assignments?: TeamAssignment[];
 }
@@ -192,7 +193,7 @@ export function useBookings() {
             *,
             customer:customers(id, first_name, last_name, email, phone),
             service:services(id, name, description, price, duration),
-            staff:staff(id, name, email, phone),
+            staff:staff(id, name, email, phone, hourly_rate),
             booking_team_assignments(staff_id, pay_share, is_primary, staff:staff(id, name))
           `)
           .eq('organization_id', organizationId)
@@ -239,7 +240,7 @@ export function useBookingsByDateRange(startDate: Date, endDate: Date) {
           *,
           customer:customers(id, first_name, last_name, email, phone),
           service:services(id, name, description, price, duration),
-          staff:staff(id, name, email, phone),
+          staff:staff(id, name, email, phone, hourly_rate),
           booking_team_assignments(staff_id, pay_share, is_primary, staff:staff(id, name))
         `)
         .eq('organization_id', organizationId)
@@ -278,7 +279,7 @@ export function useDraftBookings() {
           *,
           customer:customers(id, first_name, last_name, email, phone),
           service:services(id, name, description, price, duration),
-          staff:staff(id, name, email, phone),
+          staff:staff(id, name, email, phone, hourly_rate),
           booking_team_assignments(staff_id, pay_share, is_primary, staff:staff(id, name))
         `)
         .eq('organization_id', organizationId)

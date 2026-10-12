@@ -114,6 +114,27 @@ interface WageBooking {
   cleaner_actual_payment: number | null;
   cleaner_wage_type: string | null;
   cleaner_wage: number | null;
+  pay_locked?: boolean | null;
+}
+
+interface HourCaps {
+  overageCapRatio: number;
+  absoluteCeiling: number;
+}
+
+const DEFAULT_HOUR_CAPS: HourCaps = {
+  overageCapRatio: 1.25,
+  absoluteCeiling: 12,
+};
+
+/** Mirrors src/lib/wageCalculation.ts:clampClockHours. */
+function clampClockHours(clockHours: number, scheduledHours: number | null, caps: HourCaps): number {
+  if (scheduledHours != null && scheduledHours > 0) {
+    const upper = Math.min(scheduledHours * caps.overageCapRatio, caps.absoluteCeiling);
+    const floor = Math.min(scheduledHours, upper);
+    return Math.min(Math.max(clockHours, floor), upper);
+  }
+  return Math.min(Math.max(clockHours, 0), caps.absoluteCeiling);
 }
 
 interface WageStaff {
@@ -133,15 +154,25 @@ interface TeamAssignment {
 }
 
 /** Mirrors src/lib/wageCalculation.ts:getActualHours. */
-function getActualHours(b: WageBooking, staff: WageStaff | null): number {
+function getActualHours(b: WageBooking, staff: WageStaff | null, caps: HourCaps): number {
+  const durationHours = Number(b.duration) > 0 ? Number(b.duration) / 60 : null;
+  const fallback = b.cleaner_override_hours != null
+    ? Number(b.cleaner_override_hours)
+    : durationHours != null
+    ? durationHours
+    : staff?.default_hours != null
+    ? Number(staff.default_hours)
+    : 0;
+
   if (b.cleaner_checkin_at && b.cleaner_checkout_at) {
-    const ms = new Date(b.cleaner_checkout_at).getTime() -
-      new Date(b.cleaner_checkin_at).getTime();
-    return ms / 3_600_000;
+    const checkin = new Date(b.cleaner_checkin_at).getTime();
+    const checkout = new Date(b.cleaner_checkout_at).getTime();
+    if (!Number.isFinite(checkin) || !Number.isFinite(checkout) || checkout <= checkin) {
+      return fallback;
+    }
+    return clampClockHours((checkout - checkin) / 3_600_000, durationHours, caps);
   }
-  if (b.cleaner_override_hours != null) return Number(b.cleaner_override_hours);
-  if (staff?.default_hours != null) return Number(staff.default_hours);
-  return Number(b.duration ?? 0) / 60;
+  return fallback;
 }
 
 /** Net revenue for a booking — the price actually charged. */
@@ -166,11 +197,18 @@ function calculateBookingWage(
   b: WageBooking,
   staff: WageStaff | null,
   teamSize?: number,
+  caps: HourCaps = DEFAULT_HOUR_CAPS,
 ): number {
-  // 1. cleaner_pay_expected is the single source of truth.
-  if (b.cleaner_pay_expected != null) return Number(b.cleaner_pay_expected);
-  // 2. Legacy: cleaner_actual_payment (admin override).
+  const wageType = (b.cleaner_wage_type || "hourly").toLowerCase();
+  const trustSnapshot = wageType !== "hourly" || b.pay_locked === true;
+  // Hourly (unlocked) is rate × payable hours. A stored snapshot from the
+  // old clock/5h rules must not be what payroll pays.
+  if (trustSnapshot && b.cleaner_pay_expected != null) return Number(b.cleaner_pay_expected);
   if (b.cleaner_actual_payment != null) return Number(b.cleaner_actual_payment);
+  if (!trustSnapshot) {
+    const wageRate = Number(b.cleaner_wage ?? staff?.hourly_rate ?? staff?.base_wage ?? 0);
+    return wageRate * getActualHours(b, staff, caps);
+  }
 
   // 2b. Percentage-only rescue. SOLO ONLY.
   //
@@ -207,16 +245,15 @@ function calculateBookingWage(
   }
 
   // 3. Fallback: compute from rate/type. Note percentage uses NET revenue.
-  const wageType = (b.cleaner_wage_type || "hourly").toLowerCase();
   const wageRate = Number(
-    b.cleaner_wage ?? staff?.base_wage ?? staff?.hourly_rate ?? 0,
+    b.cleaner_wage ?? staff?.hourly_rate ?? staff?.base_wage ?? 0,
   );
   if (wageType === "flat") return wageRate;
   if (wageType === "percentage") {
     return (wageRate / 100) * bookingNetRevenue(b);
   }
   // hourly
-  return wageRate * getActualHours(b, staff);
+  return wageRate * getActualHours(b, staff, caps);
 }
 
 /** Mirrors PayrollPage.tsx:calcWage — pay_share takes priority for team assignments. */
@@ -225,9 +262,12 @@ function calcWage(
   staff: WageStaff | null,
   payShareOverride: number | null,
   teamSize?: number,
+  caps: HourCaps = DEFAULT_HOUR_CAPS,
 ): number {
-  if (payShareOverride != null && payShareOverride > 0) return payShareOverride;
-  return calculateBookingWage(b, staff, teamSize);
+  const hourly = (b.cleaner_wage_type || "hourly").toLowerCase() === "hourly";
+  const soloHourly = hourly && teamSize === 1 && b.pay_locked !== true;
+  if (payShareOverride != null && payShareOverride > 0 && !soloHourly) return payShareOverride;
+  return calculateBookingWage(b, staff, teamSize, caps);
 }
 
 // ---------------------------------------------------------------------------
@@ -378,7 +418,7 @@ export async function processOrg(
       "id, staff_id, status, scheduled_at, duration, total_amount, subtotal, " +
         "discount_amount, cleaner_checkin_at, cleaner_checkout_at, " +
         "cleaner_override_hours, cleaner_pay_expected, cleaner_actual_payment, " +
-        "cleaner_wage_type, cleaner_wage",
+        "cleaner_wage_type, cleaner_wage, pay_locked",
     )
     .eq("organization_id", org.id)
     .neq("status", "cancelled")
@@ -393,6 +433,20 @@ export async function processOrg(
     .from("staff")
     .select("id, name, base_wage, hourly_rate, default_hours, percentage_rate")
     .eq("organization_id", org.id);
+
+  const { data: paySettings } = await supabase
+    .from("payroll_settings")
+    .select("hours_overage_cap_ratio, hours_absolute_ceiling")
+    .eq("organization_id", org.id)
+    .maybeSingle();
+  const hourCaps: HourCaps = {
+    overageCapRatio: Number(paySettings?.hours_overage_cap_ratio) > 0
+      ? Number(paySettings?.hours_overage_cap_ratio)
+      : DEFAULT_HOUR_CAPS.overageCapRatio,
+    absoluteCeiling: Number(paySettings?.hours_absolute_ceiling) > 0
+      ? Number(paySettings?.hours_absolute_ceiling)
+      : DEFAULT_HOUR_CAPS.absoluteCeiling,
+  };
 
   const staffMap = new Map<string, WageStaff>();
   for (const s of (staffData ?? []) as WageStaff[]) {
@@ -480,7 +534,7 @@ export async function processOrg(
         for (const a of assignments) {
           const member = staffMap.get(a.staff_id) ?? null;
           const ps = a.pay_share != null ? Number(a.pay_share) : null;
-          bookingPayrollSum += calcWage(b, member, ps, assignments.length);
+          bookingPayrollSum += calcWage(b, member, ps, assignments.length, hourCaps);
           cleanerIds.add(a.staff_id);
         }
       } else if (b.staff_id) {
@@ -489,7 +543,7 @@ export async function processOrg(
         /* No assignment rows means one cleaner, staffed via staff_id — the
            shape 45 of 47 live bookings have. That is solo, so the percentage
            rescue is allowed to apply. */
-        bookingPayrollSum += calcWage(b, sm, null, 1);
+        bookingPayrollSum += calcWage(b, sm, null, 1, hourCaps);
         cleanerIds.add(b.staff_id);
       }
 
@@ -587,7 +641,7 @@ export async function processOrg(
         const ps = a?.pay_share != null ? Number(a.pay_share) : null;
         // Solo (no assignment rows) opts into the percentage-only rescue with
         // teamSize 1; anything with assignments passes the real team size.
-        const pay = calcWage(b, sm, ps, assignments.length > 0 ? assignments.length : 1);
+        const pay = calcWage(b, sm, ps, assignments.length > 0 ? assignments.length : 1, hourCaps);
         const hours = getActualHours(b, sm);
         const row = ensure(b.staff_id);
         row.jobs += 1;
@@ -602,7 +656,7 @@ export async function processOrg(
         if (seenForBooking.has(a.staff_id)) continue;
         const member = staffMap.get(a.staff_id) ?? null;
         const ps = a.pay_share != null ? Number(a.pay_share) : null;
-        const pay = calcWage(b, member, ps, assignments.length);
+        const pay = calcWage(b, member, ps, assignments.length, hourCaps);
         const hours = getActualHours(b, member);
 
         const row = ensure(a.staff_id);
