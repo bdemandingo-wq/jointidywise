@@ -1,11 +1,17 @@
 // Google Places (New) v1 proxy for address autocomplete + details.
 // Actions:
-//   { action: "suggest", input: string, sessionToken?: string }
-//   { action: "details", placeId: string, sessionToken?: string }
+//   { action: "suggest", input: string, sessionToken?: string, bookingOrgSlug?: string }
+//   { action: "details", placeId: string, sessionToken?: string, bookingOrgSlug?: string }
+//
+// Auth: a user JWT (org member or staff), a client-portal session, or — for
+// the public booking page only — an anonymous call that names a real org
+// slug. Anonymous calls are rate-limited per IP.
+import { authorizeMapsProxy } from "../_shared/maps-proxy-auth.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-portal-session",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -30,6 +36,15 @@ Deno.serve(async (req) => {
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
   }
+
+  const gate = await authorizeMapsProxy(req, corsHeaders, {
+    bucket: "maps_autocomplete",
+    authenticatedPerMinute: 90,
+    anonymous: { perMinute: 40, perHour: 400 },
+    requireBookingOrg: true,
+    bookingOrgSlug: typeof body?.bookingOrgSlug === "string" ? body.bookingOrgSlug : null,
+  });
+  if (gate) return gate;
 
   const action = String(body?.action ?? "");
   const sessionToken =

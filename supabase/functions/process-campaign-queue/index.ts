@@ -21,6 +21,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { isOptedOut } from '../_shared/marketing-guard.ts'
+import { isServiceRoleRequest } from '../_shared/require-caller-org.ts'
 
 const QUEUE = 'campaign_sms'
 const DLQ = 'campaign_sms_dlq'
@@ -81,20 +82,6 @@ interface CampaignRun {
 // PostgREST calls permissive the same way the other queue workers do.
 // deno-lint-ignore no-explicit-any
 type Supa = any
-
-function parseJwtClaims(token: string): Record<string, unknown> | null {
-  const parts = token.split('.')
-  if (parts.length < 2) return null
-  try {
-    const payload = parts[1]
-      .replaceAll('-', '+')
-      .replaceAll('_', '/')
-      .padEnd(Math.ceil(parts[1].length / 4) * 4, '=')
-    return JSON.parse(atob(payload)) as Record<string, unknown>
-  } catch {
-    return null
-  }
-}
 
 function normalizePhone(raw: string): string {
   let digits = (raw || '').replace(/\D/g, '')
@@ -469,6 +456,9 @@ Deno.serve(async (req) => {
     })
   }
 
+  // The cron dispatcher sends the service-role key. Comparing to that key
+  // rejects a forged {"role":"service_role"} payload, which a base64 decode
+  // would accept.
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -476,8 +466,7 @@ Deno.serve(async (req) => {
       headers: { 'Content-Type': 'application/json' },
     })
   }
-  const claims = parseJwtClaims(authHeader.slice('Bearer '.length).trim())
-  if (claims?.role !== 'service_role') {
+  if (!isServiceRoleRequest(req)) {
     return new Response(JSON.stringify({ error: 'Forbidden' }), {
       status: 403,
       headers: { 'Content-Type': 'application/json' },

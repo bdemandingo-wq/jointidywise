@@ -2,14 +2,36 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
 };
 
 const ADMIN_PHONES = ["+15615718725", "+18137356859"];
 
+function timingSafeEqualString(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const left = enc.encode(a);
+  const right = enc.encode(b);
+  const len = Math.max(left.length, right.length);
+  let diff = left.length ^ right.length;
+  for (let i = 0; i < len; i++) diff |= (left[i] ?? 0) ^ (right[i] ?? 0);
+  return diff === 0;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  // The organizations INSERT trigger is the only legitimate caller. It sends
+  // x-cron-secret from vault (see notify_new_org_signup). No user JWT, and
+  // the anon key must not be enough to read owner PII or text admin phones.
+  const expectedSecret = Deno.env.get("CRON_SECRET") ?? "";
+  const providedSecret = req.headers.get("x-cron-secret") ?? "";
+  if (!expectedSecret || !providedSecret || !timingSafeEqualString(providedSecret, expectedSecret)) {
+    return new Response(JSON.stringify({ success: false, error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
   try {
@@ -17,7 +39,7 @@ Deno.serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { org_id, org_name, created_at } = await req.json();
+    const { org_id, created_at } = await req.json();
 
     if (!org_id) {
       console.error("[notify-new-org] Missing org_id in payload");
@@ -26,8 +48,6 @@ Deno.serve(async (req: Request) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    console.log(`[notify-new-org] New org: ${org_name} (${org_id})`);
 
     // Fetch owner details from org_memberships
     const { data: membership } = await supabase
@@ -61,9 +81,14 @@ Deno.serve(async (req: Request) => {
 
     const { data: orgData, error: orgError } = await supabase
       .from("organizations")
-      .select("plan_type, owner_id")
+      .select("name, plan_type, owner_id")
       .eq("id", org_id)
       .maybeSingle();
+
+    // Name comes from the row, not the request body, so the secret cannot
+    // be used to put arbitrary text in the admin SMS.
+    const org_name = orgData?.name || "Unnamed";
+    console.log(`[notify-new-org] New org: ${org_name} (${org_id})`);
 
     if (orgError) {
       console.error("[notify-new-organization-signup] org lookup failed:", orgError);
@@ -208,7 +233,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, sms_sent: smsSent, sms_results: smsResults }),
+      JSON.stringify({ success: true, sms_sent: smsSent }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {

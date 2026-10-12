@@ -591,7 +591,7 @@ export default function PortalDashboardPage() {
       const result = rpcResult as { error?: string; referral_id?: string };
       if (result?.error) throw new Error(result.error);
 
-      const { error: fnError } = await supabase.functions.invoke('send-referral-invite', {
+      const { error: fnError } = await invokePortal('send-referral-invite', {
         body: { referralId: result.referral_id },
       });
       if (fnError) throw new Error(fnError.message);

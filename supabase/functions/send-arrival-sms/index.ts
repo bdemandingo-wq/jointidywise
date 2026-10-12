@@ -50,6 +50,10 @@ const handler = async (req: Request): Promise<Response> => {
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    // Auth and tenant check. The caller must be the assigned cleaner, an
+    // owner/admin/manager of this org, or the service-role key (timing-safe
+    // compare). A membership-only check is not used: cleaners often have no
+    // org_memberships row, and that check would reject the person at the job.
     const auth = await assertAssignedStaffEvent(req, supabase, booking.organization_id, staffId, bookingId);
     if (!auth.ok) {
       return new Response(JSON.stringify({ success: false, error: auth.error }),

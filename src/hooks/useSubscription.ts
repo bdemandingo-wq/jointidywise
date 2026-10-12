@@ -11,8 +11,10 @@
  * Accounts in FREE_ACCOUNTS always get full access.
  */
 
+import { Capacitor } from '@capacitor/core';
 import { useAuth } from './useAuth';
 import { usePlanState } from './usePlanFeature';
+import { hasPaidDashboardAccess } from '@/lib/dashboardAccess';
 
 const FREE_ACCOUNTS = [
   'support@tidywisecleaning.com',
@@ -52,7 +54,7 @@ export interface SubscriptionAccess {
 }
 
 export function useSubscription(): SubscriptionAccess {
-  const { user, subscription, loading } = useAuth();
+  const { user, subscription, subscriptionCheck, loading } = useAuth();
   const planState = usePlanState();
 
   const isFreeAccount = isDemoAccount(user?.email ?? '');
@@ -61,10 +63,17 @@ export function useSubscription(): SubscriptionAccess {
 
   // Access is granted when:
   //   • the user is on an allowlisted demo / Apple-review account, OR
-  //   • check-subscription returned subscribed=true (active Stripe sub,
-  //     lifetime purchase, active trial, or comped access).
-  // Native no longer bypasses — trial users hit a wall at day 14.
-  const hasFullAccess = isFreeAccount || isSubscribed;
+  //   • check-subscription returned subscribed=true for a paid Stripe sub,
+  //     a Stripe trial (card on file), a lifetime purchase, or comped access.
+  // The unpaid org trial (product_id org_trial) is NOT access on the web.
+  // Native keeps it: the App Store build never shows /choose-plan, and the
+  // trial still ends at day 14.
+  const hasFullAccess = hasPaidDashboardAccess({
+    isFreeAccount,
+    subscribed: isSubscribed,
+    productId: subscription?.product_id,
+    allowUnpaidOrgTrial: Capacitor.isNativePlatform(),
+  });
 
   // Tier-aware Pro-feature gate. Even during the 14-day trial, the
   // user only gets access to the FEATURES of the plan they selected.
@@ -91,7 +100,9 @@ export function useSubscription(): SubscriptionAccess {
     isLoading:
       loading ||
       planState.loading ||
-      (!!user && subscription === null && !isFreeAccount),
+      (!!user &&
+        !isFreeAccount &&
+        (subscriptionCheck === 'idle' || subscriptionCheck === 'loading')),
 
     canAccessCampaigns: proOrAbove,
     canAccessOpenPhone: proOrAbove,

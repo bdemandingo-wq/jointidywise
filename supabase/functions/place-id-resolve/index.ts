@@ -15,11 +15,12 @@
 // Returns { place_id, name, formatted_address, latitude?, longitude? }
 // on success, or 4xx with a human error on failure.
 import { z } from "https://esm.sh/zod@3.23.8";
+import { authorizeMapsProxy } from "../_shared/maps-proxy-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-portal-session",
 };
 
 const PLACES_KEY = Deno.env.get("GOOGLE_PLACES_API_KEY") ?? "";
@@ -240,6 +241,17 @@ Deno.serve(async (req) => {
         }
       );
     }
+
+    // The public score page (/score/generate) is the anonymous caller. It
+    // has no organization slug, so the gate is a tight per-IP rate limit
+    // rather than the booking-page slug check used by address-autocomplete.
+    // Signed-in users and portal sessions get a higher cap.
+    const gate = await authorizeMapsProxy(req, corsHeaders, {
+      bucket: "maps_place_resolve",
+      authenticatedPerMinute: 30,
+      anonymous: { perMinute: 8, perHour: 40 },
+    });
+    if (gate) return gate;
 
     const parsed = Body.safeParse(await req.json().catch(() => ({})));
     if (!parsed.success) {

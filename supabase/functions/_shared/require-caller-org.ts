@@ -3,34 +3,50 @@
 // belongs to that org.
 //
 // Two building blocks:
-//   - isServiceRoleRequest(req): true only for genuine service-role callers
-//     (other edge functions, cron). Use to gate server-to-server-only functions.
-//   - resolveCallerOrg(req): validates the caller's JWT and returns the
-//     organizationId derived from THEIR OWN org_memberships (owner-first) or,
-//     if they have no org_memberships row, their `staff` record. Never trusts
-//     an organizationId/organization_id passed in the request body.
+//   - isServiceRoleRequest(req): true only when the bearer token IS the
+//     project's service-role key. Use to gate server-to-server-only functions.
+//   - resolveCallerOrg(req): validates the caller's JWT with auth.getUser()
+//     (signature checked by GoTrue) and returns the organizationId derived
+//     from THEIR OWN org_memberships (owner-first) or, if they have no
+//     org_memberships row, their `staff` record. Never trusts an
+//     organizationId/organization_id passed in the request body.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 
-export function parseJwtClaims(token: string): Record<string, unknown> | null {
-  const parts = token.split(".");
-  if (parts.length < 2) return null;
-  try {
-    const payload = parts[1]
-      .replaceAll("-", "+")
-      .replaceAll("_", "/")
-      .padEnd(Math.ceil(parts[1].length / 4) * 4, "=");
-    return JSON.parse(atob(payload)) as Record<string, unknown>;
-  } catch {
-    return null;
+/**
+ * Constant-time string compare. Length is mixed into the accumulator so a
+ * mismatch still walks the longer input.
+ */
+export function timingSafeEqualString(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const left = enc.encode(a);
+  const right = enc.encode(b);
+  const len = Math.max(left.length, right.length);
+  let diff = left.length ^ right.length;
+  for (let i = 0; i < len; i++) {
+    diff |= (left[i] ?? 0) ^ (right[i] ?? 0);
   }
+  return diff === 0;
 }
 
+/**
+ * True only for a genuine service-role caller (another edge function or cron
+ * presenting SUPABASE_SERVICE_ROLE_KEY).
+ *
+ * Do NOT base64-decode the JWT and trust `role`. That payload is unsigned
+ * from this function's point of view: anyone can mint `{"role":"service_role"}`.
+ * auth.getUser() is the right check for a *user* JWT (see resolveCallerOrg)
+ * but it rejects the service-role key, which is not a user session. The key
+ * itself is the signed credential, so equality against the env value is the
+ * signature check.
+ */
 export function isServiceRoleRequest(req: Request): boolean {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) return false;
-  const claims = parseJwtClaims(authHeader.slice("Bearer ".length).trim());
-  return claims?.role === "service_role";
+  const token = authHeader.slice("Bearer ".length).trim();
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!token || !serviceKey) return false;
+  return timingSafeEqualString(token, serviceKey);
 }
 
 export interface CallerOrgContext {
