@@ -187,6 +187,7 @@ const handler = async (req: Request): Promise<Response> => {
     let customerSms = false;
     let adminSms = false;
     let messageId: string | undefined;
+    let customerSmsError: string | null = null;
     const formatPhoneNumber = (phone: string): string => {
       let formatted = phone.replace(/\D/g, '');
       if (formatted.length === 10) formatted = `+1${formatted}`;
@@ -282,7 +283,14 @@ const handler = async (req: Request): Promise<Response> => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`[send-on-the-way-sms] ${label} SMS failed: ${response.status} - ${errorText}`);
-        return { success: false, error: errorText };
+        const plain = response.status === 401 || response.status === 403
+          ? "The texting account rejected the message. Check OpenPhone in Settings."
+          : response.status === 429
+            ? "Texting is rate-limited right now. Wait a moment and try again."
+            : response.status >= 500
+              ? "The texting service had a problem. Try again in a moment."
+              : "The text to the customer was rejected. Check the phone number on file.";
+        return { success: false, error: plain };
       }
 
       const result = await response.json();
@@ -303,8 +311,15 @@ const handler = async (req: Request): Promise<Response> => {
       customerSms = customerResult.success;
       messageId = customerResult.messageId;
       if (!customerResult.success) {
-        console.warn("[send-on-the-way-sms] Customer SMS failed — continuing to admin alert");
+        customerSmsError = customerResult.error || "The text to the customer didn't go through.";
+        console.warn("[send-on-the-way-sms] Customer SMS failed — continuing to admin alert:", customerSmsError);
       }
+    } else if (notifyClient && !formattedCustomerPhone && !smsSkippedReason) {
+      smsSkippedReason = "No phone number on file";
+      console.log("[send-on-the-way-sms] Customer SMS skipped (no phone on file)");
+    } else if (!notifyClient && !smsSkippedReason) {
+      smsSkippedReason = "Customer on-the-way texts are turned off";
+      console.log("[send-on-the-way-sms] Customer SMS skipped (disabled)");
     } else {
       console.log("[send-on-the-way-sms] Customer SMS skipped (disabled or no phone on file)");
     }
@@ -326,16 +341,19 @@ const handler = async (req: Request): Promise<Response> => {
     }
     }
 
-    // Log to prevent duplicates per cleaner. Team jobs allow each cleaner to send once.
-    // Logged even when SMS was skipped, so a second tap does not insert another bell.
-    const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
-      booking_id: bookingId,
-      organization_id: booking.organization_id,
-      recipient_phone: formattedCustomerPhone,
-      reminder_type: staffReminderType,
-    });
-    if (logInsertErr) {
-      console.error(`[send-on-the-way-sms] SMS sent but booking_reminder_log insert failed for booking ${bookingId} — dedupe will not catch this next call:`, logInsertErr);
+    // Log only when the customer text went out, or was skipped on purpose
+    // (no phone, SMS off, customer texts disabled). A failed OpenPhone send
+    // must stay retryable — logging it made the next tap a duplicate.
+    if (!customerSmsError) {
+      const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
+        booking_id: bookingId,
+        organization_id: booking.organization_id,
+        recipient_phone: formattedCustomerPhone,
+        reminder_type: staffReminderType,
+      });
+      if (logInsertErr) {
+        console.error(`[send-on-the-way-sms] booking_reminder_log insert failed for booking ${bookingId} — dedupe will not catch this next call:`, logInsertErr);
+      }
     }
 
     // Audit log
@@ -353,6 +371,7 @@ const handler = async (req: Request): Promise<Response> => {
         messageId,
         adminNotified: adminSms,
         smsSkippedReason,
+        customerSmsError,
         channels: {
           customerSms,
           adminSms,

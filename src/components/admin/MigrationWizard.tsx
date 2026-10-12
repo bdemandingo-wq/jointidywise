@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
 type DataType = 'customers' | 'staff' | 'bookings' | 'services' | 'recurring_plans' | 'property_notes';
-type Source = 'bookingkoala' | 'jobber';
+type Source = 'bookingkoala' | 'jobber' | 'other';
 
 interface ParseResult {
   importId: string;
@@ -291,8 +291,8 @@ export function MigrationWizard() {
         <div className="space-y-6">
           <div>
             <Label className="text-base font-semibold mb-3 block">Where are you migrating from?</Label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {(['bookingkoala', 'jobber'] as Source[]).map((s) => (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {(['bookingkoala', 'jobber', 'other'] as Source[]).map((s) => (
                 <button
                   key={s}
                   onClick={() => setSource(s)}
@@ -303,9 +303,9 @@ export function MigrationWizard() {
                       : "border-border hover:border-primary/50"
                   )}
                 >
-                  <p className="font-bold text-lg capitalize">{s === 'bookingkoala' ? 'BookingKoala' : 'Jobber'}</p>
+                  <p className="font-bold text-lg">{s === 'bookingkoala' ? 'BookingKoala' : s === 'jobber' ? 'Jobber' : 'Other CSV'}</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    {s === 'bookingkoala' ? 'Import from BookingKoala CRM' : 'Import from Jobber platform'}
+                    {s === 'bookingkoala' ? 'Import from BookingKoala CRM' : s === 'jobber' ? 'Import from Jobber platform' : 'Any spreadsheet exported as CSV'}
                   </p>
                 </button>
               ))}
@@ -368,7 +368,7 @@ export function MigrationWizard() {
                   <Upload className="w-12 h-12 text-muted-foreground mb-4" />
                   <p className="font-medium text-lg mb-1">Upload your CSV export</p>
                   <p className="text-sm text-muted-foreground mb-4">
-                    Export your {dataType} from {source === 'bookingkoala' ? 'BookingKoala' : 'Jobber'} as CSV
+                    {`Export your ${dataType} from ${source === 'bookingkoala' ? 'BookingKoala' : source === 'jobber' ? 'Jobber' : 'your other system'} as CSV`}
                   </p>
                   <input
                     ref={fileInputRef}

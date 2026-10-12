@@ -32,10 +32,11 @@ import { SEOHead } from '@/components/SEOHead';
 import { toast } from 'sonner';
 import { Eye, EyeOff, Loader2, Mail, Lock, User } from 'lucide-react';
 import { z } from 'zod';
+import { PERSON_NAME_MAX } from '@/lib/displayName';
 
 // ── Validation ──────────────────────────────────────────────────────
 const signupSchema = z.object({
-  fullName: z.string().min(2, 'Name must be at least 2 characters'),
+  fullName: z.string().trim().min(2, 'Name must be at least 2 characters').max(PERSON_NAME_MAX, `Name must be ${PERSON_NAME_MAX} characters or fewer`),
   email: z.string().trim().email('Please enter a valid email address'),
   password: z
     .string()
@@ -338,6 +339,7 @@ export default function NativeSignupPage() {
                   </Label>
                   <Input
                     id="fullName"
+                    maxLength={PERSON_NAME_MAX}
                     type="text"
                     placeholder="Jane Doe"
                     value={formData.fullName}

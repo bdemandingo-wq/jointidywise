@@ -41,7 +41,7 @@ import { supabase } from '@/lib/supabase';
 import { formatFullAddress } from '@/lib/formatAddress';
 import { useOrgId } from '@/hooks/useOrgId';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
-import { selectedDateTimeToUTCISO, getTimeInTimezone, formatInTimezone, formatTimestampWithZone } from '@/lib/timezoneUtils';
+import { selectedDateTimeToUTCISO, getTimeInTimezone, formatInTimezone, formatTimeWithZone } from '@/lib/timezoneUtils';
 import { orgAddDaysPreservingTime } from '@/lib/orgDateRange';
 import { useCreateBooking, useUpdateBooking, useCreateCustomer, BookingWithDetails, useBookings } from '@/hooks/useBookings';
 import { extras as extrasData } from '@/data/pricingData';
@@ -489,7 +489,7 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
           serviceName: selectedService?.name || 'Cleaning Service',
           homeSize: `${bedrooms || '?'} bed / ${bathrooms || '?'} bath`,
           appointmentDate: format(scheduledDate, 'MMMM d, yyyy'),
-          appointmentTime: formatTimestampWithZone(selectedDateTimeToUTCISO(selectedDate!, selectedTime, orgTimezone), orgTimezone),
+          appointmentTime: formatTimeWithZone(selectedDateTimeToUTCISO(selectedDate!, selectedTime, orgTimezone), orgTimezone),
           address: address || '',
           aptSuite: aptSuite || '',
           city: city || '',
@@ -602,6 +602,10 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
         }
         return true;
       case 'property':
+        if (!address.trim()) {
+          toast.error('Please enter a street address');
+          return false;
+        }
         return true;
       case 'service':
         if (!selectedServiceId) {
@@ -1000,7 +1004,12 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
       const isExistingBooking = booking?.id && booking.id.length > 10;
 
       if (isExistingBooking) {
-        await updateBooking.mutateAsync({ id: booking.id, ...bookingData });
+        await updateBooking.mutateAsync({
+          id: booking.id,
+          ...bookingData,
+          // The summary toast below covers this save when future visits change too.
+          suppressToast: updateFutureBookings,
+        });
         persistedBookingId = booking.id;
 
         // ALWAYS sync team assignments on update to prevent stale/duplicate entries
@@ -1167,11 +1176,12 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
               }
             }
             
-            await updateBooking.mutateAsync(updateData as { id: string } & Partial<typeof bookingData>);
+            await updateBooking.mutateAsync({
+              ...(updateData as { id: string } & Partial<typeof bookingData>),
+              suppressToast: true,
+            });
           }
           toast.success(`Booking updated and ${changedFields.length} change(s) applied to ${futureBookings.length} future booking(s)`);
-        } else {
-          toast.success('Booking updated successfully');
         }
       } else {
         const finalBookingData = {
@@ -1356,7 +1366,7 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
                 /* eslint-enable local/no-device-local-dates */
 
                 const formattedDate = format(scheduledDate, 'MMMM d, yyyy');
-                const formattedTime = formatTimestampWithZone(selectedDateTimeToUTCISO(selectedDate!, selectedTime, orgTimezone), orgTimezone);
+                const formattedTime = formatTimeWithZone(selectedDateTimeToUTCISO(selectedDate!, selectedTime, orgTimezone), orgTimezone);
                 const serviceName = selectedService?.name || 'cleaning';
                 const fullAddress = formatFullAddress({ address, apt_suite: aptSuite, city });
 

@@ -527,7 +527,7 @@ export default function FinancePage() {
                 with status != 'cancelled', regardless of payment_status. It
                 previously read "paid bookings", which it never was. */}
             <p className="text-[10px] text-muted-foreground">
-              {metrics.transactionCount} bookings · gross, incl. unpaid
+              {`${metrics.transactionCount} bookings · gross, incl. unpaid`}
             </p>
             {/* The connectivity icon used to sit beside "Total Sales", which
                 read as "this figure came from Stripe". It never does — this

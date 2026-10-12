@@ -871,6 +871,7 @@ export type Database = {
       automated_campaigns: {
         Row: {
           body: string
+          channel: string
           created_at: string
           days_inactive: number | null
           id: string
@@ -879,6 +880,7 @@ export type Database = {
           name: string
           organization_id: string | null
           scheduled_at: string | null
+          sms_body: string | null
           subject: string
           throttle_seconds: number
           type: string
@@ -886,6 +888,7 @@ export type Database = {
         }
         Insert: {
           body: string
+          channel?: string
           created_at?: string
           days_inactive?: number | null
           id?: string
@@ -894,6 +897,7 @@ export type Database = {
           name: string
           organization_id?: string | null
           scheduled_at?: string | null
+          sms_body?: string | null
           subject: string
           throttle_seconds?: number
           type: string
@@ -901,6 +905,7 @@ export type Database = {
         }
         Update: {
           body?: string
+          channel?: string
           created_at?: string
           days_inactive?: number | null
           id?: string
@@ -909,6 +914,7 @@ export type Database = {
           name?: string
           organization_id?: string | null
           scheduled_at?: string | null
+          sms_body?: string | null
           subject?: string
           throttle_seconds?: number
           type?: string
@@ -3638,6 +3644,48 @@ export type Database = {
           },
         ]
       }
+      client_portal_password_resets: {
+        Row: {
+          created_at: string
+          expires_at: string
+          id: string
+          portal_user_id: string
+          token_hash: string
+          used_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          expires_at: string
+          id?: string
+          portal_user_id: string
+          token_hash: string
+          used_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          id?: string
+          portal_user_id?: string
+          token_hash?: string
+          used_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_portal_password_resets_portal_user_id_fkey"
+            columns: ["portal_user_id"]
+            isOneToOne: false
+            referencedRelation: "client_portal_users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_portal_password_resets_portal_user_id_fkey"
+            columns: ["portal_user_id"]
+            isOneToOne: false
+            referencedRelation: "client_portal_users_safe"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       client_portal_sessions: {
         Row: {
           client_user_id: string | null
@@ -5822,6 +5870,7 @@ export type Database = {
           notes: string | null
           organization_id: string | null
           paid_at: string | null
+          payment_method: string | null
           recurring_interval: string | null
           scheduled_send_at: string | null
           send_copy_to_self: boolean | null
@@ -5852,6 +5901,7 @@ export type Database = {
           notes?: string | null
           organization_id?: string | null
           paid_at?: string | null
+          payment_method?: string | null
           recurring_interval?: string | null
           scheduled_send_at?: string | null
           send_copy_to_self?: boolean | null
@@ -5882,6 +5932,7 @@ export type Database = {
           notes?: string | null
           organization_id?: string | null
           paid_at?: string | null
+          payment_method?: string | null
           recurring_interval?: string | null
           scheduled_send_at?: string | null
           send_copy_to_self?: boolean | null

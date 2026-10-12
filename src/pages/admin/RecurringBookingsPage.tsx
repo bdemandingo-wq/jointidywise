@@ -21,6 +21,16 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -215,6 +225,7 @@ export default function RecurringBookingsPage() {
   const { timezone: orgTimezone } = useOrgTimezone();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingBooking, setEditingBooking] = useState<RecurringBooking | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const { organization } = useOrganization();
   
@@ -832,11 +843,7 @@ export default function RecurringBookingsPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-destructive"
-                          onClick={() => {
-                            if (confirm('Delete this recurring booking?')) {
-                              deleteMutation.mutate(booking.id);
-                            }
-                          }}
+                          onClick={() => setPendingDeleteId(booking.id)}
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
@@ -870,6 +877,29 @@ export default function RecurringBookingsPage() {
           }
         }}
       />
+
+      <AlertDialog open={pendingDeleteId !== null} onOpenChange={(open) => { if (!open) setPendingDeleteId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this recurring booking?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Future visits from this series will stop being generated. Visits already on the calendar stay.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (pendingDeleteId) deleteMutation.mutate(pendingDeleteId);
+                setPendingDeleteId(null);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
 </AdminLayout>
   );

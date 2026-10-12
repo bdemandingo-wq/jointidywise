@@ -23,6 +23,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Plus, Edit, Trash2, Download, MessageSquare, CheckCircle, AlertCircle, Clock, Mail } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
@@ -54,6 +64,11 @@ export default function ClientFeedbackPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<FeedbackEntry | null>(null);
   const [filterResolved, setFilterResolved] = useState<string>('all');
+  const [pendingConfirm, setPendingConfirm] = useState<
+    | { kind: 'bulk'; ids: string[]; count: number }
+    | { kind: 'delete'; id: string }
+    | null
+  >(null);
   const queryClient = useQueryClient();
   const { isTestMode, maskName } = useTestMode();
   const { organization } = useOrganization();
@@ -276,9 +291,7 @@ export default function ClientFeedbackPage() {
               onClick={() => {
                 const ids = filteredEntries.filter(e => !e.is_resolved).map(e => e.id);
                 if (ids.length === 0) return;
-                if (confirm(`Mark ${ids.length} unresolved item${ids.length === 1 ? '' : 's'} as resolved? Only do this if you have actually addressed them. This is not a "dismiss reminder" action.`)) {
-                  bulkResolveMutation.mutate(ids);
-                }
+                setPendingConfirm({ kind: 'bulk', ids, count: ids.length });
               }}
             >
               Mark all visible resolved
@@ -380,12 +393,12 @@ export default function ClientFeedbackPage() {
                       )}
                     </TableCell>
                     <TableCell className="max-w-[300px]">
-                      <p className="truncate text-sm" title={entry.issue_description || ''}>
+                      <p className="whitespace-normal break-words text-sm" title={entry.issue_description || ''}>
                         {entry.issue_description || '-'}
                       </p>
                     </TableCell>
                     <TableCell className="max-w-[300px]">
-                      <p className="truncate text-sm" title={entry.resolution || ''}>
+                      <p className="whitespace-normal break-words text-sm" title={entry.resolution || ''}>
                         {entry.resolution || '-'}
                       </p>
                     </TableCell>
@@ -425,11 +438,7 @@ export default function ClientFeedbackPage() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-destructive"
-                          onClick={() => {
-                            if (confirm('Delete this feedback?')) {
-                              deleteMutation.mutate(entry.id);
-                            }
-                          }}
+                          onClick={() => setPendingConfirm({ kind: 'delete', id: entry.id })}
                         >
                           <Trash2 className="w-4 h-4" />
                         </Button>
@@ -459,6 +468,36 @@ export default function ClientFeedbackPage() {
           }
         }}
       />
+
+      <AlertDialog open={pendingConfirm !== null} onOpenChange={(open) => { if (!open) setPendingConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingConfirm?.kind === 'bulk'
+                ? `Mark ${pendingConfirm.count} unresolved item${pendingConfirm.count === 1 ? '' : 's'} as resolved?`
+                : 'Delete this feedback?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingConfirm?.kind === 'bulk'
+                ? 'Only do this if you have actually addressed them. This is not a "dismiss reminder" action.'
+                : 'This feedback entry will be permanently deleted.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (pendingConfirm?.kind === 'bulk') bulkResolveMutation.mutate(pendingConfirm.ids);
+                if (pendingConfirm?.kind === 'delete') deleteMutation.mutate(pendingConfirm.id);
+                setPendingConfirm(null);
+              }}
+            >
+              {pendingConfirm?.kind === 'bulk' ? 'Mark resolved' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
 </AdminLayout>
   );

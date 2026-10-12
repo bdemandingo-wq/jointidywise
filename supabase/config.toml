@@ -108,6 +108,14 @@ project_id = "slwfkaqczvwvvvavkgpr"
     verify_jwt = false
   [functions.public-booking-submit]
     verify_jwt = false
+  [functions.record-booking-consent]
+    verify_jwt = false
+  [functions.resume-abandoned-booking]
+    verify_jwt = false
+  [functions.request-client-portal-reset]
+    verify_jwt = false
+  [functions.complete-client-portal-reset]
+    verify_jwt = false
   [functions.quote-expiry-reminder]
     verify_jwt = false
   [functions.remove-customer-card]

@@ -21,6 +21,8 @@ import { CampaignRunBadge } from "@/components/admin/campaigns/CampaignRunBadge"
 import type { CampaignRun } from "@/components/admin/campaigns/campaignRunStatus";
 import { CampaignSendConfirmDialog } from "@/components/admin/campaigns/CampaignSendConfirmDialog";
 
+import { campaignLibraryStatus, channelLabel } from "@/components/admin/campaigns/campaignLibraryStatus";
+
 type StatusFilter = "all" | "draft" | "scheduled" | "sent" | "active";
 
 /**
@@ -141,8 +143,10 @@ export function CampaignList({
 
 
   const getStatusBadge = (campaign: any) => {
-    if (campaign.is_active) return <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-xs">Active</Badge>;
-    if (campaign.last_run_at) return <Badge variant="secondary" className="text-xs">Sent</Badge>;
+    const status = campaignLibraryStatus(campaign);
+    if (status === "active") return <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30 text-xs">Active</Badge>;
+    if (status === "sent") return <Badge variant="secondary" className="text-xs">Sent</Badge>;
+    if (status === "scheduled") return <Badge variant="outline" className="text-xs">Scheduled {campaign.scheduled_at ? format(new Date(campaign.scheduled_at), "MMM d") : ""}</Badge>;
     return <Badge variant="outline" className="text-xs">Draft</Badge>;
   };
 
@@ -157,6 +161,7 @@ export function CampaignList({
                 <TabsList className="min-h-[44px]">
                   <TabsTrigger value="all" className="text-xs px-3 min-h-[44px]">All</TabsTrigger>
                   <TabsTrigger value="draft" className="text-xs px-3 min-h-[44px]">Draft</TabsTrigger>
+                  <TabsTrigger value="scheduled" className="text-xs px-3 min-h-[44px]">Scheduled</TabsTrigger>
                   <TabsTrigger value="active" className="text-xs px-3 min-h-[44px]">Active</TabsTrigger>
                   <TabsTrigger value="sent" className="text-xs px-3 min-h-[44px]">Sent</TabsTrigger>
                 </TabsList>
@@ -189,7 +194,7 @@ export function CampaignList({
                             : getStatusBadge(campaign)}
                         </div>
                         <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" /> SMS</span>
+                          <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" /> {channelLabel(campaign.channel)}</span>
                           {campaign.days_inactive && <span>{campaign.days_inactive}d inactive</span>}
                           {campaign.last_run_at && <span>Sent {format(new Date(campaign.last_run_at), "MMM d")}</span>}
                         </div>
@@ -251,7 +256,7 @@ export function CampaignList({
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="text-xs gap-1">
-                            <MessageSquare className="w-3 h-3" /> SMS
+                            <MessageSquare className="w-3 h-3" /> {channelLabel(campaign.channel)}
                           </Badge>
                         </TableCell>
                         <TableCell>

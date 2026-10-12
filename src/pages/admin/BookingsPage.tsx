@@ -98,7 +98,7 @@ import { useBookings, useDraftBookings, useUpdateBooking, useDeleteBooking, useS
 import { format, isWithinInterval, startOfDay, endOfDay, differenceInDays, differenceInHours, addDays } from 'date-fns';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { orgStartOfDay, orgEndOfDay, orgDateKey, formatInOrgTz } from '@/lib/orgDateRange';
-import { formatInTimezone, getDateInTimezone, formatTimestampWithZone } from '@/lib/timezoneUtils';
+import { formatInTimezone, getDateInTimezone, formatTimestampWithZone, formatTimeWithZone } from '@/lib/timezoneUtils';
 import { AddBookingDialog } from '@/components/admin/AddBookingDialog';
 import { BookingDetailsDialog, AdjustPaymentDialog } from '@/components/admin/BookingDialogs';
 import { PaymentHistoryLogDialog } from '@/components/admin/PaymentHistoryLogDialog';
@@ -199,7 +199,7 @@ export default function BookingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
   const [activeTab, setActiveTab] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('q') || '');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -1163,7 +1163,7 @@ export default function BookingsPage() {
               customerPhone: booking.customer?.phone || 'N/A',
               serviceName: booking.service?.name || 'Cleaning Service',
               appointmentDate: format(scheduledDate, 'EEEE, MMMM d, yyyy'),
-              appointmentTime: formatTimestampWithZone(scheduledDate, orgTz),
+              appointmentTime: formatTimeWithZone(scheduledDate, orgTz),
               scheduledAt: booking.scheduled_at,
               address: fullAddress || 'Address not provided',
               bookingNumber: booking.booking_number,
@@ -1257,7 +1257,7 @@ export default function BookingsPage() {
                 customerPhone: booking.customer?.phone || 'N/A',
                 serviceName: booking.service?.name || 'Cleaning Service',
                 appointmentDate: format(scheduledDate, 'EEEE, MMMM d, yyyy'),
-                appointmentTime: formatTimestampWithZone(scheduledDate, orgTz),
+                appointmentTime: formatTimeWithZone(scheduledDate, orgTz),
                 address: fullAddress || 'Address not provided',
                 bookingNumber: booking.booking_number,
                 organizationId: organization?.id,
@@ -1323,7 +1323,7 @@ export default function BookingsPage() {
             booking_number: booking.booking_number,
             service_name: booking.service?.name || 'Cleaning Service',
             scheduled_date: format(scheduledDate, 'MMMM d, yyyy'),
-            scheduled_time: formatTimestampWithZone(scheduledDate, orgTz),
+            scheduled_time: formatTimeWithZone(scheduledDate, orgTz),
             address: fullAddress || 'Address not provided',
             square_footage: booking.square_footage || '',
             duration: booking.duration,
@@ -1465,7 +1465,7 @@ export default function BookingsPage() {
                 customerPhone: booking.customer?.phone || 'N/A',
                 serviceName: booking.service?.name || 'Cleaning Service',
                 appointmentDate: format(scheduledDate, 'EEEE, MMMM d, yyyy'),
-                appointmentTime: formatTimestampWithZone(scheduledDate, orgTz),
+                appointmentTime: formatTimeWithZone(scheduledDate, orgTz),
                 address: fullAddress || 'Address not provided',
                 bookingNumber: booking.booking_number,
                 organizationId: organization?.id,
