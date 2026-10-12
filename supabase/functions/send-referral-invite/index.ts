@@ -1,10 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getOrgEmailSettings, formatEmailFrom, getReplyTo } from "../_shared/get-org-email-settings.ts";
+import { verifyPortalSession } from "../_shared/portal-session.ts";
+import { verifyAdminAuth } from "../_shared/verify-admin-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-portal-session",
 };
 
 serve(async (req) => {
@@ -36,6 +38,40 @@ serve(async (req) => {
 
     if (referralError || !referral) {
       throw new Error("Referral not found");
+    }
+
+    // AUTH: the client portal sends x-portal-session (no Supabase user JWT).
+    // An org admin/manager may also send their own referral. Anyone else — 
+    // including a bare anon key — must not send from this org's domain.
+    if (req.headers.get("x-portal-session")) {
+      const session = await verifyPortalSession(req, supabase);
+      if (!session.ok) {
+        return new Response(JSON.stringify({ error: session.error }), {
+          status: session.status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (
+        session.organization_id !== referral.organization_id ||
+        session.customer_id !== referral.referrer_customer_id
+      ) {
+        return new Response(JSON.stringify({ error: "Not allowed to send this invite" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    } else {
+      const authResult = await verifyAdminAuth(req.headers.get("Authorization"), {
+        requireAdmin: true,
+        requireOrganizationId: referral.organization_id,
+      });
+      if (!authResult.success) {
+        const denied = /access denied/i.test(authResult.error || "");
+        return new Response(JSON.stringify({ error: authResult.error || "Unauthorized" }), {
+          status: denied ? 403 : 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     // CRITICAL: organization_id is REQUIRED for multi-tenant isolation

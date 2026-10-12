@@ -9,6 +9,7 @@ import { Loader2, Clock, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useOrganization } from '@/contexts/OrganizationContext';
+import { clampClockHours } from '@/lib/wageCalculation';
 
 /**
  * The payroll_settings row, which had no UI at all until now — every org has
@@ -63,13 +64,12 @@ const num = (v: unknown, fallback: number): number => {
 /**
  * The worked example under the hours fields.
  *
- * Mirrors StaffPortal.tsx:709-711 exactly:
- *   payable = min(clocked, scheduled × ratio, ceiling)
- * If that changes, change this — an example that disagrees with the code is
- * worse than no example, because it is the thing the owner will trust.
+ * Uses clampClockHours, the same function the job card, earnings, payroll,
+ * and completion use. A short clock pays the scheduled length; a long clock
+ * stops at scheduled × ratio and the ceiling.
  */
 function payableHours(scheduled: number, clocked: number, ratio: number, ceiling: number): number {
-  return Math.min(clocked, scheduled * ratio, ceiling);
+  return clampClockHours(clocked, scheduled, { overageCapRatio: ratio, absoluteCeiling: ceiling });
 }
 
 const hrs = (n: number) => (Number.isFinite(n) ? `${Math.round(n * 100) / 100}h` : '—');
@@ -184,9 +184,9 @@ export function PayrollCostSettings() {
             <h3 className="text-sm font-semibold">Hours limits</h3>
           </div>
           <p className="text-sm text-muted-foreground">
-            The only settings on this page that change what a cleaner is paid. They limit
-            how many hours a job can pay for when someone clocks more than they were
-            scheduled.
+            The only settings on this page that change what a cleaner is paid. A clock
+            shorter than the booking still pays the scheduled time. A longer clock pays
+            up to the scheduled time times the multiplier, and never more than the ceiling.
           </p>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -243,8 +243,10 @@ export function PayrollCostSettings() {
               <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
               <div className="space-y-1.5 text-sm">
                 <p>
-                  <strong>Applies to future check-outs only.</strong> Pay already recorded on
-                  finished jobs doesn't change, and past payroll stays exactly as it was.
+                  <strong>This is the same limit everywhere pay is shown.</strong> Changing
+                  it changes the hours on the job card, earnings, Cleaner Wages, and payroll,
+                  including jobs already clocked out, unless that job's pay is locked.
+                  Payroll reports that were already emailed are not regenerated.
                 </p>
                 {/*
                   Verified 2026-07-31 and worth saying out loud: the caps are applied in

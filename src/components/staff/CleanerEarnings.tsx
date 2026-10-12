@@ -16,6 +16,7 @@ import { useQuery } from '@tanstack/react-query';
 import { DateRange } from 'react-day-picker';
 import { cn } from '@/lib/utils';
 import { resolveCleanerPay, type WageBooking, type WageStaff } from '@/lib/wageCalculation';
+import { useHourCaps } from '@/hooks/useHourCaps';
 import { fmt } from '@/lib/activeCurrency';
 
 interface Props {
@@ -38,11 +39,6 @@ interface TeamAssignment {
   pay_share: number | null;
   is_primary: boolean | null;
 }
-
-// Pay resolution lives in lib/wageCalculation.ts:resolveCleanerPay — the same
-// call the job cards and admin Payroll make. Nothing pay-related is computed
-// in this file.
-const resolveEarnings = resolveCleanerPay;
 
 export function CleanerEarnings({ staffId, staffName }: Props) {
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
@@ -69,6 +65,12 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
     },
     enabled: !!staffId,
   });
+
+  // Pay resolution lives in lib/wageCalculation.ts:resolveCleanerPay — the same
+  // call the job cards and admin Payroll make. Nothing pay-related is computed
+  // in this file. Solo (team size 1) so a copied pay_share cannot freeze an
+  // old hourly snapshot; a real team still passes its size below.
+  const { caps: hourCaps } = useHourCaps(staffInfo?.organization_id);
 
   // Upcoming week bounds
   /**
@@ -127,7 +129,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
         .from('bookings')
         .select(`
           id, booking_number, scheduled_at, duration, status, total_amount, subtotal, discount_amount,
-          cleaner_actual_payment, cleaner_pay_expected, cleaner_wage, cleaner_wage_type,
+          cleaner_actual_payment, cleaner_pay_expected, cleaner_wage, cleaner_wage_type, pay_locked,
           cleaner_checkin_at, cleaner_checkout_at, cleaner_override_hours,
           staff_id,
           service:services(name),
@@ -162,7 +164,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
         .from('bookings')
         .select(`
           id, booking_number, scheduled_at, duration, status, total_amount, subtotal, discount_amount,
-          cleaner_actual_payment, cleaner_pay_expected, cleaner_wage, cleaner_wage_type,
+          cleaner_actual_payment, cleaner_pay_expected, cleaner_wage, cleaner_wage_type, pay_locked,
           cleaner_checkin_at, cleaner_checkout_at, cleaner_override_hours,
           staff_id,
           service:services(name),
@@ -180,6 +182,33 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
     },
     enabled: !!staffId,
   });
+
+  const upcomingIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const b of upcomingBookings) ids.add(b.id);
+    for (const t of upcomingTeamAssignments) ids.add(t.booking.id);
+    return Array.from(ids).sort();
+  }, [upcomingBookings, upcomingTeamAssignments]);
+
+  const { data: upcomingTeamSizes = {}, error: upcomingSizeError } = useQuery({
+    queryKey: ['cleaner-earnings-team-size', 'upcoming', staffId, upcomingIds.join(',')],
+    enabled: upcomingIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('booking_team_assignments')
+        .select('booking_id')
+        .in('booking_id', upcomingIds);
+      if (error) throw error;
+      const counts: Record<string, number> = {};
+      for (const row of data ?? []) counts[row.booking_id] = (counts[row.booking_id] ?? 0) + 1;
+      return counts;
+    },
+  });
+
+  const resolveEarnings = (booking: Booking, payShare: number | null, sizes: Record<string, number>) => {
+    const count = sizes[booking.id] ?? 0;
+    return resolveCleanerPay(booking, staffInfo, payShare, count > 1 ? count : 1, hourCaps);
+  };
 
   // Merge upcoming: primary + team (de-duped)
   const upcomingWeekEntries = useMemo(() => {
@@ -204,12 +233,12 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
     let totalPay = 0;
     let totalHours = 0;
     for (const { booking, payShare } of upcomingWeekEntries) {
-      const { calculatedPay, hoursWorked } = resolveEarnings(booking, staffInfo, payShare);
+      const { calculatedPay, hoursWorked } = resolveEarnings(booking, payShare, upcomingTeamSizes);
       totalPay += calculatedPay;
       totalHours += hoursWorked;
     }
     return { totalPay, totalHours, jobCount: upcomingWeekEntries.length };
-  }, [upcomingWeekEntries, staffInfo]);
+  }, [upcomingWeekEntries, staffInfo, upcomingTeamSizes, hourCaps, resolveEarnings]);
 
   // Completed bookings (historical)
   const { data: primaryBookings = [], isLoading: loadingPrimary, error: primaryError } = useQuery({
@@ -219,7 +248,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
         .from('bookings')
         .select(`
           id, booking_number, scheduled_at, duration, status, total_amount, subtotal, discount_amount,
-          cleaner_actual_payment, cleaner_pay_expected, cleaner_wage, cleaner_wage_type,
+          cleaner_actual_payment, cleaner_pay_expected, cleaner_wage, cleaner_wage_type, pay_locked,
           cleaner_checkin_at, cleaner_checkout_at, cleaner_override_hours,
           service:services(name),
           customer:customers(first_name, last_name)
@@ -249,7 +278,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
         .from('bookings')
         .select(`
           id, booking_number, scheduled_at, duration, status, total_amount,
-          cleaner_actual_payment, cleaner_wage, cleaner_wage_type,
+          cleaner_actual_payment, cleaner_pay_expected, cleaner_wage, cleaner_wage_type, pay_locked,
           cleaner_checkin_at, cleaner_checkout_at, cleaner_override_hours,
           staff_id,
           service:services(name),
@@ -287,11 +316,30 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
     return entries;
   }, [primaryBookings, teamAssignments]);
 
+  const historyIds = useMemo(
+    () => allEntries.map((e) => e.booking.id).sort(),
+    [allEntries],
+  );
+  const { data: historyTeamSizes = {}, error: historySizeError } = useQuery({
+    queryKey: ['cleaner-earnings-team-size', 'history', staffId, historyIds.join(',')],
+    enabled: historyIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('booking_team_assignments')
+        .select('booking_id')
+        .in('booking_id', historyIds);
+      if (error) throw error;
+      const counts: Record<string, number> = {};
+      for (const row of data ?? []) counts[row.booking_id] = (counts[row.booking_id] ?? 0) + 1;
+      return counts;
+    },
+  });
+
   const stats = useMemo(() => {
     let totalEarnings = 0;
     let totalHours = 0;
     for (const { booking, payShare } of allEntries) {
-      const { calculatedPay, hoursWorked } = resolveEarnings(booking, staffInfo, payShare);
+      const { calculatedPay, hoursWorked } = resolveEarnings(booking, payShare, historyTeamSizes);
       totalEarnings += calculatedPay;
       totalHours += hoursWorked;
     }
@@ -302,12 +350,12 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
       totalHours,
       avgPerHour: totalHours > 0 ? totalEarnings / totalHours : 0,
     };
-  }, [allEntries, staffInfo]);
+  }, [allEntries, staffInfo, historyTeamSizes, hourCaps, resolveEarnings]);
 
   const exportToCSV = () => {
     const headers = ['Date', 'Booking #', 'Service', 'Customer', 'Actual Hours', 'Your Earnings'];
     const rows = allEntries.map(({ booking, payShare }) => {
-      const { calculatedPay, hoursWorked } = resolveEarnings(booking, staffInfo, payShare);
+      const { calculatedPay, hoursWorked } = resolveEarnings(booking, payShare, historyTeamSizes);
       return [
         orgDateKey(new Date(booking.scheduled_at), orgTimezone),
         booking.booking_number,
@@ -362,7 +410,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
   };
 
   const isLoading = loadingPrimary || loadingTeam;
-  const earningsError = staffInfoError || timezoneError || upcomingError || upcomingTeamError || primaryError || teamError;
+  const earningsError = staffInfoError || timezoneError || upcomingError || upcomingTeamError || upcomingSizeError || primaryError || teamError || historySizeError;
 
   return (
     <div className="space-y-6">
@@ -398,7 +446,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
             <div className="mt-4 space-y-2">
               <p className="text-sm font-medium text-muted-foreground">This week's jobs:</p>
               {upcomingWeekEntries.map(({ booking, payShare }) => {
-                const { calculatedPay, hoursWorked } = resolveEarnings(booking, staffInfo, payShare);
+                const { calculatedPay, hoursWorked } = resolveEarnings(booking, payShare, upcomingTeamSizes);
                 return (
                   <div key={booking.id} className="flex items-center justify-between text-sm p-2 rounded-md bg-background">
                     <div className="flex items-center gap-2">
@@ -529,7 +577,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
                 </TableHeader>
                 <TableBody>
                   {allEntries.map(({ booking, payShare }) => {
-                    const { calculatedPay, hoursWorked } = resolveEarnings(booking, staffInfo, payShare);
+                    const { calculatedPay, hoursWorked } = resolveEarnings(booking, payShare, historyTeamSizes);
                     return (
                       <TableRow key={booking.id}>
                         <TableCell>{format(new Date(booking.scheduled_at), 'MMM d, yyyy')}</TableCell>

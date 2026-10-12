@@ -5,7 +5,7 @@
  * Session persistence is disabled - users must login every visit.
  */
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { useAuthNoSession, supabaseNoSession } from './useAuthNoSession';
 import { isInvalidSessionError } from '@/lib/authErrors';
@@ -20,12 +20,17 @@ interface SubscriptionStatus {
   product_id?: string | null;
 }
 
+/** idle: no session. loading: check in flight. ready: answer stored. error: check failed. */
+export type SubscriptionCheck = 'idle' | 'loading' | 'ready' | 'error';
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
   signOut: () => Promise<void>;
   subscription: SubscriptionStatus | null;
+  /** Distinguishes "not loaded yet" from "check failed". A failed check must not look like full access. */
+  subscriptionCheck: SubscriptionCheck;
   checkSubscription: (accessToken?: string) => Promise<void>;
   showSubscriptionDialog: boolean;
   setShowSubscriptionDialog: (show: boolean) => void;
@@ -38,7 +43,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const noSessionAuth = useAuthNoSession();
   
   const [subscription, setSubscription] = useState<SubscriptionStatus | null>(null);
+  const [subscriptionCheck, setSubscriptionCheck] = useState<SubscriptionCheck>('idle');
   const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false);
+  const checkGen = useRef(0);
 
   const signOut = async () => {
     // Purge per-user/per-org sidebar visibility cache so the next signed-in
@@ -50,15 +57,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { localStorage.removeItem('tidywise_org_chosen'); } catch { /* ignore */ }
     await noSessionAuth.signOut();
     setSubscription(null);
+    setSubscriptionCheck('idle');
     setShowSubscriptionDialog(false);
   };
 
   const checkSubscription = async (accessToken?: string) => {
+    const gen = ++checkGen.current;
     try {
       const token =
         accessToken ?? noSessionAuth.session?.access_token;
 
-      if (!token) return;
+      if (!token) {
+        if (gen === checkGen.current) setSubscriptionCheck('idle');
+        return;
+      }
+
+      setSubscriptionCheck('loading');
 
       // NOTE: The free-account allowlist is enforced server-side in the
       // `check-subscription` edge function (keyed by auth.users.id and email).
@@ -71,8 +85,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (error) throw error;
+      if (gen !== checkGen.current) return;
 
       setSubscription(data);
+      setSubscriptionCheck('ready');
       // Open the subscription dialog only when:
       //   1. The user genuinely doesn't have a subscription, AND
       //   2. We are NOT in the post-checkout grace window — the
@@ -113,12 +129,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         status: e?.context?.status,
         message: e?.message,
       });
+      // Leave subscription empty and record the failure. Callers must not
+      // treat "still null" as access — that was the paywall bypass when this
+      // request hung or 500'd.
+      if (gen === checkGen.current) {
+        setSubscription(null);
+        setSubscriptionCheck('error');
+      }
     }
   };
 
   useEffect(() => {
     if (!noSessionAuth.session?.access_token) {
+      checkGen.current += 1;
       setSubscription(null);
+      setSubscriptionCheck('idle');
       setShowSubscriptionDialog(false);
       return;
     }
@@ -152,19 +177,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         if (error) {
           console.warn('[useAuth] could not verify session, keeping it:', error.message);
+          // The session stays, but billing was not confirmed. Do not leave
+          // subscriptionCheck idle — AdminRoute treats that as "unknown"
+          // and must not render the product.
+          setSubscription(null);
+          setSubscriptionCheck('error');
           return;
         }
         if (!data?.user) {
           // No error but no user: nothing to check against. Don't infer a
           // dead session from it — autoRefreshToken may still be mid-flight.
+          setSubscription(null);
+          setSubscriptionCheck('error');
           return;
         }
 
         await checkSubscription(noSessionAuth.session?.access_token);
       } catch (e) {
         // Thrown (rather than returned) failures are transport-level. Never
-        // a reason to sign out.
+        // a reason to sign out. Billing is still unconfirmed, so the
+        // dashboard stays locked until a retry succeeds.
         console.warn('[useAuth] auth check threw, keeping session:', e);
+        setSubscription(null);
+        setSubscriptionCheck('error');
       }
     }, 0);
 
@@ -179,6 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading: noSessionAuth.loading || !noSessionAuth.initialCleanupDone, 
       signOut, 
       subscription, 
+      subscriptionCheck,
       checkSubscription,
       showSubscriptionDialog,
       setShowSubscriptionDialog

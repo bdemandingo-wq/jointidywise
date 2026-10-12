@@ -4,6 +4,8 @@ import { format } from "date-fns";
 import { BookingWithDetails, useStaff, useUpdateBooking } from "@/hooks/useBookings";
 import { useOrgId } from "@/hooks/useOrgId";
 import { computeExpectedPay, syncCleanerPayShare } from "@/lib/cleanerPay";
+import { describeCleanerPay, resolveCleanerPay, type WageBooking, type WageStaff } from "@/lib/wageCalculation";
+import { useHourCaps } from "@/hooks/useHourCaps";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -61,6 +63,7 @@ export function BookingDetailsDialog({
   const [creatingQuote, setCreatingQuote] = useState(false);
   const { organizationId } = useOrgId();
   const { timezone: orgTimezone } = useOrgTimezone();
+  const { caps: hourCaps } = useHourCaps(organizationId);
 
   if (!booking) return null;
 
@@ -197,23 +200,22 @@ export function BookingDetailsDialog({
   const scheduled = new Date(booking.scheduled_at);
   const bookingAny = booking as any;
 
-  // Calculate cleaner pay display
+  const cleanerPay = resolveCleanerPay(
+    booking as unknown as WageBooking,
+    {
+      hourly_rate: booking.staff?.hourly_rate ?? null,
+      base_wage: null,
+      default_hours: null,
+    } satisfies WageStaff,
+    null,
+    1,
+    hourCaps,
+  );
   const getCleanerPayDisplay = () => {
-    if (!bookingAny.cleaner_wage) return "Not set";
-    
-    const wage = bookingAny.cleaner_wage;
-    const wageType = bookingAny.cleaner_wage_type || 'hourly';
-    
-    if (wageType === 'flat') {
-      return `$${wage} flat fee`;
-    } else if (wageType === 'percentage') {
-      const amount = (booking.total_amount * wage) / 100;
-      return `${wage}% (${fmt(amount)})`;
-    } else {
-      const hours = bookingAny.cleaner_override_hours || (booking.duration / 60);
-      const amount = wage * hours;
-      return `$${wage}/hr × ${hours}hrs = ${fmt(amount)}`;
-    }
+    if (cleanerPay.calculatedPay === 0 && cleanerPay.wageRate === 0) return "Not set";
+    const detail = describeCleanerPay(cleanerPay);
+    if (detail === 'TBD') return "Not set";
+    return `${fmt(cleanerPay.calculatedPay)} (${detail})`;
   };
 
   return (
@@ -349,6 +351,7 @@ export function EditBookingDialog({
   const { organizationId } = useOrgId();
   const { data: staff = [], isLoading: staffLoading } = useStaff();
   const { timezone: orgTimezone } = useOrgTimezone();
+  const { caps: hourCaps } = useHourCaps(organizationId);
   const updateBooking = useUpdateBooking();
 
   const initial = useMemo(() => {
@@ -413,21 +416,33 @@ export function EditBookingDialog({
 
   const saving = updateBooking.isPending;
 
-  // Calculate estimated cleaner pay
+  const assignedStaff = staff.find((s) => s.id === (staffId && staffId !== '__unassigned__' ? staffId : booking.staff?.id));
   const calculateEstimatedPay = () => {
-    const wage = parseFloat(cleanerWage);
-    if (!wage || isNaN(wage)) return null;
-    
-    const totalAmt = parseFloat(amount) || booking.total_amount;
-    
-    if (cleanerWageType === 'flat') {
-      return wage;
-    } else if (cleanerWageType === 'percentage') {
-      return (totalAmt * wage) / 100;
-    } else {
-      const hours = parseFloat(cleanerOverrideHours) || (booking.duration / 60);
-      return wage * hours;
-    }
+    const bookingAny = booking as any;
+    const wageText = cleanerWage.trim();
+    const wageNum = Number(wageText);
+    const overrideNum = Number(cleanerOverrideHours);
+    const priced: WageBooking = {
+      cleaner_actual_payment: null,
+      cleaner_pay_expected: null,
+      pay_locked: false,
+      cleaner_wage: wageText === '' || !Number.isFinite(wageNum) ? null : wageNum,
+      cleaner_wage_type: cleanerWageType || null,
+      cleaner_checkin_at: bookingAny.cleaner_checkin_at ?? null,
+      cleaner_checkout_at: bookingAny.cleaner_checkout_at ?? null,
+      cleaner_override_hours: cleanerOverrideHours.trim() === '' || !Number.isFinite(overrideNum) ? null : overrideNum,
+      duration: booking.duration,
+      total_amount: Number(amount) || booking.total_amount,
+    };
+    const staffWage: WageStaff = {
+      hourly_rate: assignedStaff?.hourly_rate ?? booking.staff?.hourly_rate ?? null,
+      base_wage: null,
+      default_hours: assignedStaff?.default_hours ?? null,
+      percentage_rate: assignedStaff?.percentage_rate ?? null,
+    };
+    const result = resolveCleanerPay(priced, staffWage, null, 1, hourCaps);
+    if (result.wageRate === 0 && result.calculatedPay === 0) return null;
+    return result.calculatedPay;
   };
 
   const estimatedPay = calculateEstimatedPay();
@@ -450,13 +465,15 @@ export function EditBookingDialog({
       // source of truth when set — it must win over any stale cleaner_actual_payment
       // override, otherwise a leftover manual override silently shadows a wage
       // change forever (payroll reads cleaner_pay_expected, never recomputing it).
-      const wageDerivedPay = computeExpectedPay(
-        cleanerWageType,
-        cleanerWage,
-        cleanerOverrideHours,
-        booking.duration,
-        Number.isFinite(parsedAmount) ? parsedAmount : booking.total_amount,
-      );
+      const wageDerivedPay = cleanerWage
+        ? calculateEstimatedPay()
+        : computeExpectedPay(
+            cleanerWageType,
+            cleanerWage,
+            cleanerOverrideHours,
+            booking.duration,
+            Number.isFinite(parsedAmount) ? parsedAmount : booking.total_amount,
+          );
 
       const computedExpectedPay = wageDerivedPay != null
         ? wageDerivedPay
@@ -730,6 +747,7 @@ export function AdjustPaymentDialog({
 }) {
   const updateBooking = useUpdateBooking();
   const { organizationId } = useOrgId();
+  const { caps: hourCaps } = useHourCaps(organizationId);
 
   // Single cleaner payment (used when no team assignments)
   const [singlePayment, setSinglePayment] = useState<string>("");
@@ -801,13 +819,19 @@ export function AdjustPaymentDialog({
   const isTeamBooking = teamMembers.length >= 2;
 
   const calculateEstimatedPay = () => {
-    const wage = bookingAny?.cleaner_wage;
-    if (!wage) return null;
-    const wageType = bookingAny?.cleaner_wage_type || 'hourly';
-    if (wageType === 'flat') return wage;
-    if (wageType === 'percentage') return (booking.total_amount * wage) / 100;
-    const hours = bookingAny?.cleaner_override_hours || (booking.duration / 60);
-    return wage * hours;
+    const result = resolveCleanerPay(
+      booking as unknown as WageBooking,
+      {
+        hourly_rate: booking.staff?.hourly_rate ?? null,
+        base_wage: null,
+        default_hours: null,
+      },
+      null,
+      1,
+      hourCaps,
+    );
+    if (result.wageRate === 0 && result.calculatedPay === 0) return null;
+    return result.calculatedPay;
   };
 
   const estimatedPay = calculateEstimatedPay();

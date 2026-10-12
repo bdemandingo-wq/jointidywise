@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { resolveCleanerPay } from '@/lib/wageCalculation';
+import { useHourCaps } from '@/hooks/useHourCaps';
 import { extrasToLabels } from '@/lib/bookingExtras';
 import { useOrgExtrasCatalogue } from '@/hooks/useOrgExtrasCatalogue';
 import { combinedPhase } from '@/lib/queryState';
@@ -122,6 +123,20 @@ export default function StaffJobDetailPage() {
     },
   });
 
+  const { caps: hourCaps } = useHourCaps(staffRow?.organization_id);
+  const teamCountQ = useQuery({
+    queryKey: ['staff-job-team-count', id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('booking_team_assignments')
+        .select('id', { count: 'exact', head: true })
+        .eq('booking_id', id!);
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
+
   const { timezone: orgTz } = useOrgTimezone(staffRow?.organization_id ?? null);
   /* extras are slugs; labels are per-org. Same resolver MyJobCard uses. */
   const { data: orgExtras = [] } = useOrgExtrasCatalogue(staffRow?.organization_id ?? null);
@@ -129,14 +144,15 @@ export default function StaffJobDetailPage() {
      cannot promise money payroll would not pay. Team share is priority 1. */
   const pay = useMemo(() => {
     if (!job || !profileQ.data) return null;
-    return resolveCleanerPay(job as never, profileQ.data as never, teamQ.data?.pay_share ?? null);
-  }, [job, profileQ.data, teamQ.data]);
+    const teamSize = (teamCountQ.data ?? 0) > 1 ? teamCountQ.data! : 1;
+    return resolveCleanerPay(job as never, profileQ.data as never, teamQ.data?.pay_share ?? null, teamSize, hourCaps);
+  }, [job, profileQ.data, teamQ.data, teamCountQ.data, hourCaps]);
 
   /* phase() before any "no data" branch. A PAUSED query — React Query's
      offline state — has no error and isLoading false, so the old chain fell
      through to `!rows?.length` and told a real cleaner "No staff record".
      Offline has to be ruled out before absence can mean anything. */
-  const phase = combinedPhase([rowsQ, jobQ, teamQ, profileQ]);
+  const phase = combinedPhase([rowsQ, jobQ, teamQ, teamCountQ, profileQ]);
 
   const mode: JobDetailMode =
     phase === 'error'
@@ -167,6 +183,7 @@ export default function StaffJobDetailPage() {
         rowsQ.refetch();
         jobQ.refetch();
         teamQ.refetch();
+        teamCountQ.refetch();
         profileQ.refetch();
       }}
     />

@@ -13,6 +13,7 @@
 
 import { useAuth } from './useAuth';
 import { usePlanState } from './usePlanFeature';
+import { hasPaidDashboardAccess } from '@/lib/dashboardAccess';
 
 const FREE_ACCOUNTS = [
   'support@tidywisecleaning.com',
@@ -52,19 +53,23 @@ export interface SubscriptionAccess {
 }
 
 export function useSubscription(): SubscriptionAccess {
-  const { user, subscription, loading } = useAuth();
+  const { user, subscription, subscriptionCheck, loading } = useAuth();
   const planState = usePlanState();
 
   const isFreeAccount = isDemoAccount(user?.email ?? '');
   const isSubscribed = subscription?.subscribed === true;
   const isTrialActive = subscription?.trial_active === true;
 
-  // Access is granted when:
-  //   • the user is on an allowlisted demo / Apple-review account, OR
-  //   • check-subscription returned subscribed=true (active Stripe sub,
-  //     lifetime purchase, active trial, or comped access).
-  // Native no longer bypasses — trial users hit a wall at day 14.
-  const hasFullAccess = isFreeAccount || isSubscribed;
+  // Access is granted when check-subscription says the account is
+  // subscribed or on an active trial. That includes Stripe trialing, the
+  // card-free org trial (product_id org_trial), the older 60-day org trial,
+  // lifetime, and comped access. subscribed=false with no trial is the
+  // only block: no plan, expired trial, or a failed payment.
+  const hasFullAccess = hasPaidDashboardAccess({
+    isFreeAccount,
+    subscribed: isSubscribed,
+    trialActive: isTrialActive,
+  });
 
   // Tier-aware Pro-feature gate. Even during the 14-day trial, the
   // user only gets access to the FEATURES of the plan they selected.
@@ -91,7 +96,9 @@ export function useSubscription(): SubscriptionAccess {
     isLoading:
       loading ||
       planState.loading ||
-      (!!user && subscription === null && !isFreeAccount),
+      (!!user &&
+        !isFreeAccount &&
+        (subscriptionCheck === 'idle' || subscriptionCheck === 'loading')),
 
     canAccessCampaigns: proOrAbove,
     canAccessOpenPhone: proOrAbove,

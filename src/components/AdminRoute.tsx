@@ -47,9 +47,9 @@ function getRecentInviteJoinAttempt(): { attempt_id?: string } | null {
  * the admin dashboard even if they have valid authentication.
  */
 export function AdminRoute({ children }: AdminRouteProps) {
-  const { user, loading: authLoading, subscription } = useAuth();
+  const { user, loading: authLoading, subscription, subscriptionCheck, checkSubscription, signOut } = useAuth();
   const { organization, membership, loading: orgLoading, resolution: orgResolution, switching, isAdmin, allOrganizations, switchOrganization, refetch } = useOrganization();
-  const { hasFullAccess, isLoading: subLoading } = useSubscription();
+  const { hasFullAccess } = useSubscription();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -110,11 +110,14 @@ export function AdminRoute({ children }: AdminRouteProps) {
     } catch { return false; }
   })();
 
+  // Only a finished check can open the paywall. While the check is in
+  // flight, or after it failed, the dashboard is not rendered (see below).
+  // Treating "not loaded" as access is how /dashboard skipped payment.
   const needsPaywallRedirect =
+    subscriptionCheck === 'ready' &&
     !!user &&
     !!organization &&
     isAdmin &&
-    !subLoading &&
     !hasFullAccess &&
     !inPostCheckoutGrace &&
     !PAYWALL_ALLOWED_PATHS.some(
@@ -234,6 +237,50 @@ export function AdminRoute({ children }: AdminRouteProps) {
   // Only allow if user is explicitly admin or owner
   if (!isAdmin) {
     return <Navigate to="/" replace />;
+  }
+
+  // Billing unknown: do not mount the product. A check that never returns
+  // used to fall through to {children}. The subscription page stays
+  // reachable so a failed check cannot trap someone who is trying to pay.
+  const onPaywallAllowedPath = PAYWALL_ALLOWED_PATHS.some(
+    (allowed) => location.pathname === allowed || location.pathname.startsWith(allowed + '/')
+  );
+
+  if (!onPaywallAllowedPath && (subscriptionCheck === 'idle' || subscriptionCheck === 'loading')) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!onPaywallAllowedPath && subscriptionCheck === 'error') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-6">
+        <div className="max-w-md space-y-3 rounded-lg border bg-card p-6 shadow-sm">
+          <h1 className="text-lg font-semibold text-card-foreground">We couldn't verify your subscription</h1>
+          <p className="text-sm text-muted-foreground">
+            The dashboard stays locked until billing can be confirmed. Retry, or sign out and back in.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground"
+              onClick={() => void checkSubscription()}
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              className="inline-flex h-10 items-center justify-center rounded-md border px-4 text-sm font-medium"
+              onClick={() => void signOut()}
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (needsPaywallRedirect) {

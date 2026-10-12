@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit } from "../_shared/audit-log.ts";
+import { verifyAdminAuth } from "../_shared/verify-admin-auth.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -36,6 +37,20 @@ const handler = async (req: Request): Promise<Response> => {
       return new Response(
         JSON.stringify({ success: false, error: "Missing bookingId, organizationId, or valid amount" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // AUTH: owner/admin/manager of this org. The caller picks the dollar
+    // amount, so an anon key must not be enough to text a payment link.
+    const authResult = await verifyAdminAuth(req.headers.get("Authorization"), {
+      requireAdmin: true,
+      requireOrganizationId: organizationId,
+    });
+    if (!authResult.success) {
+      const denied = /access denied/i.test(authResult.error || "");
+      return new Response(
+        JSON.stringify({ success: false, error: authResult.error || "Unauthorized" }),
+        { status: denied ? 403 : 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 

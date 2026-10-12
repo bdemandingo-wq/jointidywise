@@ -29,10 +29,21 @@ const makeStaff = (overrides: Partial<WageStaff> = {}): WageStaff => ({
 });
 
 describe('getActualHours', () => {
-  it('uses check-in/out timestamps when available', () => {
+  it('floors a long clock at the booking and caps it at the overage multiplier', () => {
     const booking = makeBooking({
       cleaner_checkin_at: '2026-02-10T09:00:00Z',
       cleaner_checkout_at: '2026-02-10T12:30:00Z',
+      duration: 120,
+    });
+    // 3.5h clock, 2h booked, default cap 1.25 → 2.5h
+    expect(getActualHours(booking)).toBeCloseTo(2.5);
+  });
+
+  it('uses the raw clock when the booking has no duration', () => {
+    const booking = makeBooking({
+      cleaner_checkin_at: '2026-02-10T09:00:00Z',
+      cleaner_checkout_at: '2026-02-10T12:30:00Z',
+      duration: 0,
     });
     expect(getActualHours(booking)).toBeCloseTo(3.5);
   });
@@ -42,8 +53,14 @@ describe('getActualHours', () => {
     expect(getActualHours(booking)).toBe(4);
   });
 
-  it('falls back to staff default_hours', () => {
-    const booking = makeBooking();
+  it('uses booking duration before the staff profile default of 5h', () => {
+    const booking = makeBooking({ duration: 120 });
+    const staff = makeStaff({ default_hours: 5 });
+    expect(getActualHours(booking, staff)).toBe(2);
+  });
+
+  it('falls back to staff default_hours when the booking has no duration', () => {
+    const booking = makeBooking({ duration: 0 });
     const staff = makeStaff({ default_hours: 6 });
     expect(getActualHours(booking, staff)).toBe(6);
   });
@@ -53,7 +70,7 @@ describe('getActualHours', () => {
     expect(getActualHours(booking)).toBe(3);
   });
 
-  it('priority: timestamps > override > default > duration', () => {
+  it('a short clock is floored at the booked length, not the override', () => {
     const booking = makeBooking({
       cleaner_checkin_at: '2026-02-10T08:00:00Z',
       cleaner_checkout_at: '2026-02-10T09:30:00Z',
@@ -61,8 +78,17 @@ describe('getActualHours', () => {
       duration: 240,
     });
     const staff = makeStaff({ default_hours: 8 });
-    // Timestamps win → 1.5h
-    expect(getActualHours(booking, staff)).toBeCloseTo(1.5);
+    // 1.5h clock on a 4h booking → 4h. Cap would allow 5h, but the clock is under the floor.
+    expect(getActualHours(booking, staff)).toBeCloseTo(4);
+  });
+
+  it('an 18-second clock on a 120-minute booking pays 2.0h', () => {
+    const booking = makeBooking({
+      cleaner_checkin_at: '2026-02-10T08:00:00Z',
+      cleaner_checkout_at: '2026-02-10T08:00:18Z',
+      duration: 120,
+    });
+    expect(getActualHours(booking)).toBeCloseTo(2);
   });
 });
 
@@ -82,19 +108,32 @@ describe('calculateBookingWage', () => {
     expect(result.wageType).toBe('actual');
   });
 
-  it('uses cleaner_pay_expected as single source of truth', () => {
-    const booking = makeBooking({ cleaner_pay_expected: 150, cleaner_wage: 30, cleaner_wage_type: 'hourly' });
+  it('recomputes hourly pay instead of trusting a stale snapshot', () => {
+    const booking = makeBooking({ cleaner_pay_expected: 0.05, cleaner_wage: 25, cleaner_wage_type: 'hourly', duration: 120 });
     const result = calculateBookingWage(booking, makeStaff());
-    expect(result.calculatedPay).toBe(150);
-    expect(result.wageType).toBe('hourly');
-    expect(result.wageRate).toBe(30);
+    expect(result.calculatedPay).toBe(50);
+    expect(result.hoursWorked).toBeCloseTo(2);
+    expect(result.wageRate).toBe(25);
     expect(result.isMissingPay).toBe(false);
   });
 
-  it('flags missing pay when no snapshot exists', () => {
+  it('keeps a locked hourly snapshot', () => {
+    const booking = makeBooking({
+      cleaner_pay_expected: 150,
+      cleaner_wage: 30,
+      cleaner_wage_type: 'hourly',
+      pay_locked: true,
+    });
+    const result = calculateBookingWage(booking, makeStaff());
+    expect(result.calculatedPay).toBe(150);
+    expect(result.wageRate).toBe(30);
+  });
+
+  it('does not flag missing pay when the staff hourly rate can price the job', () => {
     const booking = makeBooking({ cleaner_wage: null, cleaner_pay_expected: null });
     const result = calculateBookingWage(booking, makeStaff());
-    expect(result.isMissingPay).toBe(true);
+    expect(result.calculatedPay).toBe(50);
+    expect(result.isMissingPay).toBe(false);
   });
 
   it('calculates hourly pay from timestamps', () => {
@@ -209,10 +248,11 @@ describe('calculateBookingWage', () => {
       expect(getActualHours(booking, staff)).toBe(0);
     });
 
-    it('prefers base_wage over hourly_rate as the fallback rate', () => {
+    it('prefers hourly_rate over base_wage as the staff rate', () => {
       const booking = makeBooking({ duration: 120 });
       const staff = makeStaff({ base_wage: 30, hourly_rate: 25 });
-      expect(calculateBookingWage(booking, staff).calculatedPay).toBe(60); // 2h × $30
+      expect(calculateBookingWage(booking, staff).calculatedPay).toBe(50); // 2h × $25
+      expect(calculateBookingWage(booking, staff).wageRate).toBe(25);
     });
 
     it('ignores staff.percentage_rate, because the engine does', () => {
@@ -248,11 +288,43 @@ describe('resolveCleanerPay', () => {
     expect(resolveCleanerPay(booking, makeStaff(), null).calculatedPay).toBe(120);
   });
 
-  it('prefers cleaner_pay_expected over cleaner_actual_payment', () => {
+  it('lets an explicit actual payment beat a stale hourly snapshot', () => {
     const booking = makeBooking({ cleaner_pay_expected: 120, cleaner_actual_payment: 200 });
     const result = resolveCleanerPay(booking, makeStaff());
-    expect(result.calculatedPay).toBe(120);
-    expect(result.source).toBe('pay_expected');
+    expect(result.calculatedPay).toBe(200);
+    expect(result.source).toBe('actual_payment');
+  });
+
+  it('a solo hourly pay_share does not freeze the old snapshot', () => {
+    const booking = makeBooking({
+      cleaner_pay_expected: 0.05,
+      cleaner_wage: null,
+      cleaner_wage_type: 'hourly',
+      duration: 120,
+      cleaner_checkin_at: '2026-02-10T08:00:00.000Z',
+      cleaner_checkout_at: '2026-02-10T08:00:18.000Z',
+    });
+    const staff = makeStaff({ hourly_rate: 25, base_wage: 20 });
+    const result = resolveCleanerPay(booking, staff, 0.05, 1);
+    expect(result.wageRate).toBe(25);
+    expect(result.hoursWorked).toBeCloseTo(2);
+    expect(result.calculatedPay).toBe(50);
+    expect(result.source).toBe('computed');
+  });
+
+  it('a 3.6h clock on a 2h booking pays 2.5h at the staff rate', () => {
+    const booking = makeBooking({
+      cleaner_pay_expected: 50,
+      cleaner_wage_type: 'hourly',
+      duration: 120,
+      cleaner_checkin_at: '2026-02-10T08:00:00.000Z',
+      cleaner_checkout_at: '2026-02-10T11:36:00.000Z',
+    });
+    const staff = makeStaff({ hourly_rate: 25, base_wage: 20 });
+    const result = resolveCleanerPay(booking, staff, 50, 1);
+    expect(result.hoursWorked).toBeCloseTo(2.5);
+    expect(result.calculatedPay).toBe(62.5);
+    expect(result.wageRate).toBe(25);
   });
 
   it('respects an actual_payment of $0 and reports it as exact', () => {

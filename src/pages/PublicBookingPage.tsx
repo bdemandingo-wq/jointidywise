@@ -1525,6 +1525,7 @@ export default function PublicBookingPage() {
                         <AddressAutocomplete
                           id="address"
                           required
+                          bookingOrgSlug={orgSlug}
                           value={customerInfo.address}
                           onChange={(v) => setCustomerInfo({ ...customerInfo, address: v, latitude: null, longitude: null })}
                           onResolved={(r) => setCustomerInfo((prev) => ({
