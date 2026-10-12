@@ -228,6 +228,16 @@ verify_jwt = true
   [functions.send-onboarding-winback]
     verify_jwt = false
 
+  [functions.send-winback-campaign]
+    # Cron presents x-internal-secret, not a user JWT. The function also
+    # accepts a platform-admin JWT and rejects everyone else.
+    verify_jwt = false
+
+  [functions.handle-email-unsubscribe]
+    # The link in the mail body and List-Unsubscribe-Post both arrive with
+    # no JWT. The unguessable token is the authorization.
+    verify_jwt = false
+
   # Public checkout endpoints — anonymous /pricing visitors hit these.
   # The functions still detect a Bearer token if present (in-app
   # upgrade) and run the grandfathered-lifetime guard for those.
