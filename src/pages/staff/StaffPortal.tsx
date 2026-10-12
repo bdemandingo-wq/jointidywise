@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { mustAffectRows } from '@/lib/mustAffectRows';
+import { describeJobComplete, type JobNotifyResult } from '@/lib/jobNotifyResult';
 import type { WageBooking } from '@/lib/wageCalculation';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -665,11 +666,10 @@ export default function StaffPortal() {
 
   // ── Photo stage nudge ────────────────────────────────────────────────────
   // Fires AFTER completion, never before. The completion write (checkout,
-  // actual_hours_worked, hours_basis, cleaner_pay_expected, hours_capped_at)
-  // all happens inside mutationFn and is awaited, so onSuccess only runs once
-  // it has landed. That ordering is deliberate: a prompt that gated the write
-  // would lose the hours if the cleaner dismissed the app mid-prompt. This is
-  // a correction, structurally incapable of delaying or partially applying it.
+  // actual hours, and cleaner_pay_expected) happens inside complete_assigned_booking
+  // and is awaited, so onSuccess only runs once it has landed. That ordering is
+  // deliberate: a prompt that gated the write would lose the hours if the
+  // cleaner dismissed the app mid-prompt.
   const [photoNudge, setPhotoNudge] = useState<{
     bookingId: string;
     photos: { id: string; created_at: string | null }[];
@@ -747,151 +747,55 @@ export default function StaffPortal() {
   const updateStatus = useMutation({
     mutationFn: async ({ bookingId, status }: { bookingId: string; status: 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'no_show' }) => {
       const now = new Date().toISOString();
-      
-      // Build the update object based on status
-      let updateData: Record<string, unknown> = { status };
-      
-      // TIMESHEET: When starting a job, record check-in time
-      if (status === 'in_progress') {
-        updateData.cleaner_checkin_at = now;
-      }
-      
-      // TIMESHEET: When completing a job, record check-out time and calculate pay
+
+      // Completion goes through complete_assigned_booking. Writing
+      // cleaner_pay_expected from the client is what the financial guard
+      // rejects with "Only owners, managers or admins can change payment or
+      // pay fields", and that rejection rolled back status = completed too.
+      // The RPC checks the caller is assigned to this booking and computes
+      // hourly pay from the clock, or from the booking's duration when there
+      // is no clock — never the staff profile's 5h default.
       if (status === 'completed') {
-        updateData.cleaner_checkout_at = now;
-        
-        // Get booking details to calculate actual payment
-        const { data: bookingData } = await supabase
-          .from('bookings')
-          .select(`
-            id, organization_id, cleaner_checkin_at, cleaner_wage, cleaner_wage_type, 
-            total_amount, duration, staff_id, service_id,
-            customer:customers(id, email, first_name, last_name),
-            service:services(name, duration)
-          `)
-          .eq('id', bookingId)
-          .single();
-
-        // Wage rates for this staff member fetched via a security-definer RPC
-        // so non-admin members can't read peers' pay through a join.
-        const { data: wageRow } = await (supabase as any)
-          .rpc('get_my_wage_rates_for_booking', { _booking_id: bookingId })
-          .maybeSingle();
-
-        if (bookingData) {
-          // ── Hours, not a pay decision ────────────────────────────────────
-          // This used to compute a payment and write cleaner_actual_payment,
-          // which cleaner_pay_expected shadows at priority 1 in BOTH engines
-          // (wageCalculation.ts and payroll-period-process.ts). That write
-          // never reached a payout — the app told the cleaner one number and
-          // payroll paid another. It now persists hours and reconciles
-          // cleaner_pay_expected, which payroll actually reads.
-          const scheduledHours = Number(bookingData.duration || 0) / 60;
-
-          // bookings.duration is BookingStepper's `selectedService?.duration
-          // || 60`. Both duration columns are NOT NULL, so that default only
-          // fires when there is no service (re-cleans write service_id: null)
-          // or the service's duration is 0. In those cases no overage ratio
-          // against scheduled means anything — a real 3h re-clean would read
-          // as 200% over.
-          const svc = bookingData.service as { duration?: number | null } | null;
-          const durationIsTrustworthy =
-            !!bookingData.service_id && Number(svc?.duration ?? 0) > 0;
-
-          let actualHours: number | null = null;
-          let hoursBasis: 'clock' | 'unknown' | 'absent' = 'absent';
-
-          if (bookingData.cleaner_checkin_at) {
-            const checkinTime = new Date(bookingData.cleaner_checkin_at).getTime();
-            const checkoutTime = new Date(now).getTime();
-            // Same guard as wageCalculation.ts:89 — reject unparseable dates
-            // and reversed pairs. Without it a check-in that was never closed
-            // out computes as days and pays them.
-            if (
-              Number.isFinite(checkinTime) &&
-              Number.isFinite(checkoutTime) &&
-              checkoutTime > checkinTime
-            ) {
-              actualHours = (checkoutTime - checkinTime) / (1000 * 60 * 60);
-              hoursBasis = durationIsTrustworthy ? 'clock' : 'unknown';
-            } else {
-              console.warn(
-                `[StaffPortal] Invalid check-in/out pair for booking ${bookingId} ` +
-                `(checkin=${bookingData.cleaner_checkin_at}). Falling back to scheduled hours.`
-              );
-            }
-          }
-
-          updateData.actual_hours_worked = actualHours;
-          updateData.hours_basis = hoursBasis;
-
-          // ── Reconcile pay — hourly only ──────────────────────────────────
-          // Percentage and flat do not vary with hours by design, so capping
-          // them by hours would be wrong. An absent wage type counts as
-          // hourly, matching getActualHours.
-          // Payroll settings are per-organisation; a booking with none cannot
-          // resolve them. Falls through to the defaults below, which is what
-          // .eq(col, null) produced anyway — now it says so.
-          const bookingOrgId = bookingData.organization_id ?? '';
-          const wageType = (bookingData.cleaner_wage_type || 'hourly').toLowerCase();
-          const staff = wageRow as { hourly_rate: number | null; percentage_rate: number | null; base_wage: number | null } | null;
-          const hourlyRate = Number(
-            bookingData.cleaner_wage ?? staff?.base_wage ?? staff?.hourly_rate ?? 0
-          );
-
-          if (actualHours !== null && wageType === 'hourly' && hourlyRate > 0) {
-            // Thresholds are operator-tunable. Defaults match the migration so
-            // this still behaves correctly if it ships before the columns do.
-            const { data: payrollSettings } = await supabase
-              .from('payroll_settings')
-              .select('hours_overage_cap_ratio, hours_absolute_ceiling')
-              .eq('organization_id', bookingOrgId)
-              .maybeSingle();
-            const capRatio = Number((payrollSettings as any)?.hours_overage_cap_ratio ?? 1.25);
-            const ceiling = Number((payrollSettings as any)?.hours_absolute_ceiling ?? 12);
-
-            // The ceiling applies even inside the 'clock' branch: scheduled x
-            // 1.25 on a 10h job would otherwise allow 12.5h. It is the safety
-            // net against clock data that is wrong rather than long.
-            const payableHours = hoursBasis === 'clock'
-              ? Math.min(actualHours, scheduledHours * capRatio, ceiling)
-              : Math.min(actualHours, ceiling);
-
-            updateData.cleaner_pay_expected = Math.round(hourlyRate * payableHours * 100) / 100;
-            updateData.hours_capped_at =
-              payableHours < actualHours ? Math.round(payableHours * 1000) / 1000 : null;
-          }
+        const { error: completeErr } = await (supabase as any).rpc('complete_assigned_booking', {
+          p_booking_id: bookingId,
+        });
+        if (completeErr) throw completeErr;
+      } else {
+        const updateData: Record<string, unknown> = { status };
+        // TIMESHEET: When starting a job, record check-in time
+        if (status === 'in_progress') {
+          updateData.cleaner_checkin_at = now;
         }
+        await mustAffectRows(
+          supabase
+            .from('bookings')
+            .update(updateData)
+            .eq('id', bookingId),
+          'Job status could not be saved. Pull to refresh and try again. Do not assume the job was marked complete.',
+          { table: 'bookings' },
+        );
       }
-      
-      // This is a cleaner marking a job complete — it carries cleaner_pay_expected
-      // and drives payroll. Staff RLS on bookings is narrower than admin RLS, so a
-      // filtered-out write here is a realistic outcome and must not read as done.
-      await mustAffectRows(
-        supabase
-          .from('bookings')
-          .update(updateData)
-          .eq('id', bookingId),
-        'Job status could not be saved. Pull to refresh and try again. Do not assume the job was marked complete.',
-        { table: 'bookings' },
-      );
 
 
       // Auto-send review request when job is completed
+      let officeNotice: string | null = null;
       if (status === 'completed') {
-        /* One call now does both the admin bell entry AND the text to the
-           owner's personal cell. It used to be an inline insert here with no
-           text at all, which is why completions never reached anyone's phone.
+        /* One call does the admin bell, the push to owner/admin devices, and
+           the text to the owner's personal cell when SMS is configured.
            Best-effort: a messaging problem must never make the cleaner think
-           the job failed to save. */
+           the job failed to save. The toast quotes what actually went out. */
         try {
           if (staffInfo?.id) {
-            await supabase.functions.invoke('send-job-complete-sms', {
+            const notify = await supabase.functions.invoke('send-job-complete-sms', {
               body: { bookingId, staffId: staffInfo.id },
             });
+            officeNotice = notify.error
+              ? 'Job completed. The office notification failed.'
+              : describeJobComplete(notify.data as JobNotifyResult | null);
           }
         } catch (notifyErr) {
           console.warn('Admin completion notification failed:', notifyErr);
+          officeNotice = 'Job completed. The office notification failed.';
         }
 
 
@@ -923,7 +827,7 @@ export default function StaffPortal() {
             if (reviewResult.error) {
               console.error('Review request failed:', reviewResult.error);
               toast.error('Job completed, but review request failed to send');
-              return { status, reviewSent: false };
+              return { status, reviewSent: false, officeNotice };
             }
           } else {
             console.warn('Missing customer email or organization ID for review request');
@@ -931,19 +835,20 @@ export default function StaffPortal() {
         } catch (reviewError) {
           console.error('Failed to send review request:', reviewError);
           toast.error('Job completed, but review request failed');
-          return { status, reviewSent: false };
+          return { status, reviewSent: false, officeNotice };
         }
       }
 
-      return { status, reviewSent: status === 'completed' };
+      return { status, reviewSent: status === 'completed', officeNotice };
     },
     onSuccess: (result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['staff-bookings'] });
+      const completedBase = result.officeNotice || 'Job completed!';
       const statusMessages: Record<string, string> = {
         in_progress: 'Job started! Clock-in time recorded.',
-        completed: result.reviewSent !== false 
-          ? 'Job completed! Review request sent to customer.' 
-          : 'Job completed!',
+        completed: result.reviewSent !== false
+          ? `${completedBase} Review request sent to customer.`
+          : completedBase,
       };
       toast.success(statusMessages[variables.status] || 'Status updated');
       if (variables.status === 'completed') {
@@ -951,7 +856,10 @@ export default function StaffPortal() {
       }
     },
     onError: (error) => {
-      toast.error('Failed to update status');
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'Failed to update status';
+      toast.error(message);
       console.error(error);
     },
   });

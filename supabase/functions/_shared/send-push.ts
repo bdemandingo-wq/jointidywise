@@ -1,28 +1,41 @@
 /**
- * Shared helper — fire-and-forget push notification to all admin devices for an org.
- * Call this from any edge function after the main work is done.
+ * Fire-and-forget push to devices in an org.
+ *
+ * audience "operators" goes to owner/admin/manager devices only. That is
+ * what cleaner-initiated job events use: the push function itself rejects
+ * a cleaner's JWT, so this helper calls it with the service role key.
+ * audience "org" is the previous broadcast (every registered device).
  */
 export async function sendPushToOrg(
   organizationId: string,
   title: string,
   body: string,
-  data?: Record<string, string>
-): Promise<void> {
+  data?: Record<string, string>,
+  opts?: { audience?: "org" | "operators" },
+): Promise<{ sent: number }> {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (!supabaseUrl || !serviceKey) return;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceKey) return { sent: 0 };
 
-    await fetch(`${supabaseUrl}/functions/v1/send-push-notification`, {
+    const res = await fetch(`${supabaseUrl}/functions/v1/send-push-notification`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${serviceKey}`,
       },
-      body: JSON.stringify({ organization_id: organizationId, title, body, data }),
+      body: JSON.stringify({
+        organization_id: organizationId,
+        title,
+        body,
+        data,
+        audience: opts?.audience ?? "org",
+      }),
     });
+    const json = await res.json().catch(() => ({}));
+    return { sent: Number((json as { sent?: number }).sent ?? 0) };
   } catch (err) {
-    // Non-critical — never let push failure break the main flow
     console.error("[send-push] helper error:", err);
+    return { sent: 0 };
   }
 }

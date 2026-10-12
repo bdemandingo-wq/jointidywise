@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { parseAlertPhones } from '../_shared/alertPhones.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
+import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
+import { notifyOffice } from "../_shared/office-notify.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -28,24 +30,6 @@ const handler = async (req: Request): Promise<Response> => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Dedupe per staff per booking
-    const reminderType = `arrived:${staffId}`;
-    const { data: existingLog, error: existingLogErr } = await supabase
-      .from('booking_reminder_log')
-      .select('id')
-      .eq('booking_id', bookingId)
-      .eq('reminder_type', reminderType)
-      .limit(1);
-    if (existingLogErr) {
-      console.error(`[send-arrival-sms] dedupe check failed for booking ${bookingId}, refusing to send to avoid a possible duplicate:`, existingLogErr);
-      return new Response(JSON.stringify({ success: false, error: "Could not verify send status, please retry" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    if (existingLog && existingLog.length > 0) {
-      return new Response(JSON.stringify({ success: true, deduplicated: true }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
     const { data: booking } = await supabase
       .from('bookings')
       .select('id, booking_number, organization_id, address, apt_suite, city, state, zip_code, customer:customers(first_name, last_name, phone)')
@@ -66,17 +50,59 @@ const handler = async (req: Request): Promise<Response> => {
         { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    const auth = await assertAssignedStaffEvent(req, supabase, booking.organization_id, staffId, bookingId);
+    if (!auth.ok) {
+      return new Response(JSON.stringify({ success: false, error: auth.error }),
+        { status: auth.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // Dedupe per staff per booking, after auth so a stranger cannot probe it.
+    const reminderType = `arrived:${staffId}`;
+    const { data: existingLog, error: existingLogErr } = await supabase
+      .from('booking_reminder_log')
+      .select('id')
+      .eq('booking_id', bookingId)
+      .eq('reminder_type', reminderType)
+      .limit(1);
+    if (existingLogErr) {
+      console.error(`[send-arrival-sms] dedupe check failed for booking ${bookingId}, refusing to send to avoid a possible duplicate:`, existingLogErr);
+      return new Response(JSON.stringify({ success: false, error: "Could not verify send status, please retry" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (existingLog && existingLog.length > 0) {
+      return new Response(JSON.stringify({
+        success: true,
+        deduplicated: true,
+        message: "Arrival already recorded.",
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const customerName = `${customer?.first_name ?? ''} ${customer?.last_name ?? ''}`.trim() || 'the customer';
+    const office = await notifyOffice(supabase, {
+      organizationId: booking.organization_id,
+      title: '📍 Cleaner arrived',
+      message: `${staff.name} has arrived at Booking #${booking.booking_number} for ${customerName}.`,
+      metadata: { booking_id: bookingId, staff_id: staffId },
+      pushTitle: `📍 ${staff.name} has arrived`,
+      pushBody: `Booking #${booking.booking_number}`,
+      pushData: { booking_id: bookingId, kind: 'arrived' },
+    });
+
     const { data: smsSettings } = await supabase
       .from('organization_sms_settings')
       .select('openphone_api_key, openphone_phone_number_id, sms_enabled, notify_admin_arrived, notify_client_arrived')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
 
+    let smsSkippedReason: string | null = null;
     if (!smsSettings?.sms_enabled || !smsSettings.openphone_api_key || !smsSettings.openphone_phone_number_id) {
-      return new Response(JSON.stringify({ success: false, error: "SMS not configured" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      smsSkippedReason = "SMS not configured";
     }
 
+    let clientSent = false;
+    let adminSent = false;
+
+    if (!smsSkippedReason && smsSettings) {
     const { data: businessSettings } = await supabase
       .from('business_settings')
       .select('company_name, company_phone, notification_phone')
@@ -118,13 +144,11 @@ const handler = async (req: Request): Promise<Response> => {
       return true;
     };
 
-    let clientSent = false;
     if (notifyClient && customer?.phone) {
       const msg = `✅ ${staff.name} from ${companyName} has arrived for your appointment!\n\nBooking #${booking.booking_number}`;
       clientSent = await sendSms(formatPhoneNumber(customer.phone), msg, 'customer');
     }
 
-    let adminSent = false;
     if (notifyAdmin && adminPhone) {
       const msg = `📍 ${staff.name} has arrived at Job #${booking.booking_number}\n\n` +
         `Customer: ${customer?.first_name ?? ''} ${customer?.last_name ?? ''}\n` +
@@ -134,20 +158,7 @@ const handler = async (req: Request): Promise<Response> => {
       adminSent = await sendSms(list[0], msg, 'admin');
       for (const extra of list.slice(1)) await sendSms(extra, msg, 'admin');
     }
-
-    /* Bell entry as well — the text can fail or be off, the dashboard record
-       should still be there. */
-    const { error: bellErr } = await supabase.from('admin_system_notifications').insert({
-      organization_id: booking.organization_id,
-      type: 'staff_activity',
-      title: '📍 Cleaner arrived',
-      message: `${staff.name} has arrived at Booking #${booking.booking_number} for ${customer?.first_name ?? 'the customer'} ${customer?.last_name ?? ''}`.trim() + '.',
-      link: '/dashboard/bookings',
-      metadata: { booking_id: bookingId, staff_id: staffId },
-    });
-    if (bellErr) console.warn('[send-arrival-sms] bell notification failed:', bellErr);
-
-
+    }
 
     const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
       booking_id: bookingId,
@@ -167,8 +178,18 @@ const handler = async (req: Request): Promise<Response> => {
       success: true,
     });
 
-    return new Response(JSON.stringify({ success: true, clientSent, adminSent }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({
+      success: true,
+      clientSent,
+      adminSent,
+      smsSkippedReason,
+      channels: {
+        customerSms: clientSent,
+        adminSms: adminSent,
+        bell: office.bell,
+        push: office.push,
+      },
+    }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[send-arrival-sms] Error:", msg);
