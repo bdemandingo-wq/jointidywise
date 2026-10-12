@@ -14,6 +14,7 @@ import {
 import { format } from "date-fns";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
+import { alertDialog, confirmDialog } from "@/components/AppDialogs";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { describeCampaignDispatch } from "@/components/admin/campaigns/campaignDispatch";
 import type { CampaignTrackingStat } from "@/hooks/useCampaigns";
@@ -131,10 +132,12 @@ export function CampaignList({
       ? `"${campaign.name}" has a ${run.status} send with ${remaining} recipient${remaining === 1 ? "" : "s"} still queued. Deleting would destroy that send.\n\nCancel the run first, then delete.`
       : `Delete "${campaign.name}"? This cannot be undone.`;
     if (live) {
-      window.alert(message);
+      void alertDialog(message, "Can't delete yet");
       return;
     }
-    if (window.confirm(message)) deleteCampaign.mutate(campaign.id);
+    void confirmDialog(message, "Delete campaign").then((ok) => {
+      if (ok) deleteCampaign.mutate(campaign.id);
+    });
   };
 
 

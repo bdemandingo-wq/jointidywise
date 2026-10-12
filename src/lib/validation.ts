@@ -244,6 +244,49 @@ export function getFieldError(errors: ValidationError[], field: string): string 
 }
 
 /**
+ * Sales tax percent entered in settings. Empty means 0 (tax off).
+ * Rejects values above 100 and anything that is not a 0–2 decimal number,
+ * so "7.5" can be typed and "150" cannot be saved.
+ */
+export function parseSalesTaxPercent(
+  raw: string,
+): { ok: true; value: number } | { ok: false; message: string } {
+  const trimmed = raw.trim();
+  if (trimmed === '') return { ok: true, value: 0 };
+  if (!/^\d+(\.\d{1,2})?$/.test(trimmed)) {
+    return {
+      ok: false,
+      message: 'Sales tax must be a number from 0 to 100 with at most 2 decimal places (for example 7.5).',
+    };
+  }
+  const value = Number(trimmed);
+  if (value > 100) {
+    return { ok: false, message: 'Sales tax cannot be more than 100%.' };
+  }
+  return { ok: true, value };
+}
+
+/** Optional US state. Blank is fine. A value must be a 2-letter code. */
+export function validateOptionalState(state: string): string | null {
+  const trimmed = state.trim();
+  if (!trimmed) return null;
+  if (!/^[A-Za-z]{2}$/.test(trimmed)) {
+    return 'State must be a 2-letter code (for example FL).';
+  }
+  return null;
+}
+
+/** Optional US ZIP. Blank is fine. Accepts 12345 and 12345-6789. */
+export function validateOptionalZip(zip: string): string | null {
+  const trimmed = zip.trim();
+  if (!trimmed) return null;
+  if (!/^\d{5}(-\d{4})?$/.test(trimmed)) {
+    return 'ZIP must be 5 digits or ZIP+4 (12345 or 12345-6789).';
+  }
+  return null;
+}
+
+/**
  * Check if form has any errors
  */
 export function hasErrors(result: ValidationResult): boolean {

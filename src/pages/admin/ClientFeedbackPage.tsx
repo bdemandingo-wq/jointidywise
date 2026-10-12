@@ -36,6 +36,7 @@ import { AttentionStrip } from '@/components/admin/AttentionStrip';
 import { orgDateKey } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { refreshBadges } from '@/lib/badgeRefresh';
+import { confirmDialog } from "@/components/AppDialogs";
 
 
 interface FeedbackEntry {
@@ -276,9 +277,9 @@ export default function ClientFeedbackPage() {
               onClick={() => {
                 const ids = filteredEntries.filter(e => !e.is_resolved).map(e => e.id);
                 if (ids.length === 0) return;
-                if (confirm(`Mark ${ids.length} unresolved item${ids.length === 1 ? '' : 's'} as resolved? Only do this if you have actually addressed them. This is not a "dismiss reminder" action.`)) {
-                  bulkResolveMutation.mutate(ids);
-                }
+                void confirmDialog(`Mark ${ids.length} unresolved item${ids.length === 1 ? '' : 's'} as resolved? Only do this if you have actually addressed them. This is not a "dismiss reminder" action.`).then((ok) => {
+                  if (ok) bulkResolveMutation.mutate(ids);
+                });
               }}
             >
               Mark all visible resolved
@@ -426,9 +427,9 @@ export default function ClientFeedbackPage() {
                           size="icon"
                           className="h-8 w-8 text-destructive"
                           onClick={() => {
-                            if (confirm('Delete this feedback?')) {
-                              deleteMutation.mutate(entry.id);
-                            }
+                            void confirmDialog('Delete this feedback?').then((ok) => {
+                              if (ok) deleteMutation.mutate(entry.id);
+                            });
                           }}
                         >
                           <Trash2 className="w-4 h-4" />

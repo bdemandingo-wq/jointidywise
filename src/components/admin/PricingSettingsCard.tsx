@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator';
 import { DollarSign, LayoutGrid, Save, Loader2 } from 'lucide-react';
 import { useOrganizationSettings } from '@/hooks/useOrganizationSettings';
 import { toast } from 'sonner';
+import { parseSalesTaxPercent } from '@/lib/validation';
 
 export function PricingSettingsCard() {
   const { settings, loading, saveSettings } = useOrganizationSettings();
@@ -23,10 +24,15 @@ export function PricingSettingsCard() {
   }, [settings]);
 
   const handleSave = async () => {
+    const tax = parseSalesTaxPercent(salesTax);
+    if (!tax.ok) {
+      toast.error(tax.message);
+      return;
+    }
     setSaving(true);
     const success = await saveSettings({
       show_sqft_on_booking: showSqft,
-      sales_tax_percent: parseFloat(salesTax) || 0,
+      sales_tax_percent: tax.value,
     });
     setSaving(false);
     

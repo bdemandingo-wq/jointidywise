@@ -36,6 +36,7 @@ import { useOrganization } from '@/contexts/OrganizationContext';
 import { SEOHead } from '@/components/SEOHead';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { orgStartOfWeek, orgEndOfWeek, orgStartOfMonth, orgEndOfMonth, orgDateKey, calendarDayKey } from '@/lib/orgDateRange';
+import { confirmDialog } from "@/components/AppDialogs";
 // Import functionality has been removed
 
 
@@ -480,9 +481,9 @@ export default function OperationsTrackerPage() {
                           size="icon"
                           className="h-8 w-8 text-destructive"
                           onClick={() => {
-                            if (confirm('Delete this entry?')) {
-                              deleteMutation.mutate(entry.id);
-                            }
+                            void confirmDialog('Delete this entry?').then((ok) => {
+                              if (ok) deleteMutation.mutate(entry.id);
+                            });
                           }}
                         >
                           <Trash2 className="w-4 h-4" />

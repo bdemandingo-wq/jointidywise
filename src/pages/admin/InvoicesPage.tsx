@@ -46,6 +46,7 @@ import { MarkPaidButton } from '@/components/admin/invoice/MarkPaidButton';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { fmt } from '@/lib/activeCurrency';
 import { mustAffectRows } from '@/lib/mustAffectRows';
+import { confirmDialog } from "@/components/AppDialogs";
 
 interface Invoice {
   id: string;
@@ -550,9 +551,9 @@ export default function InvoicesPage() {
                             )}
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => duplicateInvoice(invoice)} title="Duplicate invoice"><Copy className="w-4 h-4" /></Button>
                             {['draft', 'sent'].includes(invoice.status) && (
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { if (confirm('Cancel this invoice?')) cancelMutation.mutate(invoice.id); }} title="Cancel invoice"><X className="w-4 h-4" /></Button>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { void confirmDialog('Cancel this invoice?').then((ok) => { if (ok) cancelMutation.mutate(invoice.id); }); }} title="Cancel invoice"><X className="w-4 h-4" /></Button>
                             )}
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { if (confirm('Delete this invoice permanently?')) deleteMutation.mutate(invoice.id); }} title="Delete invoice"><Trash2 className="w-4 h-4" /></Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => { void confirmDialog('Delete this invoice permanently?').then((ok) => { if (ok) deleteMutation.mutate(invoice.id); }); }} title="Delete invoice"><Trash2 className="w-4 h-4" /></Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -615,9 +616,9 @@ export default function InvoicesPage() {
                       )}
                       <Button variant="outline" size="sm" onClick={() => duplicateInvoice(invoice)}><Copy className="w-4 h-4 mr-2" />Duplicate</Button>
                       {['draft', 'sent'].includes(invoice.status) && (
-                        <Button variant="outline" size="sm" onClick={() => { if (confirm('Cancel this invoice?')) cancelMutation.mutate(invoice.id); }}><X className="w-4 h-4 mr-2" />Cancel</Button>
+                        <Button variant="outline" size="sm" onClick={() => { void confirmDialog('Cancel this invoice?').then((ok) => { if (ok) cancelMutation.mutate(invoice.id); }); }}><X className="w-4 h-4 mr-2" />Cancel</Button>
                       )}
-                      <Button variant="outline" size="sm" onClick={() => { if (confirm('Delete this invoice permanently?')) deleteMutation.mutate(invoice.id); }}><Trash2 className="w-4 h-4 mr-2" />Delete</Button>
+                      <Button variant="outline" size="sm" onClick={() => { void confirmDialog('Delete this invoice permanently?').then((ok) => { if (ok) deleteMutation.mutate(invoice.id); }); }}><Trash2 className="w-4 h-4 mr-2" />Delete</Button>
                     </div>
                   </CardContent>
                 </Card>

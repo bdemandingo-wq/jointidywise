@@ -59,7 +59,7 @@ export function useOrgEmailHealth() {
         .gte('created_at', since)
         .order('created_at', { ascending: false })
         .limit(RECENT_LIMIT);
-      if (error) return [] as OrgEmailFailure[];
+      if (error) throw error;
       return (data ?? []) as OrgEmailFailure[];
     },
   });
@@ -77,5 +77,6 @@ export function useOrgEmailHealth() {
     // non-deliveries.
     hardFailures: recentFailures.filter(isHardFailure),
     isLoading: configuredQuery.isLoading || failuresQuery.isLoading,
+    isError: failuresQuery.isError,
   };
 }

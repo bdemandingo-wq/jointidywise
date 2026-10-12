@@ -1375,7 +1375,7 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
                   },
                 });
                 // Handle SMS-specific errors
-                if (!(await handleSmsError(response))) {
+                if (!(await handleSmsError(response, { afterBookingSave: true }))) {
                   toast.success('Confirmation text sent to customer');
                 }
               } catch (smsError: any) {

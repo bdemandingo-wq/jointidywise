@@ -13,8 +13,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   Clock, Star, RotateCcw, Repeat, UserX, Loader2,
-  ChevronDown, ChevronUp, Save, Phone, CreditCard,
-  PartyPopper, BarChart3, Trophy, Zap,
+  ChevronDown, ChevronUp, Save,
+  PartyPopper, BarChart3, Zap,
   MessageSquare, Plus, Trash2, Pencil, Wallet,
 } from 'lucide-react';
 import { AutomationEditorDialog } from './AutomationEditorDialog';
@@ -22,6 +22,7 @@ import { QueryError } from '@/components/QueryError';
 
 import { format } from 'date-fns';
 import { OrgTimestamp } from '@/components/OrgTimestamp';
+import { confirmDialog } from "@/components/AppDialogs";
 
 interface ReminderInterval {
   id?: string;
@@ -134,7 +135,7 @@ function AppointmentReminderSettings({ organizationId }: { organizationId: strin
 
   const deleteInterval = async (id?: string) => {
     if (!id) return;
-    if (!confirm('Delete this reminder interval?')) return;
+    if (!(await confirmDialog('Delete this reminder interval?'))) return;
     try {
       const { error } = await supabase
         .from('appointment_reminder_intervals')
@@ -364,30 +365,6 @@ const activeAutomationsMeta: Record<string, {
     color: 'text-orange-500',
   },
 };
-
-const availableAutomations = [
-  {
-    id: 'post_call_followup',
-    emoji: '📞',
-    icon: Phone,
-    name: 'Post-Call Follow Up',
-    description: 'Sends SMS after missed OpenPhone call',
-  },
-  {
-    id: 'card_expiry_alert',
-    emoji: '💳',
-    icon: CreditCard,
-    name: 'Card Expiry Alert',
-    description: 'Warns client when saved card is about to expire',
-  },
-  {
-    id: 'loyalty_milestone',
-    emoji: '🏆',
-    icon: Trophy,
-    name: 'Loyalty Milestone',
-    description: 'Triggers when client hits 5/10/20 bookings. Sends reward message.',
-  },
-];
 
 export function AutomationsTab() {
   const { organization } = useOrganization();
@@ -765,36 +742,6 @@ export function AutomationsTab() {
           </div>
         </div>
       )}
-
-      {/* AVAILABLE (not yet created) */}
-      <div className="space-y-4">
-        <h2 className="text-lg font-semibold text-muted-foreground">Available Automations</h2>
-        <p className="text-sm text-muted-foreground">Coming soon — these automations are not yet enabled for your account.</p>
-        <div className="grid gap-3 md:grid-cols-2">
-          {availableAutomations.map((auto) => {
-            const Icon = auto.icon;
-            return (
-              <Card key={auto.id} className="opacity-60">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl bg-muted text-muted-foreground flex-shrink-0">
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">{auto.emoji}</span>
-                        <h3 className="font-medium text-foreground">{auto.name}</h3>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">{auto.description}</p>
-                    </div>
-                    <Badge variant="outline" className="text-xs flex-shrink-0">Coming Soon</Badge>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
 
       {/* AUTOMATION HISTORY LOG */}
       <div className="space-y-4">

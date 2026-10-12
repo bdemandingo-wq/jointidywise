@@ -46,6 +46,7 @@ import { AISuggestReplyButton } from '@/components/admin/AISuggestReplyButton';
 import { AIInboxSummaryButton } from '@/components/admin/AIInboxSummaryButton';
 import { orgDateKey } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
+import { confirmDialog } from "@/components/AppDialogs";
 
 // ─── Types ──────────────────────────────────────────
 /*
@@ -646,7 +647,7 @@ export default function MessagesPage() {
   };
 
   const handleDeleteConversation = async (convId: string) => {
-    if (!confirm('Delete this conversation and all messages?')) return;
+    if (!(await confirmDialog('Delete this conversation and all messages?'))) return;
     await supabase.from('sms_messages').delete().eq('conversation_id', convId);
     const { error } = await supabase.from('sms_conversations').delete().eq('id', convId);
     if (error) { toast.error('Failed to delete conversation'); return; }

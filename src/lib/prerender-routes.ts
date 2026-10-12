@@ -30,10 +30,10 @@ import {
 } from "./routeMeta";
 import { locationData, type LocationData } from "../data/locationData";
 import { COMPETITORS, NICHES, TIDYWISE_FEATURE_MAP } from "../data/compareNicheData";
+import { SUPABASE_PUBLIC_ANON_KEY, SUPABASE_PUBLIC_URL } from "./supabasePublicEnv";
 
-const SUPABASE_URL = "https://slwfkaqczvwvvvavkgpr.supabase.co";
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNsd2ZrYXFjenZ3dnZ2YXZrZ3ByIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYwNjk4OTQsImV4cCI6MjA4MTY0NTg5NH0.M0OhzHsrqA0oYh6Ykx_4gVK_SrdSi1V_CiFxU-n4Lec";
+const SUPABASE_URL = SUPABASE_PUBLIC_URL;
+const SUPABASE_ANON_KEY = SUPABASE_PUBLIC_ANON_KEY;
 
 async function fetchScoreCompanies(): Promise<ScoreCompanyForMeta[]> {
   try {

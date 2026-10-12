@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { BlogStatusBadge } from "@/components/admin/blog/StatusBadge";
 import { cn } from "@/lib/utils";
 import { QueryError } from "@/components/QueryError";
+import { confirmDialog } from "@/components/AppDialogs";
 
 type Status = "draft" | "review" | "published" | "archived" | "all";
 
@@ -124,7 +125,7 @@ export default function BlogAdminListPage() {
     mutationFn: async () => {
       const ids = Array.from(selected);
       if (ids.length === 0) return;
-      if (!window.confirm(`Permanently delete ${ids.length} post(s)? This cannot be undone.`)) {
+      if (!(await confirmDialog(`Permanently delete ${ids.length} post(s)? This cannot be undone.`))) {
         throw new Error("Cancelled");
       }
       const { error } = await supabase.from("blog_posts").delete().in("id", ids);

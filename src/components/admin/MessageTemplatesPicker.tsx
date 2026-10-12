@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { FileText, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { confirmDialog } from "@/components/AppDialogs";
 
 interface SmsTemplate {
   id: string;
@@ -97,7 +98,7 @@ export function MessageTemplatesPicker({ organizationId, onSelect, showSubject =
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Delete this template?')) return;
+    if (!(await confirmDialog('Delete this template?'))) return;
     const { error } = await supabase.from('sms_templates').delete().eq('id', id);
     if (error) {
       toast.error('Failed to delete');

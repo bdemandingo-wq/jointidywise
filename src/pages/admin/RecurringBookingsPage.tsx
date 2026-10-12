@@ -42,6 +42,7 @@ import { orgStartOfDay, orgDayOfWeek, orgDateKey, orgYMD, orgAddDays, orgSetTime
 import { useCustomers, useServices, useStaff } from '@/hooks/useBookings';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { SEOHead } from '@/components/SEOHead';
+import { confirmDialog } from "@/components/AppDialogs";
 
 interface RecurringBooking {
   id: string;
@@ -833,9 +834,9 @@ export default function RecurringBookingsPage() {
                           size="icon"
                           className="h-8 w-8 text-destructive"
                           onClick={() => {
-                            if (confirm('Delete this recurring booking?')) {
-                              deleteMutation.mutate(booking.id);
-                            }
+                            void confirmDialog('Delete this recurring booking?').then((ok) => {
+                              if (ok) deleteMutation.mutate(booking.id);
+                            });
                           }}
                         >
                           <Trash2 className="w-4 h-4" />

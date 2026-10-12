@@ -26,6 +26,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { confirmDialog } from "@/components/AppDialogs";
 
 interface Lead {
   id: string;
@@ -421,7 +422,7 @@ function LeadCard({
                 <DropdownMenuItem
                   className="gap-2 text-destructive"
                   onClick={() => {
-                    if (confirm('Delete this lead?')) onDelete(lead.id);
+                    void confirmDialog('Delete this lead?').then((ok) => { if (ok) onDelete(lead.id); });
                   }}
                 >
                   <Trash2 className="w-3.5 h-3.5" /> Delete

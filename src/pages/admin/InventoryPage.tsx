@@ -47,6 +47,7 @@ import { useOrganization } from '@/contexts/OrganizationContext';
 import { SEOHead } from '@/components/SEOHead';
 import { cn } from '@/lib/utils';
 import { fmt } from '@/lib/activeCurrency';
+import { confirmDialog } from "@/components/AppDialogs";
 
 interface InventoryItem {
   id: string;
@@ -356,9 +357,9 @@ export default function InventoryPage() {
               variant="destructive"
               className="h-7 text-xs"
               onClick={() => {
-                if (confirm(`Delete ${selectedIds.size} items?`)) {
-                  bulkDeleteMutation.mutate(Array.from(selectedIds));
-                }
+                void confirmDialog(`Delete ${selectedIds.size} items?`).then((ok) => {
+                  if (ok) bulkDeleteMutation.mutate(Array.from(selectedIds));
+                });
               }}
             >
               Delete selected
@@ -517,7 +518,7 @@ export default function InventoryPage() {
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 className="text-destructive"
-                                onClick={() => { if (confirm('Delete this item?')) deleteMutation.mutate(item.id); }}
+                                onClick={() => { void confirmDialog('Delete this item?').then((ok) => { if (ok) deleteMutation.mutate(item.id); }); }}
                               >
                                 <Trash2 className="w-4 h-4 mr-2" /> Delete
                               </DropdownMenuItem>
@@ -728,7 +729,7 @@ function InventorySettingsDialog({
                     ) : (
                       <>
                         <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditingCategory(cat)}><Edit className="w-4 h-4" /></Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => { if (confirm('Delete this category?')) deleteCategoryMutation.mutate(cat.id); }}><Trash2 className="w-4 h-4" /></Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => { void confirmDialog('Delete this category?').then((ok) => { if (ok) deleteCategoryMutation.mutate(cat.id); }); }}><Trash2 className="w-4 h-4" /></Button>
                       </>
                     )}
                   </div>

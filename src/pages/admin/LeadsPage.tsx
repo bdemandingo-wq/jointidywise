@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Plus, Mail, Phone, UserPlus, MoreHorizontal, Trash2, Edit, Download, Filter, TrendingDown, ArrowRight, MapPin, LayoutGrid, Table2, CalendarDays, Link2, Send, Clock, AlertTriangle, RefreshCw } from 'lucide-react';
+import { confirmDialog } from "@/components/AppDialogs";
 // Simple address input - no Google Places integration
 import {
   DropdownMenu,
@@ -751,7 +752,7 @@ export default function LeadsPage() {
             setDialogOpen(true);
           }}
           onDelete={(id) => {
-            if (confirm('Delete this lead?')) deleteMutation.mutate(id);
+            void confirmDialog('Delete this lead?').then((ok) => { if (ok) deleteMutation.mutate(id); });
           }}
           onConvert={convertToCustomer}
           maskName={maskName}
@@ -892,9 +893,9 @@ export default function LeadsPage() {
                           <DropdownMenuItem
                             className="gap-2 text-destructive"
                             onClick={() => {
-                              if (confirm('Delete this lead?')) {
-                                deleteMutation.mutate(lead.id);
-                              }
+                              void confirmDialog('Delete this lead?').then((ok) => {
+                                if (ok) deleteMutation.mutate(lead.id);
+                              });
                             }}
                           >
                             <Trash2 className="w-4 h-4" /> Delete

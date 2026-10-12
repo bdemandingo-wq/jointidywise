@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
-    "lint": "node scripts/check-ignored-sources.mjs && node scripts/check-data-slot-hooks.mjs && node scripts/check-color-pairs.mjs && npm run typecheck && eslint .",
+    "lint": "node scripts/check-ignored-sources.mjs && node scripts/check-data-slot-hooks.mjs && node scripts/check-color-pairs.mjs && node scripts/check-no-explicit-any.mjs && npm run typecheck && eslint .",
     "verify:portal": "node scripts/verify-portal-proxy.mjs",
     "preview": "vite preview",
     "test:e2e": "playwright test",

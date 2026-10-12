@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { CheckCircle2, Loader2, Calendar as CalendarIcon, ArrowRight, ArrowLeft, ChevronLeft, ChevronRight, Clock } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { Sentry } from "@/lib/sentry";
 import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, isToday, isBefore, startOfDay, addDays } from "date-fns";
 import { DEFAULT_AVAILABILITY, parseAvailability, slotsForDay, type WeeklyAvailability } from "@/lib/demoAvailability";
 import { orgTimeToUTCISO } from "@/lib/timezoneUtils";
@@ -271,44 +272,50 @@ export function DemoBookingForm() {
 
       if (dbError) throw dbError;
 
-      // Also save to demo_requests for backward compatibility
-      try {
-        await supabase.from("demo_requests" as any).insert({
-          full_name: form.fullName.trim(),
+      // Also save to demo_requests for backward compatibility.
+      // supabase-js returns { error } instead of throwing, so a bare catch never saw a failed insert.
+      const { error: requestError } = await supabase.from("demo_requests" as any).insert({
+        full_name: form.fullName.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+        business_name: form.businessName.trim(),
+        team_size: form.teamSize || null,
+        biggest_challenge: form.biggestChallenge || null,
+        notes: form.additionalDetails.trim() || null,
+        preferred_days: [format(selectedDate, "EEEE")],
+        preferred_time: formatTimeEST(selectedTime) + " EST",
+        status: "booked",
+      } as any);
+      if (requestError) {
+        Sentry.captureException(requestError, { tags: { feature: "demo-booking", step: "demo_requests" } });
+        toast.warning("Your demo time is saved. A follow-up request record did not save.");
+      }
+
+      // Notify via edge function. The booking row is already stored.
+      const { error: notifyError } = await supabase.functions.invoke("notify-demo-request", {
+        body: {
+          fullName: form.fullName.trim(),
           email: form.email.trim(),
           phone: form.phone.trim(),
-          business_name: form.businessName.trim(),
-          team_size: form.teamSize || null,
-          biggest_challenge: form.biggestChallenge || null,
-          notes: form.additionalDetails.trim() || null,
-          preferred_days: [format(selectedDate, "EEEE")],
-          preferred_time: formatTimeEST(selectedTime) + " EST",
-          status: "booked",
-        } as any);
-      } catch {}
-
-      // Notify via edge function
-      try {
-        await supabase.functions.invoke("notify-demo-request", {
-          body: {
-            fullName: form.fullName.trim(),
-            email: form.email.trim(),
-            phone: form.phone.trim(),
-            businessName: form.businessName.trim(),
-            teamSize: form.teamSize,
-            biggestChallenge: form.biggestChallenge,
-            bookedDate,
-            bookedTime: selectedTime,
-            timezone: localTz,
-          },
-        });
-      } catch {}
+          businessName: form.businessName.trim(),
+          teamSize: form.teamSize,
+          biggestChallenge: form.biggestChallenge,
+          bookedDate,
+          bookedTime: selectedTime,
+          timezone: localTz,
+        },
+      });
+      if (notifyError) {
+        Sentry.captureException(notifyError, { tags: { feature: "demo-booking", step: "notify" } });
+        toast.warning("Your demo is booked. The confirmation notice did not send.");
+      }
 
       // Add to booked slots locally
       setBookedSlots(prev => [...prev, { date: bookedDate, time: selectedTime }]);
       setSubmitted(true);
     } catch (err: any) {
       console.error("Demo booking error:", err);
+      Sentry.captureException(err, { tags: { feature: "demo-booking", step: "demo_bookings" } });
       toast.error("Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);

@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { promptDialog } from '@/components/AppDialogs';
 import { Separator } from '@/components/ui/separator';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
@@ -73,7 +74,7 @@ function RichEditor({ value, onChange }: { value: string; onChange: (html: strin
 
   const addLink = () => {
     const previous = editor.getAttributes('link').href as string | undefined;
-    const url = window.prompt('Enter URL (https://…)', previous || 'https://');
+    void promptDialog('Enter URL (https://…)', previous || 'https://').then((url) => {
     if (url === null) return;
     if (url === '') {
       editor.chain().focus().extendMarkRange('link').unsetLink().run();
@@ -84,6 +85,7 @@ function RichEditor({ value, onChange }: { value: string; onChange: (html: strin
       return;
     }
     editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+    });
   };
 
   return (

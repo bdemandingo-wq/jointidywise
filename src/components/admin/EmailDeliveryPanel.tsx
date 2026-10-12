@@ -6,7 +6,7 @@ import { useOrgEmailHealth } from '@/hooks/useOrgEmailHealth';
 import { isHardFailure } from '@/lib/emailFailureClassification';
 
 export function EmailDeliveryPanel() {
-  const { canView, recentFailures, isLoading } = useOrgEmailHealth();
+  const { canView, recentFailures, isLoading, isError } = useOrgEmailHealth();
   if (!canView) return null;
 
   return (
@@ -18,6 +18,8 @@ export function EmailDeliveryPanel() {
       <CardContent>
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : isError ? (
+          <p className="text-sm text-destructive">Could not load email delivery. This is not the same as “no failures.”</p>
         ) : recentFailures.length === 0 ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <CheckCircle2 className="h-4 w-4 text-green-500" />

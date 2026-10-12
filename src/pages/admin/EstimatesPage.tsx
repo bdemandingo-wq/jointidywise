@@ -1,12 +1,15 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { QueryError } from '@/components/QueryError';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Plus, Search, FileText, ArrowRight, Trash2, Send, Eye } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Plus, Search, FileText } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useOrgId } from '@/hooks/useOrgId';
@@ -34,14 +37,26 @@ const STATUS_MAP: Record<string, { label: string; variant: 'default' | 'secondar
   declined: { label: 'Declined', variant: 'destructive' },
 };
 
+const EMPTY_ESTIMATE = {
+  client_name: '',
+  client_address: '',
+  client_email: '',
+  client_phone: '',
+  estimated_total: '',
+  notes: '',
+  status: 'draft',
+};
+
 export default function EstimatesPage() {
   const { organizationId } = useOrgId();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(EMPTY_ESTIMATE);
 
   const { data: estimates = [], isLoading, error: estimatesError } = useQuery({
     queryKey: ['estimates', organizationId],
@@ -59,8 +74,9 @@ export default function EstimatesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      if (!organizationId) throw new Error('No organization found');
       await mustAffectRows(
-        supabase.from('estimates').delete().eq('id', id),
+        supabase.from('estimates').delete().eq('id', id).eq('organization_id', organizationId),
         'Estimate not deleted. It may belong to a different business.',
         { table: 'estimates' },
       );
@@ -81,14 +97,77 @@ export default function EstimatesPage() {
     return matchesSearch && matchesStatus;
   });
 
-  const handleNewEstimate = () => navigate('/dashboard/estimates/new');
+  const openEditor = (estimate?: {
+    id: string;
+    client_name: string | null;
+    client_address: string | null;
+    client_email: string | null;
+    client_phone: string | null;
+    estimated_total: number | null;
+    notes: string | null;
+    status: string;
+  }) => {
+    if (estimate) {
+      setEditingId(estimate.id);
+      setForm({
+        client_name: estimate.client_name || '',
+        client_address: estimate.client_address || '',
+        client_email: estimate.client_email || '',
+        client_phone: estimate.client_phone || '',
+        estimated_total: estimate.estimated_total == null ? '' : String(estimate.estimated_total),
+        notes: estimate.notes || '',
+        status: estimate.status || 'draft',
+      });
+    } else {
+      setEditingId(null);
+      setForm(EMPTY_ESTIMATE);
+    }
+    setEditorOpen(true);
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!organizationId) throw new Error('No organization found');
+      const total = form.estimated_total.trim() === '' ? null : Number(form.estimated_total);
+      if (total != null && !Number.isFinite(total)) throw new Error('Enter a valid total');
+      const payload = {
+        client_name: form.client_name.trim() || null,
+        client_address: form.client_address.trim() || null,
+        client_email: form.client_email.trim() || null,
+        client_phone: form.client_phone.trim() || null,
+        estimated_total: total,
+        notes: form.notes.trim() || null,
+        status: form.status,
+        organization_id: organizationId,
+      };
+      if (editingId) {
+        const { organization_id: _org, ...changes } = payload;
+        await mustAffectRows(
+          supabase.from('estimates').update(changes).eq('id', editingId).eq('organization_id', organizationId),
+          'Estimate not saved. It may belong to a different business.',
+          { table: 'estimates' },
+        );
+        return;
+      }
+      const { error } = await supabase.from('estimates').insert(payload);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['estimates'] });
+      toast.success(editingId ? 'Estimate updated' : 'Estimate created');
+      setEditorOpen(false);
+    },
+    onError: (error: Error) => toast.error(error.message || 'Failed to save estimate'),
+  });
+
+  const handleNewEstimate = () => openEditor();
 
   const renderCard = (estimate: any) => {
     const status = STATUS_MAP[estimate.status] || STATUS_MAP.draft;
     const content = (
       <Card 
         className="cursor-pointer hover:shadow-md transition-shadow"
-        onClick={() => navigate(`/dashboard/estimates/${estimate.id}`)}
+        onClick={() => openEditor(estimate)}
       >
         <CardContent className="p-4">
           <div className="flex items-start justify-between gap-2">
@@ -115,7 +194,7 @@ export default function EstimatesPage() {
         <SwipeableRow
           key={estimate.id}
           rightActions={[
-            { label: 'Convert', variant: 'default', onAction: () => navigate(`/dashboard/estimates/${estimate.id}?action=convert`) },
+            { label: 'Edit', variant: 'default', onAction: () => openEditor(estimate) },
             { label: 'Delete', variant: 'destructive', onAction: () => setDeleteId(estimate.id) },
           ]}
         >
@@ -200,6 +279,62 @@ export default function EstimatesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{editingId ? 'Edit estimate' : 'New estimate'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="est-name">Client name</Label>
+              <Input id="est-name" value={form.client_name} onChange={(e) => setForm({ ...form, client_name: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="est-address">Address</Label>
+              <Input id="est-address" value={form.client_address} onChange={(e) => setForm({ ...form, client_address: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="est-email">Email</Label>
+                <Input id="est-email" type="email" value={form.client_email} onChange={(e) => setForm({ ...form, client_email: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="est-phone">Phone</Label>
+                <Input id="est-phone" value={form.client_phone} onChange={(e) => setForm({ ...form, client_phone: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="est-total">Estimated total</Label>
+                <Input id="est-total" inputMode="decimal" value={form.estimated_total} onChange={(e) => setForm({ ...form, estimated_total: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label>Status</Label>
+                <Select value={form.status} onValueChange={(status) => setForm({ ...form, status })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="quote_sent">Quote Sent</SelectItem>
+                    <SelectItem value="converted">Converted</SelectItem>
+                    <SelectItem value="declined">Declined</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="est-notes">Notes</Label>
+              <Textarea id="est-notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditorOpen(false)}>Cancel</Button>
+            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? 'Saving…' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
 </AdminLayout>
   );

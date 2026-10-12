@@ -21,6 +21,7 @@ import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { formatInTimezone } from '@/lib/timezoneUtils';
 import { toast } from 'sonner';
 import { SEOHead } from '@/components/SEOHead';
+import { confirmDialog } from "@/components/AppDialogs";
 
 interface BookingPhoto {
   id: string;
@@ -256,7 +257,7 @@ export default function BookingPhotosPage() {
   };
 
   const handleDelete = async (photo: BookingPhoto) => {
-    if (!confirm(`Delete this ${isVideoMedia(photo) ? 'video' : 'photo'}? This cannot be undone.`)) return;
+    if (!(await confirmDialog(`Delete this ${isVideoMedia(photo) ? 'video' : 'photo'}? This cannot be undone.`))) return;
 
     setDeletingId(photo.id);
     try {

@@ -147,6 +147,10 @@ export function useDiscounts() {
         return null;
       }
 
+      if (discount.discount_type === 'percentage' && (discount.discount_value <= 0 || discount.discount_value > 100)) {
+        return null;
+      }
+
       return discount;
     } catch (error) {
       console.error('Error validating coupon:', error);
@@ -156,7 +160,8 @@ export function useDiscounts() {
 
   const calculateDiscountAmount = (discount: Discount, subtotal: number): number => {
     if (discount.discount_type === 'percentage') {
-      return (subtotal * discount.discount_value) / 100;
+      const pct = Math.min(Math.max(discount.discount_value, 0), 100);
+      return (subtotal * pct) / 100;
     }
     return Math.min(discount.discount_value, subtotal);
   };

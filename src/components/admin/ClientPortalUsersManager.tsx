@@ -183,7 +183,7 @@ export function ClientPortalUsersManager() {
     },
     onError: (error: any) => {
       if (error.code === '23505') {
-        toast.error('Username already exists');
+        toast.error('That email already has portal access');
       } else {
         toast.error(error.message || 'Failed to create user');
       }
@@ -314,8 +314,13 @@ export function ClientPortalUsersManager() {
   };
 
   const handleCreateUser = () => {
-    if (!newUsername.trim()) {
-      toast.error('Username is required');
+    const email = newUsername.trim().toLowerCase();
+    if (!email) {
+      toast.error('Email is required');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast.error('Enter the email address this customer will use to sign in.');
       return;
     }
     if (!newPassword.trim() || newPassword.length < 6) {
@@ -328,7 +333,7 @@ export function ClientPortalUsersManager() {
     }
 
     createUser.mutate({
-      username: newUsername,
+      username: email,
       password: newPassword,
       customerId: selectedCustomerId,
     });
@@ -395,7 +400,7 @@ export function ClientPortalUsersManager() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Username</TableHead>
+                <TableHead>Email</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Last Login</TableHead>
@@ -494,7 +499,10 @@ export function ClientPortalUsersManager() {
                     <button
                       key={c.id}
                       type="button"
-                      onClick={() => setSelectedCustomerId(c.id)}
+                      onClick={() => {
+                        setSelectedCustomerId(c.id);
+                        if (c.email) setNewUsername(c.email);
+                      }}
                       className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/60 ${selectedCustomerId === c.id ? 'bg-primary/10 font-medium' : ''}`}
                     >
                       {c.first_name} {c.last_name}
@@ -511,12 +519,17 @@ export function ClientPortalUsersManager() {
             </div>
 
             <div className="space-y-2">
-              <Label>Username</Label>
+              <Label>Email</Label>
               <Input
+                type="email"
+                autoComplete="off"
                 value={newUsername}
                 onChange={(e) => setNewUsername(e.target.value)}
-                placeholder="e.g., john.doe"
+                placeholder="customer@email.com"
               />
+              <p className="text-xs text-muted-foreground">
+                This is what they type on the client portal login screen.
+              </p>
             </div>
 
             <div className="space-y-2">

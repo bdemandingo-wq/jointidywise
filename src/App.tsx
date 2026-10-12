@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider, MutationCache } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, MutationCache, QueryCache } from "@tanstack/react-query";
 import { refreshBadges } from "@/lib/badgeRefresh";
 
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
@@ -28,10 +28,12 @@ import { CopilotProvider } from "@/components/copilot/CopilotProvider";
 import { CopilotMount } from "@/components/copilot/CopilotMount";
 import { ProductTour } from "@/components/copilot/ProductTour";
 import { Capacitor } from "@capacitor/core";
+import { AppDialogsProvider } from "@/components/AppDialogs";
 import { useAppStateHandler } from '@/hooks/useAppStateHandler';
 import { captureReferralFromUrl } from '@/lib/referralAttribution';
 import { requestTrackingPermission } from '@/lib/metaEvents';
 import { NativePushRegistrar } from '@/components/NativePushRegistrar';
+import { Sentry } from '@/lib/sentry';
 
 // Critical path: keep the shell light; lazy-load even the public entry pages
 const LandingPage = lazy(() => import("./pages/LandingPage"));
@@ -83,6 +85,7 @@ const RecurringBookingsPage = lazy(() => import("./pages/admin/RecurringBookings
 const LeadsPage = lazy(() => import("./pages/admin/LeadsPage"));
 const InventoryPage = lazy(() => import("./pages/admin/InventoryPage"));
 const InvoicesPage = lazy(() => import("./pages/admin/InvoicesPage"));
+const EstimatesPage = lazy(() => import("./pages/admin/EstimatesPage"));
 const OperationsTrackerPage = lazy(() => import("./pages/admin/OperationsTrackerPage"));
 const BenchmarksPage = lazy(() => import("./pages/admin/BenchmarksPage"));
 const ClientFeedbackPage = lazy(() => import("./pages/admin/ClientFeedbackPage"));
@@ -198,6 +201,14 @@ const queryClient = new QueryClient({
       refreshBadges(queryClient);
     },
   }),
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      Sentry.captureException(error, {
+        tags: { source: "react-query" },
+        extra: { queryKey: query.queryKey },
+      });
+    },
+  }),
 });
 
 
@@ -308,6 +319,7 @@ const App = () => (
               <CurrencySync />
               <TestModeProvider>
                 <ClientPortalProvider>
+                <AppDialogsProvider>
                 <TooltipProvider>
                 <Toaster />
                 <Sonner />
@@ -406,6 +418,7 @@ const App = () => (
                       <Route path="/dashboard/leads" element={<AdminRoute><ErrorBoundary featureName="Leads"><LeadsPage /></ErrorBoundary></AdminRoute>} />
                       <Route path="/dashboard/inventory" element={<AdminRoute><ErrorBoundary featureName="Inventory"><InventoryPage /></ErrorBoundary></AdminRoute>} />
                       <Route path="/dashboard/invoices" element={<AdminRoute><ErrorBoundary featureName="Invoices"><InvoicesPage /></ErrorBoundary></AdminRoute>} />
+                      <Route path="/dashboard/estimates" element={<AdminRoute><ErrorBoundary featureName="Estimates"><EstimatesPage /></ErrorBoundary></AdminRoute>} />
                       <Route path="/dashboard/operations" element={<AdminRoute><ErrorBoundary featureName="Operations Tracker"><OperationsTrackerPage /></ErrorBoundary></AdminRoute>} />
                       <Route path="/dashboard/feedback" element={<AdminRoute><ErrorBoundary featureName="Client Feedback"><ClientFeedbackPage /></ErrorBoundary></AdminRoute>} />
                       <Route path="/dashboard/campaigns" element={<AdminRoute><ErrorBoundary featureName="Campaigns"><CampaignsPage /></ErrorBoundary></AdminRoute>} />
@@ -554,6 +567,7 @@ const App = () => (
                     <Route path="/dashboard/leads" element={<AdminRoute><ErrorBoundary featureName="Leads"><LeadsPage /></ErrorBoundary></AdminRoute>} />
                     <Route path="/dashboard/inventory" element={<AdminRoute><ErrorBoundary featureName="Inventory"><InventoryPage /></ErrorBoundary></AdminRoute>} />
                     <Route path="/dashboard/invoices" element={<AdminRoute><ErrorBoundary featureName="Invoices"><InvoicesPage /></ErrorBoundary></AdminRoute>} />
+                    <Route path="/dashboard/estimates" element={<AdminRoute><ErrorBoundary featureName="Estimates"><EstimatesPage /></ErrorBoundary></AdminRoute>} />
                     <Route path="/dashboard/operations" element={<AdminRoute><ErrorBoundary featureName="Operations Tracker"><OperationsTrackerPage /></ErrorBoundary></AdminRoute>} />
                     <Route path="/dashboard/feedback" element={<AdminRoute><ErrorBoundary featureName="Client Feedback"><ClientFeedbackPage /></ErrorBoundary></AdminRoute>} />
                     <Route path="/dashboard/campaigns" element={<AdminRoute><ErrorBoundary featureName="Campaigns"><CampaignsPage /></ErrorBoundary></AdminRoute>} />
@@ -609,6 +623,7 @@ const App = () => (
                 </BrowserRouter>
               )}
               </TooltipProvider>
+                </AppDialogsProvider>
               </ClientPortalProvider>
               </TestModeProvider>
             </OrganizationProvider>

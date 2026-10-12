@@ -26,6 +26,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useAuth } from '@/hooks/useAuth';
+import { confirmDialog } from "@/components/AppDialogs";
 
 const EVENT_TYPES = [
   { value: 'customer.created', label: 'New customer created' },
@@ -120,7 +121,7 @@ export function ZapierWebhooksCard() {
   };
 
   const remove = async (id: string) => {
-    if (!confirm('Delete this webhook?')) return;
+    if (!(await confirmDialog('Delete this webhook?'))) return;
     const { error } = await (supabase as any).from('org_zapier_webhooks').delete().eq('id', id);
     if (error) {
       toast.error('Failed to delete');

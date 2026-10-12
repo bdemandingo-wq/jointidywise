@@ -16,6 +16,7 @@ import {
 import { ArrowLeft, Loader2, Plus, Trash2, Pencil, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { QueryError } from "@/components/QueryError";
+import { confirmDialog } from "@/components/AppDialogs";
 
 type Status = "all" | "queued" | "in_progress" | "completed" | "failed";
 type Intent = "top_funnel" | "middle_funnel" | "bottom_funnel" | "";
@@ -134,7 +135,7 @@ export default function BlogKeywordsPage() {
 
   const deleteRow = useMutation({
     mutationFn: async (id: string) => {
-      if (!window.confirm("Delete this keyword?")) throw new Error("Cancelled");
+      if (!(await confirmDialog("Delete this keyword?"))) throw new Error("Cancelled");
       const { error } = await supabase.from("blog_keyword_queue").delete().eq("id", id);
       if (error) throw error;
     },
