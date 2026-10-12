@@ -3,6 +3,11 @@
 <plist version="1.0">
 <dict>
 	<!--
+	  This key does not show the permission prompt and does not create
+	  Settings → TidyWise → Notifications. That row appears only after
+	  UNUserNotificationCenter.requestAuthorization. A missing or wrong
+	  value here makes registerForRemoteNotifications fail after the person
+	  has already allowed notifications.
 	  development is correct for Xcode Debug (sandbox APNs).
 	  TestFlight and App Store archives are re-signed by the distribution
 	  profile, which sets this to production. The send-push-notification
