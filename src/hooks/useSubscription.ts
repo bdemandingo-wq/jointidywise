@@ -11,7 +11,6 @@
  * Accounts in FREE_ACCOUNTS always get full access.
  */
 
-import { Capacitor } from '@capacitor/core';
 import { useAuth } from './useAuth';
 import { usePlanState } from './usePlanFeature';
 import { hasPaidDashboardAccess } from '@/lib/dashboardAccess';
@@ -61,18 +60,15 @@ export function useSubscription(): SubscriptionAccess {
   const isSubscribed = subscription?.subscribed === true;
   const isTrialActive = subscription?.trial_active === true;
 
-  // Access is granted when:
-  //   • the user is on an allowlisted demo / Apple-review account, OR
-  //   • check-subscription returned subscribed=true for a paid Stripe sub,
-  //     a Stripe trial (card on file), a lifetime purchase, or comped access.
-  // The unpaid org trial (product_id org_trial) is NOT access on the web.
-  // Native keeps it: the App Store build never shows /choose-plan, and the
-  // trial still ends at day 14.
+  // Access is granted when check-subscription says the account is
+  // subscribed or on an active trial. That includes Stripe trialing, the
+  // card-free org trial (product_id org_trial), the older 60-day org trial,
+  // lifetime, and comped access. subscribed=false with no trial is the
+  // only block: no plan, expired trial, or a failed payment.
   const hasFullAccess = hasPaidDashboardAccess({
     isFreeAccount,
     subscribed: isSubscribed,
-    productId: subscription?.product_id,
-    allowUnpaidOrgTrial: Capacitor.isNativePlatform(),
+    trialActive: isTrialActive,
   });
 
   // Tier-aware Pro-feature gate. Even during the 14-day trial, the

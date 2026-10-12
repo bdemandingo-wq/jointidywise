@@ -42,8 +42,14 @@ describe('getActualHours', () => {
     expect(getActualHours(booking)).toBe(4);
   });
 
-  it('falls back to staff default_hours', () => {
-    const booking = makeBooking();
+  it('uses booking duration before the staff profile default of 5h', () => {
+    const booking = makeBooking({ duration: 120 });
+    const staff = makeStaff({ default_hours: 5 });
+    expect(getActualHours(booking, staff)).toBe(2);
+  });
+
+  it('falls back to staff default_hours when the booking has no duration', () => {
+    const booking = makeBooking({ duration: 0 });
     const staff = makeStaff({ default_hours: 6 });
     expect(getActualHours(booking, staff)).toBe(6);
   });
@@ -53,7 +59,7 @@ describe('getActualHours', () => {
     expect(getActualHours(booking)).toBe(3);
   });
 
-  it('priority: timestamps > override > default > duration', () => {
+  it('priority: timestamps beat override, duration, and the profile default', () => {
     const booking = makeBooking({
       cleaner_checkin_at: '2026-02-10T08:00:00Z',
       cleaner_checkout_at: '2026-02-10T09:30:00Z',

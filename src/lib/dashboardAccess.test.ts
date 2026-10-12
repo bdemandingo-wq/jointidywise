@@ -1,74 +1,75 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasPaidDashboardAccess, UNPAID_ORG_TRIAL_PRODUCT_ID } from "./dashboardAccess.ts";
+import { hasPaidDashboardAccess } from "./dashboardAccess.ts";
 
-test("an unpaid org trial does not open the web dashboard", () => {
+test("a card-free org trial opens the dashboard", () => {
   assert.equal(
     hasPaidDashboardAccess({
       isFreeAccount: false,
       subscribed: true,
-      productId: UNPAID_ORG_TRIAL_PRODUCT_ID,
-      allowUnpaidOrgTrial: false,
-    }),
-    false,
-  );
-});
-
-test("the same unpaid trial is allowed in the native app", () => {
-  assert.equal(
-    hasPaidDashboardAccess({
-      isFreeAccount: false,
-      subscribed: true,
-      productId: UNPAID_ORG_TRIAL_PRODUCT_ID,
-      allowUnpaidOrgTrial: true,
+      trialActive: true,
     }),
     true,
   );
 });
 
-test("a Stripe subscription, including a card trial, opens the dashboard", () => {
+test("an older org trial reported only as subscribed still opens the dashboard", () => {
   assert.equal(
     hasPaidDashboardAccess({
       isFreeAccount: false,
       subscribed: true,
-      productId: "prod_standard",
-      allowUnpaidOrgTrial: false,
+      trialActive: false,
+    }),
+    true,
+  );
+});
+
+test("a Stripe card trial opens the dashboard", () => {
+  assert.equal(
+    hasPaidDashboardAccess({
+      isFreeAccount: false,
+      subscribed: true,
+      trialActive: true,
     }),
     true,
   );
 });
 
 test("lifetime, comped, and demo accounts open the dashboard", () => {
-  for (const productId of ["lifetime", "comped", "owner_free"]) {
-    assert.equal(
-      hasPaidDashboardAccess({
-        isFreeAccount: false,
-        subscribed: true,
-        productId,
-        allowUnpaidOrgTrial: false,
-      }),
-      true,
-    );
-  }
+  assert.equal(
+    hasPaidDashboardAccess({
+      isFreeAccount: false,
+      subscribed: true,
+    }),
+    true,
+  );
   assert.equal(
     hasPaidDashboardAccess({
       isFreeAccount: true,
       subscribed: false,
-      productId: null,
-      allowUnpaidOrgTrial: false,
     }),
     true,
   );
 });
 
-test("no subscription stays closed", () => {
+test("no plan, no trial, and no lifetime stays closed", () => {
   assert.equal(
     hasPaidDashboardAccess({
       isFreeAccount: false,
       subscribed: false,
-      productId: null,
-      allowUnpaidOrgTrial: false,
+      trialActive: false,
     }),
     false,
+  );
+});
+
+test("a trial_active flag opens the dashboard even if subscribed is false", () => {
+  assert.equal(
+    hasPaidDashboardAccess({
+      isFreeAccount: false,
+      subscribed: false,
+      trialActive: true,
+    }),
+    true,
   );
 });

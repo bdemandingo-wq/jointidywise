@@ -64,7 +64,7 @@ export interface WageResult {
 
 /**
  * Get actual hours worked from check-in/out timestamps,
- * falling back to override → default hours → booking duration.
+ * falling back to override → booking duration → default hours.
  *
  * Mirrors payroll-period-process.ts:getActualHours, including its `!= null`
  * fallback chain — an explicit override of 0 hours means zero, it does not
@@ -76,13 +76,22 @@ export interface WageResult {
  * on corrupt data, where the engine's answer is not a number anyone wants
  * paid. The engine should get the same guard — it lives in a Lovable-owned
  * file, so it has to be changed there.
+ *
+ * Second deviation: booking duration beats staff.default_hours. The profile
+ * default is 5h, so a 120-minute job with no clock was displayed as 5.0h.
+ * complete_assigned_booking pays from duration in that case and never reads
+ * the profile default. An explicit override still wins. default_hours is
+ * only used when the booking has no duration.
  */
 export function getActualHours(booking: WageBooking, staff?: WageStaff | null): number {
+  const durationHours = Number(booking.duration) > 0 ? Number(booking.duration) / 60 : null;
   const fallback = booking.cleaner_override_hours != null
     ? Number(booking.cleaner_override_hours)
-    : staff?.default_hours != null
-      ? Number(staff.default_hours)
-      : booking.duration / 60;
+    : durationHours != null
+      ? durationHours
+      : staff?.default_hours != null
+        ? Number(staff.default_hours)
+        : 0;
 
   if (booking.cleaner_checkin_at && booking.cleaner_checkout_at) {
     const checkin = new Date(booking.cleaner_checkin_at).getTime();
