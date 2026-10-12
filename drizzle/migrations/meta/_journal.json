@@ -99,6 +99,13 @@
       "when": 1791781860438,
       "tag": "0013_p4_business_assets_insert_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791781869167,
+      "tag": "0014_booking_photos_proof_stamp",
+      "breakpoints": true
     }
   ]
 }

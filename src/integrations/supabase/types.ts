@@ -1870,6 +1870,9 @@ export type Database = {
         Row: {
           booking_id: string
           caption: string | null
+          capture_latitude: number | null
+          capture_longitude: number | null
+          captured_at: string | null
           created_at: string | null
           id: string
           inspection_note: string | null
@@ -1878,11 +1881,16 @@ export type Database = {
           organization_id: string | null
           photo_type: string | null
           photo_url: string
+          proof_stamped: boolean
           staff_id: string | null
+          timestamp_source: string | null
         }
         Insert: {
           booking_id: string
           caption?: string | null
+          capture_latitude?: number | null
+          capture_longitude?: number | null
+          captured_at?: string | null
           created_at?: string | null
           id?: string
           inspection_note?: string | null
@@ -1891,11 +1899,16 @@ export type Database = {
           organization_id?: string | null
           photo_type?: string | null
           photo_url: string
+          proof_stamped?: boolean
           staff_id?: string | null
+          timestamp_source?: string | null
         }
         Update: {
           booking_id?: string
           caption?: string | null
+          capture_latitude?: number | null
+          capture_longitude?: number | null
+          captured_at?: string | null
           created_at?: string | null
           id?: string
           inspection_note?: string | null
@@ -1904,7 +1917,9 @@ export type Database = {
           organization_id?: string | null
           photo_type?: string | null
           photo_url?: string
+          proof_stamped?: boolean
           staff_id?: string | null
+          timestamp_source?: string | null
         }
         Relationships: [
           {
