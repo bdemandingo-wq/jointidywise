@@ -24,4 +24,4 @@
 - [ ] Physical iOS/Capacitor verification needs the next native build and an installed device; browser gestures are verified, not native gestures.
 
 - [x] Deploy 16 functions from main
-- [ ] Seed Broward, Miami-Dade, Palm Beach FL — blocked: search radius 64000 > Google 50000 cap (awaiting user OK to fix)
+- [x] Seed Broward, Miami-Dade, Palm Beach FL (45 inserted)
