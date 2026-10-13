@@ -167,6 +167,7 @@ const DemoPage = lazy(() => import("./pages/DemoPage"));
 const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const DeleteAccountPage = lazy(() => import("./pages/DeleteAccountPage"));
+const UnsubscribePage = lazy(() => import("./pages/UnsubscribePage"));
 const RedirectPage = lazy(() => import("./pages/RedirectPage"));
 const CardSavedPage = lazy(() => import("./pages/CardSavedPage"));
 const TipPage = lazy(() => import("./pages/TipPage"));
@@ -380,6 +381,7 @@ const App = () => (
                       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
                       <Route path="/terms" element={<TermsPage />} />
                       <Route path="/delete-account" element={<DeleteAccountPage />} />
+                      <Route path="/unsubscribe" element={<UnsubscribePage />} />
                       {/* App Store 3.1.1: No pricing/marketing on native */}
                       <Route path="/pricing" element={<Navigate to="/login" replace />} />
                       {/* Native already IS the app — pointing someone at the
@@ -505,6 +507,7 @@ const App = () => (
                       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
                       <Route path="/terms" element={<TermsPage />} />
                      <Route path="/delete-account" element={<DeleteAccountPage />} />
+                     <Route path="/unsubscribe" element={<UnsubscribePage />} />
                      <Route path="/pricing" element={<ErrorBoundary featureName="Pricing"><PricingPage /></ErrorBoundary>} />
                      <Route path="/get-the-app" element={<ErrorBoundary featureName="Get the app"><GetTheAppPage /></ErrorBoundary>} />
                      <Route path="/choose-plan" element={<ErrorBoundary featureName="Choose Plan"><ChoosePlanPage /></ErrorBoundary>} />

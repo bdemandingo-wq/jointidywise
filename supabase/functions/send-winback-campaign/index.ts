@@ -10,38 +10,25 @@
 // There is no in-app or Tally winback survey. The draft's "8 quick questions
 // / 2 minutes" line does not match a real form (the notes say the plan had
 // 10 questions, and the product survey was removed). Each email asks the
-// reader to reply instead. One link: the existing unsubscribe token URL.
+// reader to reply instead. The visible unsubscribe link is the app page
+// (jointidywise.com/unsubscribe). List-Unsubscribe is the function, because
+// one-click is a POST the mail client sends itself.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { timingSafeEqualString } from "../_shared/require-caller-org.ts";
 import { ensureUnsubscribeToken } from "../_shared/unsubscribe-token.ts";
 import { TIDYWISE_SUPPORT_EMAIL } from "../_shared/email-footer.ts";
+import { buildWinbackEmail, WINBACK_SEGMENTS, type WinbackSegment, winbackPageUnsubscribeUrl } from "../_shared/winback-email.ts";
+import { listUnsubscribeHeaders, oneClickUnsubscribeUrl } from "../_shared/unsubscribe-links.ts";
 
 const FROM = "Emmanuel from TidyWise <billing@jointidywise.com>";
 const REPLY_TO = TIDYWISE_SUPPORT_EMAIL;
-const SIGNATURE = "Emmanuel, founder of TidyWise";
-const MAILING_ADDRESS = "TidyWise, 65 SW 12th Ave, Deerfield Beach, FL 33442";
 const BATCH_LIMIT = 20;
 const SEND_GAP_MS = 1500;
 const STEP2_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
 
-const SEGMENTS = [
-  "S5_cancelled_paid",
-  "S3_went_quiet",
-  "S4_trial_no_pay",
-  "S1_no_onboarding",
-  "S2_no_bookings",
-] as const;
-
-type Segment = (typeof SEGMENTS)[number];
-
-const SUBJECTS: Record<Segment, string> = {
-  S5_cancelled_paid: "why did you cancel?",
-  S3_went_quiet: "did something break?",
-  S4_trial_no_pay: "your trial ended. fair enough.",
-  S2_no_bookings: "you set it up but never booked a job",
-  S1_no_onboarding: "you didn't finish setting up TidyWise",
-};
+const SEGMENTS = WINBACK_SEGMENTS;
+type Segment = WinbackSegment;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -107,144 +94,6 @@ function byValue(a: Candidate, b: Candidate): number {
   const rank = segmentRank(a.segment) - segmentRank(b.segment);
   if (rank !== 0) return rank;
   return Date.parse(b.signed_up_at) - Date.parse(a.signed_up_at);
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function footer(unsubscribeUrl: string): string {
-  return [
-    "--",
-    "You're getting this because you signed up for TidyWise at jointidywise.com.",
-    `Don't want these? Unsubscribe in one click: ${unsubscribeUrl}`,
-    MAILING_ADDRESS,
-  ].join("\n");
-}
-
-function offerLine(segment: Segment, isLifetime: boolean): string {
-  switch (segment) {
-    case "S5_cancelled_paid":
-      return "The offer: if you come back, your first month is on me. Basic is $49/mo, Pro is $97/mo (unlimited users, no per-booking fees), cancel anytime.";
-    case "S3_went_quiet":
-      return isLifetime
-        ? "You already own a lifetime spot, so there's nothing to buy. Reply and I'll get you set back up myself, for free."
-        : "The offer: a free month, plus a 15-minute call where I fix whatever got in your way.";
-    case "S4_trial_no_pay":
-      return "The offer: a fresh 14-day trial, no card needed. If you keep going after that, Basic is $49/mo and Pro is $97/mo with unlimited users and no per-booking fees. Cancel anytime.";
-    case "S2_no_bookings":
-      return isLifetime
-        ? "Reply \"set me up\" and I'll import your clients and set up your booking form."
-        : "The offer: a fresh 14-day trial, no card needed, and I'll import your clients for you. Reply \"set me up\" and send me your list.";
-    case "S1_no_onboarding":
-      return isLifetime
-        ? "The offer: reply and I'll do the setup with you on a 15-minute call, or do it for you. Your lifetime spot is already paid for."
-        : "The offer: reply and I'll do the setup with you on a 15-minute call, or do it for you. A fresh 14-day trial, no card needed.";
-  }
-}
-
-function step1Body(recipient: Candidate): string {
-  const name = recipient.first_name;
-  const business = recipient.business_name;
-  switch (recipient.segment) {
-    case "S5_cancelled_paid":
-      return [
-        `Hi ${name},`,
-        "",
-        "I'm Emmanuel, I built TidyWise. You paid for it, then cancelled. I'd like to know why, even if the answer stings.",
-        "",
-        "Reply to this email and tell me what happened. A sentence is enough. I read every reply.",
-        "",
-        offerLine(recipient.segment, recipient.is_lifetime),
-        "If you'd rather talk, just reply and I'll call you.",
-      ].join("\n");
-    case "S3_went_quiet":
-      return [
-        `Hi ${name},`,
-        "",
-        `${business} was booking jobs in TidyWise, then it stopped about a month ago. Either something broke, something was missing, or you went back to another tool. I want to know which.`,
-        "",
-        "Reply to this email and tell me which.",
-        "",
-        offerLine(recipient.segment, recipient.is_lifetime),
-        "",
-        "Or just reply with what went wrong.",
-      ].join("\n");
-    case "S4_trial_no_pay":
-      return [
-        `Hi ${name},`,
-        "",
-        "Your TidyWise trial ended and you didn't pay. That means it didn't earn it. I'd like to know what was missing.",
-        "",
-        "Reply to this email and tell me what was missing. A sentence is enough. I read them all.",
-        "",
-        offerLine(recipient.segment, recipient.is_lifetime),
-      ].join("\n");
-    case "S2_no_bookings":
-      return recipient.is_lifetime
-        ? [
-            `Hi ${name},`,
-            "",
-            `You bought a lifetime spot in TidyWise and set up ${business}, but you never booked a job in it. You've already paid, so this isn't a sales email. You're just not getting what you paid for yet.`,
-            "",
-            "Come back and finish setting it up. I'll help: send me your client list (spreadsheet, screenshot, or an export from your old tool) and I'll import it and set up your booking form myself. Just reply \"set me up\".",
-            "",
-            "And tell me what stopped you. Reply to this email.",
-          ].join("\n")
-        : [
-            `Hi ${name},`,
-            "",
-            `You set up ${business} in TidyWise but never booked a job in it. Something stopped you, and I want to know what.`,
-            "",
-            "Reply to this email and tell me what stopped you.",
-            "",
-            offerLine(recipient.segment, false),
-          ].join("\n");
-    case "S1_no_onboarding":
-      return [
-        `Hi ${name},`,
-        "",
-        "You signed up for TidyWise and stopped partway through setup. That usually means setup was too long or confusing. That's my fault.",
-        "",
-        "What happened? Reply to this email and tell me. A sentence is enough.",
-        "",
-        offerLine(recipient.segment, recipient.is_lifetime),
-      ].join("\n");
-  }
-}
-
-function step2Body(recipient: Candidate): string {
-  return [
-    `Hi ${recipient.first_name},`,
-    "",
-    "Last nudge from me. Even a one-word reply helps: PRICE, FEATURE, SWITCHED, SETUP, or PAUSED.",
-    "",
-    offerLine(recipient.segment, recipient.is_lifetime),
-    "",
-    "If TidyWise isn't for you, that's fine. I won't keep emailing.",
-  ].join("\n");
-}
-
-function buildEmail(recipient: Candidate, step: 1 | 2, unsubscribeUrl: string): { subject: string; text: string; html: string } {
-  const subject = step === 1
-    ? SUBJECTS[recipient.segment]
-    : `re: ${SUBJECTS[recipient.segment]}`;
-  const text = [
-    step === 1 ? step1Body(recipient) : step2Body(recipient),
-    "",
-    SIGNATURE,
-    footer(unsubscribeUrl),
-  ].join("\n");
-  const htmlBody = escapeHtml(text).replace(
-    escapeHtml(unsubscribeUrl),
-    `<a href="${escapeHtml(unsubscribeUrl)}">${escapeHtml(unsubscribeUrl)}</a>`,
-  );
-  const html = `<div style="font-family:ui-sans-serif,system-ui,sans-serif;white-space:pre-wrap;color:#111827;font-size:15px;line-height:1.5">${htmlBody}</div>`;
-  return { subject, text, html };
 }
 
 function reputationProblem(status: number, raw: string): string | null {
@@ -443,12 +292,15 @@ async function deliver(
   recipient: Candidate,
   step: 1 | 2,
 ): Promise<{ ok: true; id: string | null } | { ok: false; error: string; haltReason: string | null }> {
+  // Test sends mint the same platform token as a real send, so the
+  // link maps to a row. A token that does not is still a success page.
   const token = await ensureUnsubscribeToken(supabase, to);
   if (!token) {
     return { ok: false, error: "could not mint unsubscribe token", haltReason: null };
   }
-  const unsubscribeUrl = `${supabaseUrl}/functions/v1/handle-email-unsubscribe?token=${token}`;
-  const message = buildEmail(recipient, step, unsubscribeUrl);
+  const pageUrl = winbackPageUnsubscribeUrl(token);
+  const oneClickUrl = oneClickUnsubscribeUrl(supabaseUrl, token);
+  const message = buildWinbackEmail(recipient, step, pageUrl);
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -462,10 +314,7 @@ async function deliver(
       subject: message.subject,
       text: message.text,
       html: message.html,
-      headers: {
-        "List-Unsubscribe": `<${unsubscribeUrl}>`,
-        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-      },
+      headers: listUnsubscribeHeaders(oneClickUrl),
       tags: [
         { name: "campaign", value: "winback" },
         { name: "segment", value: recipient.segment },

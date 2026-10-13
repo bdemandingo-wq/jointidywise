@@ -49,6 +49,8 @@ const EXCLUDED_PATHS = new Set<string>([
   "/onboarding",
   "/card-saved",
   "/delete-account",
+  // Token link from marketing email. Nothing to index, and the page noindexes.
+  "/unsubscribe",
   "/forgot-password",
   "/reset-password",
   // The hard paywall between onboarding and the dashboard. Reachable only with
