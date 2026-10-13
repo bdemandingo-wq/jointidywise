@@ -1,3 +1,4 @@
+import { formatDuration } from '@/lib/formatDuration';
 import { AlertTriangle, Clock, MapPin } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -51,7 +52,7 @@ export function CleanerConflictWarning({
                   <Clock className="h-3 w-3" />
                   <OrgTimestamp value={conflict.scheduledAt} /> 
                   <span className="text-xs">
-                    ({conflict.duration} min • {conflict.serviceName})
+                    ({formatDuration(conflict.duration)} • {conflict.serviceName})
                   </span>
                 </div>
                 {conflict.overlapType === 'proximity' && (
