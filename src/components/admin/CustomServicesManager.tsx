@@ -106,7 +106,7 @@ function SortableServiceRow({
           <div>
             <p className="font-medium">{service.name}</p>
             {service.description && (
-              <p className="text-sm text-muted-foreground truncate max-w-xs">
+              <p className="text-sm text-muted-foreground truncate max-w-[145px] sm:max-w-xs">
                 {service.description}
               </p>
             )}
