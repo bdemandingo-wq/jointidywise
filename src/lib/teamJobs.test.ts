@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   remainingSpots, teamBadge, teamSummary, claimedLabel, teamCleanerPay, teamFieldsForSave,
+  shouldKeepClaimedCleaners, mirroredCleanerWage, claimPayShare,
 } from './teamJobs.ts';
 import { resolveCleanerPay, type WageBooking } from './wageCalculation.ts';
 
@@ -62,4 +63,27 @@ test('single-cleaner booking unchanged by team fields', () => {
   const withNulls = resolveCleanerPay({ ...base, cleaners_needed: 1, pay_per_cleaner: 999, pay_type: 'flat' }, null, null, 1).calculatedPay;
   assert.equal(solo, 80);
   assert.equal(withNulls, 80);
+});
+
+test('locked pay beats the team rate', () => {
+  const b = { ...base, cleaners_needed: 2, pay_per_cleaner: 100, pay_type: 'flat', pay_locked: true, cleaner_pay_expected: 40 };
+  assert.equal(resolveCleanerPay(b, null, null, 2).calculatedPay, 40);
+});
+
+test('saving a claim-style team job keeps cleaners who already claimed', () => {
+  assert.equal(shouldKeepClaimedCleaners(true, false), true);
+  assert.equal(shouldKeepClaimedCleaners(true, true), false);
+  assert.equal(shouldKeepClaimedCleaners(false, false), false);
+});
+
+test('team pay is what gets stored as the booking wage', () => {
+  assert.deepEqual(mirroredCleanerWage(true, '100', 'flat', '20', 'hourly'), { wage: '100', wageType: 'flat' });
+  assert.deepEqual(mirroredCleanerWage(true, '', 'flat', '20', 'hourly'), { wage: '20', wageType: 'hourly' });
+  assert.deepEqual(mirroredCleanerWage(false, '100', 'flat', '20', 'hourly'), { wage: '20', wageType: 'hourly' });
+});
+
+test('hourly team pay_share stays empty so hours are not frozen', () => {
+  assert.equal(claimPayShare('flat', 100), 100);
+  assert.equal(claimPayShare('hourly', 25), null);
+  assert.equal(claimPayShare('flat', null), null);
 });

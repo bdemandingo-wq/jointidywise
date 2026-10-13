@@ -1,3 +1,7 @@
 export function isUnsupportedImageTransformation(status: number, message: string): boolean {
-  return [400, 403, 404, 501].includes(status) && /transform|image resizing|not supported|not enabled|feature.*not|plan|render.*not/i.test(message);
+  // Match plan/feature refusals only. A bare "transform" also matches a single
+  // bad file, and marking that as a bucket-wide miss turns every later photo
+  // into a full-size original.
+  return [400, 403, 404, 501].includes(status)
+    && /image resizing|not supported|not enabled|feature.*not|render.*not/i.test(message);
 }
