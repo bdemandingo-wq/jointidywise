@@ -83,6 +83,9 @@ const ExpensesPage = lazy(() => import("./pages/admin/ExpensesPage"));
 const ReportsPage = lazy(() => import("./pages/admin/ReportsPage"));
 const SettingsPage = lazy(() => import("./pages/admin/SettingsPage"));
 const NotificationsPage = lazy(() => import("./pages/admin/NotificationsPage"));
+const NotificationSettingsPreview = import.meta.env.DEV
+  ? lazy(() => import("./pages/dev/NotificationSettingsPreview"))
+  : null;
 const RecurringBookingsPage = lazy(() => import("./pages/admin/RecurringBookingsPage"));
 const LeadsPage = lazy(() => import("./pages/admin/LeadsPage"));
 const InventoryPage = lazy(() => import("./pages/admin/InventoryPage"));
@@ -492,6 +495,9 @@ const App = () => (
                     
                   {/* Public Routes - Critical Path */}
                     <Route path="/" element={<LandingPage />} />
+                    {NotificationSettingsPreview && (
+                      <Route path="/dev/notification-settings" element={<NotificationSettingsPreview />} />
+                    )}
                     <Route path="/cleaning-business-software" element={<CleaningBusinessSoftware />} />
                     <Route path="/cleaning-business-software/:locationSlug" element={<LocationSoftwarePage />} />
                     {/* /auth renders LoginPage directly (not a redirect) so its

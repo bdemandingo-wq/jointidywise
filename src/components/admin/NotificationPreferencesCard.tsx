@@ -1,813 +1,518 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/accordion';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
-  Bell,
-  LayoutGrid,
-  Mail,
-  MessageSquare,
-  RotateCcw,
-  Loader2,
-  Zap,
-  Smartphone,
-  Globe,
-  Clock,
-  ChevronDown,
-  Settings2,
-  Check,
-  MoreVertical,
-} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Loader2, Play } from 'lucide-react';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { supabase } from '@/lib/supabase';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import { useOrgRole } from '@/hooks/useOrgRole';
 import {
   useNotificationPreferences,
   useUpdateNotificationPreferences,
-  SIDEBAR_DEFAULTS,
-  BELL_DEFAULTS,
-  CHANNEL_DEFAULTS,
   type ChannelMatrix,
-  type SnoozeMap,
   type PrefFlags,
+  type SnoozeMap,
 } from '@/hooks/useNotificationPreferences';
+import { useLegacyNotificationMigration } from '@/hooks/useLegacyNotificationMigration';
+import { usePushNotifications } from '@/hooks/usePushNotifications';
+import { NOTIFICATION_TYPES, CHANNELS, masterChannelKey, type NotificationChannel, type NotificationTypeDef } from '@/lib/notificationCatalog';
 import {
-  NOTIFICATION_TYPES,
-  CATEGORIES,
-  CHANNELS,
-  isChannelEnabled,
-  isMasterChannelOn,
-  masterChannelKey,
-  type NotificationChannel,
-  type NotificationTypeDef,
-} from '@/lib/notificationCatalog';
-import { useOrgRole } from '@/hooks/useOrgRole';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { cn } from '@/lib/utils';
+  CUSTOMER_NOTIFICATION_TOGGLES,
+  OWNER_NOTIFICATION_GROUPS,
+  briefsVisual,
+  groupCountsAsOn,
+  groupVisual,
+  matrixPatchForGroupToggle,
+  ownerDeliveryEnabled,
+  ownerDeliveryPatch,
+  ownerSmsColumnUpdates,
+  presetMatrix,
+  type NotificationPreset,
+  type OwnerDelivery,
+} from '@/lib/notificationGroups';
+import { NotificationSettingsScreen, type SettingsToggle } from '@/components/admin/NotificationSettingsScreen';
+import { NotificationAdvancedPanel } from '@/components/admin/NotificationAdvancedPanel';
 
-const CHANNEL_ICON: Record<NotificationChannel, any> = {
-  sidebar: LayoutGrid,
-  bell: Bell,
-  browser_push: Globe,
-  native_push: Smartphone,
-  email: Mail,
-  sms: MessageSquare,
+type BusinessFlagPatch = {
+  notify_morning_brief?: boolean;
+  notify_evening_brief?: boolean;
+  notify_new_booking?: boolean;
+  notify_cancellations?: boolean;
+  notify_reminders?: boolean;
 };
 
-type Preset = 'action' | 'balanced' | 'everything' | 'custom';
+type SmsFlagPatch = {
+  notify_admin_on_the_way?: boolean;
+  notify_admin_arrived?: boolean;
+  notify_client_on_the_way?: boolean;
+  notify_client_arrived?: boolean;
+  notify_client_distance_eta?: boolean;
+  sms_booking_confirmation?: boolean;
+  sms_appointment_reminder?: boolean;
+};
 
-const PRESETS: { key: Preset; label: string; description: string }[] = [
-  { key: 'action', label: 'Action required only', description: 'Only alerts that need a response.' },
-  { key: 'balanced', label: 'Balanced', description: 'Recommended: key events across sensible channels.' },
-  { key: 'everything', label: 'Everything', description: 'Notify me on every event, on every channel.' },
-  { key: 'custom', label: 'Custom', description: 'Your own per-event configuration.' },
-];
-
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-function effectiveChannelOn(
-  type: NotificationTypeDef,
-  channel: NotificationChannel,
-  matrix: ChannelMatrix,
-  snoozed: SnoozeMap,
-  channels: PrefFlags
-): boolean {
-  return isChannelEnabled(type.key, channel, matrix, snoozed, channels);
-}
-
-function typeHasAnyChannelOn(
-  type: NotificationTypeDef,
-  matrix: ChannelMatrix,
-  channels: PrefFlags
-): boolean {
-  return CHANNELS.some(ch =>
-    isChannelEnabled(type.key, ch.key, matrix, {}, channels)
-  );
-}
-
-function activeChannelCountForType(
-  type: NotificationTypeDef,
-  matrix: ChannelMatrix,
-  channels: PrefFlags
-): number {
-  return CHANNELS.reduce(
-    (n, ch) => n + (isChannelEnabled(type.key, ch.key, matrix, {}, channels) ? 1 : 0),
-    0
-  );
-}
-
-function activeMasterChannelCount(channels: PrefFlags): number {
-  return CHANNELS.reduce((n, ch) => n + (isMasterChannelOn(ch.key, channels) ? 1 : 0), 0);
-}
-
-function buildPresetMatrix(
-  preset: Preset,
-  types: NotificationTypeDef[]
-): { matrix: ChannelMatrix; channels: PrefFlags } {
-  const matrix: ChannelMatrix = {};
-  const channelsOn: PrefFlags = {};
-  for (const ch of CHANNELS) channelsOn[masterChannelKey(ch.key)] = true;
-
-  if (preset === 'balanced') {
-    // defaults live in catalog; empty overrides means "use defaults"
-    return { matrix: {}, channels: channelsOn };
+function rowFor(type: NotificationTypeDef, on: boolean): Record<string, boolean> {
+  const row: Record<string, boolean> = {};
+  for (const channel of CHANNELS) {
+    row[channel.key] = on ? !!type.defaults?.[channel.key] : false;
   }
-  if (preset === 'everything') {
-    for (const t of types) {
-      const row: Record<string, boolean> = {};
-      for (const ch of CHANNELS) row[ch.key] = true;
-      matrix[t.key] = row;
-    }
-    return { matrix, channels: channelsOn };
-  }
-  if (preset === 'action') {
-    for (const t of types) {
-      const actionable = !!t.sidebarKey;
-      const row: Record<string, boolean> = {};
-      for (const ch of CHANNELS) row[ch.key] = false;
-      if (actionable) {
-        row.sidebar = true;
-        row.bell = true;
-      }
-      matrix[t.key] = row;
-    }
-    return { matrix, channels: channelsOn };
-  }
-  return { matrix: {}, channels: channelsOn };
+  return row;
 }
 
-function shallowEqualMatrix(a: ChannelMatrix, b: ChannelMatrix): boolean {
-  const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
-  for (const k of keys) {
-    const ra = a?.[k] || {};
-    const rb = b?.[k] || {};
-    const ck = new Set([...Object.keys(ra), ...Object.keys(rb)]);
-    for (const c of ck) if (ra[c] !== rb[c]) return false;
+function customerSmsPatch(id: string, value: boolean): SmsFlagPatch {
+  switch (id) {
+    case 'notify_client_on_the_way':
+      return { notify_client_on_the_way: value };
+    case 'notify_client_arrived':
+      return { notify_client_arrived: value };
+    case 'notify_client_distance_eta':
+      return { notify_client_distance_eta: value };
+    case 'sms_booking_confirmation':
+      return { sms_booking_confirmation: value };
+    case 'sms_appointment_reminder':
+      return { sms_appointment_reminder: value };
+    default:
+      return {};
   }
-  return true;
 }
-
-function shallowEqualFlags(a: PrefFlags, b: PrefFlags): boolean {
-  const keys = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
-  for (const k of keys) if (!!a?.[k] !== !!b?.[k]) return false;
-  return true;
-}
-
-// ── Component ────────────────────────────────────────────────────────────
 
 export function NotificationPreferencesCard() {
   const prefs = useNotificationPreferences();
-  const { save, snoozeType, clearSnooze, resetToDefaults, saving } =
-    useUpdateNotificationPreferences();
+  const { save, snoozeType, clearSnooze, resetToDefaults } = useUpdateNotificationPreferences();
   const { hasFinancialAccess } = useOrgRole();
-  const isMobile = useIsMobile();
+  const { organization } = useOrganization();
+  const orgId = organization?.id ?? null;
+  const queryClient = useQueryClient();
+  const push = usePushNotifications();
+  useLegacyNotificationMigration();
 
+  const delivery = useQuery({
+    queryKey: ['notification-settings-delivery', orgId],
+    enabled: !!orgId,
+    queryFn: async () => {
+      if (!orgId) return { business: null, sms: null };
+      const [business, sms] = await Promise.all([
+        supabase
+          .from('business_settings')
+          .select('notify_morning_brief, notify_evening_brief, notify_reminders, notify_new_booking, notify_cancellations')
+          .eq('organization_id', orgId)
+          .maybeSingle(),
+        supabase
+          .from('organization_sms_settings')
+          .select('id, notify_client_on_the_way, notify_client_arrived, notify_client_distance_eta, sms_booking_confirmation, sms_appointment_reminder, notify_admin_on_the_way, notify_admin_arrived')
+          .eq('organization_id', orgId)
+          .maybeSingle(),
+      ]);
+      if (business.error) throw new Error(business.error.message);
+      if (sms.error) throw new Error(sms.error.message);
+      return { business: business.data, sms: sms.data };
+    },
+  });
+
+  const [matrix, setMatrix] = useState<ChannelMatrix>(prefs.notification_matrix);
+  const [channels, setChannels] = useState<PrefFlags>(prefs.channels);
+  const [snoozed, setSnoozed] = useState<SnoozeMap>(prefs.snoozed_until);
+  const [briefs, setBriefs] = useState({ morning: true, evening: true });
+  const [customerFlags, setCustomerFlags] = useState<Record<string, boolean>>({});
+  const [smsReady, setSmsReady] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [openCategories, setOpenCategories] = useState<string[]>([]);
-  const [channelsOpen, setChannelsOpen] = useState(false);
-  const [mobileEditType, setMobileEditType] = useState<NotificationTypeDef | null>(null);
+  const [sendingBrief, setSendingBrief] = useState<'morning' | 'evening' | null>(null);
 
-  // Local draft state — edits stage here until the user hits Save.
-  const [draftMatrix, setDraftMatrix] = useState<ChannelMatrix>(prefs.notification_matrix);
-  const [draftChannels, setDraftChannels] = useState<PrefFlags>(prefs.channels);
-  const [draftSnoozed, setDraftSnoozed] = useState<SnoozeMap>(prefs.snoozed_until);
-  const [dirty, setDirty] = useState(false);
+  const pending = useRef(0);
+  const queue = useRef(Promise.resolve());
 
-  // Sync draft with server state when it changes and nothing is pending.
   useEffect(() => {
-    if (dirty) return;
-    setDraftMatrix(prefs.notification_matrix);
-    setDraftChannels(prefs.channels);
-    setDraftSnoozed(prefs.snoozed_until);
-  }, [prefs, dirty]);
+    if (pending.current > 0) return;
+    setMatrix(prefs.notification_matrix);
+    setChannels(prefs.channels);
+    setSnoozed(prefs.snoozed_until);
+  }, [prefs.notification_matrix, prefs.channels, prefs.snoozed_until]);
 
+  useEffect(() => {
+    if (pending.current > 0 || !delivery.data) return;
+    const business = delivery.data.business;
+    const sms = delivery.data.sms;
+    setBriefs({
+      morning: business?.notify_morning_brief ?? true,
+      evening: business?.notify_evening_brief ?? true,
+    });
+    setSmsReady(!!sms);
+    const next: Record<string, boolean> = {
+      notify_reminders: business?.notify_reminders !== false,
+    };
+    if (sms) {
+      next.notify_client_on_the_way = sms.notify_client_on_the_way !== false;
+      next.notify_client_arrived = sms.notify_client_arrived !== false;
+      next.notify_client_distance_eta = sms.notify_client_distance_eta !== false;
+      next.sms_booking_confirmation = sms.sms_booking_confirmation !== false;
+      next.sms_appointment_reminder = sms.sms_appointment_reminder !== false;
+    }
+    setCustomerFlags(next);
+  }, [delivery.data]);
+
+  const run = (task: () => Promise<void>) => {
+    pending.current += 1;
+    queue.current = queue.current.then(async () => {
+      try {
+        await task();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Could not save');
+      } finally {
+        pending.current -= 1;
+      }
+    });
+  };
+
+  const report = (error: string | null | undefined) => {
+    if (error) toast.error(error);
+    else toast.success('Saved', { id: 'notification-prefs-saved' });
+  };
+
+  const writeBusiness = async (patch: BusinessFlagPatch) => {
+    if (!orgId) return 'No organization';
+    const { error } = await supabase.from('business_settings').update(patch).eq('organization_id', orgId);
+    return error?.message ?? null;
+  };
+
+  const writeSms = async (patch: SmsFlagPatch) => {
+    if (!orgId) return 'No organization';
+    if (!smsReady) return null;
+    const { error } = await supabase.from('organization_sms_settings').update(patch).eq('organization_id', orgId);
+    return error?.message ?? null;
+  };
+
+  const lockOpts = { includeManagerLocked: hasFinancialAccess };
   const visibleTypes = useMemo(
-    () => NOTIFICATION_TYPES.filter(t => !t.managerLocked || hasFinancialAccess),
-    [hasFinancialAccess]
+    () => NOTIFICATION_TYPES.filter((type) => !type.managerLocked || hasFinancialAccess),
+    [hasFinancialAccess],
   );
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, NotificationTypeDef[]>();
-    for (const c of CATEGORIES) map.set(c, []);
-    visibleTypes.forEach(t => map.get(t.category)?.push(t));
-    return Array.from(map.entries()).filter(([, list]) => list.length > 0);
-  }, [visibleTypes]);
-
-  // Open the first category by default.
-  useEffect(() => {
-    if (openCategories.length === 0 && grouped.length > 0) {
-      setOpenCategories([grouped[0][0]]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grouped.length]);
-
-  // Detect which preset the current draft matches.
-  const currentPreset: Preset = useMemo(() => {
-    for (const p of ['balanced', 'everything', 'action'] as Preset[]) {
-      const built = buildPresetMatrix(p, visibleTypes);
-      if (
-        shallowEqualMatrix(built.matrix, draftMatrix) &&
-        shallowEqualFlags(built.channels, draftChannels)
-      ) {
-        return p;
+  const handleMaster = (deliveryId: OwnerDelivery, on: boolean) => {
+    const patch = ownerDeliveryPatch(deliveryId, on);
+    const nextChannels = { ...channels, ...patch };
+    setChannels(nextChannels);
+    const bookingsOn = groupCountsAsOn(groupVisual('bookings', matrix, lockOpts));
+    const cleanerOn = groupCountsAsOn(groupVisual('cleaner', matrix, lockOpts));
+    run(async () => {
+      const res = await save({ channels: patch });
+      let extra: string | null = null;
+      if (!res?.error && deliveryId === 'sms') {
+        const updates = ownerSmsColumnUpdates({ smsMasterOn: on, bookingsOn, cleanerOn });
+        extra = (await writeBusiness({
+          notify_new_booking: updates.business.notify_new_booking,
+          notify_cancellations: updates.business.notify_cancellations,
+        })) || (await writeSms({
+          notify_admin_on_the_way: updates.sms.notify_admin_on_the_way,
+          notify_admin_arrived: updates.sms.notify_admin_arrived,
+        }));
       }
-    }
-    return 'custom';
-  }, [draftMatrix, draftChannels, visibleTypes]);
-
-  // ── Mutators (draft-only) ──
-  const mutateChannel = (
-    typeKey: string,
-    channel: NotificationChannel,
-    value: boolean
-  ) => {
-    setDraftMatrix(prev => ({
-      ...prev,
-      [typeKey]: { ...(prev[typeKey] || {}), [channel]: value },
-    }));
-    setDirty(true);
-  };
-
-  const mutateType = (type: NotificationTypeDef, value: boolean) => {
-    setDraftMatrix(prev => {
-      const row: Record<string, boolean> = { ...(prev[type.key] || {}) };
-      if (value) {
-        // Restore default channels for this type, or fall back to sidebar+bell.
-        const def = type.defaults || { sidebar: true, bell: true };
-        for (const ch of CHANNELS) row[ch.key] = !!def[ch.key];
-      } else {
-        for (const ch of CHANNELS) row[ch.key] = false;
-      }
-      return { ...prev, [type.key]: row };
+      report(res?.error || extra);
     });
-    setDirty(true);
   };
 
-  const mutateCategory = (types: NotificationTypeDef[], value: boolean) => {
-    setDraftMatrix(prev => {
-      const next = { ...prev };
-      for (const t of types) {
-        const row: Record<string, boolean> = { ...(next[t.key] || {}) };
-        if (value) {
-          const def = t.defaults || { sidebar: true, bell: true };
-          for (const ch of CHANNELS) row[ch.key] = !!def[ch.key];
-        } else {
-          for (const ch of CHANNELS) row[ch.key] = false;
+  const handleGroup = (id: string, on: boolean) => {
+    if (id === 'daily') {
+      setBriefs({ morning: on, evening: on });
+      run(async () => {
+        const err = await writeBusiness({ notify_morning_brief: on, notify_evening_brief: on });
+        if (!err) {
+          await queryClient.invalidateQueries({ queryKey: ['notification-settings-delivery', orgId] });
         }
-        next[t.key] = row;
+        report(err);
+      });
+      return;
+    }
+    const patch = matrixPatchForGroupToggle(id, on, matrix, lockOpts);
+    const nextMatrix = { ...matrix, ...patch };
+    setMatrix(nextMatrix);
+    const bookingsOn = id === 'bookings'
+      ? on
+      : groupCountsAsOn(groupVisual('bookings', nextMatrix, lockOpts));
+    const cleanerOn = id === 'cleaner'
+      ? on
+      : groupCountsAsOn(groupVisual('cleaner', nextMatrix, lockOpts));
+    const smsOn = ownerDeliveryEnabled('sms', channels);
+    run(async () => {
+      const res = await save({ notification_matrix: patch });
+      let extra: string | null = null;
+      if (!res?.error && (id === 'bookings' || id === 'cleaner')) {
+        const updates = ownerSmsColumnUpdates({ smsMasterOn: smsOn, bookingsOn, cleanerOn });
+        if (id === 'bookings') {
+          extra = await writeBusiness({
+            notify_new_booking: updates.business.notify_new_booking,
+            notify_cancellations: updates.business.notify_cancellations,
+          });
+        }
+        if (id === 'cleaner') {
+          extra = await writeSms({
+            notify_admin_on_the_way: updates.sms.notify_admin_on_the_way,
+            notify_admin_arrived: updates.sms.notify_admin_arrived,
+          });
+        }
       }
-      return next;
-    });
-    setDirty(true);
-  };
-
-  const mutateMaster = (channel: NotificationChannel, value: boolean) => {
-    setDraftChannels(prev => ({ ...prev, [masterChannelKey(channel)]: value }));
-    setDirty(true);
-  };
-
-  const applyPreset = (preset: Preset) => {
-    if (preset === 'custom') return;
-    const built = buildPresetMatrix(preset, visibleTypes);
-    setDraftMatrix(built.matrix);
-    setDraftChannels(built.channels);
-    setDirty(true);
-    toast.message(`Preset applied: ${PRESETS.find(p => p.key === preset)?.label}`, {
-      description: 'Review and Save to apply.',
+      report(res?.error || extra);
     });
   };
 
-  const handleSave = async () => {
-    const res = await save({
-      notification_matrix: draftMatrix,
-      channels: draftChannels,
-      snoozed_until: draftSnoozed,
+  const handleCustomer = (id: string, value: boolean) => {
+    setCustomerFlags((prev) => ({ ...prev, [id]: value }));
+    const toggle = CUSTOMER_NOTIFICATION_TOGGLES.find((item) => item.id === id);
+    if (!toggle) return;
+    run(async () => {
+      const err = toggle.table === 'business_settings'
+        ? await writeBusiness({ notify_reminders: value })
+        : await writeSms(customerSmsPatch(id, value));
+      if (!err) {
+        await queryClient.invalidateQueries({ queryKey: ['notification-settings-delivery', orgId] });
+      }
+      report(err);
     });
-    if (res.error) toast.error(res.error);
-    else {
-      toast.success('Notification preferences saved');
-      setDirty(false);
-    }
   };
 
-  const handleReset = async () => {
-    setResetting(true);
-    const res = await resetToDefaults();
-    setResetting(false);
-    if (res.error) toast.error(res.error);
-    else {
-      toast.success('Reset to recommended defaults');
-      setDirty(false);
-    }
+  const handleChannel = (typeKey: string, channel: NotificationChannel, value: boolean) => {
+    setMatrix((prev) => ({ ...prev, [typeKey]: { ...(prev[typeKey] || {}), [channel]: value } }));
+    run(async () => {
+      const res = await save({ notification_matrix: { [typeKey]: { [channel]: value } } });
+      report(res?.error);
+    });
   };
 
-  const handleDiscard = () => {
-    setDraftMatrix(prefs.notification_matrix);
-    setDraftChannels(prefs.channels);
-    setDraftSnoozed(prefs.snoozed_until);
-    setDirty(false);
+  const handleType = (type: NotificationTypeDef, on: boolean) => {
+    const row = rowFor(type, on);
+    setMatrix((prev) => ({ ...prev, [type.key]: row }));
+    run(async () => {
+      const res = await save({ notification_matrix: { [type.key]: row } });
+      report(res?.error);
+    });
   };
 
-  // ── Snooze (persists immediately — no "unsaved" state for snoozes) ──
-  const isSnoozed = (typeKey: string) => {
-    const iso = draftSnoozed?.[typeKey];
-    return !!iso && new Date(iso).getTime() > Date.now();
+  const handleCategory = (categoryTypes: NotificationTypeDef[], on: boolean) => {
+    const patch: ChannelMatrix = {};
+    for (const type of categoryTypes) patch[type.key] = rowFor(type, on);
+    setMatrix((prev) => ({ ...prev, ...patch }));
+    run(async () => {
+      const res = await save({ notification_matrix: patch });
+      report(res?.error);
+    });
   };
 
-  const doSnooze = async (typeKey: string, hours: number) => {
+  const handleAdvancedMaster = (channel: NotificationChannel, value: boolean) => {
+    const key = masterChannelKey(channel);
+    setChannels((prev) => ({ ...prev, [key]: value }));
+    const bookingsOn = groupCountsAsOn(groupVisual('bookings', matrix, lockOpts));
+    const cleanerOn = groupCountsAsOn(groupVisual('cleaner', matrix, lockOpts));
+    run(async () => {
+      const res = await save({ channels: { [key]: value } });
+      let extra: string | null = null;
+      if (!res?.error && channel === 'sms') {
+        const updates = ownerSmsColumnUpdates({ smsMasterOn: value, bookingsOn, cleanerOn });
+        extra = (await writeBusiness({
+          notify_new_booking: updates.business.notify_new_booking,
+          notify_cancellations: updates.business.notify_cancellations,
+        })) || (await writeSms({
+          notify_admin_on_the_way: updates.sms.notify_admin_on_the_way,
+          notify_admin_arrived: updates.sms.notify_admin_arrived,
+        }));
+      }
+      report(res?.error || extra);
+    });
+  };
+
+  const handlePreset = (preset: NotificationPreset) => {
+    const built = presetMatrix(preset, visibleTypes);
+    const channelPatch = {
+      ...ownerDeliveryPatch('push', true),
+      ...ownerDeliveryPatch('email', true),
+      ...ownerDeliveryPatch('sms', true),
+    };
+    const nextMatrix = { ...matrix, ...built };
+    setMatrix(nextMatrix);
+    setChannels((prev) => ({ ...prev, ...channelPatch }));
+    const bookingsOn = groupCountsAsOn(groupVisual('bookings', nextMatrix, lockOpts));
+    const cleanerOn = groupCountsAsOn(groupVisual('cleaner', nextMatrix, lockOpts));
+    run(async () => {
+      const res = await save({ notification_matrix: built, channels: channelPatch });
+      let extra: string | null = null;
+      if (!res?.error) {
+        const updates = ownerSmsColumnUpdates({ smsMasterOn: true, bookingsOn, cleanerOn });
+        extra = (await writeBusiness({
+          notify_new_booking: updates.business.notify_new_booking,
+          notify_cancellations: updates.business.notify_cancellations,
+        })) || (await writeSms({
+          notify_admin_on_the_way: updates.sms.notify_admin_on_the_way,
+          notify_admin_arrived: updates.sms.notify_admin_arrived,
+        }));
+      }
+      report(res?.error || extra);
+    });
+  };
+
+  const handleSnooze = (typeKey: string, hours: number) => {
     const iso = new Date(Date.now() + hours * 3600_000).toISOString();
-    setDraftSnoozed(prev => ({ ...prev, [typeKey]: iso }));
-    const r = await snoozeType(typeKey, hours);
-    if (r.error) toast.error(r.error);
-    else toast.success(`Snoozed for ${hours}h`);
+    setSnoozed((prev) => ({ ...prev, [typeKey]: iso }));
+    run(async () => {
+      const res = await snoozeType(typeKey, hours);
+      if (!res?.error) toast.success(hours === 1 ? 'Snoozed for 1 hour' : `Snoozed for ${hours} hours`, { id: 'notification-prefs-saved' });
+      else toast.error(res.error);
+    });
   };
 
-  const doUnsnooze = async (typeKey: string) => {
-    setDraftSnoozed(prev => ({ ...prev, [typeKey]: new Date(0).toISOString() }));
-    const r = await clearSnooze(typeKey);
-    if (r.error) toast.error(r.error);
-    else toast.success('Snooze cleared');
+  const handleUnsnooze = (typeKey: string) => {
+    setSnoozed((prev) => ({ ...prev, [typeKey]: new Date(0).toISOString() }));
+    run(async () => {
+      const res = await clearSnooze(typeKey);
+      report(res?.error);
+    });
   };
 
-  // Totals for summary
-  const enabledTypes = useMemo(
-    () =>
-      visibleTypes.filter(t =>
-        typeHasAnyChannelOn(t, draftMatrix, draftChannels)
-      ).length,
-    [visibleTypes, draftMatrix, draftChannels]
-  );
-  const enabledMasterChannels = activeMasterChannelCount(draftChannels);
+  const handleReset = () => {
+    setResetting(true);
+    run(async () => {
+      const res = await resetToDefaults();
+      const businessErr = await writeBusiness({
+        notify_morning_brief: true,
+        notify_evening_brief: true,
+        notify_new_booking: true,
+        notify_cancellations: true,
+      });
+      const smsErr = await writeSms({
+        notify_admin_on_the_way: true,
+        notify_admin_arrived: true,
+      });
+      await queryClient.invalidateQueries({ queryKey: ['notification-settings-delivery', orgId] });
+      setResetting(false);
+      report(res?.error || businessErr || smsErr);
+    });
+  };
 
-  return (
-    <TooltipProvider delayDuration={100}>
-      <Card className="mb-6 pb-24 md:pb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-primary" />
-            Notification Center
-          </CardTitle>
-          <CardDescription>
-            Choose a setup, then customize any event. Turning things off never
-            deletes data.
-          </CardDescription>
-        </CardHeader>
+  const sendBrief = async (which: 'morning' | 'evening') => {
+    if (!orgId) return;
+    setSendingBrief(which);
+    const fn = which === 'morning' ? 'morning-brief' : 'evening-brief';
+    try {
+      const { data, error } = await supabase.functions.invoke(fn, { body: { org_id: orgId } });
+      if (error) throw new Error(error.message);
+      if (data?.skipped) toast.warning(`Skipped: ${data.reason || 'not eligible'}`);
+      else toast.success(which === 'morning' ? 'Morning brief sent' : 'End-of-day report sent');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not send';
+      toast.error(message);
+    } finally {
+      setSendingBrief(null);
+    }
+  };
 
-        <CardContent className="space-y-6">
-          {/* ── Preset picker ─────────────────────────────────────────── */}
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-              Notification setup
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-              {PRESETS.map(p => {
-                const active = currentPreset === p.key;
-                const isCustom = p.key === 'custom';
-                return (
-                  <button
-                    key={p.key}
-                    type="button"
-                    onClick={() => applyPreset(p.key)}
-                    disabled={isCustom}
-                    className={cn(
-                      'text-left rounded-lg border p-3 transition min-h-[76px]',
-                      'focus:outline-none focus:ring-2 focus:ring-primary/40',
-                      active
-                        ? 'border-primary bg-primary/5 ring-1 ring-primary/40'
-                        : 'border-border bg-background hover:bg-muted/40',
-                      isCustom && 'cursor-default opacity-90'
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-semibold">{p.label}</span>
-                      {active && <Check className="w-4 h-4 text-primary" />}
-                      {p.key === 'balanced' && !active && (
-                        <Badge variant="secondary" className="text-[10px]">
-                          Recommended
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {p.description}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+  const groups: SettingsToggle[] = OWNER_NOTIFICATION_GROUPS.map((group) => {
+    if (group.id === 'daily') {
+      const visual = briefsVisual(briefs.morning, briefs.evening);
+      return {
+        id: group.id,
+        label: group.label,
+        description: visual === 'mixed'
+          ? `${group.description} Right now only the ${briefs.morning ? 'morning brief' : 'end-of-day report'} is on.`
+          : group.description,
+        checked: visual !== 'off',
+        mixed: visual === 'mixed',
+      };
+    }
+    const visual = groupVisual(group.id, matrix, lockOpts);
+    return {
+      id: group.id,
+      label: group.label,
+      description: visual === 'mixed'
+        ? `${group.description} Some of these are customized in Advanced.`
+        : group.description,
+      checked: visual !== 'off',
+      mixed: visual === 'mixed',
+    };
+  });
 
-          {/* ── Summary ─────────────────────────────────────────────── */}
-          <div className="text-sm text-muted-foreground rounded-md bg-muted/40 border px-3 py-2">
-            <strong className="text-foreground">{enabledTypes}</strong> notifications
-            enabled across{' '}
-            <strong className="text-foreground">{enabledMasterChannels}</strong>{' '}
-            of {CHANNELS.length} delivery channels.
-          </div>
+  const customers: SettingsToggle[] = CUSTOMER_NOTIFICATION_TOGGLES.map((toggle) => ({
+    id: toggle.id,
+    label: toggle.label,
+    description: toggle.description,
+    checked: customerFlags[toggle.id] ?? true,
+    disabled: !delivery.isFetched || (toggle.table === 'organization_sms_settings' && !smsReady),
+  }));
 
-          {/* ── Delivery channels (collapsible master toggles) ─────── */}
-          <Collapsible open={channelsOpen} onOpenChange={setChannelsOpen}>
-            <div className="rounded-lg border bg-muted/20">
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="w-full flex items-center justify-between px-4 py-3 text-left"
-                >
-                  <div>
-                    <div className="text-sm font-semibold">Delivery channels</div>
-                    <div className="text-xs text-muted-foreground">
-                      Turning off a channel disables that delivery method for all
-                      notifications. It does not delete notification data.
-                    </div>
-                  </div>
-                  <ChevronDown
-                    className={cn(
-                      'w-4 h-4 text-muted-foreground transition-transform',
-                      channelsOpen && 'rotate-180'
-                    )}
-                  />
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 px-4 pb-4">
-                  {CHANNELS.map(ch => {
-                    const Icon = CHANNEL_ICON[ch.key];
-                    const on = isMasterChannelOn(ch.key, draftChannels);
-                    return (
-                      <label
-                        key={ch.key}
-                        className="flex items-center justify-between gap-3 rounded-md border bg-background px-3 py-3 min-h-[52px] cursor-pointer"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <Icon className="w-4 h-4 text-primary shrink-0" />
-                          <span className="text-sm">{ch.label}</span>
-                        </div>
-                        <Switch
-                          checked={on}
-                          onCheckedChange={v => mutateMaster(ch.key, v)}
-                          aria-label={`Master toggle — ${ch.label}`}
-                        />
-                      </label>
-                    );
-                  })}
-                </div>
-              </CollapsibleContent>
-            </div>
-          </Collapsible>
+  const customerNote = delivery.isFetched && !smsReady
+    ? 'Texting is not set up yet, so those switches are off. Connect it in Settings → SMS. The reminder email still works.'
+    : null;
 
-          {/* ── Category accordions ─────────────────────────────────── */}
-          <Accordion
-            type="multiple"
-            value={openCategories}
-            onValueChange={setOpenCategories}
-            className="space-y-2"
-          >
-            {grouped.map(([category, types]) => {
-              const totalOn = types.filter(t =>
-                typeHasAnyChannelOn(t, draftMatrix, draftChannels)
-              ).length;
-              const allOn = totalOn === types.length;
-
-              return (
-                <AccordionItem
-                  key={category}
-                  value={category}
-                  className="border rounded-lg bg-card overflow-hidden"
-                >
-                  <div className="flex items-center gap-2 pr-3">
-                    <AccordionTrigger className="flex-1 px-4 py-3 hover:no-underline">
-                      <div className="flex flex-col items-start text-left">
-                        <span className="text-sm font-semibold">{category}</span>
-                        <span className="text-xs text-muted-foreground font-normal">
-                          {totalOn} of {types.length} active
-                        </span>
-                      </div>
-                    </AccordionTrigger>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div
-                          onClick={e => e.stopPropagation()}
-                          className="shrink-0"
-                        >
-                          <Switch
-                            checked={allOn}
-                            onCheckedChange={v => mutateCategory(types, v)}
-                            aria-label={`Enable all ${category}`}
-                          />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>Enable all in this category</TooltipContent>
-                    </Tooltip>
-                  </div>
-
-                  <AccordionContent className="pb-2">
-                    <div className="divide-y border-t">
-                      {types.map(t => {
-                        const snoozed = isSnoozed(t.key);
-                        const notifyOn = typeHasAnyChannelOn(
-                          t,
-                          draftMatrix,
-                          draftChannels
-                        );
-                        const activeCount = activeChannelCountForType(
-                          t,
-                          draftMatrix,
-                          draftChannels
-                        );
-                        return (
-                          <div
-                            key={t.key}
-                            className="flex items-center gap-2 px-4 py-3 min-h-[56px]"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm truncate">{t.label}</div>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                {snoozed && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="gap-1 text-[10px]"
-                                  >
-                                    <Clock className="w-3 h-3" />
-                                    Snoozed
-                                  </Badge>
-                                )}
-                                <span className="text-[11px] text-muted-foreground truncate">
-                                  {activeCount === 0
-                                    ? 'No channels'
-                                    : `${activeCount} channel${activeCount === 1 ? '' : 's'}`}
-                                </span>
-                              </div>
-                            </div>
-
-                            <Switch
-                              checked={notifyOn}
-                              disabled={snoozed}
-                              onCheckedChange={v => mutateType(t, v)}
-                              aria-label={`Notify me — ${t.label}`}
-                            />
-
-                            {/* Channels button — popover on desktop, sheet on mobile */}
-                            {isMobile ? (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="h-9 gap-1.5"
-                                onClick={() => setMobileEditType(t)}
-                                disabled={!notifyOn}
-                              >
-                                <Settings2 className="w-3.5 h-3.5" />
-                                <span className="text-xs">{activeCount}</span>
-                              </Button>
-                            ) : (
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-9 gap-1.5"
-                                    disabled={!notifyOn}
-                                  >
-                                    <Settings2 className="w-3.5 h-3.5" />
-                                    <span className="text-xs">
-                                      Channels · {activeCount}
-                                    </span>
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-72" align="end">
-                                  <ChannelEditor
-                                    type={t}
-                                    matrix={draftMatrix}
-                                    channels={draftChannels}
-                                    snoozed={draftSnoozed}
-                                    onChange={mutateChannel}
-                                  />
-                                </PopoverContent>
-                              </Popover>
-                            )}
-
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-9 w-9 shrink-0"
-                                  aria-label="More"
-                                >
-                                  <MoreVertical className="w-4 h-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                {snoozed ? (
-                                  <DropdownMenuItem onClick={() => doUnsnooze(t.key)}>
-                                    Un-snooze
-                                  </DropdownMenuItem>
-                                ) : (
-                                  <>
-                                    <DropdownMenuItem onClick={() => doSnooze(t.key, 1)}>
-                                      Snooze 1 hour
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => doSnooze(t.key, 24)}>
-                                      Snooze 24 hours
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => doSnooze(t.key, 24 * 7)}>
-                                      Snooze 1 week
-                                    </DropdownMenuItem>
-                                  </>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              );
-            })}
-          </Accordion>
-        </CardContent>
-      </Card>
-
-      {/* ── Sticky action bar ───────────────────────────────────── */}
-      <div
-        className={cn(
-          'fixed bottom-0 inset-x-0 z-[60] border-t bg-background/95 backdrop-blur',
-          'px-4 py-3 md:px-6',
-          'flex items-center justify-between gap-3',
-          // safe-area + clear the mobile bottom nav (~64px) on small screens
-          'pb-[calc(env(safe-area-inset-bottom)+12px)]',
-          'mb-[calc(64px+env(safe-area-inset-bottom))] md:mb-0'
-        )}
-      >
-        <div className="text-sm min-w-0">
-          {dirty ? (
-            <span className="inline-flex items-center gap-2 text-amber-600 dark:text-amber-400 font-medium">
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-              Unsaved changes
-            </span>
-          ) : (
-            <span className="text-muted-foreground hidden sm:inline">
-              All changes saved
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleReset}
-            disabled={resetting || saving}
-            className="gap-2"
-          >
-            {resetting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <RotateCcw className="w-4 h-4" />
-            )}
-            <span className="hidden sm:inline">Reset to defaults</span>
-            <span className="sm:hidden">Reset</span>
-          </Button>
-          {dirty && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleDiscard}
-              disabled={saving}
-            >
-              Discard
-            </Button>
-          )}
-          <Button
-            size="sm"
-            onClick={handleSave}
-            disabled={!dirty || saving}
-            className="gap-2 min-w-[110px]"
-          >
-            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            Save changes
-          </Button>
-        </div>
-      </div>
-
-      {/* ── Mobile bottom sheet for channel editing ───────────────── */}
-      <Sheet
-        open={!!mobileEditType}
-        onOpenChange={o => !o && setMobileEditType(null)}
-      >
-        <SheetContent
-          side="bottom"
-          className="pb-[calc(env(safe-area-inset-bottom)+16px)] max-h-[85vh] overflow-y-auto"
-        >
-          <SheetHeader className="text-left">
-            <SheetTitle>{mobileEditType?.label}</SheetTitle>
-            <SheetDescription>Choose where you're notified.</SheetDescription>
-          </SheetHeader>
-          {mobileEditType && (
-            <div className="mt-4">
-              <ChannelEditor
-                type={mobileEditType}
-                matrix={draftMatrix}
-                channels={draftChannels}
-                snoozed={draftSnoozed}
-                onChange={mutateChannel}
-                dense
-              />
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
-    </TooltipProvider>
-  );
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────
-
-interface ChannelEditorProps {
-  type: NotificationTypeDef;
-  matrix: ChannelMatrix;
-  channels: PrefFlags;
-  snoozed: SnoozeMap;
-  onChange: (typeKey: string, channel: NotificationChannel, value: boolean) => void;
-  dense?: boolean;
-}
-
-function ChannelEditor({ type, matrix, channels, snoozed, onChange, dense }: ChannelEditorProps) {
-  return (
+  const pushDetail = (
     <div className="space-y-1">
-      {CHANNELS.map(ch => {
-        const Icon = CHANNEL_ICON[ch.key];
-        const masterOn = isMasterChannelOn(ch.key, channels);
-        const on = isChannelEnabled(type.key, ch.key, matrix, snoozed, channels);
-        return (
-          <label
-            key={ch.key}
-            className={cn(
-              'flex items-center justify-between gap-3 rounded-md px-2 cursor-pointer',
-              dense ? 'py-3 min-h-[48px]' : 'py-2 min-h-[44px]',
-              !masterOn && 'opacity-60'
-            )}
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <Icon className="w-4 h-4 text-primary shrink-0" />
-              <div className="min-w-0">
-                <div className="text-sm">{ch.label}</div>
-                {!masterOn && (
-                  <div className="text-[10px] text-muted-foreground">
-                    Channel disabled globally
-                  </div>
-                )}
-              </div>
-            </div>
-            <Switch
-              checked={on}
-              disabled={!masterOn}
-              onCheckedChange={v => onChange(type.key, ch.key, v)}
-              aria-label={`${type.label} — ${ch.label}`}
-            />
-          </label>
-        );
-      })}
+      {push.isRegistered ? (
+        <p className="text-xs text-muted-foreground">This phone is registered for push.</p>
+      ) : push.isSupported ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={push.isRegistering}
+          onClick={() => { void push.registerDevice({ organizationId: orgId }); }}
+        >
+          {push.isRegistering ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Enable on this phone'}
+        </Button>
+      ) : (
+        <p className="text-xs text-muted-foreground">Push is not available in this browser.</p>
+      )}
+      {push.status.phase === 'failed' && push.status.message ? (
+        <p className="text-xs text-destructive">{push.status.message}</p>
+      ) : null}
     </div>
   );
-}
 
-// Prevent unused-import warnings while keeping public exports stable.
-void SIDEBAR_DEFAULTS;
-void BELL_DEFAULTS;
-void CHANNEL_DEFAULTS;
+  const error = delivery.error instanceof Error ? delivery.error.message : null;
+
+  return (
+    <NotificationSettingsScreen
+      masters={{
+        push: ownerDeliveryEnabled('push', channels),
+        email: ownerDeliveryEnabled('email', channels),
+        sms: ownerDeliveryEnabled('sms', channels),
+      }}
+      onMaster={handleMaster}
+      pushDetail={pushDetail}
+      groups={groups}
+      onGroup={handleGroup}
+      groupDetail={{
+        daily: (
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={sendingBrief !== null} onClick={() => { void sendBrief('morning'); }}>
+              {sendingBrief === 'morning' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              Send morning brief
+            </Button>
+            <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={sendingBrief !== null} onClick={() => { void sendBrief('evening'); }}>
+              {sendingBrief === 'evening' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              Send end-of-day report
+            </Button>
+          </div>
+        ),
+      }}
+      customers={customers}
+      onCustomer={handleCustomer}
+      customerNote={customerNote}
+      advancedOpen={advancedOpen}
+      onAdvancedOpenChange={setAdvancedOpen}
+      error={error}
+      advanced={(
+        <NotificationAdvancedPanel
+          types={visibleTypes}
+          matrix={matrix}
+          channels={channels}
+          snoozed={snoozed}
+          onChannel={handleChannel}
+          onType={handleType}
+          onCategory={handleCategory}
+          onMaster={handleAdvancedMaster}
+          onPreset={handlePreset}
+          onSnooze={handleSnooze}
+          onUnsnooze={handleUnsnooze}
+          onReset={handleReset}
+          resetting={resetting}
+        />
+      )}
+    />
+  );
+}

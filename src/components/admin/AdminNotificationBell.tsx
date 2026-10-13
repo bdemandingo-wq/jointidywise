@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Bell, Clock, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,8 @@ import { useOrgId } from '@/hooks/useOrgId';
 import { showBrowserNotification } from '@/hooks/usePushNotifications';
 import { isIosAppShell } from '@/lib/pushRuntime';
 import { useNotificationPreferences, useUpdateNotificationPreferences } from '@/hooks/useNotificationPreferences';
-import { isChannelEnabled, typeByKey } from '@/lib/notificationCatalog';
+import { isChannelEnabled, isMasterChannelOn, typeByKey } from '@/lib/notificationCatalog';
+import { systemNotificationCatalogKey } from '@/lib/notificationGroups';
 import { Checkbox } from '@/components/ui/checkbox';
 import { orgDayOfWeek, orgDateKey } from '@/lib/orgDateRange';
 import { useQueryClient } from '@tanstack/react-query';
@@ -57,7 +58,26 @@ export function AdminNotificationBell() {
     } catch { return new Set(); }
   });
   const prefs = useNotificationPreferences();
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
   const { snoozeType } = useUpdateNotificationPreferences();
+
+  const browserPushAllowed = (typeKey?: string) => {
+    const current = prefsRef.current;
+    if (!typeKey) return isMasterChannelOn('browser_push', current.channels);
+    return isChannelEnabled(
+      typeKey,
+      'browser_push',
+      current.notification_matrix,
+      current.snoozed_until,
+      current.channels,
+    );
+  };
+
+  const prependNotification = (prev: AdminNotification[], item: AdminNotification) => {
+    if (prev.some((entry) => entry.id === item.id)) return prev;
+    return [item, ...prev];
+  };
 
   const persistDismissed = (set: Set<string>) => {
     setDismissedIds(new Set(set));
@@ -243,6 +263,7 @@ export function AdminNotificationBell() {
       const systemNotifications: AdminNotification[] = (systemNotifs || []).map((n: any) => ({
         id: `system-${n.id}`,
         type: 'system' as const,
+        typeKey: systemNotificationCatalogKey(n.type),
         title: n.title,
         message: n.message,
         is_read: !!n.is_read,
@@ -282,11 +303,13 @@ export function AdminNotificationBell() {
           () => {
             // Refresh notifications when a new booking request comes in
             fetchNotifications(true);
-            deliverBrowserNotification({
-              id: `request-${Date.now()}`,
-              title: 'New Booking Request',
-              message: 'A new booking request is waiting for review.',
-            });
+            if (browserPushAllowed('client.portal_request')) {
+              deliverBrowserNotification({
+                id: `request-${Date.now()}`,
+                title: 'New Booking Request',
+                message: 'A new booking request is waiting for review.',
+              });
+            }
           }
         )
         .on(
@@ -312,9 +335,9 @@ export function AdminNotificationBell() {
               resource_id: newBooking.id,
               resource_type: 'booking',
             };
-            setNotifications((prev) => [newNotification, ...prev]);
+            setNotifications((prev) => prependNotification(prev, newNotification));
             setUnreadCount((prev) => prev + 1);
-            deliverBrowserNotification(newNotification);
+            if (browserPushAllowed('booking.new')) deliverBrowserNotification(newNotification);
           }
         )
         .on(
@@ -328,9 +351,16 @@ export function AdminNotificationBell() {
           async (payload) => {
             const updatedBooking = payload.new as any;
             const oldBooking = payload.old as any;
-            
-            // Only notify on status changes
-            if (oldBooking.status !== updatedBooking.status || oldBooking.payment_status !== updatedBooking.payment_status) {
+
+            // Realtime sends `old` with only the columns that changed unless
+            // the table uses REPLICA IDENTITY FULL. Comparing a missing status
+            // (`undefined !== 'confirmed'`) used to treat every booking edit
+            // as a reschedule and fire a browser notification.
+            const statusChanged = Object.prototype.hasOwnProperty.call(oldBooking, 'status')
+              && oldBooking.status !== updatedBooking.status;
+            const paymentChanged = Object.prototype.hasOwnProperty.call(oldBooking, 'payment_status')
+              && oldBooking.payment_status !== updatedBooking.payment_status;
+            if (statusChanged || paymentChanged) {
               // Fetch customer name for the notification
               let customerName = 'Customer';
               let scheduledDate = '';
@@ -346,24 +376,29 @@ export function AdminNotificationBell() {
               }
 
               const statusKey =
-                updatedBooking.status === 'cancelled' ? 'booking.cancelled' :
-                updatedBooking.status === 'completed' ? 'booking.completed' :
-                oldBooking.payment_status !== updatedBooking.payment_status && updatedBooking.payment_status === 'failed' ? 'booking.payment_failed' :
-                'booking.rescheduled';
+                paymentChanged && updatedBooking.payment_status === 'failed' ? 'booking.payment_failed' :
+                statusChanged && updatedBooking.status === 'cancelled' ? 'booking.cancelled' :
+                statusChanged && updatedBooking.status === 'completed' ? 'booking.completed' :
+                statusChanged && updatedBooking.status === 'confirmed' ? 'booking.confirmed' :
+                statusChanged ? 'booking.rescheduled' :
+                null;
+              if (!statusKey) return;
               const newNotification: AdminNotification = {
                 id: `booking-update-${updatedBooking.id}-${Date.now()}`,
                 type: 'booking',
                 typeKey: statusKey,
                 title: `${customerName}${scheduledDate ? ` • ${scheduledDate}` : ''}`,
-                message: `Status changed to ${updatedBooking.status}`,
+                message: statusKey === 'booking.payment_failed'
+                  ? 'Payment failed'
+                  : `Status changed to ${updatedBooking.status}`,
                 is_read: false,
                 created_at: new Date().toISOString(),
                 resource_id: updatedBooking.id,
                 resource_type: 'booking',
               };
-              setNotifications((prev) => [newNotification, ...prev]);
+              setNotifications((prev) => prependNotification(prev, newNotification));
               setUnreadCount((prev) => prev + 1);
-              deliverBrowserNotification(newNotification);
+              if (browserPushAllowed(statusKey)) deliverBrowserNotification(newNotification);
             }
           }
         )
@@ -503,11 +538,11 @@ export function AdminNotificationBell() {
     return notifications.filter(n => {
       if (dismissedIds.has(n.id)) return false;
       if (n.typeKey) {
-        return isChannelEnabled(n.typeKey, 'bell', prefs.notification_matrix, prefs.snoozed_until);
+        return isChannelEnabled(n.typeKey, 'bell', prefs.notification_matrix, prefs.snoozed_until, prefs.channels);
       }
       return true;
     });
-  }, [notifications, dismissedIds, prefs.notification_matrix, prefs.snoozed_until]);
+  }, [notifications, dismissedIds, prefs.notification_matrix, prefs.snoozed_until, prefs.channels]);
 
   const visibleUnread = visibleNotifications.filter(n => !n.is_read).length;
 
