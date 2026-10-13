@@ -156,6 +156,8 @@ export function useScoreLeaderboard(city: LeaderboardCity | null, seed: boolean)
         }
         const inserted = typeof data?.inserted === 'number' ? data.inserted : 0;
         const updated = typeof data?.updated === 'number' ? data.updated : 0;
+        const errors = typeof data?.errors === 'number' ? data.errors : 0;
+        if (errors > 0) console.warn('[score] house-cleaning seed row errors', errors, data?.reason);
         if (inserted > 0 || updated > 0) {
           await queryClient.invalidateQueries({ queryKey: ['score-leaderboard', slug] });
         }

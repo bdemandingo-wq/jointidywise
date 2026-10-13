@@ -245,9 +245,11 @@ verify_jwt = true
     # no JWT. The unguessable token is the authorization.
     verify_jwt = false
 
-  # Public checkout endpoints — anonymous /pricing visitors hit these.
-  # The functions still detect a Bearer token if present (in-app
-  # upgrade) and run the grandfathered-lifetime guard for those.
+  # Public checkout endpoints. create-subscription still allows an
+  # anonymous visitor. buy-lifetime does not: the anon key is a signed
+  # JWT, so the gateway cannot tell it from a user. The function itself
+  # returns 401 unless auth.getUser accepts the bearer token, and it
+  # stamps the session with that user's organization_id.
   [functions.create-subscription]
     verify_jwt = false
 

@@ -7,6 +7,7 @@ import { SEOHead } from '@/components/SEOHead';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuthNoSession, supabaseNoSession } from '@/hooks/useAuthNoSession';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import { invokeLifetimeCheckout, LifetimeCheckoutError } from '@/lib/lifetimeCheckout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -92,15 +93,12 @@ export default function SignupPage() {
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // /signup?plan=… is the OLD signup-first checkout path. The new
-  // pricing flow goes /pricing → Stripe directly (anonymous checkout)
-  // → webhook creates the account → email link sets password. Any
-  // visitor still landing here from a cached link or stale bookmark
-  // gets redirected back to /pricing with their plan choice so they
-  // re-enter the canonical flow instead of falling through this
-  // deprecated path.
+  // Subscription plans still start at /pricing, where an anonymous
+  // visitor can open Stripe. Lifetime is a live charge and requires a
+  // signed-in user, so /signup?plan=lifetime stays here. After the
+  // account exists, the splash opens checkout with that session.
   useEffect(() => {
-    if (selectedPlan) {
+    if (selectedPlan && selectedPlan !== 'lifetime') {
       const params = new URLSearchParams();
       params.set('plan', selectedPlan);
       params.set('interval', selectedInterval);
@@ -306,18 +304,15 @@ export default function SignupPage() {
 
     if (selectedPlan === 'lifetime') {
       try {
-        const { data, error } = await supabaseNoSession.functions.invoke('buy-lifetime', { body: {} });
-        // The catch below prefixes this with "Couldn't open checkout:", so the
-        // function's own reason — sold out, already subscribed, price not
-        // configured — completes the sentence instead of "non-2xx status code".
-        if (error) throw new Error(await readEdgeFunctionError(error, 'please try again'));
-        const url = (data as { url?: string })?.url;
-        if (url) {
-          goToCheckout(url);
+        const { url } = await invokeLifetimeCheckout(supabaseNoSession);
+        goToCheckout(url);
+        return;
+      } catch (err) {
+        if (err instanceof LifetimeCheckoutError && err.alreadyLifetime) {
+          toast.success('You already have lifetime access — nothing more to buy.');
+          navigate('/dashboard');
           return;
         }
-        throw new Error('Checkout URL missing');
-      } catch (err) {
         toast.error(
           err instanceof Error
             ? `Couldn't open lifetime checkout: ${err.message}`
@@ -635,7 +630,13 @@ export default function SignupPage() {
             <div className="mt-6 text-center text-sm">
               <span className="text-muted-foreground">Already have an account? </span>
               <Link
-                to={claimSlug ? `/login?claim=${encodeURIComponent(claimSlug)}` : '/login'}
+                to={
+                  claimSlug
+                    ? `/login?claim=${encodeURIComponent(claimSlug)}`
+                    : selectedPlan
+                      ? `/login?plan=${selectedPlan}&interval=${selectedInterval}`
+                      : '/login'
+                }
                 className="text-primary hover:underline font-medium"
                 {...(claimSlug ? { rel: "nofollow" } : {})}
               >

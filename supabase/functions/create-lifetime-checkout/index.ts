@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { lifetimeCallerStatus, lifetimeOrgStatus } from "../_shared/lifetime-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,9 +23,6 @@ serve(async (req) => {
   try {
     logStep("Function started");
 
-    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
-
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
@@ -32,13 +30,29 @@ serve(async (req) => {
     );
 
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) throw new Error("No authorization header provided");
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const token = authHeader?.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(authHeader.indexOf(" ") + 1).trim()
+      : "";
+    let authed: { id: string; email: string } | null = null;
+    if (token && token !== anonKey) {
+      const { data: userData, error: userError } = await supabase.auth.getUser(token);
+      if (!userError && userData.user?.id && userData.user.email) {
+        authed = { id: userData.user.id, email: userData.user.email };
+      }
+    }
+    const rejected = lifetimeCallerStatus({ authorization: authHeader, anonKey, user: authed });
+    if (rejected || !authed) {
+      return new Response(JSON.stringify({ error: rejected?.error ?? "Sign in to claim a lifetime spot." }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401,
+      });
+    }
+    const user = authed;
+    logStep("User authenticated", { userId: user.id });
 
-    const token = authHeader.replace("Bearer ", "");
-    const { data: userData, error: userError } = await supabase.auth.getUser(token);
-    if (userError || !userData.user?.email) throw new Error("User not authenticated");
-    const user = userData.user;
-    logStep("User authenticated", { userId: user.id, email: user.email });
+    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
 
     // Check spots remaining
     const { count, error: countError } = await supabase
@@ -64,9 +78,29 @@ serve(async (req) => {
 
     if (existingPurchase) {
       return new Response(
-        JSON.stringify({ error: "You already have lifetime access." }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
+        JSON.stringify({ error: "You already have lifetime access.", alreadyLifetime: true }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 409 }
       );
+    }
+
+    const { data: membership, error: membershipError } = await supabase
+      .from("org_memberships")
+      .select("organization_id")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (membershipError) throw membershipError;
+    const organizationId = membership?.organization_id ?? null;
+    const orgMissing = lifetimeOrgStatus(organizationId);
+    if (orgMissing || !organizationId) {
+      return new Response(JSON.stringify({
+        error: orgMissing?.error ?? "Your workspace is still being set up. Try again in a moment.",
+        code: orgMissing?.code ?? "org_not_ready",
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 409,
+      });
     }
 
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
@@ -89,12 +123,14 @@ serve(async (req) => {
         user_id: user.id,
         email: user.email,
         plan: "lifetime",
+        organization_id: organizationId,
       },
       payment_intent_data: {
         metadata: {
           user_id: user.id,
           email: user.email,
           plan: "lifetime",
+          organization_id: organizationId,
         },
       },
       line_items: lifetimePriceId
