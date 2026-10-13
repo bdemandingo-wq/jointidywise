@@ -8175,6 +8175,7 @@ export type Database = {
           plan_downgrade_scheduled_to: string | null
           plan_tier: string
           plan_type: string | null
+          referred_by: string | null
           slug: string | null
           stripe_schedule_id: string | null
           updated_at: string
@@ -8194,6 +8195,7 @@ export type Database = {
           plan_downgrade_scheduled_to?: string | null
           plan_tier?: string
           plan_type?: string | null
+          referred_by?: string | null
           slug?: string | null
           stripe_schedule_id?: string | null
           updated_at?: string
@@ -8213,11 +8215,20 @@ export type Database = {
           plan_downgrade_scheduled_to?: string | null
           plan_tier?: string
           plan_type?: string | null
+          referred_by?: string | null
           slug?: string | null
           stripe_schedule_id?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "organizations_referred_by_fkey"
+            columns: ["referred_by"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       page_seo_metadata: {
         Row: {
@@ -9332,6 +9343,179 @@ export type Database = {
           {
             foreignKeyName: "recurring_offer_queue_organization_id_fkey"
             columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_codes: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          organization_id: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          organization_id: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_codes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_rewards: {
+        Row: {
+          amount_cents: number | null
+          applied_at: string | null
+          created_at: string
+          currency: string
+          id: string
+          months: number
+          organization_id: string
+          reversal_balance_transaction_id: string | null
+          reversed_at: string | null
+          reward_index: number
+          source_referral_ids: string[]
+          status: string
+          stripe_balance_transaction_id: string | null
+          stripe_customer_id: string | null
+        }
+        Insert: {
+          amount_cents?: number | null
+          applied_at?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          months?: number
+          organization_id: string
+          reversal_balance_transaction_id?: string | null
+          reversed_at?: string | null
+          reward_index: number
+          source_referral_ids: string[]
+          status?: string
+          stripe_balance_transaction_id?: string | null
+          stripe_customer_id?: string | null
+        }
+        Update: {
+          amount_cents?: number | null
+          applied_at?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          months?: number
+          organization_id?: string
+          reversal_balance_transaction_id?: string | null
+          reversed_at?: string | null
+          reward_index?: number
+          source_referral_ids?: string[]
+          status?: string
+          stripe_balance_transaction_id?: string | null
+          stripe_customer_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_rewards_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_signups: {
+        Row: {
+          block_reason: string | null
+          code: string
+          created_at: string
+          id: string
+          paid_at: string | null
+          qualifying_charge_id: string | null
+          qualifying_invoice_id: string | null
+          referral_code_id: string
+          referred_email: string | null
+          referred_org_id: string
+          referred_org_name: string | null
+          referred_user_id: string | null
+          referrer_org_id: string
+          reversal_reason: string | null
+          reversed_at: string | null
+          status: string
+          stripe_customer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          block_reason?: string | null
+          code: string
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          qualifying_charge_id?: string | null
+          qualifying_invoice_id?: string | null
+          referral_code_id: string
+          referred_email?: string | null
+          referred_org_id: string
+          referred_org_name?: string | null
+          referred_user_id?: string | null
+          referrer_org_id: string
+          reversal_reason?: string | null
+          reversed_at?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          block_reason?: string | null
+          code?: string
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          qualifying_charge_id?: string | null
+          qualifying_invoice_id?: string | null
+          referral_code_id?: string
+          referred_email?: string | null
+          referred_org_id?: string
+          referred_org_name?: string | null
+          referred_user_id?: string | null
+          referrer_org_id?: string
+          reversal_reason?: string | null
+          reversed_at?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_signups_referral_code_id_fkey"
+            columns: ["referral_code_id"]
+            isOneToOne: false
+            referencedRelation: "referral_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_signups_referred_org_id_fkey"
+            columns: ["referred_org_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_signups_referrer_org_id_fkey"
+            columns: ["referrer_org_id"]
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
@@ -12133,6 +12317,7 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
+      generate_referral_code: { Args: never; Returns: string }
       get_ai_credit_status: {
         Args: { _org_id: string }
         Returns: {
