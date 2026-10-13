@@ -12,6 +12,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AddressAutocomplete } from '@/components/address/AddressAutocomplete';
 import { maybeAdoptOrgCountry } from '@/lib/orgCountry';
 import { useOrgId } from '@/hooks/useOrgId';
+import { StaffLocationSection } from '@/components/staff/StaffLocationSection';
 
 interface StaffInfo {
   id: string;
@@ -170,6 +171,8 @@ export function CleanerProfile({ staffInfo, userId }: Props) {
 
   return (
     <div className="space-y-6">
+      <StaffLocationSection staffId={staffInfo.id} />
+
       {/* Profile Photo Card */}
       <Card>
         <CardHeader>
