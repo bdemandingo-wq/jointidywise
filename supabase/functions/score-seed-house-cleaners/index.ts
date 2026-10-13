@@ -359,7 +359,7 @@ Deno.serve(async (req) => {
           locationBias: {
             circle: {
               center: { latitude: located.location.latitude, longitude: located.location.longitude },
-              radius: 64000,
+              radius: 50000,
             },
           },
         });
