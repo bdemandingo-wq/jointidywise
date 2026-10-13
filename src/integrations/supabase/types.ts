@@ -12608,6 +12608,7 @@ export type Database = {
         Args: { _organization_id: string; _target_user_id: string }
         Returns: undefined
       }
+      reopen_assigned_booking: { Args: { p_booking_id: string }; Returns: Json }
       reset_client_portal_password: {
         Args: { p_new_password: string; p_user_id: string }
         Returns: boolean
