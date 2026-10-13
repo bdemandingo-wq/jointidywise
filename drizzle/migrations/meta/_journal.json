@@ -148,6 +148,13 @@
       "when": 1791902220875,
       "tag": "0020_booking_photo_original_and_proof_lock",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791902258480,
+      "tag": "0021_team_claim_org_and_guard",
+      "breakpoints": true
     }
   ]
 }
