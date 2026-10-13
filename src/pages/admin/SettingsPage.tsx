@@ -64,6 +64,7 @@ import { EmailDeliveryPanel } from '@/components/admin/EmailDeliveryPanel';
 import { EmailTemplatesSettings } from '@/components/admin/EmailTemplatesSettings';
 import { NotificationPreferencesCard } from '@/components/admin/NotificationPreferencesCard';
 import { useLegacyNotificationMigration } from '@/hooks/useLegacyNotificationMigration';
+import ReferEarnPanel from '@/components/settings/ReferEarnPanel';
 
 import { CopilotSettingsCard } from '@/components/admin/CopilotSettingsCard';
 
@@ -712,6 +713,7 @@ export default function SettingsPage() {
         <div className="min-w-0 w-full overflow-x-auto overflow-y-hidden touch-pan-x">
            <TabsList className="!h-auto w-max min-w-full flex-nowrap justify-start gap-1 md:w-full md:flex-wrap">
             <TabsTrigger className="shrink-0 min-h-11" value="general">General</TabsTrigger>
+            <TabsTrigger className="shrink-0 min-h-11" value="refer">Refer & earn</TabsTrigger>
             {showBilling && (
               <TabsTrigger className="shrink-0 min-h-11" value="subscription">
                 Subscription
@@ -751,6 +753,10 @@ export default function SettingsPage() {
             )}
           </TabsContent>
         )}
+
+        <TabsContent value="refer" className="space-y-6">
+          <ReferEarnPanel />
+        </TabsContent>
 
         {/* General Settings */}
         <TabsContent value="general" className="space-y-6">

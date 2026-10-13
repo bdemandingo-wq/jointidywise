@@ -22,6 +22,7 @@ import { Eye, EyeOff, Loader2, ArrowLeft, Mail, Lock, User, Phone, Crown, Sparkl
 import { z } from 'zod';
 import { validatePhone } from '@/lib/phoneValidation';
 import { PERSON_NAME_MAX } from '@/lib/displayName';
+import { ReferredSignupBanner } from '@/components/ReferredSignupBanner';
 
 // Plan metadata for the "you're signing up to start X" banner. Kept
 // inline so the signup page doesn't have to import the full features.ts
@@ -418,6 +419,8 @@ export default function SignupPage() {
             </div>
           </div>
         )}
+
+        <ReferredSignupBanner />
 
         <Card className="border-border/50 shadow-lg">
           <CardHeader className="text-center pb-4">

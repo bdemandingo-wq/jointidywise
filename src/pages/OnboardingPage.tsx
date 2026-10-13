@@ -396,18 +396,18 @@ export default function OnboardingPage() {
       // Record the referral, if this signup arrived via someone's link.
       //
       // The client sends the ORG ID and the CODE and nothing else. It does not
-      // name the referrer, set a status, or grant anything — claim-referral
-      // resolves all of that on the service role. That split is deliberate:
-      // organizations' INSERT policy is (auth.uid() = owner_id) with no column
-      // enumeration, so any attribution a client could write, a client could
-      // forge.
+      // name the referrer, set a status, or grant anything — claim-saas-referral
+      // resolves all of that on the service role, including organizations.referred_by.
+      // That split is deliberate: organizations' INSERT policy is
+      // (auth.uid() = owner_id) with no column enumeration, so any attribution
+      // a client could write, a client could forge.
       //
       // Deliberately non-fatal. A failed claim must never cost someone their
-      // signup, and org_referrals' UNIQUE(referred_org_id) means a retry can
+      // signup, and referral_signups' UNIQUE(referred_org_id) means a retry can
       // never double-attribute.
       const capturedCode = readCapturedReferral();
       if (capturedCode) {
-        void supabase.functions.invoke('claim-referral', {
+        void supabase.functions.invoke('claim-saas-referral', {
           body: { organization_id: orgData.id, referral_code: capturedCode },
         }).then(({ error: refErr }) => {
           if (refErr) {

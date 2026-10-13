@@ -3,6 +3,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { REFUND_POLICY, CANCELLATION_POLICY, POLICY_DISCLOSURE, TOS_VERSION } from "../_shared/policies.ts";
 import { rejectReason, isVested } from "../_shared/referral-eligibility.ts";
+import { recordReferralInvoicePaid, recordReferralReversal, type BalanceClient } from "../_shared/saas-referral-db.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
 
 /**
@@ -1149,6 +1150,35 @@ const handler = async (req: Request): Promise<Response> => {
             console.error("[referral] vesting block failed (swallowed):", e);
           }
 
+          // Org-owner referral programme: count the first invoice with
+          // amount > 0, once, and apply or bank a free month per pair.
+          try {
+            const balance: BalanceClient = {
+              createBalanceTransaction: (customerId, body, options) =>
+                stripe.customers.createBalanceTransaction(customerId, body, {
+                  idempotencyKey: options.idempotencyKey,
+                }),
+            };
+            const subscriptionId = typeof invAny.subscription === "string"
+              ? invAny.subscription
+              : invAny.subscription?.id ?? null;
+            const customerId = typeof inv.customer === "string"
+              ? inv.customer
+              : (inv.customer as { id?: string } | null)?.id ?? null;
+            await recordReferralInvoicePaid(supabase, {
+              invoiceId: inv.id,
+              amountPaid: inv.amount_paid ?? 0,
+              organizationId: (combined.organization_id as string) || null,
+              subscriptionId,
+              stripeCustomerId: customerId,
+              chargeId: charge?.id ?? null,
+              paidAt: new Date(((inv as any).status_transitions?.paid_at ?? event.created) * 1000).toISOString(),
+              purpose: (combined.purpose as string) || null,
+            }, balance);
+          } catch (e) {
+            console.error("[saas-referral] invoice.paid handler failed (swallowed):", e);
+          }
+
 
 
           // Look up Supabase user by account_id metadata or customer email
@@ -1215,6 +1245,32 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
 
+    // A refund of the qualifying charge undoes the referral count when it
+    // lands inside 30 days. The balance transaction is a debit of the credit
+    // already given — it does not create a new charge.
+    if (event.type === "charge.refunded") {
+      try {
+        const refundedCharge = event.data.object as Stripe.Charge;
+        const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
+          apiVersion: "2025-08-27.basil",
+        });
+        const balance: BalanceClient = {
+          createBalanceTransaction: (customerId, body, options) =>
+            stripe.customers.createBalanceTransaction(customerId, body, {
+              idempotencyKey: options.idempotencyKey,
+            }),
+        };
+        await recordReferralReversal(supabase, {
+          chargeId: refundedCharge.id,
+          invoiceId: typeof refundedCharge.invoice === "string" ? refundedCharge.invoice : null,
+          eventAt: new Date(event.created * 1000).toISOString(),
+          reason: "refund",
+        }, balance);
+      } catch (e) {
+        console.error("[saas-referral] refund reversal failed (swallowed):", e);
+      }
+    }
+
     // ── DISPUTE / CHARGEBACK HANDLING (Visa CE 3.0, reason 10.4) ────────────
     if (event.type === "charge.dispute.created" || event.type === "charge.dispute.updated") {
       try {
@@ -1224,6 +1280,25 @@ const handler = async (req: Request): Promise<Response> => {
         });
 
         const charge = await stripe.charges.retrieve(dispute.charge as string);
+
+        if (event.type === "charge.dispute.created") {
+          try {
+            const balance: BalanceClient = {
+              createBalanceTransaction: (customerId, body, options) =>
+                stripe.customers.createBalanceTransaction(customerId, body, {
+                  idempotencyKey: options.idempotencyKey,
+                }),
+            };
+            await recordReferralReversal(supabase, {
+              chargeId: typeof dispute.charge === "string" ? dispute.charge : charge.id,
+              invoiceId: typeof charge.invoice === "string" ? charge.invoice : null,
+              eventAt: new Date(event.created * 1000).toISOString(),
+              reason: "dispute",
+            }, balance);
+          } catch (e) {
+            console.error("[saas-referral] dispute reversal failed (swallowed):", e);
+          }
+        }
         const paymentIntentId = (charge.payment_intent as string) || null;
         const customerId = (charge.customer as string) || null;
         const customerEmail = charge.billing_details?.email || charge.receipt_email || null;
