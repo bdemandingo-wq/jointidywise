@@ -18,6 +18,7 @@ import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
+import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import {
   Check,
   Sparkles,
@@ -176,22 +177,8 @@ export default function PricingPage() {
     const reset = () => {
       isRedirectingRef.current = false;
       setCheckoutBusy(null);
-      if (checkoutToastTimerRef.current) {
-        window.clearTimeout(checkoutToastTimerRef.current);
-        checkoutToastTimerRef.current = null;
-      }
     };
-    // pagehide fires when the user is navigating away (including to
-    // Stripe). Cancel the fallback toast so it doesn't pop in during
-    // the unload transition — the load-bearing fix for the glitch the
-    // user reported.
     window.addEventListener('pageshow', reset);
-    window.addEventListener('pagehide', () => {
-      if (checkoutToastTimerRef.current) {
-        window.clearTimeout(checkoutToastTimerRef.current);
-        checkoutToastTimerRef.current = null;
-      }
-    });
     return () => window.removeEventListener('pageshow', reset);
   }, []);
   const spotsLeft = lifetime.spotsLeft;
@@ -289,113 +276,15 @@ export default function PricingPage() {
 
 
 
-  // Detect iframe once per call. Cross-origin top access throws → iframed.
-  function isInIframe(): boolean {
-    try {
-      return window.self !== window.top;
-    } catch {
-      return true;
-    }
-  }
-
-  // Synchronously open a blank tab from inside a user-gesture click handler.
-  // Browsers only honor window.open() during the gesture; after an `await`
-  // it's treated as programmatic and popup-blocked. Call this BEFORE
-  // awaiting the edge function, then point the returned window at the
-  // Stripe URL once it resolves. Returns null when not iframed (we use
-  // same-tab navigation instead, which is never popup-blocked) or when
-  // the popup was blocked outright.
-  function preopenCheckoutTab(): Window | null {
-    if (!isInIframe()) return null;
-    try {
-      return window.open('', '_blank', 'noopener,noreferrer');
-    } catch {
-      return null;
-    }
-  }
-
-  // Navigate to Stripe. Preferred path: top-level same-tab navigation,
-  // which browsers never popup-block. If we're inside an iframe (Lovable
-  // preview, in-app webview), use the pre-opened tab from the click
-  // gesture, then fall back to top-frame break, then plain navigation.
-  // A "Continue to secure checkout" toast appears after 2s as a safety
-  // net for the rare case all paths are blocked.
-  // Track the "Continue to secure checkout" toast timer at component
-  // scope so the click handlers can cancel it once the redirect actually
-  // succeeds. Without this, the toast fires after every click — even
-  // successful navigations — and pops in during the brief unload window,
-  // which looked like "glitching" to the user.
-  const checkoutToastTimerRef = useRef<number | null>(null);
-
-  function goToCheckout(url: string, preopened?: Window | null) {
-    // Exactly ONE navigation per call. Caller MUST set
-    // isRedirectingRef before invoking so duplicate sessions can't
-    // ride alongside.
-    if (preopened && !preopened.closed) {
-      try {
-        preopened.location.href = url;
-      } catch {
-        try { preopened.close(); } catch { /* ignore */ }
-        try {
-          if (window.top && window.top !== window.self) {
-            window.top.location.href = url;
-          } else {
-            window.location.href = url;
-          }
-        } catch {
-          window.location.href = url;
-        }
-      }
-    } else {
-      try {
-        if (window.top && window.top !== window.self) {
-          window.top.location.href = url;
-        } else {
-          window.location.href = url;
-        }
-      } catch {
-        window.location.href = url;
-      }
-    }
-
-    // Safety-net fallback toast in case the navigation is silently
-    // blocked (popup blockers in some in-app webviews). Cancellable from
-    // outside — once the browser actually starts navigating away (the
-    // page hides via visibilitychange OR pagehide) we clear the timer
-    // so it doesn't pop in during unload.
-    if (checkoutToastTimerRef.current) {
-      window.clearTimeout(checkoutToastTimerRef.current);
-    }
-    checkoutToastTimerRef.current = window.setTimeout(() => {
-      checkoutToastTimerRef.current = null;
-      // If the document is already hidden, we ARE mid-redirect. Skip
-      // the toast — by the time the user gets back the toast is stale.
-      if (document.visibilityState !== 'visible') return;
-      toast.message('Continue to secure checkout', {
-        description: 'If Stripe did not open automatically, tap below.',
-        duration: 30000,
-        action: {
-          label: 'Open Stripe',
-          onClick: () => {
-            window.open(url, '_blank', 'noopener,noreferrer') ??
-              (window.location.href = url);
-          },
-        },
-      });
-    }, 2500);
-  }
-
-
   // Subscription cards link to signup (or the dashboard, if already
-  // signed in). Lifetime is still a one-time Stripe payment. A canceled
-  // lifetime checkout can return with ?plan= in the URL; the highlight
-  // restores, and we do not auto-open Stripe again.
+  // signed in). Lifetime opens Embedded Checkout on this site. A canceled
+  // checkout returns with ?plan= in the URL; the highlight restores, and
+  // we do not auto-open checkout again.
 
   async function startLifetimeCheckout() {
     if (isRedirectingRef.current || checkoutBusy) return;
     isRedirectingRef.current = true;
 
-    const preopened = preopenCheckoutTab();
     setCheckoutBusy('lifetime');
     try {
       const { data, error } = await supabase.functions.invoke('buy-lifetime', {
@@ -405,25 +294,16 @@ export default function PricingPage() {
       // price not configured. Throwing the raw error showed "non-2xx status
       // code" instead of any of them.
       if (error) throw new Error(await readEdgeFunctionError(error, 'Could not start the lifetime checkout. Try again.'));
-      const payload = data as { url?: string; error?: string } | null;
-      if (payload?.error) throw new Error(payload.error);
-      const url = payload?.url;
-      if (!url) throw new Error('Checkout URL missing');
-      goToCheckout(url, preopened);
-      window.setTimeout(() => {
-        if (document.visibilityState === 'visible') {
-          setCheckoutBusy((current) => (current === 'lifetime' ? null : current));
-        }
-      }, 2000);
+      const session = readCheckoutSession(data);
+      openEmbeddedCheckout({
+        ...session,
+        plan: 'lifetime',
+        cancelPath: '/pricing?plan=lifetime&canceled=1',
+      });
     } catch (err) {
-      if (preopened && !preopened.closed) {
-        try { preopened.close(); } catch { /* ignore */ }
-      }
       const message = err instanceof Error ? err.message : '';
       // A 409 "you already have lifetime access" is not a failure — it is the
-      // correct answer for someone who already bought. Treating it as an error
-      // left them staring at a blank pre-opened tab and a red toast, so send
-      // them to the dashboard with a neutral message instead.
+      // correct answer for someone who already bought.
       if (/already have lifetime access/i.test(message)) {
         toast.success('You already have lifetime access — nothing more to buy.');
         setCheckoutBusy(null);
@@ -435,7 +315,6 @@ export default function PricingPage() {
       setCheckoutBusy(null);
       isRedirectingRef.current = false;
     }
-
   }
 
 

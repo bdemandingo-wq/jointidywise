@@ -15,6 +15,7 @@ import { SEOHead } from '@/components/SEOHead';
 import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
+import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import { shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
 import {
   hasAnswer,
@@ -216,12 +217,16 @@ export default function ChoosePlanPage() {
         }
         throw new Error(await readEdgeFunctionError(error, 'Failed to start checkout'));
       }
-      const payload = data as { url?: string; error?: string } | null;
-      if (payload?.error) throw new Error(payload.error);
-      if (!payload?.url) throw new Error('No checkout URL returned');
+      const session = readCheckoutSession(data);
       window.clearTimeout(timeoutId);
-      // Same-tab redirect — smoother than a popup and never blocked.
-      window.location.href = payload.url;
+      openEmbeddedCheckout({
+        ...session,
+        plan: planId,
+        interval: planId === 'lifetime' ? null : billingInterval,
+        cancelPath: planId === 'lifetime'
+          ? '/choose-plan?upgrade=1'
+          : `/choose-plan?upgrade=1&plan=${encodeURIComponent(planId)}&interval=${encodeURIComponent(billingInterval)}`,
+      });
     } catch (err: unknown) {
       window.clearTimeout(timeoutId);
       isRedirectingRef.current = false;

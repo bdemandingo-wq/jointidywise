@@ -11,11 +11,9 @@
  *   3. Browser back → /pricing with yearly still selected AND the Pro
  *      tier visually highlighted (ring on the Card)
  *
- * The Stripe legs (cancel_url, the back arrow on the Checkout page, and
- * the "form back" Stripe shows after a card failure) all redirect to the
- * `cancel_url` set in the edge function — which we verify by inspecting
- * the source string. That's the best we can do without a live Stripe
- * session.
+ * Embedded Checkout has no hosted cancel_url. The in-app Back link on
+ * /billing/checkout returns to /pricing with the plan still in the URL,
+ * which these tests cover. Stripe itself is not driven from Playwright.
  */
 
 import { test, expect } from "@playwright/test";
@@ -108,26 +106,35 @@ test.describe("Pricing back-button flow (yearly)", () => {
     expect(after).toBeNull();
   });
 
-  test("Stripe cancel_url and success_url point at the in-app /pricing and /checkout/success routes, and cancel preserves plan + interval", () => {
-    // Static guard: every Stripe-side exit (cancel button, browser back
-    // from the Checkout form, declined-payment "back to merchant" link)
-    // routes to whatever cancel_url we hand Stripe. Lock that to
-    // /pricing AND require the plan + interval params, so the tier
-    // highlight is restorable from URL alone after any Stripe exit.
+  test("Embedded Checkout stays on site and keeps 3D Secure split by product", () => {
+    // Hosted Checkout's success_url and cancel_url are gone. Stripe
+    // redirects the webview to /billing/return, and the in-app Back
+    // link restores the plan highlight. Lifetime still challenges
+    // every card; subscriptions stay on Stripe's automatic default.
     const sub = readFileSync(
       join(process.cwd(), "supabase/functions/create-subscription/index.ts"),
       "utf8",
     );
-    expect(sub).toMatch(/cancel_url:\s*`\$\{origin\}\/pricing\?plan=/);
-    expect(sub).toMatch(/cancel_url:[^`]*interval=\$\{encodeURIComponent/);
-    expect(sub).toMatch(/success_url:\s*`\$\{origin\}\/checkout\/success/);
+    expect(sub).toMatch(/embeddedCheckoutParams\(origin\)/);
+    expect(sub).not.toMatch(/success_url:/);
+    expect(sub).not.toMatch(/cancel_url:/);
+    expect(sub).toMatch(/request_three_d_secure:\s*"automatic"/);
 
     const lifetime = readFileSync(
       join(process.cwd(), "supabase/functions/buy-lifetime/index.ts"),
       "utf8",
     );
-    expect(lifetime).toMatch(/cancel_url:\s*`\$\{origin\}\/pricing/);
-    expect(lifetime).toMatch(/success_url:\s*`\$\{origin\}\/checkout\/success/);
+    expect(lifetime).toMatch(/embeddedCheckoutParams\(origin\)/);
+    expect(lifetime).not.toMatch(/success_url:/);
+    expect(lifetime).not.toMatch(/cancel_url:/);
+    expect(lifetime).toMatch(/request_three_d_secure:\s*"any"/);
+
+    const shared = readFileSync(
+      join(process.cwd(), "supabase/functions/_shared/embedded-checkout.ts"),
+      "utf8",
+    );
+    expect(shared).toMatch(/\/billing\/return\?session_id=\{CHECKOUT_SESSION_ID\}/);
+    expect(shared).toMatch(/ui_mode:\s*"embedded"/);
   });
 
   test("URL params restore the tier highlight after a full refresh during checkout (Stripe embedded cancel path)", async ({ page }) => {
@@ -354,16 +361,15 @@ test.describe("Pricing back-button flow (yearly)", () => {
   });
 
   test("Embedded checkout success: /checkout/success is the post-checkout destination AND triggers a check-subscription refresh so the dashboard updates immediately on webhook completion", async ({ page }) => {
-    // 1. Source guard — Stripe's success_url targets /checkout/success
-    //    (not /dashboard), with plan + interval forwarded so the banner
-    //    + receipt have full context.
-    const sub = readFileSync(
-      join(process.cwd(), "supabase/functions/create-subscription/index.ts"),
+    // 1. Source guard — a paid Embedded Checkout session continues to
+    //    /checkout/success after /billing/return confirms it. The success
+    //    page is still where the dashboard refresh happens.
+    const returnPage = readFileSync(
+      join(process.cwd(), "src/pages/BillingReturnPage.tsx"),
       "utf8",
     );
-    expect(sub).toMatch(
-      /success_url:\s*`\$\{origin\}\/checkout\/success\?plan=\$\{encodeURIComponent[^}]+\}&interval=\$\{encodeURIComponent/,
-    );
+    expect(returnPage).toMatch(/\/checkout\/success/);
+    expect(returnPage).toMatch(/reconcile-checkout-session/);
 
     // 2. Behavior guard — the success page polls checkSubscription
     //    multiple times so the dashboard's subscribed state flips the
@@ -373,14 +379,14 @@ test.describe("Pricing back-button flow (yearly)", () => {
       "utf8",
     );
     expect(successPage).toMatch(/checkSubscription\(\)/);
-    expect(successPage).toMatch(/\[0,\s*1500,\s*4000,\s*8000\]/);
+    expect(successPage).toMatch(/\[0,\s*1500,\s*4000,\s*8000,/);
 
     // 3. Live guard — visiting /checkout/success renders the post-
     //    checkout destination (not a redirect to /dashboard) and seeds
     //    tw_active_plan for the banner.
     await page.goto("/checkout/success?plan=pro&interval=yearly");
     await expect(page).toHaveURL(/\/checkout\/success/);
-    await expect(page.getByRole("heading", { name: /You're in/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Payment confirmed/ })).toBeVisible();
     const seeded = await page.evaluate(() =>
       localStorage.getItem("tw_active_plan"),
     );

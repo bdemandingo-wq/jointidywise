@@ -24,6 +24,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { ensureOnboardingCoupon, type OnboardingCouponOffer } from "../_shared/onboarding-coupons.ts";
+import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -348,6 +349,16 @@ serve(async (req) => {
       subscriptionData.trial_period_days = 14;
     }
 
+    const publishableKey = readPublishableKey();
+    if (!publishableKey) {
+      return new Response(
+        JSON.stringify({
+          error: "Checkout is not configured. STRIPE_PUBLISHABLE_KEY is missing on the server. Nothing was charged.",
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
+      );
+    }
+
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
 
@@ -358,6 +369,7 @@ serve(async (req) => {
 
       line_items: [{ price: priceId, quantity: 1 }],
       mode: "subscription",
+      ...embeddedCheckoutParams(origin),
       // Subscription checkout uses the Billing Payments configuration, not the
       // account Default. Link and Cash App are disabled inside that config:
       // they accounted for 14 of 36 SaaS payment failures (partner_insufficient_funds,
@@ -380,8 +392,6 @@ serve(async (req) => {
 
       ...(checkoutDiscounts ? { discounts: checkoutDiscounts } : {}),
       subscription_data: subscriptionData,
-      success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}&plan=${requestedPlan}&interval=${requestedInterval}`,
-      cancel_url: `${origin}/pricing?canceled=true`,
     });
 
     // Record that a discounted session was attached. This is informational
@@ -418,7 +428,7 @@ serve(async (req) => {
     });
 
 
-    return new Response(JSON.stringify({ url: session.url }), {
+    return new Response(JSON.stringify(embeddedCheckoutBody(session.client_secret, publishableKey)), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });
