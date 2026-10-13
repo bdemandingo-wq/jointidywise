@@ -317,7 +317,7 @@ export function SMSSettingsCard() {
               variant="outline"
               size="sm"
               className="gap-1.5 shrink-0"
-              onClick={() => navigate('/admin/automation-center')}
+              onClick={() => navigate('/dashboard/automation-center')}
             >
               Go to Automations
               <ArrowRight className="w-3.5 h-3.5" />

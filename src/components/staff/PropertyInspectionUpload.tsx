@@ -171,7 +171,7 @@ export function PropertyInspectionUpload({ bookingId, staffId, organizationId, o
           type: 'staff_activity',
           title: '🔍 Inspection report submitted',
           message: `Staff submitted ${uploadedCount} inspection photo${uploadedCount === 1 ? '' : 's'} for booking #${bookingId.slice(0, 8)}`,
-          link: `/admin/bookings/${bookingId}/photos`,
+          link: '/dashboard/booking-photos',
           metadata: { booking_id: bookingId, staff_id: staffId, count: uploadedCount },
         });
       } catch (notifyErr) {
