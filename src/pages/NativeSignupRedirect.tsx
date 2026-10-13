@@ -33,6 +33,8 @@ import { toast } from 'sonner';
 import { Eye, EyeOff, Loader2, Mail, Lock, User } from 'lucide-react';
 import { z } from 'zod';
 import { PERSON_NAME_MAX } from '@/lib/displayName';
+import { readCapturedReferral } from '@/lib/referralAttribution';
+import { ReferredSignupBanner } from '@/components/ReferredSignupBanner';
 
 // ── Validation ──────────────────────────────────────────────────────
 const signupSchema = z.object({
@@ -79,7 +81,9 @@ export default function NativeSignupPage() {
   // ── Provision trial org ───────────────────────────────────────────
   const provisionTrialOrg = async (): Promise<string | null> => {
     try {
-      const { data, error } = await supabaseNoSession.functions.invoke('provision-trial-org');
+      const { data, error } = await supabaseNoSession.functions.invoke('provision-trial-org', {
+        body: { referral_code: readCapturedReferral() },
+      });
       if (error) {
         console.error('Trial org provisioning failed:', error);
         return null;
@@ -281,6 +285,7 @@ export default function NativeSignupPage() {
             </CardHeader>
 
             <CardContent className="space-y-5">
+              <ReferredSignupBanner />
               {/* ── OAuth buttons ─────────────────────────────────── */}
               <div className="space-y-3">
                 {/* Continue with Apple — Guideline 4.8 requires this

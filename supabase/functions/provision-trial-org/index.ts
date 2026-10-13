@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { claimSaasReferral } from "../_shared/saas-referral-db.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -19,6 +20,33 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
     { auth: { persistSession: false } }
   );
+
+  let referralCode: string | null = null;
+  if (req.method === "POST") {
+    const raw = await req.text();
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as { referral_code?: unknown };
+        if (typeof parsed?.referral_code === "string") referralCode = parsed.referral_code;
+      } catch {
+        // No JSON body. Provisioning still proceeds.
+      }
+    }
+  }
+
+  const claimIfPresent = async (organizationId: string, userId: string, email: string | null) => {
+    if (!referralCode) return;
+    try {
+      await claimSaasReferral(supabase, {
+        organizationId,
+        userId,
+        email,
+        code: referralCode,
+      });
+    } catch (claimError) {
+      console.error("[PROVISION-TRIAL-ORG] referral claim failed", claimError);
+    }
+  };
 
   try {
     const authHeader = req.headers.get("Authorization");
@@ -41,6 +69,7 @@ serve(async (req) => {
 
     if (existing?.organization_id) {
       log("already provisioned", { organization_id: existing.organization_id });
+      await claimIfPresent(existing.organization_id, user.id, user.email ?? null);
       return json({ already_provisioned: true, organization_id: existing.organization_id });
     }
 
@@ -113,6 +142,8 @@ serve(async (req) => {
       .from("org_memberships")
       .insert({ organization_id: org.id, user_id: user.id, role: "owner" });
     if (membershipError) throw membershipError;
+
+    await claimIfPresent(org.id, user.id, user.email ?? null);
 
     log("provisioned", { organization_id: org.id });
     return json({ organization_id: org.id, trial_ends_at: trialEndsAt });
