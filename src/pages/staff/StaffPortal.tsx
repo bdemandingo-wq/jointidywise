@@ -70,6 +70,7 @@ const TabFallback = () => (
 );
 
 interface Booking extends WageBooking {
+  team_claimed?: number;
   id: string;
   booking_number: number;
   scheduled_at: string;

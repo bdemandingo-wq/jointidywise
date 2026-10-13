@@ -20,6 +20,8 @@ import { formatInTimezone } from '@/lib/timezoneUtils';
 import { resolveCleanerPay, describeCleanerPay, type WageBooking, type WageStaff } from '@/lib/wageCalculation';
 import { useHourCaps } from '@/hooks/useHourCaps';
 import { CustomerNotesBlock } from '@/components/CustomerNotesBlock';
+import { isTeamJob, teamBadge, cleanersNeeded } from '@/lib/teamJobs';
+import { Users } from 'lucide-react';
 
 type StaffInfo = WageStaff;
 
@@ -39,6 +41,8 @@ interface Booking extends WageBooking {
   customer_notes?: string | null;
   /** Add-on slugs; labels resolve per-org. See lib/bookingExtras. */
   extras?: unknown;
+  /** Team jobs: cleaners who already claimed (computed in StaffPortal). */
+  team_claimed?: number;
   customer: {
     first_name: string;
     last_name: string;
@@ -71,7 +75,7 @@ export function AvailableJobCard({ booking, staffInfo, organizationId, orgExtras
   // a job matches what they see after claiming it — and what payroll pays.
   // No pay_share: an unclaimed job has no team assignment row yet.
   const { caps: hourCaps } = useHourCaps(organizationId);
-  const payResult = resolveCleanerPay(booking, staffInfo, null, 1, hourCaps);
+  const payResult = resolveCleanerPay(booking, staffInfo, null, cleanersNeeded(booking), hourCaps);
   const earnings = {
     amount: payResult.calculatedPay,
     type: describeCleanerPay(payResult),
@@ -101,6 +105,12 @@ export function AvailableJobCard({ booking, staffInfo, organizationId, orgExtras
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          {isTeamJob(booking) && (
+            <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-medium text-primary">
+              <Users className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <span>{teamBadge(booking, booking.team_claimed ?? 0)}</span>
+            </div>
+          )}
           {/* Potential Earnings - Highlighted */}
           <div className="p-3 rounded-lg bg-success/10 border border-success/20">
             <div className="flex items-center justify-between">
