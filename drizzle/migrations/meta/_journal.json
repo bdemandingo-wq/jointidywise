@@ -134,6 +134,34 @@
       "when": 1791865000000,
       "tag": "0018_team_claim_org_and_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791902195533,
+      "tag": "0019_reopen_assigned_booking",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791902220875,
+      "tag": "0020_booking_photo_original_and_proof_lock",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791902258480,
+      "tag": "0021_team_claim_org_and_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791902282870,
+      "tag": "0022_saas_referral_program",
+      "breakpoints": true
     }
   ]
 }
