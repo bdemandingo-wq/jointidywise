@@ -6,6 +6,13 @@ import { generateObject } from "https://esm.sh/ai@5";
 import { createAnthropic } from "https://esm.sh/@ai-sdk/anthropic@1";
 import { z } from "npm:zod@3.25.76";
 
+// Narrow wrapper: the ai SDK generics + zod schema hit TS2589 (too deep).
+const genObject = generateObject as unknown as <T>(opts: {
+  model: unknown;
+  prompt: string;
+  schema: z.ZodType<T>;
+}) => Promise<{ object: T }>;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -242,7 +249,7 @@ Return only the JSON object.
 Review text:
 """${review.text.slice(0, 2000)}"""`;
 
-  const { object } = await generateObject({
+  const { object } = await genObject({
     model: anthropic(MODEL_HAIKU),
     prompt,
     schema: PerReviewSentimentSchema,
@@ -274,7 +281,7 @@ Tasks:
 1. Extract up to 6 review themes (short labels, 1-3 words each) with sentiment.
 2. Generate 5-8 *specific*, *actionable* improvement tips this owner could do this week. Reference their actual weak signals (low recency, missing booking flow, value complaints, etc.). Keep each tip body under 240 chars. Tips should never be generic.`;
 
-  const { object } = await generateObject({
+  const { object } = await genObject({
     model: anthropic(MODEL_SONNET),
     prompt,
     schema: InsightsSchema,
