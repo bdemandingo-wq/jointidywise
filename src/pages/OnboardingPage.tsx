@@ -560,7 +560,7 @@ export default function OnboardingPage() {
         console.log('[ONBOARDING-SUBMIT] navigating to /dashboard');
         navigate('/dashboard', { replace: true });
       } else {
-        // Web: short "building" overlay, then the dashboard. The 14-day
+        // Web: short "building" overlay, then the dashboard. The card-free
         // trial is already on the profile, so this does not open checkout.
         setBuilding(true);
         [0, 1, 2, 3].forEach((stage) => {

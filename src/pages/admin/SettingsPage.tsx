@@ -84,6 +84,7 @@ import { useOrganizationSettings } from '@/hooks/useOrganizationSettings';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { SEOHead } from '@/components/SEOHead';
 import { LocalePickers } from '@/components/admin/LocalePickers';
+import { PublicActivitySetting } from '@/components/admin/PublicActivitySetting';
 
 interface BusinessSettings {
   id?: string;
@@ -930,6 +931,8 @@ export default function SettingsPage() {
               </Button>
             </CardContent>
           </Card>
+
+          <PublicActivitySetting />
 
           <CopilotSettingsCard />
 

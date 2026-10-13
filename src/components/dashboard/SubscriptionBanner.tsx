@@ -3,7 +3,7 @@
  *
  * Renders three distinct states with screen-reader-friendly messaging:
  *   - "active"    — paid subscription is in good standing
- *   - "trialing"  — inside the 14-day org trial (or Stripe trialing)
+ *   - "trialing"  — inside the org Pro trial (or Stripe trialing)
  *   - "canceled"  — subscription ended (or scheduled to end); access lost
  *
  * Plan + interval are persisted to localStorage by the CheckoutSuccessPage

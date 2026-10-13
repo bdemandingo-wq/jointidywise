@@ -30,6 +30,11 @@ import { AuthSEOContent } from '@/components/seo/AuthSEOContent';
 import { SiteFooter } from "@/components/SiteFooter";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLifetimeCounter } from "@/hooks/useLifetimeCounter";
+import { usePublicGrowth } from "@/hooks/usePublicGrowth";
+import { ActivityTicker } from "@/components/growth/ActivityTicker";
+import { GrowthCounters } from "@/components/growth/GrowthCounters";
+import { lifetimeSpotsLabel } from "@/lib/publicActivity";
+import { TRIAL_CTA } from "@/lib/trialOffer";
 
 // Lazy load below-the-fold heavy components for better LCP
 const AIBusinessTools = lazy(() => import("@/components/landing/AIBusinessTools").then(m => ({ default: m.AIBusinessTools })));
@@ -147,6 +152,7 @@ export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const lifetime = useLifetimeCounter();
+  const growth = usePublicGrowth();
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
 
@@ -172,25 +178,23 @@ export default function LandingPage() {
     };
   }, [mobileMenuOpen]);
 
-  // The hero/CTA "See Plans" buttons should go to the pricing page so
-  // visitors can compare tiers before signing up. Previously these both
-  // routed to /signup, which surprised people clicking "See Plans" and
-  // landing in the signup form instead of a pricing comparison.
+  // The primary button starts the 30-day Pro trial. See plans stays beside
+  // it so Basic, Pro, and Lifetime stay one click away.
   const handleGetStarted = () => {
     sessionStorage.setItem("selectedIndustry", "Home Cleaning");
-    navigate("/pricing");
+    navigate("/signup");
   };
 
   const handleStartFree = () => {
     sessionStorage.setItem("selectedIndustry", "Home Cleaning");
-    navigate("/pricing");
+    navigate("/signup");
   };
 
   return (
-    <div className="portal-v2 portal-v2-scroll min-h-screen bg-background overflow-x-hidden">
+    <div className="portal-v2 portal-v2-scroll min-h-screen bg-background overflow-x-hidden pb-20">
       <SEOHead 
         title="Cleaning Business CRM & Scheduling Software | TidyWise"
-        description="Smart scheduling, automated payroll, CRM, GPS tracking & online booking for cleaning businesses. Plans from $49/mo — get started today."
+        description="Smart scheduling, automated payroll, CRM, GPS tracking and online booking for cleaning businesses. Start free — 30 days of Pro, no card. Plans from $49/mo."
         canonical="/"
         ogImage="https://www.jointidywise.com/images/og/og-home.png"
         schemaJson={[
@@ -226,8 +230,8 @@ export default function LandingPage() {
               <Button variant="ghost" asChild className="text-sm"><Link to="/login">Log In</Link></Button>
               <Button variant="ghost" asChild className="text-sm"><Link to="/signup">Sign Up</Link></Button>
               <Button variant="premium" asChild className="text-sm">
-                <Link to="/pricing">
-                  See Plans
+                <Link to="/signup">
+                  Start free
                   <ArrowRight className="ml-1 h-4 w-4" />
                 </Link>
               </Button>
@@ -307,8 +311,8 @@ export default function LandingPage() {
                           <Link to="/signup">Sign Up</Link>
                         </Button>
                        <Button variant="premium" asChild className="mt-1" onClick={closeMobileMenu}>
-                         <Link to="/pricing">
-                           See Plans
+                         <Link to="/signup">
+                           Start free
                            <ArrowRight className="ml-1 h-4 w-4" />
                          </Link>
                        </Button>
@@ -347,25 +351,27 @@ export default function LandingPage() {
           </p>
 
           {/* CTA */}
-          <div className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto justify-center">
+          <div className="flex flex-col sm:flex-row gap-3 max-w-xl mx-auto justify-center">
             <Button
               size="xl"
               variant="premium"
               onClick={handleGetStarted}
-              className="group flex-1"
+              className="group h-auto whitespace-normal py-3 text-center"
             >
-              See Plans
+              {TRIAL_CTA}
               <ArrowRight className="ml-1 h-5 w-5 group-hover:translate-x-1 transition-transform" />
             </Button>
             <Button
               size="xl"
               variant="outline"
-              onClick={() => navigate("/demo")}
-              className="flex-1 gap-2"
+              onClick={() => navigate("/pricing")}
+              className="gap-2"
             >
-              <Calendar className="h-5 w-5" />
-              Book a Demo
+              See plans
             </Button>
+          </div>
+          <div className="mt-4">
+            <GrowthCounters lifetime={lifetime} counters={growth.counters} />
           </div>
 
           {/* Trust line */}
@@ -405,10 +411,11 @@ export default function LandingPage() {
                 Lifetime access for{' '}
                 <span className="font-bold">$300 one-time</span>
               </span>
-              <span className="hidden md:inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-                <span className="font-bold tabular-nums">{lifetime.spotsLeft}</span>
-                of {lifetime.total} spots left
-              </span>
+              {!lifetime.unavailable && (
+                <span className="hidden md:inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                  {lifetimeSpotsLabel(lifetime.spotsLeft, lifetime.total)}
+                </span>
+              )}
               <ArrowRight className="h-4 w-4 text-amber-600 group-hover:translate-x-0.5 transition-transform" />
             </button>
           )}
@@ -761,9 +768,9 @@ export default function LandingPage() {
               size="xl" 
               variant="secondary"
               onClick={handleStartFree}
-              className="group shadow-2xl"
+              className="group h-auto whitespace-normal py-3 shadow-2xl"
             >
-              See Plans
+              {TRIAL_CTA}
               <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
             </Button>
             <div className="flex items-center gap-3 text-primary-foreground/90">
@@ -776,6 +783,7 @@ export default function LandingPage() {
       </main>
 
       <SiteFooter />
+      <ActivityTicker events={growth.events} />
     </div>
   );
 }

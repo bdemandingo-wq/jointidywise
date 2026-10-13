@@ -276,7 +276,7 @@ export default function NativeSignupPage() {
                 Create your account
               </h1>
               <CardDescription>
-                Start your free 14-day trial. No payment required.
+                Start free — 30 days of Pro, no card. No payment required.
               </CardDescription>
             </CardHeader>
 

@@ -18,6 +18,11 @@ import { SEOHead } from '@/components/SEOHead';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { PullToRefreshIndicator } from '@/components/admin/PullToRefreshIndicator';
 import { requestAdminNotificationRefresh } from '@/lib/adminNotificationRefresh';
+import { useSubscription } from '@/hooks/useSubscription';
+import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
+import { usePublicGrowth } from '@/hooks/usePublicGrowth';
+import { GrowthUpgradeCard } from '@/components/growth/GrowthUpgradeCard';
+import { ActivityFeedCard } from '@/components/growth/ActivityFeedCard';
 
 
 // Lazy load the heavy ReportsOverview component
@@ -70,6 +75,10 @@ export default function AdminDashboard() {
   const { data: customers = [], isLoading: customersLoading } = useCustomers();
   const queryClient = useQueryClient();
   const { organization } = useOrganization();
+  const { isTrialActive, hasFullAccess, isLoading: subscriptionLoading } = useSubscription();
+  const lifetime = useLifetimeCounter();
+  const growth = usePublicGrowth();
+  const showUpgrade = !subscriptionLoading && (isTrialActive || !hasFullAccess);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -146,6 +155,17 @@ export default function AdminDashboard() {
       <PullToRefreshIndicator pullDistance={pullDistance} refreshing={refreshing} />
       <div data-tour-id="dashboard-home">
       <OnboardingChecklist />
+      {showUpgrade && (
+        <GrowthUpgradeCard
+          lifetime={lifetime}
+          counters={growth.counters}
+          href="/dashboard/settings?tab=subscription"
+          title={isTrialActive ? 'You have full Pro access' : 'Pick a plan to unlock the dashboard'}
+          detail={isTrialActive
+            ? 'Every Pro feature is included until the trial date already on your account. Add a card only if you want a paid plan to continue.'
+            : 'Basic is $49, Pro is $97, and Lifetime is $300. Nothing here extends a trial that has already ended.'}
+        />
+      )}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-fade-in">
         <div className="xl:col-span-2 space-y-6">
           <TodayStats 
@@ -170,6 +190,7 @@ export default function AdminDashboard() {
         </div>
         
         <div>
+          <ActivityFeedCard events={growth.events} />
           <UpcomingBookings bookings={bookings as BookingWithDetails[]} />
         </div>
       </div>

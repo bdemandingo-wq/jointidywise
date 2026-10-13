@@ -283,7 +283,7 @@ export default function CompareBookingKoala() {
             Ready to Switch from BookingKoala?
           </h2>
           <p className="text-lg text-primary-foreground/80 mb-8">
-            Start your 14-day free trial today. Cancel any time. We'll help you migrate.
+            Start free — 30 days of Pro, no card. Cancel any time. We'll help you migrate.
           </p>
           <Button size="lg" variant="secondary" className="h-12 px-8" onClick={handleStartFreeTrial}>
             Get started <ArrowRight className="ml-2 h-4 w-4" />

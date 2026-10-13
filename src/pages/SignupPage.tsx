@@ -427,7 +427,7 @@ export default function SignupPage() {
             <CardDescription>
               {planMeta
                 ? `One quick step before checkout for ${planMeta.label}.`
-                : '14-day free trial, no card required.'}
+                : '30 days of Pro, no card required.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
