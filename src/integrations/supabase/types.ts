@@ -12030,6 +12030,7 @@ export type Database = {
           retry_after_seconds: number
         }[]
       }
+      claim_booking: { Args: { p_booking_id: string }; Returns: Json }
       classify_service_bucket: { Args: { p_name: string }; Returns: string }
       cleanup_ai_rate_limits: { Args: never; Returns: number }
       client_cancel_booking: {
@@ -12445,6 +12446,14 @@ export type Database = {
         Returns: {
           ein: string
           ssn_last4: string
+        }[]
+      }
+      get_team_claim_counts: {
+        Args: { p_booking_ids: string[] }
+        Returns: {
+          booking_id: string
+          claimed: number
+          mine: boolean
         }[]
       }
       get_tip_by_token: {

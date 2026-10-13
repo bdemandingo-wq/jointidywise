@@ -120,6 +120,13 @@
       "when": 1791864497254,
       "tag": "0016_add_team_job_fields_to_bookings",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791864858183,
+      "tag": "0017_team_job_claims",
+      "breakpoints": true
     }
   ]
 }

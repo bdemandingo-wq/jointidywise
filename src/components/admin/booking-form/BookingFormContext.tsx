@@ -98,6 +98,10 @@ interface BookingFormState {
   cleanerWage: string;
   cleanerWageType: string;
   cleanerOverrideHours: string;
+  teamNeeded: boolean;
+  teamCount: number;
+  teamPay: string;
+  teamPayType: 'flat' | 'hourly';
   sendConfirmationEmail: boolean;
   sendConfirmationSms: boolean;
   sendQuoteSms: boolean;
@@ -187,6 +191,10 @@ interface BookingFormContextType extends BookingFormState {
   setCleanerWage: (wage: string) => void;
   setCleanerWageType: (type: string) => void;
   setCleanerOverrideHours: (hours: string) => void;
+  setTeamNeeded: (v: boolean) => void;
+  setTeamCount: (v: number) => void;
+  setTeamPay: (v: string) => void;
+  setTeamPayType: (v: 'flat' | 'hourly') => void;
   setSendConfirmationEmail: (send: boolean) => void;
   setSendConfirmationSms: (send: boolean) => void;
   setSendQuoteSms: (send: boolean) => void;
@@ -293,6 +301,10 @@ export function BookingFormProvider({
   const [cleanerWage, setCleanerWage] = useState('');
   const [cleanerWageType, setCleanerWageType] = useState('hourly');
   const [cleanerOverrideHours, setCleanerOverrideHours] = useState('');
+  const [teamNeeded, setTeamNeeded] = useState(false);
+  const [teamCount, setTeamCount] = useState(2);
+  const [teamPay, setTeamPay] = useState('');
+  const [teamPayType, setTeamPayType] = useState<'flat' | 'hourly'>('flat');
   // Default ON so confirmation email + SMS auto-fire on booking create
   const [sendConfirmationEmail, setSendConfirmationEmail] = useState(true);
   const [sendConfirmationSms, setSendConfirmationSms] = useState(true);
@@ -545,6 +557,10 @@ export function BookingFormProvider({
     setCleanerWage('');
     setCleanerWageType('hourly');
     setCleanerOverrideHours('');
+    setTeamNeeded(false);
+    setTeamCount(2);
+    setTeamPay('');
+    setTeamPayType('flat');
     setPricingMode('sqft');
     setHomeCondition(1);
     setPetOption('no_pets');
@@ -637,6 +653,13 @@ export function BookingFormProvider({
     setCleanerWage(bookingAny.cleaner_wage ? String(bookingAny.cleaner_wage) : '');
     setCleanerWageType(bookingAny.cleaner_wage_type || 'hourly');
     setCleanerOverrideHours(bookingAny.cleaner_override_hours ? String(bookingAny.cleaner_override_hours) : '');
+    {
+      const needed = Number(bookingAny.cleaners_needed ?? 1);
+      setTeamNeeded(needed > 1);
+      setTeamCount(needed > 1 ? needed : 2);
+      setTeamPay(bookingAny.pay_per_cleaner != null ? String(bookingAny.pay_per_cleaner) : '');
+      setTeamPayType(bookingAny.pay_type === 'hourly' ? 'hourly' : 'flat');
+    }
 
     // Load existing checklist template for this booking
     if (booking.id && organizationId) {
@@ -777,6 +800,10 @@ export function BookingFormProvider({
       cleanerWage,
       cleanerWageType,
       cleanerOverrideHours,
+      teamNeeded,
+      teamCount,
+      teamPay,
+      teamPayType,
       sendConfirmationEmail,
       sendConfirmationSms,
       sendQuoteSms,
@@ -841,6 +868,10 @@ export function BookingFormProvider({
       setCleanerWage,
       setCleanerWageType,
       setCleanerOverrideHours,
+      setTeamNeeded,
+      setTeamCount,
+      setTeamPay,
+      setTeamPayType,
       setSendConfirmationEmail,
       setSendConfirmationSms,
       setSendQuoteSms,

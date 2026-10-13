@@ -153,6 +153,7 @@ const BOOKING_LIST_SELECT = `
   frequency, bedrooms, bathrooms, square_footage, extras, has_pets,
   is_draft, created_at, updated_at, staff_id, customer_id, service_id, organization_id,
   cleaner_wage, cleaner_wage_type, cleaner_override_hours, cleaner_actual_payment, cleaner_pay_expected,
+  cleaners_needed, pay_per_cleaner, pay_type,
   cancellation_reason, cancellation_category, cancelled_at,
   subtotal, tax_amount, discount_amount, discount_id, recurring_booking_id,
   customer:customers(id, first_name, last_name, email, phone),
