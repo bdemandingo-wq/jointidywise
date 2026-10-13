@@ -122,6 +122,8 @@ function componentText(place: Place, type: string, form: "long" | "short"): stri
   return trimmed || null;
 }
 
+const GENERIC_TYPE = new Set(["service", "point_of_interest", "establishment"]);
+
 function acceptPlace(place: Place, strict: boolean): boolean {
   const name = place.displayName?.text?.trim() ?? "";
   if (!name || EXCLUDED_NAME.test(name)) return false;
@@ -132,6 +134,10 @@ function acceptPlace(place: Place, strict: boolean): boolean {
   // A strict house_cleaning_service query already filtered the trade.
   // Keep the listing when Google omits the type field, and still drop
   // window or pressure names above.
+  // Google's Text Search does not support the house_cleaning_service type,
+  // so most real maid services come back typed only as generic "service".
+  // Accept those when the business name clearly says cleaning/maid.
+  if (types.every((type) => GENERIC_TYPE.has(type))) return HOUSE_NAME.test(name);
   return strict && types.length === 0;
 }
 
@@ -281,7 +287,10 @@ Deno.serve(async (req) => {
     const longitude = typeof place.location?.longitude === "number" ? place.location.longitude : null;
     const rating = typeof place.rating === "number" ? place.rating : null;
     const reviewCount = typeof place.userRatingCount === "number" ? place.userRatingCount : null;
-    const primaryType = place.primaryType ?? (place.types?.includes("house_cleaning_service") ? "house_cleaning_service" : null);
+    // Generic types are stored as null so the directory falls back to the
+    // name check, matching isHouseCleaningListing in the app.
+    const rawPrimary = place.primaryType && !GENERIC_TYPE.has(place.primaryType) ? place.primaryType : null;
+    const primaryType = rawPrimary ?? (place.types?.includes("house_cleaning_service") ? "house_cleaning_service" : null);
 
     const { data: existing, error: existingError } = await supabase
       .from("score_companies")
