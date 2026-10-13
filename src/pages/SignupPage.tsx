@@ -29,9 +29,9 @@ import { ReferredSignupBanner } from '@/components/ReferredSignupBanner';
 // inline so the signup page doesn't have to import the full features.ts
 // machinery — labels and prices only.
 const PLAN_META: Record<string, { label: string; price: string; Icon: React.ComponentType<{ className?: string }>; ctaLabel: string }> = {
-  basic: { label: 'Basic', price: '$49/mo', Icon: Sparkles, ctaLabel: 'Sign up & continue to checkout' },
-  pro: { label: 'Pro', price: '$97/mo', Icon: Zap, ctaLabel: 'Sign up & continue to checkout' },
-  custom: { label: 'Custom', price: '$197/mo', Icon: SettingsIcon, ctaLabel: 'Sign up & continue to checkout' },
+  basic: { label: 'Basic', price: '$49/mo', Icon: Sparkles, ctaLabel: 'Start my free 30 days' },
+  pro: { label: 'Pro', price: '$97/mo', Icon: Zap, ctaLabel: 'Start my free 30 days' },
+  custom: { label: 'Custom', price: '$197/mo', Icon: SettingsIcon, ctaLabel: 'Start my free 30 days' },
   lifetime: { label: 'Lifetime', price: '$300 one-time', Icon: Crown, ctaLabel: 'Sign up & claim my lifetime spot' },
 };
 
@@ -59,10 +59,9 @@ export default function SignupPage() {
   const claimSlug = searchParams.get('claim');
   // Plan-pre-selection: when the visitor came from /pricing they have
   // ?plan=basic|pro|custom|lifetime and (for subscriptions)
-  // ?interval=monthly|yearly. The form shows context up top so they
-  // know what they're signing up for, and post-signup we route them
-  // straight into Stripe Checkout for that plan instead of dropping
-  // them on the dashboard.
+  // ?interval=monthly|yearly. Basic, Pro, and Custom start the card-free
+  // 30-day Pro trial and land on the dashboard. Lifetime is the only
+  // plan that opens checkout from this page.
   const rawPlan = searchParams.get('plan');
   const selectedPlan: keyof typeof PLAN_META | null =
     rawPlan && rawPlan in PLAN_META ? (rawPlan as keyof typeof PLAN_META) : null;
@@ -93,9 +92,9 @@ export default function SignupPage() {
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // /signup?plan= keeps the plan through account creation and opens
-  // embedded checkout afterwards. Logged-in visitors start that checkout
-  // from /pricing directly.
+  // /signup?plan= keeps the chosen plan on the form. Basic, Pro, and
+  // Custom start the card-free trial. Lifetime opens checkout after
+  // the account exists. Logged-in visitors start checkout from /pricing.
 
   // Standard "already authenticated" redirect.
   useEffect(() => {
@@ -240,39 +239,42 @@ export default function SignupPage() {
       return;
     }
 
-    // No plan picked → straight to dashboard. Drop any stale persisted
-    // plan since they're not continuing into checkout.
-    if (!selectedPlan) {
+    // Basic, Pro, and Custom are the card-free org trial. Do not open
+    // Checkout and do not store a plan for login to resume into Stripe.
+    if (!selectedPlan || selectedPlan === 'basic' || selectedPlan === 'pro' || selectedPlan === 'custom') {
       try { sessionStorage.removeItem('tw_pending_plan'); } catch { /* no-op */ }
+      if (selectedPlan) {
+        const { data: sessionData } = await supabaseNoSession.auth.getSession();
+        if (!sessionData?.session) {
+          toast.info(
+            'Check your email to confirm your account. Your 30 days of Pro start when you sign in — no card needed.',
+          );
+          navigate('/login');
+          return;
+        }
+      }
       navigate('/dashboard');
       return;
     }
 
-
-    // Plan-pre-selection flow: hand off to Stripe Checkout. The
-    // Bearer token has to be live for the edge function to authorize
-    // the caller. After signUp, the session may or may not be ready:
+    // Lifetime still opens checkout. The Bearer token has to be live
+    // for buy-lifetime to authorize the caller. After signUp, the
+    // session may or may not be ready:
     //   - Supabase auto-signs-in when email confirmation is OFF
     //   - When email confirmation is ON, getSession() returns null
     //     until the user clicks the email link
-    // Confirm the session before invoking — otherwise the edge call
-    // 401s and the error surfaces as a confusing "edge function error".
     const { data: sessionData } = await supabaseNoSession.auth.getSession();
     if (!sessionData?.session) {
-      // No session yet — most likely Supabase requires email confirmation.
-      // Persist the plan choice so the user can resume checkout after
-      // they confirm and log in.
       try {
         sessionStorage.setItem(
           'tw_pending_plan',
           JSON.stringify({ plan: selectedPlan, interval: selectedInterval }),
         );
       } catch {
-        // sessionStorage unavailable (private mode, storage full) — fall
-        // through. We'll just send them to login without resume context.
+        // sessionStorage unavailable — send them to login without resume.
       }
       toast.info(
-        "Check your email to confirm your account, then sign in to finish checkout.",
+        'Check your email to confirm your account, then sign in to finish checkout.',
       );
       navigate(`/login?plan=${selectedPlan}&interval=${selectedInterval}`);
       return;
@@ -302,35 +304,6 @@ export default function SignupPage() {
         return;
       }
     }
-
-    if (selectedPlan === 'basic' || selectedPlan === 'pro' || selectedPlan === 'custom') {
-      try {
-        const { data, error } = await supabaseNoSession.functions.invoke('create-subscription', {
-          body: { plan: selectedPlan, interval: selectedInterval },
-        });
-        // The catch below prefixes this with "Couldn't open checkout:", so the
-        // function's own reason — sold out, already subscribed, price not
-        // configured — completes the sentence instead of "non-2xx status code".
-        if (error) throw new Error(await readEdgeFunctionError(error, 'please try again'));
-        const session = readCheckoutSession(data);
-        openEmbeddedCheckout({
-          ...session,
-          plan: selectedPlan,
-          interval: selectedInterval,
-          cancelPath: `/pricing?plan=${encodeURIComponent(selectedPlan)}&interval=${encodeURIComponent(selectedInterval)}&canceled=1`,
-        });
-        return;
-      } catch (err) {
-        toast.error(
-          err instanceof Error
-            ? `Couldn't open checkout: ${err.message}`
-            : "Couldn't open checkout — try again from /dashboard/subscription.",
-        );
-        navigate('/dashboard');
-        return;
-      }
-    }
-
 
     navigate('/dashboard');
   };
@@ -382,16 +355,27 @@ export default function SignupPage() {
             </div>
             <div className="flex-1 min-w-0">
               <Badge variant="secondary" className="mb-1 text-[10px] uppercase tracking-wider">
-                Next: payment
+                {selectedPlan === 'lifetime' ? 'Next: payment' : 'No card'}
               </Badge>
               <p className="text-sm">
-                Signing up to start{' '}
-                <span className="font-semibold">{planMeta.label}</span>{' '}
-                <span className="text-muted-foreground">
-                  ({selectedPlan !== 'lifetime' && selectedInterval === 'yearly'
-                    ? planMeta.price.replace('/mo', '/mo billed yearly · 2 months free')
-                    : planMeta.price})
-                </span>
+                {selectedPlan === 'lifetime' ? (
+                  <>
+                    Signing up to claim{' '}
+                    <span className="font-semibold">{planMeta.label}</span>{' '}
+                    <span className="text-muted-foreground">({planMeta.price})</span>
+                  </>
+                ) : (
+                  <>
+                    30 days of Pro, free, no card. You picked{' '}
+                    <span className="font-semibold">{planMeta.label}</span>{' '}
+                    <span className="text-muted-foreground">
+                      ({selectedInterval === 'yearly'
+                        ? planMeta.price.replace('/mo', '/mo billed yearly · 2 months free')
+                        : planMeta.price})
+                    </span>
+                    {' '}— add a card later to switch to it.
+                  </>
+                )}
               </p>
             </div>
           </div>
@@ -402,11 +386,11 @@ export default function SignupPage() {
         <Card className="border-border/50 shadow-lg">
           <CardHeader className="text-center pb-4">
             <h1 className="pv-display text-3xl leading-none tracking-tight">
-              {planMeta ? 'Almost there — create your account' : 'Create your TidyWise account'}
+              {selectedPlan === 'lifetime' ? 'Almost there — create your account' : 'Create your TidyWise account'}
             </h1>
             <CardDescription>
-              {planMeta
-                ? `One quick step before checkout for ${planMeta.label}.`
+              {selectedPlan === 'lifetime'
+                ? 'One quick step before checkout for Lifetime.'
                 : '30 days of Pro, no card required.'}
             </CardDescription>
           </CardHeader>
@@ -599,9 +583,8 @@ export default function SignupPage() {
                 </label>
               </div>
 
-              {/* Submit button. CTA copy reflects post-signup intent
-                  when a plan is pre-selected so the user knows checkout
-                  is next, not a generic landing on the dashboard. */}
+              {/* Submit button. Lifetime continues into checkout. Every
+                  other plan starts the card-free 30-day Pro trial. */}
               <Button type="submit" className="w-full" variant="premium" disabled={loading}>
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {planMeta ? planMeta.ctaLabel : 'Create Account'}

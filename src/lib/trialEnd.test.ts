@@ -10,13 +10,13 @@ import {
 const NOW = Date.parse("2026-10-01T15:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-test("partial day is extended so Checkout's floor matches the app's ceil", () => {
+test("a partial day keeps the exact profile second and both sides floor it", () => {
   const endsAt = new Date(NOW + 12 * DAY_MS + 10 * 60 * 60 * 1000).toISOString();
   const unix = stripeTrialEndUnix(endsAt, NOW);
-  assert.ok(unix != null);
-  assert.ok(unix * 1000 >= Date.parse(endsAt));
-  assert.equal(stripeCheckoutTrialDays(unix, NOW), trialDaysLeft(endsAt, NOW));
-  assert.equal(trialDaysLeft(endsAt, NOW), 13);
+  assert.equal(unix, Math.floor(Date.parse(endsAt) / 1000));
+  assert.ok(unix! * 1000 <= Date.parse(endsAt));
+  assert.equal(stripeCheckoutTrialDays(unix!, NOW), 12);
+  assert.equal(trialDaysLeft(endsAt, NOW), 12);
 });
 
 test("an exact day boundary keeps the profile timestamp", () => {

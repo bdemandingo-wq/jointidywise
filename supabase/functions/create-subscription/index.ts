@@ -248,22 +248,20 @@ serve(async (req) => {
       "https://jointidywise.com";
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
 
-    // Card-free trial lives on the org (plan_type trial + trial_ends_at),
-    // not on a Checkout session. This function is only the paid conversion.
+    // Card-free trial lives on the org (plan_type trial + trial_ends_at).
+    // Signup does not call this function for Basic, Pro, or Custom.
     //
-    // - Active org trial, more than 48h left: optional card. Stripe's
-    //   trial_end is the profile timestamp, moved forward only far enough
-    //   that Checkout's floored day count matches the dashboard's ceil.
-    //   It is never earlier. Stripe cancels at that time if they never
-    //   add a card.
-    // - Org trial already over: card required, billed from today. The
-    //   paywall is not another free period.
-    // - Any other existing plan: keep the previous checkout (card required,
-    //   14-day Stripe trial). Those subscriptions are not rewritten.
+    // - Active org trial with at least 48h left: card required. trial_end
+    //   is the exact unix second of profiles.trial_ends_at. No
+    //   trial_period_days, so Stripe does not start a second trial or add
+    //   days. The card is charged when that existing trial ends.
+    // - Org trial under 48h or already over: card required, no trial_end
+    //   and no trial_period_days. Billing starts now. Stripe rejects
+    //   trial_end inside 48 hours.
+    // - Any other existing plan: card required, 14-day Stripe trial.
+    //   Those subscriptions are not rewritten.
     // - Anonymous first checkout: card optional, 30-day Stripe trial,
     //   cancel if no card when it ends.
-    // Stripe rejects trial_end inside 48 hours, so a last-day upgrade
-    // collects a card and starts billing instead of erroring.
 
     // The referred org's half of the programme: 50% off their first month.
     // Only orgs that arrived through someone's referral link, and only on
@@ -345,6 +343,7 @@ serve(async (req) => {
     };
 
     if (user && orgPlanType === "trial") {
+      paymentMethodCollection = "always";
       const { data: trialProfile } = await accessAdmin
         .from("profiles")
         .select("trial_ends_at")
@@ -353,9 +352,6 @@ serve(async (req) => {
       const trialEnd = stripeTrialEndUnix(trialProfile?.trial_ends_at);
       if (trialEnd != null) {
         subscriptionData.trial_end = trialEnd;
-        paymentMethodCollection = "if_required";
-      } else {
-        paymentMethodCollection = "always";
       }
     } else if (user && orgPlanType && orgPlanType !== "trial") {
       paymentMethodCollection = "always";

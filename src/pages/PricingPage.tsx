@@ -282,10 +282,11 @@ export default function PricingPage() {
 
 
 
-  // Subscription cards link to signup (or the dashboard, if already
-  // signed in). Lifetime opens Embedded Checkout on this site. A canceled
-  // checkout returns with ?plan= in the URL; the highlight restores, and
-  // we do not auto-open checkout again.
+  // Logged out, Basic / Pro / Custom go to signup with the plan
+  // preselected. Signup does not collect a card. Logged in, the same
+  // buttons open embedded checkout. Lifetime opens Embedded Checkout
+  // on this site. A canceled checkout returns with ?plan= in the URL;
+  // the highlight restores, and we do not auto-open checkout again.
 
   async function startPlanCheckout(planId: 'basic' | 'pro' | 'custom') {
     if (!user) {
