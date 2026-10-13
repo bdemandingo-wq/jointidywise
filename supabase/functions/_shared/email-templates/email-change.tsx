@@ -1,7 +1,8 @@
 import * as React from 'npm:react@18.3.1'
 import {
-  Body, Button, Container, Head, Heading, Html, Preview, Section, Text,
+  Body, Button, Container, Head, Heading, Html, Link, Preview, Section, Text,
 } from 'https://esm.sh/@react-email/components@0.0.22?deps=react@18.3.1'
+import { TIDYWISE_SUPPORT_EMAIL } from '../email-footer.ts'
 import { styles } from './_brand.ts'
 import { Logo } from './_logo.tsx'
 import { Footer } from './_footer.tsx'
@@ -23,7 +24,11 @@ export const EmailChangeEmail = ({ confirmationUrl }: Props) => (
           <Button href={confirmationUrl} style={styles.button}>Confirm new email</Button>
         </Section>
         <Text style={styles.hint}>
-          If you didn't request this change, please contact support immediately.
+          If you didn't request this change, contact{' '}
+          <Link href={`mailto:${TIDYWISE_SUPPORT_EMAIL}`} style={styles.link}>
+            {TIDYWISE_SUPPORT_EMAIL}
+          </Link>{' '}
+          immediately.
         </Text>
         <Footer />
       </Container>

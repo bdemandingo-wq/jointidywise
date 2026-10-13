@@ -268,6 +268,7 @@ serve(async (req: Request) => {
                   },
                   body: JSON.stringify({
                     from: `${fromName} <${fromEmail}>`,
+                    reply_to: tidywiseSupportEmail(),
                     to: [staff.email],
                     subject: "You have a pending action in your TidyWise Cleaner Portal",
                     html: `

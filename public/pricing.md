@@ -47,5 +47,6 @@
 - 30-day money-back guarantee
 
 ## Contact
+- Email: support@jointidywise.com
 - Sales questions: https://www.jointidywise.com/demo
 - Sign up: https://www.jointidywise.com/signup
