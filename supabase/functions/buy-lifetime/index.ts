@@ -133,8 +133,11 @@ serve(async (req) => {
       ...(user ? {} : { customer_creation: "always" as const }),
       mode: "payment",
       line_items: [{ price: LIFETIME_PRICE_ID, quantity: 1 }],
+      // Lifetime is a one-time $300 charge. Always request 3D Secure so a
+      // later dispute has liability shift. Monthly checkout stays on Stripe's
+      // automatic default in create-subscription.
       payment_method_options: {
-        card: { request_three_d_secure: "automatic" },
+        card: { request_three_d_secure: "any" },
       },
       metadata,
       success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}&plan=lifetime`,
