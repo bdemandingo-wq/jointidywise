@@ -1,4 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
+import { isTeamJob, remainingSpots } from '@/lib/teamJobs';
 import { QueryError } from '@/components/QueryError';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -509,11 +510,13 @@ export default function StaffPortal() {
           cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
           cleaner_checkin_at, cleaner_checkout_at,
           square_footage, bedrooms, bathrooms, notes, customer_notes,
+          staff_id, cleaners_needed, pay_per_cleaner, pay_type,
           customer:customers(first_name, last_name, phone),
           service:services(name)
         `)
         .eq('organization_id', staffInfo.organization_id)
-        .is('staff_id', null)
+        // Unclaimed solo jobs, plus team jobs that may still have open spots.
+        .or('staff_id.is.null,cleaners_needed.gt.1')
         .in('status', ['pending', 'confirmed'])
         .or('is_draft.is.null,is_draft.eq.false')
         .gte('scheduled_at', new Date().toISOString())
@@ -521,7 +524,21 @@ export default function StaffPortal() {
 
       if (error) throw error;
       setNewJobAlert(false);
-      return data as Booking[];
+      const rows = (data ?? []) as unknown as (Booking & { staff_id: string | null; cleaners_needed: number | null })[];
+      const teamIds = rows.filter((r) => isTeamJob(r)).map((r) => r.id);
+      const counts = new Map<string, { claimed: number; mine: boolean }>();
+      if (teamIds.length) {
+        const { data: c, error: cErr } = await supabase.rpc('get_team_claim_counts', { p_booking_ids: teamIds });
+        if (cErr) throw cErr;
+        for (const r of c ?? []) counts.set(r.booking_id, { claimed: r.claimed, mine: r.mine });
+      }
+      // Plain objects only (persisted cache — no Map in the result).
+      return rows
+        .map((r) => {
+          const c = counts.get(r.id);
+          return { ...r, team_claimed: isTeamJob(r) ? c?.claimed ?? (r.staff_id ? 1 : 0) : 0, team_mine: c?.mine ?? false };
+        })
+        .filter((r) => (isTeamJob(r) ? !r.team_mine && remainingSpots(r, r.team_claimed) > 0 : !r.staff_id)) as Booking[];
     },
     enabled: !!staffInfo?.id && !!staffInfo?.organization_id,
   });
@@ -597,23 +614,31 @@ export default function StaffPortal() {
       }
       setClaimingBookingId(bookingId);
 
+      // Server-side claim: locks the booking and re-counts spots, so two
+      // cleaners racing for the last spot cannot both get it.
+      const { data: res, error: claimErr } = await supabase.rpc('claim_booking', { p_booking_id: bookingId });
+      if (claimErr) throw claimErr;
+      const result = (res as { result?: string } | null)?.result;
+      if (result === 'already_claimed') throw new Error('You already claimed this job');
+      if (result === 'full') {
+        const needed = (res as { needed?: number }).needed ?? 1;
+        throw new Error(needed > 1 ? 'This job was just filled' : 'Job was already claimed by someone else');
+      }
+      if (result !== 'claimed') throw new Error('Job was already claimed by someone else');
+
       const { data, error } = await supabase
         .from('bookings')
-        .update({ staff_id: staffInfo.id })
-        .eq('id', bookingId)
-        .is('staff_id', null) // Only claim if still unassigned
         .select(`
           booking_number,
           scheduled_at,
           service:services(name),
           customer:customers(first_name, last_name)
-        `);
-
+        `)
+        .eq('id', bookingId)
+        .maybeSingle();
       if (error) throw error;
-      if (!data || data.length === 0) {
-        throw new Error('Job was already claimed by someone else');
-      }
-      return data[0];
+      if (!data) throw new Error('Job was already claimed by someone else');
+      return data;
     },
     onSuccess: (data) => {
       setClaimingBookingId(null);
@@ -637,6 +662,12 @@ export default function StaffPortal() {
 
       // Kept as a special case because it does more than reword: the job is
       // gone, so the available list has to be refetched.
+      if (error.message === 'This job was just filled' || error.message === 'You already claimed this job') {
+        toast.error(error.message);
+        queryClient.invalidateQueries({ queryKey: ['staff-bookings', 'unassigned'] });
+        queryClient.invalidateQueries({ queryKey: ['staff-bookings', 'assigned'] });
+        return;
+      }
       if (error.message === 'Job was already claimed by someone else') {
         toast.error('This job was already claimed by another cleaner');
         queryClient.invalidateQueries({ queryKey: ['staff-bookings', 'unassigned'] });
