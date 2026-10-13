@@ -111,13 +111,15 @@ export function useNotificationPreferences() {
     staleTime: 60_000,
   });
 
-  return query.data ?? {
+  const data = query.data ?? {
     sidebar_badges: { ...SIDEBAR_DEFAULTS },
     bell_notifications: { ...BELL_DEFAULTS },
     channels: { ...CHANNEL_DEFAULTS },
     notification_matrix: {},
     snoozed_until: {},
   };
+  // `loaded` is not a stored column. Callers must not write this object back.
+  return { ...data, loaded: !!orgId && query.isFetched };
 }
 
 export function useUpdateNotificationPreferences() {
@@ -127,20 +129,26 @@ export function useUpdateNotificationPreferences() {
   const [saving, setSaving] = useState(false);
 
   const save = useCallback(
-    async (patch: Partial<NotificationPreferences>) => {
+    async (
+      patch: Partial<NotificationPreferences>,
+      opts?: { replace?: Array<'notification_matrix' | 'snoozed_until' | 'channels'> },
+    ) => {
       if (!orgId) return { error: 'No organization' } as const;
       setSaving(true);
       try {
         // Merge with existing to preserve keys the caller did not include.
+        // `replace` swaps a column outright. Reset needs that: merging {} into
+        // the matrix used to leave every saved override in place.
         const { data: existing } = await (supabase as any)
           .from('organization_notification_preferences')
           .select('sidebar_badges, bell_notifications, channels, notification_matrix, snoozed_until')
           .eq('organization_id', orgId)
           .maybeSingle();
-        const mergeMatrix = (base: any, incoming: any) => {
+        const replace = new Set(opts?.replace ?? []);
+        const mergeMatrix = (base: ChannelMatrix | null | undefined, incoming: ChannelMatrix | undefined) => {
           const out: ChannelMatrix = { ...(base || {}) };
           for (const k of Object.keys(incoming || {})) {
-            out[k] = { ...(base?.[k] || {}), ...(incoming[k] || {}) };
+            out[k] = { ...(base?.[k] || {}), ...(incoming?.[k] || {}) };
           }
           return out;
         };
@@ -148,9 +156,15 @@ export function useUpdateNotificationPreferences() {
           organization_id: orgId,
           sidebar_badges: { ...(existing?.sidebar_badges || {}), ...(patch.sidebar_badges || {}) },
           bell_notifications: { ...(existing?.bell_notifications || {}), ...(patch.bell_notifications || {}) },
-          channels: { ...(existing?.channels || {}), ...(patch.channels || {}) },
-          notification_matrix: mergeMatrix(existing?.notification_matrix, patch.notification_matrix),
-          snoozed_until: { ...(existing?.snoozed_until || {}), ...(patch.snoozed_until || {}) },
+          channels: replace.has('channels')
+            ? { ...(patch.channels || {}) }
+            : { ...(existing?.channels || {}), ...(patch.channels || {}) },
+          notification_matrix: replace.has('notification_matrix')
+            ? { ...(patch.notification_matrix || {}) }
+            : mergeMatrix(existing?.notification_matrix, patch.notification_matrix),
+          snoozed_until: replace.has('snoozed_until')
+            ? { ...(patch.snoozed_until || {}) }
+            : { ...(existing?.snoozed_until || {}), ...(patch.snoozed_until || {}) },
           updated_at: new Date().toISOString(),
         };
         const { error } = await (supabase as any)
@@ -195,7 +209,7 @@ export function useUpdateNotificationPreferences() {
       channels: { ...CHANNEL_DEFAULTS },
       notification_matrix: {},
       snoozed_until: {},
-    });
+    }, { replace: ['notification_matrix', 'snoozed_until', 'channels'] });
   }, [save]);
 
   return { save, setChannel, snoozeType, clearSnooze, resetToDefaults, saving };

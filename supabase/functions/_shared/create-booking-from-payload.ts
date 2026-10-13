@@ -6,6 +6,7 @@
 // 133..461 before this extraction). No logic was altered — only relocated — so
 // the integration path behaves identically.
 import { z } from "npm:zod@3.25.76";
+import { ownerNewBookingSmsAllowed } from "./owner-notify-gates.ts";
 
 // Strict input validation schema
 export const BookingSchema = z.object({
@@ -412,6 +413,36 @@ async function runBookingNotifications(opts: {
         const phoneNumberId = (smsSettings?.openphone_phone_number_id || '').trim();
         const smsEnabled = smsSettings?.sms_enabled !== false;
 
+        const { data: ownerFlags, error: ownerFlagsError } = await supabase
+          .from('business_settings')
+          .select('notify_new_booking')
+          .eq('organization_id', organizationId)
+          .maybeSingle();
+        if (ownerFlagsError) {
+          console.warn(`[booking-notify] notify_new_booking read failed, owner SMS stays on org=${organizationId}:`, ownerFlagsError.message);
+        }
+        const { data: ownerPrefs, error: ownerPrefsError } = await supabase
+          .from('organization_notification_preferences')
+          .select('channels')
+          .eq('organization_id', organizationId)
+          .maybeSingle();
+        if (ownerPrefsError) {
+          console.warn(`[booking-notify] prefs read failed, SMS master stays on org=${organizationId}:`, ownerPrefsError.message);
+        }
+        const ownerSms = ownerNewBookingSmsAllowed({
+          notifyNewBooking: ownerFlagsError ? undefined : ownerFlags?.notify_new_booking,
+          channels: ownerPrefsError ? null : ownerPrefs?.channels,
+        });
+        if (!ownerSms.allowed) {
+          console.log(`[booking-notify] Admin SMS skipped org=${organizationId} reason=${ownerSms.reason}`);
+          await logNotification(supabase, {
+            organizationId, channel: "sms", outcome: "skipped",
+            bookingId: booking.id, bookingNumber: booking.booking_number,
+            detail: ownerSms.reason ?? "Owner turned this text off",
+          });
+          return;
+        }
+
         if (!(apiKeyRaw && phoneNumberId && bizSettings?.company_phone && smsEnabled)) {
           const reason = `hasKey=${!!apiKeyRaw} hasPhoneId=${!!phoneNumberId} hasCompanyPhone=${!!bizSettings?.company_phone} smsEnabled=${smsEnabled}`;
           console.log(`[booking-notify] Admin SMS skipped org=${organizationId} ${reason}`);
@@ -532,7 +563,24 @@ async function runBookingNotifications(opts: {
         });
 
         const body = await resp.text();
-        if (resp.ok) {
+        let skipped = false;
+        let skipReason: string | undefined;
+        try {
+          const parsed = JSON.parse(body) as { skipped?: boolean; reason?: string };
+          skipped = resp.ok && parsed.skipped === true;
+          skipReason = parsed.reason;
+        } catch {
+          skipped = false;
+        }
+        if (skipped) {
+          console.log(`[booking-notify] Admin email skipped org=${organizationId} reason=${skipReason ?? "preference"}`);
+          await logNotification(supabase, {
+            organizationId, channel: "email", outcome: "skipped",
+            bookingId: booking.id, bookingNumber: booking.booking_number,
+            detail: skipReason ?? "Owner turned this email off",
+            extra: { to: emailSettings.from_email, status: resp.status },
+          });
+        } else if (resp.ok) {
           console.log(`[booking-notify] Admin email sent org=${organizationId}`);
           await logNotification(supabase, {
             organizationId, channel: "email", outcome: "sent",

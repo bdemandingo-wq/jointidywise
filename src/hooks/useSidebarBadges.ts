@@ -6,7 +6,7 @@ import { useOrgRole } from '@/hooks/useOrgRole';
 import { useNotificationPreferences } from '@/hooks/useNotificationPreferences';
 import { useCleanerPayoutSetupRequired } from '@/hooks/useCleanerPayoutSetupRequired';
 import { useDismissedBadges } from '@/hooks/useDismissedBadges';
-import { NOTIFICATION_TYPES, isChannelEnabled } from '@/lib/notificationCatalog';
+import { NOTIFICATION_TYPES, isChannelEnabled, isMasterChannelOn } from '@/lib/notificationCatalog';
 import { orgDateKey, orgStartOfWeek } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 
@@ -63,7 +63,7 @@ export function useSidebarBadgesFull(): SidebarBadgeData {
   const prefs = useNotificationPreferences();
   const payoutRequired = useCleanerPayoutSetupRequired(orgId);
   const dismissed = useDismissedBadges();
-  const showBadges = prefs.channels['channel.sidebar_badge'] !== false;
+  const showBadges = isMasterChannelOn('sidebar', prefs.channels) && prefs.channels['channel.sidebar_badge'] !== false;
   const sb = prefs.sidebar_badges;
   // Aggregate the matrix into a "sidebar allowed" lookup by legacy sidebarKey.
   // If ANY type mapped to a given sidebarKey has sidebar channel enabled, we allow the badge.
@@ -72,11 +72,11 @@ export function useSidebarBadgesFull(): SidebarBadgeData {
     for (const t of NOTIFICATION_TYPES) {
       if (!t.sidebarKey) continue;
       if (t.managerLocked && !hasFinancialAccess) continue;
-      const enabled = isChannelEnabled(t.key, 'sidebar', prefs.notification_matrix, prefs.snoozed_until);
+      const enabled = isChannelEnabled(t.key, 'sidebar', prefs.notification_matrix, prefs.snoozed_until, prefs.channels);
       map[t.sidebarKey] = map[t.sidebarKey] || enabled;
     }
     return map;
-  }, [prefs.notification_matrix, prefs.snoozed_until, hasFinancialAccess]);
+  }, [prefs.notification_matrix, prefs.snoozed_until, prefs.channels, hasFinancialAccess]);
   const on = (k: string) =>
     showBadges && sb[k] !== false && sidebarAllowedByLegacyKey[k] !== false;
 

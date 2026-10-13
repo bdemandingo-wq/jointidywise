@@ -12,7 +12,8 @@ import {
 const LEGACY_MAP: Array<{ col: string; typeKey: string }> = [
   { col: 'notify_new_booking', typeKey: 'booking.new' },
   { col: 'notify_cancellations', typeKey: 'booking.cancelled' },
-  { col: 'notify_reminders', typeKey: 'booking.confirmed' },
+  // notify_reminders is the customer's appointment-reminder email, not an
+  // owner "booking confirmed" alert. It stays on the customer section.
 ];
 
 // Module-level guard so multiple mounted consumers (e.g. Settings page +
@@ -39,7 +40,7 @@ export function useLegacyNotificationMigration() {
     (async () => {
       const { data, error } = await supabase
         .from('business_settings')
-        .select('notify_new_booking, notify_cancellations, notify_reminders')
+        .select('notify_new_booking, notify_cancellations')
         .eq('organization_id', orgId)
         .maybeSingle();
       if (cancelled || error) return;
