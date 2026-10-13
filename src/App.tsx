@@ -161,6 +161,8 @@ const PricingPage = lazy(() => import("./pages/PricingPage"));
 const GetTheAppPage = lazy(() => import("./pages/GetTheAppPage"));
 const ChoosePlanPage = lazy(() => import("./pages/ChoosePlanPage"));
 const CheckoutSuccessPage = lazy(() => import("./pages/CheckoutSuccessPage"));
+const BillingCheckoutPage = lazy(() => import("./pages/BillingCheckoutPage"));
+const BillingReturnPage = lazy(() => import("./pages/BillingReturnPage"));
 const CleaningBusinessSoftware = lazy(() => import("./pages/CleaningBusinessSoftware"));
 const LocationSoftwarePage = lazy(() => import("./pages/locations/LocationSoftwarePage"));
 const DemoPage = lazy(() => import("./pages/DemoPage"));
@@ -512,6 +514,8 @@ const App = () => (
                      <Route path="/get-the-app" element={<ErrorBoundary featureName="Get the app"><GetTheAppPage /></ErrorBoundary>} />
                      <Route path="/choose-plan" element={<ErrorBoundary featureName="Choose Plan"><ChoosePlanPage /></ErrorBoundary>} />
                      <Route path="/checkout/success" element={<ErrorBoundary featureName="Checkout Success"><CheckoutSuccessPage /></ErrorBoundary>} />
+                     <Route path="/billing/checkout" element={<ErrorBoundary featureName="Checkout"><BillingCheckoutPage /></ErrorBoundary>} />
+                     <Route path="/billing/return" element={<ErrorBoundary featureName="Checkout return"><BillingReturnPage /></ErrorBoundary>} />
                      <Route path="/demo" element={<DemoPage />} />
                     {/* Onboarding is OUTSIDE AdminRoute. Moving it inside would
                         create an infinite redirect — AdminRoute's needs_onboarding

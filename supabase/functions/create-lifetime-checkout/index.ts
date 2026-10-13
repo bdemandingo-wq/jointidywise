@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -79,12 +80,25 @@ serve(async (req) => {
     const customers = await stripe.customers.list({ email: user.email, limit: 1 });
     const customerId = customers.data.length > 0 ? customers.data[0].id : undefined;
 
+    const publishableKey = readPublishableKey();
+    if (!publishableKey) {
+      return new Response(
+        JSON.stringify({
+          error: "Checkout is not configured. STRIPE_PUBLISHABLE_KEY is missing on the server. Nothing was charged.",
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
+      );
+    }
+
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       customer: customerId,
       customer_email: customerId ? undefined : user.email,
       mode: "payment",
-      success_url: `${origin}/dashboard?lifetime=success`,
-      cancel_url: `${origin}/dashboard?lifetime=canceled`,
+      ...embeddedCheckoutParams(origin),
+      // Same dispute protection as buy-lifetime: always challenge the card.
+      payment_method_options: {
+        card: { request_three_d_secure: "any" },
+      },
       metadata: {
         user_id: user.id,
         email: user.email,
@@ -118,7 +132,10 @@ serve(async (req) => {
     logStep("Lifetime checkout session created", { sessionId: session.id, spotsLeft: TOTAL_SPOTS - used - 1 });
 
     return new Response(
-      JSON.stringify({ url: session.url, spotsRemaining: TOTAL_SPOTS - used }),
+      JSON.stringify({
+        ...embeddedCheckoutBody(session.client_secret, publishableKey),
+        spotsRemaining: TOTAL_SPOTS - used,
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
     );
   } catch (error: any) {
