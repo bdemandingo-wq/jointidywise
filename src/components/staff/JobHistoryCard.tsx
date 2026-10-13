@@ -1,3 +1,4 @@
+import { formatDuration } from '@/lib/formatDuration';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
@@ -78,7 +79,7 @@ export function JobHistoryCard({ booking }: Props) {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Clock className="w-4 h-4" />
           <span>
-            <OrgTimestamp value={booking.scheduled_at} /> ({booking.duration} min)
+            <OrgTimestamp value={booking.scheduled_at} /> ({formatDuration(booking.duration)})
           </span>
         </div>
         {booking.customer && (

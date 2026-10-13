@@ -1,3 +1,4 @@
+import { formatDuration } from '@/lib/formatDuration';
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 
@@ -241,6 +242,7 @@ export function BookingDetailsDialog({
               <div>
                 <dt className="text-xs text-muted-foreground">Service</dt>
                 <dd className="text-sm font-medium">{booking.service?.name || (booking.total_amount === 0 ? 'Re-clean' : 'Service')}</dd>
+                <dd className="text-xs text-muted-foreground">{formatDuration(booking.duration)}</dd>
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">Scheduled</dt>

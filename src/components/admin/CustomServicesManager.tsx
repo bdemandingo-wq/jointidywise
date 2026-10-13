@@ -1,3 +1,4 @@
+import { formatDuration } from '@/lib/formatDuration';
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -112,7 +113,7 @@ function SortableServiceRow({
           </div>
         </div>
       </TableCell>
-      <TableCell>{service.duration} min</TableCell>
+      <TableCell className="whitespace-nowrap">{formatDuration(service.duration)}</TableCell>
       <TableCell>{fmt(service.price)}</TableCell>
       <TableCell>
         <Badge variant={service.is_active ? 'default' : 'secondary'}>
@@ -392,7 +393,14 @@ export function CustomServicesManager() {
                       value={formData.duration}
                       onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
                       placeholder="60"
+                      aria-label="Duration (minutes)"
+                      aria-describedby="service-duration-preview"
                     />
+                    <p id="service-duration-preview" aria-live="polite" className="mt-2 text-sm text-muted-foreground break-words">
+                      {formData.duration.trim() !== '' && Number.isFinite(Number(formData.duration)) && Number(formData.duration) >= 0
+                        ? `${formData.duration} min → ${formatDuration(Number(formData.duration))}`
+                        : null}
+                    </p>
                   </div>
                   <div>
                     <Label>Base Price ($)</Label>

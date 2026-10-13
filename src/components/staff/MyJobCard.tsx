@@ -1,3 +1,4 @@
+import { formatDuration } from '@/lib/formatDuration';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -372,7 +373,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
         <div className="flex items-center gap-2 text-sm">
           <Clock className="w-4 h-4 text-muted-foreground" />
           <span>
-            {formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })} ({booking.duration} min)
+            {formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })} ({formatDuration(booking.duration)})
           </span>
         </div>
         {booking.customer && (
