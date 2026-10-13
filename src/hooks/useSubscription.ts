@@ -15,6 +15,8 @@ import { useAuth } from './useAuth';
 import { usePlanState } from './usePlanFeature';
 import { hasPaidDashboardAccess } from '@/lib/dashboardAccess';
 
+// Login allowlist. The first address is the owner's account, not the public
+// support inbox (SUPPORT_EMAIL). Do not replace it.
 const FREE_ACCOUNTS = [
   'support@tidywisecleaning.com',
   'applereview@tidywise.com',

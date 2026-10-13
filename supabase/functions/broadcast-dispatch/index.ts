@@ -6,13 +6,14 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { renderBroadcastHtml, renderBroadcastText } from "../_shared/broadcast-render.ts";
 import { ensureUnsubscribeToken } from "../_shared/unsubscribe-token.ts";
+import { tidywiseSupportFrom } from "../_shared/email-footer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cron-secret",
 };
 
-const FROM = "TidyWise <support@tidywisecleaning.com>";
+const FROM = tidywiseSupportFrom();
 const BATCH = 50;
 const SEND_DELAY_MS = 200;   // 5/s — Resend allows 10/s per team
 const MAX_ATTEMPTS = 3;

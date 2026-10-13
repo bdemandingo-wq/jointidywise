@@ -1,4 +1,4 @@
-const SUPPORT_EMAIL = "support@tidywisecleaning.com";
+import { SUPPORT_EMAIL } from "./supportEmail.ts";
 
 export type UnsubscribePayload = {
   ok?: boolean;

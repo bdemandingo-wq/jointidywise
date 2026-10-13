@@ -35,6 +35,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { CheckCircle2, ArrowLeft, LayoutDashboard, Mail, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { SUPPORT_EMAIL } from '@/lib/supportEmail';
 
 const PLAN_LABELS: Record<string, string> = {
   basic: 'Basic',
@@ -245,7 +246,7 @@ export default function CheckoutSuccessPage() {
                 We're still wrapping up your account. This can take a minute. If it's
                 not resolved shortly,{' '}
                 <a
-                  href={`mailto:support@tidywisecleaning.com?subject=${encodeURIComponent(
+                  href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
                     `Checkout session ${sessionId ?? ''} not provisioned`,
                   )}`}
                   className="underline hover:text-foreground"
@@ -319,10 +320,10 @@ export default function CheckoutSuccessPage() {
                 <p className="text-xs text-muted-foreground mt-2">
                   Need help?{' '}
                   <a
-                    href="mailto:support@tidywisecleaning.com"
+                    href={`mailto:${SUPPORT_EMAIL}`}
                     className="underline hover:text-foreground"
                   >
-                    support@tidywisecleaning.com
+                    {SUPPORT_EMAIL}
                   </a>
                 </p>
               </>

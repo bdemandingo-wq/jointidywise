@@ -5,7 +5,8 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
-import { tidywiseEmailFooterHtml } from "../_shared/email-footer.ts";
+import { tidywiseEmailFooterHtml, tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { PLATFORM_SENDER_FROM } from "../_shared/email-sender-resolution.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -74,7 +75,7 @@ serve(async (req) => {
           <p style="color: #92400e; margin: 0; line-height: 1.5;">
             <strong>Didn't change your password?</strong> Reset it immediately at
             <a href="https://www.jointidywise.com/forgot-password" style="color: #92400e;">jointidywise.com/forgot-password</a>
-            and contact <a href="mailto:support@tidywisecleaning.com" style="color: #92400e;">support@tidywisecleaning.com</a>.
+            and contact <a href="mailto:${tidywiseSupportEmail()}" style="color: #92400e;">${tidywiseSupportEmail()}</a>.
           </p>
         </div>
         <p style="color: #555; margin-top: 24px;">— The TidyWise team</p>
@@ -86,9 +87,9 @@ serve(async (req) => {
         method: "POST",
         headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          from: "TidyWise <noreply@tidywisecleaning.com>",
+          from: PLATFORM_SENDER_FROM,
           to: [email],
-          reply_to: "support@tidywisecleaning.com",
+          reply_to: tidywiseSupportEmail(),
           subject: "Your TidyWise password was changed",
           html,
         }),

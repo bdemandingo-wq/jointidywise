@@ -20,6 +20,7 @@ import {
   getOrgEmailSettings,
   getReplyTo,
 } from "../_shared/get-org-email-settings.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,7 +29,7 @@ const corsHeaders = {
 };
 
 const APP_URL = Deno.env.get("APP_URL") ?? "https://app.jointidywise.com";
-const FOUNDER_EMAIL = Deno.env.get("FOUNDER_EMAIL") ?? "support@tidywisecleaning.com";
+const FOUNDER_EMAIL = Deno.env.get("FOUNDER_EMAIL")?.trim() || tidywiseSupportEmail();
 const FOUNDER_NAME = Deno.env.get("FOUNDER_NAME") ?? "Emmanuel";
 
 type NudgeReason =

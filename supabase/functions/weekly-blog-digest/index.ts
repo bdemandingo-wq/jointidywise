@@ -15,13 +15,14 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const RECIPIENT = "support@tidywisecleaning.com";
+const RECIPIENT = tidywiseSupportEmail();
 const FROM = "TidyWise Blog Bot <noreply@jointidywise.com>";
 const SITE_URL = "https://jointidywise.com";
 

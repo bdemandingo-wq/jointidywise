@@ -16,18 +16,20 @@
  */
 
 /**
- * The platform sender. ONE named constant — there are already 11 inline copies of
- * `noreply@tidywisecleaning.com` and 3 of `noreply@jointidywise.com` scattered
- * across the edge functions, which is how they drift.
+ * The platform sender. ONE named constant — inline copies of the From address
+ * are how the domain drifts.
  *
- * tidywisecleaning.com is the domain verified in Resend (confirmed 2026-08-13).
- * That matters more than it looks: a fallback sending from an unverified domain
- * would fail for the exact reason it exists to work around. Never fall back to
- * `noreply@resend.dev`, Resend's sandbox domain — the now-deleted
+ * jointidywise.com is the domain verified in Resend. A fallback sending from
+ * the owner's separate cleaning-business domain (tidywisecleaning.com) or from
+ * `noreply@resend.dev` would fail for the exact reason this fallback exists.
+ * Never fall back to Resend's sandbox domain — the now-deleted
  * weekly-payroll-summary used to, and it was not a pattern to copy.
+ *
+ * This is the transactional noreply identity. Public support / reply-to is
+ * TIDYWISE_SUPPORT_EMAIL in email-footer.ts (support@jointidywise.com).
  */
 export const PLATFORM_SENDER_NAME = "TidyWise";
-export const PLATFORM_SENDER_EMAIL = "noreply@tidywisecleaning.com";
+export const PLATFORM_SENDER_EMAIL = "noreply@jointidywise.com";
 export const PLATFORM_SENDER_FROM = `${PLATFORM_SENDER_NAME} <${PLATFORM_SENDER_EMAIL}>`;
 
 export type FallbackReason =

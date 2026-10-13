@@ -12,6 +12,10 @@
  * This is a client-side convenience gate, not a security boundary. It hides
  * UI; it does not stop a crafted request. The real enforcement is RLS and the
  * platform-admin check inside the broadcast-admin edge function.
+ *
+ * This is the owner's login, not TidyWise's public support inbox. Public
+ * contact mail is SUPPORT_EMAIL in supportEmail.ts. Changing this string
+ * hides platform admin from the account that actually signs in.
  */
 export const PLATFORM_OWNER_EMAIL = 'support@tidywisecleaning.com';
 

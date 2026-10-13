@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { PLATFORM_SENDER_EMAIL } from "../_shared/email-sender-resolution.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -116,8 +118,8 @@ serve(async (req: Request) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            from: `${emailSettings.from_name || "TidyWise"} <${emailSettings.from_email || "noreply@tidywisecleaning.com"}>`,
-            to: ["support@tidywisecleaning.com"],
+            from: `${emailSettings.from_name || "TidyWise"} <${emailSettings.from_email || PLATFORM_SENDER_EMAIL}>`,
+            to: [tidywiseSupportEmail()],
             reply_to: email,
             subject: bookedDate && bookedTime
               ? `📅 Demo booked: ${fullName} — ${dateDisplay}`
@@ -207,7 +209,7 @@ serve(async (req: Request) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            from: `${emailSettings.from_name || "TidyWise"} <${emailSettings.from_email || "noreply@tidywisecleaning.com"}>`,
+            from: `${emailSettings.from_name || "TidyWise"} <${emailSettings.from_email || PLATFORM_SENDER_EMAIL}>`,
             to: [email],
             subject: emailSubject,
             html: emailHtml,

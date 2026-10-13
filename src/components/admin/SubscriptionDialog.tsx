@@ -26,6 +26,7 @@ import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyL
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from '@/lib/startSubscriptionCheckout';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
+import { SUPPORT_EMAIL } from "@/lib/supportEmail";
 
 interface SubscriptionDialogProps {
   open: boolean;
@@ -44,7 +45,7 @@ interface LifetimeSpots {
 // Leave unset (default) to show the original simple trial flow.
 const PRICING_ENABLED = import.meta.env.VITE_PRICING_ENABLED === "true";
 
-const ENTERPRISE_CONTACT_EMAIL = "support@jointidywise.com";
+const ENTERPRISE_CONTACT_EMAIL = SUPPORT_EMAIL;
 
 const STANDARD_FEATURES = [
   "Unlimited bookings & customers",

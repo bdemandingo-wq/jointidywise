@@ -2,10 +2,11 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://jointidywise.com";
-const SUPPORT_EMAIL = Deno.env.get("SUPPORT_EMAIL") || "support@jointidywise.com";
+const SUPPORT_EMAIL = tidywiseSupportEmail();
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

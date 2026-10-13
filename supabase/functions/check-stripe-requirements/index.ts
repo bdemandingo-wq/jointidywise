@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveCallerOrg, isServiceRoleRequest } from "../_shared/require-caller-org.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { PLATFORM_SENDER_EMAIL } from "../_shared/email-sender-resolution.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -256,7 +258,7 @@ serve(async (req: Request) => {
               if (resendApiKey) {
                 const firstName = staff.name?.split(" ")[0] || "there";
                 const fromName = orgEmailSettings?.from_name || "TidyWise";
-                const fromEmail = orgEmailSettings?.from_email || "noreply@tidywisecleaning.com";
+                const fromEmail = orgEmailSettings?.from_email || PLATFORM_SENDER_EMAIL;
 
                 const resendRes = await fetch("https://api.resend.com/emails", {
                   method: "POST",
@@ -284,7 +286,7 @@ serve(async (req: Request) => {
                         </p>
                         <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
                         <p style="color:#888;font-size:13px;">
-                          Need help? Contact us at <a href="mailto:support@tidywisecleaning.com" style="color:#4f46e5;">support@tidywisecleaning.com</a> or call <a href="tel:+15615718725" style="color:#4f46e5;">(561) 571-8725</a>.
+                          Need help? Contact us at <a href="mailto:${tidywiseSupportEmail()}" style="color:#4f46e5;">${tidywiseSupportEmail()}</a> or call <a href="tel:+15615718725" style="color:#4f46e5;">(561) 571-8725</a>.
                         </p>
                         <p style="color:#888;font-size:13px;">— The TidyWise Team</p>
                       </div>

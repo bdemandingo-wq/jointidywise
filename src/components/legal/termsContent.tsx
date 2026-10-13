@@ -1,4 +1,5 @@
 import { ArticleBody } from "@/components/ArticleBody";
+import { SUPPORT_EMAIL } from "@/lib/supportEmail";
 /**
  * Canonical TidyWise Terms of Service.
  *
@@ -33,7 +34,7 @@ export const REFUND_POLICY =
 export const CANCELLATION_POLICY =
   'Subscriptions may be cancelled at any time, self-serve, from Settings → ' +
   'Billing inside the TidyWise dashboard, or by emailing ' +
-  'support@tidywisecleaning.com. Cancellation takes effect at the end of the ' +
+  `${SUPPORT_EMAIL}. Cancellation takes effect at the end of the ` +
   'current billing period; access continues until that date. No further ' +
   'charges occur after cancellation. Failure to cancel before a renewal date ' +
   'constitutes authorization of the renewal charge.';
@@ -83,13 +84,13 @@ export const TOS_SECTIONS: Section[] = [
     title: '6. Refund Policy',
     body: [
       REFUND_POLICY,
-      'If you believe a charge was made in error, contact support@tidywisecleaning.com within 7 days of the charge and we will investigate in good faith.',
+      `If you believe a charge was made in error, contact ${SUPPORT_EMAIL} within 7 days of the charge and we will investigate in good faith.`,
     ],
   },
   {
     title: '7. Chargebacks and Payment Disputes',
     body: [
-      'You agree to contact us at support@tidywisecleaning.com to resolve any billing concern before initiating a chargeback or payment dispute with your bank or card issuer. Most billing issues are resolved within one business day.',
+      `You agree to contact us at ${SUPPORT_EMAIL} to resolve any billing concern before initiating a chargeback or payment dispute with your bank or card issuer. Most billing issues are resolved within one business day.`,
       'Initiating a chargeback on a properly authorized charge — including a renewal you did not cancel before its renewal date — is a breach of these Terms. We respond to disputes with our records, which include your acceptance of these Terms (timestamp, IP address, and version), your account activity and access logs, and your billing history. We reserve the right to suspend the account associated with a pending dispute and to recover dispute fees and costs for chargebacks resolved in our favor.',
     ],
   },
@@ -158,7 +159,7 @@ export const TOS_SECTIONS: Section[] = [
   {
     title: '18. Contact',
     body: [
-      'Questions about these Terms or billing: support@tidywisecleaning.com. Please contact us before disputing any charge — most issues are resolved within one business day.',
+      `Questions about these Terms or billing: ${SUPPORT_EMAIL}. Please contact us before disputing any charge — most issues are resolved within one business day.`,
     ],
   },
 ];

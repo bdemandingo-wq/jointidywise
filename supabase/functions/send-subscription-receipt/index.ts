@@ -9,10 +9,11 @@
 // frontend flow to preserve here).
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { isServiceRoleRequest } from "../_shared/require-caller-org.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://jointidywise.com";
-const SUPPORT_EMAIL = Deno.env.get("SUPPORT_EMAIL") || "support@jointidywise.com";
+const SUPPORT_EMAIL = tidywiseSupportEmail();
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

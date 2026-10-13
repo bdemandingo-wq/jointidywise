@@ -49,7 +49,7 @@ import { OrgTimestamp } from '@/components/OrgTimestamp';
  * and pretending otherwise would make the preview lie about what a specific
  * recipient will click.
  */
-const PREVIEW_UNSUBSCRIBE_URL = 'https://tidywisecleaning.com/unsubscribe?token=preview-only';
+const PREVIEW_UNSUBSCRIBE_URL = 'https://jointidywise.com/unsubscribe?token=preview-only';
 
 interface CreateBroadcastResult {
   broadcast_id: string;

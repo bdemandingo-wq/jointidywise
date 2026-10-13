@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { SiteFooter } from "@/components/SiteFooter";
 import { ArrowLeft } from "lucide-react";
 import { ArticleBody, READING_COLUMN_SM, READING_CARD_SM } from "@/components/ArticleBody";
+import { SUPPORT_EMAIL } from "@/lib/supportEmail";
 
 export default function PrivacyPolicyPage() {
   const navigate = useNavigate();
@@ -125,7 +126,7 @@ export default function PrivacyPolicyPage() {
             </p>
             <ul>
               <li>Navigate to <strong>Settings → Security</strong> in the app and select <strong>"Delete My Account"</strong>.</li>
-              <li>Alternatively, email us at <strong>support@jointidywise.com</strong> with the subject line "Account Deletion Request".</li>
+              <li>Alternatively, email us at <strong>{SUPPORT_EMAIL}</strong> with the subject line "Account Deletion Request".</li>
             </ul>
             <p>
               Upon receiving a deletion request, we will delete or anonymize your personal data within 30 days, unless we are required to retain it for legal or compliance purposes.
@@ -150,7 +151,7 @@ export default function PrivacyPolicyPage() {
 
             <h2>Contact Us</h2>
             <p>
-              If you have questions about this Privacy Policy, please contact us at <strong>support@jointidywise.com</strong>.
+              If you have questions about this Privacy Policy, please contact us at <strong>{SUPPORT_EMAIL}</strong>.
             </p>
           </ArticleBody>
           </div>
@@ -175,7 +176,7 @@ export default function PrivacyPolicyPage() {
               <Link to="/#features" className="text-primary hover:underline">Features</Link>
             </li>
             <li>
-              <a href="mailto:support@jointidywise.com" className="text-primary hover:underline">Contact Us</a>
+              <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary hover:underline">Contact Us</a>
             </li>
           </ul>
         </nav>
