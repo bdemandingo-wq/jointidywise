@@ -1,4 +1,4 @@
-CREATE TABLE public.winback_sends (
+CREATE TABLE IF NOT EXISTS public.winback_sends (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   organization_id uuid REFERENCES public.organizations(id) ON DELETE SET NULL,
@@ -20,7 +20,7 @@ CREATE TABLE public.winback_sends (
   CONSTRAINT winback_sends_email_step_key UNIQUE (email, step)
 );
 
-CREATE INDEX winback_sends_step_status_sent_at_idx
+CREATE INDEX IF NOT EXISTS winback_sends_step_status_sent_at_idx
   ON public.winback_sends (step, status, sent_at);
 
 ALTER TABLE public.winback_sends ENABLE ROW LEVEL SECURITY;
@@ -28,7 +28,7 @@ ALTER TABLE public.winback_sends ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.winback_sends FROM PUBLIC, anon, authenticated;
 GRANT ALL ON public.winback_sends TO service_role;
 
-CREATE TABLE public.winback_campaign_halt (
+CREATE TABLE IF NOT EXISTS public.winback_campaign_halt (
   id smallint PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   halted_at timestamptz NOT NULL DEFAULT now(),
   reason text NOT NULL,
