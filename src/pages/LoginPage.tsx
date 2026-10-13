@@ -295,7 +295,7 @@ export default function LoginPage() {
           <CardHeader className="text-center pb-4">
             <h1 className="pv-display text-3xl leading-none tracking-tight">Sign in to your TidyWise account</h1>
             <CardDescription>
-              Sign in to your account
+              Welcome back
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -400,7 +400,7 @@ export default function LoginPage() {
                   <Input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="••••••••"
+                    placeholder="Password"
                     value={formData.password}
                     onChange={(e) => {
                       setFormData({ ...formData, password: e.target.value });
@@ -439,7 +439,13 @@ export default function LoginPage() {
               </div>
 
               {/* Submit button */}
-              <Button type="submit" className="w-full" variant="premium" disabled={loading} style={{ touchAction: 'manipulation' }}>
+              <Button
+                type="submit"
+                variant="premium"
+                disabled={loading}
+                className="w-full bg-[hsl(230_84%_56%)] text-white shadow-md hover:bg-[hsl(224_72%_42%)] hover:text-white"
+                style={{ touchAction: 'manipulation' }}
+              >
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Sign In
               </Button>

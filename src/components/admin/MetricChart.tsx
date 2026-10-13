@@ -1,14 +1,7 @@
-import { useMemo } from 'react';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
-import { format, parseISO } from 'date-fns';
+import { lazy, Suspense, useMemo } from 'react';
 import { fmt } from '@/lib/activeCurrency';
+
+const MetricChartPlot = lazy(() => import('./MetricChartPlot').then((m) => ({ default: m.MetricChartPlot })));
 
 interface DataPoint {
   date: string;
@@ -63,39 +56,15 @@ export function MetricChart({
       <p className="mt-1 truncate text-xs text-muted-foreground">{dateRange}</p>
       
       <div className="relative mt-4 h-36 min-w-0 overflow-hidden rounded-lg border border-border/60">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 26, right: 14, left: 14, bottom: 10 }}>
-            <XAxis 
-              dataKey="date" 
-              hide 
-            />
-            <YAxis hide domain={[0, maxValue * 1.2]} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: 'hsl(var(--card))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '8px',
-                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-              }}
-              labelFormatter={(label) => {
-                try {
-                  return format(parseISO(label), 'MMM d, yyyy');
-                } catch {
-                  return label;
-                }
-              }}
-              formatter={(val: number) => [isCurrency ? `${fmt(val)}` : val, title]}
-            />
-            <Line
-              type="monotone"
-              dataKey="value"
-              stroke={color}
-              strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 4, fill: color }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+        <Suspense fallback={<div className="h-full w-full animate-pulse bg-muted/40" />}>
+          <MetricChartPlot
+            data={data}
+            maxValue={maxValue}
+            color={color}
+            isCurrency={isCurrency}
+            title={title}
+          />
+        </Suspense>
         
         {/* Max value label */}
         {maxPoint && maxPoint.value > 0 && (

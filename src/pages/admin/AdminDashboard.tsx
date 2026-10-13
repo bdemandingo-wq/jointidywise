@@ -6,13 +6,20 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { TodayStats } from '@/components/admin/TodayStats';
 import { UpcomingBookings } from '@/components/admin/UpcomingBookings';
 import { OnboardingChecklist } from '@/components/admin/OnboardingChecklist';
-import { useBookings, useCustomers, BookingWithDetails } from '@/hooks/useBookings';
+import {
+  useDashboardUpcoming,
+  useDashboardChart,
+  useDashboardCustomers,
+  fetchRecentOrgBookings,
+  fetchOrgCustomers,
+  bookingsRecentKey,
+  BookingWithDetails,
+} from '@/hooks/useBookings';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { isToday } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
-import { PageSkeleton, BookingCardSkeleton } from '@/components/ui/page-skeleton';
+import { BookingCardSkeleton } from '@/components/ui/page-skeleton';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { SEOHead } from '@/components/SEOHead';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -71,8 +78,9 @@ function getGreeting() {
 }
 
 export default function AdminDashboard() {
-  const { data: bookings = [], isLoading: bookingsLoading } = useBookings();
-  const { data: customers = [], isLoading: customersLoading } = useCustomers();
+  const { data: bookings = [], isLoading: bookingsLoading } = useDashboardUpcoming();
+  const { data: chartBookings, isLoading: chartLoading, isError: chartError } = useDashboardChart(!bookingsLoading);
+  const { data: customers = [] } = useDashboardCustomers();
   const queryClient = useQueryClient();
   const { organization } = useOrganization();
   const { isTrialActive, hasFullAccess, isLoading: subscriptionLoading } = useSubscription();
@@ -106,6 +114,23 @@ export default function AdminDashboard() {
   }, [queryClient]);
   const { timezone: orgTimezone } = useOrgTimezone();
 
+  // Bookings and Customers pages read these keys. Start them with the
+  // dashboard so the next navigation is already in cache.
+  useEffect(() => {
+    const orgId = organization?.id;
+    if (!orgId || bookingsLoading) return;
+    void queryClient.prefetchQuery({
+      queryKey: bookingsRecentKey(orgId),
+      queryFn: () => fetchRecentOrgBookings(orgId),
+      staleTime: 1000 * 60 * 2,
+    });
+    void queryClient.prefetchQuery({
+      queryKey: ['customers', orgId],
+      queryFn: () => fetchOrgCustomers(orgId),
+      staleTime: 1000 * 60 * 5,
+    });
+  }, [organization?.id, bookingsLoading, queryClient]);
+
   const handlePullRefresh = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['bookings'] }),
@@ -134,9 +159,7 @@ export default function AdminDashboard() {
     return { grossVolume, payments, customers: todayCustomers };
   }, [bookings, customers, orgTimezone]);
 
-  const isLoading = bookingsLoading || customersLoading;
-
-  if (isLoading) {
+  if (bookingsLoading && bookings.length === 0) {
     return (
       <AdminLayout title="Dashboard" subtitle="Loading your data...">
       <SEOHead title="Dashboard | TidyWise" description="Manage your cleaning business from one dashboard" noIndex />
@@ -174,6 +197,14 @@ export default function AdminDashboard() {
             customers={todayStats.customers}
           />
           
+          {chartLoading && !chartBookings && !chartError ? (
+            <div className="bg-card rounded-xl p-4 border border-border shadow-sm animate-pulse">
+              <div className="h-5 w-32 bg-muted rounded mb-4" />
+              <div className="h-64 bg-muted/50 rounded-xl flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              </div>
+            </div>
+          ) : (
           <Suspense fallback={
             <div className="bg-card rounded-xl p-4 border border-border shadow-sm animate-pulse">
               <div className="h-5 w-32 bg-muted rounded mb-4" />
@@ -183,10 +214,11 @@ export default function AdminDashboard() {
             </div>
           }>
             <ReportsOverview
-              bookings={bookings as BookingWithDetails[]} 
+              bookings={(chartBookings ?? bookings) as BookingWithDetails[]}
               customers={customers.map(c => ({ id: c.id, created_at: c.created_at }))}
             />
           </Suspense>
+          )}
         </div>
         
         <div>

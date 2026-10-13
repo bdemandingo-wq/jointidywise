@@ -20,6 +20,7 @@ import { Capacitor } from '@capacitor/core';
 import { signInWithOAuthNative } from '@/lib/nativeOAuth';
 import { appendReferralParam, readCapturedReferral } from '@/lib/referralAttribution';
 import { Sentry } from '@/lib/sentry';
+import { clearStartupCache, readStartupSection } from '@/lib/startupCache';
 
 // Re-export for backward compatibility
 export const supabaseNoSession = supabase;
@@ -181,6 +182,15 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
       return;
     }
     if (provisionedUserRef.current === userId) return;
+    // Repeat launches already know this account has a workspace. The membership
+    // probe is what provision-trial-org is gated on; running it again just
+    // serializes behind the org read the dashboard is waiting on.
+    const cachedOrg = readStartupSection<{ organization: { id: string } | null }>(userId, 'org');
+    if (cachedOrg?.value.organization) {
+      provisionedUserRef.current = userId;
+      setProvisioning('done');
+      return;
+    }
     provisionedUserRef.current = userId;
 
     let cancelled = false;
@@ -375,6 +385,7 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
       );
       authKeys.forEach(key => localStorage.removeItem(key));
       localStorage.removeItem('tw-offline-cache');
+      clearStartupCache();
     } catch {
       // Ignore storage errors
     }

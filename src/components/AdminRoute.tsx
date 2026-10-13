@@ -4,6 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { useAuth } from '@/hooks/useAuth';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useSubscription } from '@/hooks/useSubscription';
+import { subscriptionRenderGate } from '@/lib/dashboardAccess';
 import { Loader2 } from 'lucide-react';
 
 interface AdminRouteProps {
@@ -174,7 +175,9 @@ export function AdminRoute({ children }: AdminRouteProps) {
   }, [needsPaywallRedirect, location.pathname, navigate, paywallDestination]);
 
 
-  if (authLoading || orgLoading) {
+  // Auth has to resolve before we know whose cache to trust. Org and billing
+  // paint from the snapshot written on the last successful read.
+  if (authLoading || (orgLoading && !organization)) {
     return <RouteSkeleton />;
   }
 
@@ -265,11 +268,17 @@ export function AdminRoute({ children }: AdminRouteProps) {
   // reachable so a failed check cannot trap someone who is trying to pay.
   const onPaywallAllowedPath = isPaywallAllowed(location.pathname, location.search);
 
-  if (!onPaywallAllowedPath && (subscriptionCheck === 'idle' || subscriptionCheck === 'loading')) {
+  const subscriptionGate = subscriptionRenderGate({
+    paywallAllowed: onPaywallAllowedPath,
+    hasSubscription: subscription != null,
+    check: subscriptionCheck,
+  });
+
+  if (subscriptionGate === 'skeleton') {
     return <RouteSkeleton />;
   }
 
-  if (!onPaywallAllowedPath && subscriptionCheck === 'error') {
+  if (subscriptionGate === 'error') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background p-6">
         <div className="max-w-md space-y-3 rounded-lg border bg-card p-6 shadow-sm">

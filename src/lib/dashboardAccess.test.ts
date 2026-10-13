@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasPaidDashboardAccess } from "./dashboardAccess.ts";
+import { hasPaidDashboardAccess, subscriptionRenderGate } from "./dashboardAccess.ts";
 
 test("a card-free org trial opens the dashboard", () => {
   assert.equal(
@@ -71,5 +71,37 @@ test("a trial_active flag opens the dashboard even if subscribed is false", () =
       trialActive: true,
     }),
     true,
+  );
+});
+
+test("a cached subscription paints the dashboard while the check is still in flight", () => {
+  assert.equal(
+    subscriptionRenderGate({ paywallAllowed: false, hasSubscription: true, check: "loading" }),
+    "ready",
+  );
+});
+
+test("no cached subscription keeps the skeleton until the check returns", () => {
+  assert.equal(
+    subscriptionRenderGate({ paywallAllowed: false, hasSubscription: false, check: "loading" }),
+    "skeleton",
+  );
+  assert.equal(
+    subscriptionRenderGate({ paywallAllowed: false, hasSubscription: false, check: "idle" }),
+    "skeleton",
+  );
+});
+
+test("a failed check with nothing cached stays locked", () => {
+  assert.equal(
+    subscriptionRenderGate({ paywallAllowed: false, hasSubscription: false, check: "error" }),
+    "error",
+  );
+});
+
+test("billing pages stay reachable while the check is unknown", () => {
+  assert.equal(
+    subscriptionRenderGate({ paywallAllowed: true, hasSubscription: false, check: "loading" }),
+    "ready",
   );
 });

@@ -1,32 +1,26 @@
-import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { clearSidebarHiddenItemsCache } from '@/hooks/useSidebarHiddenItems';
+import {
+  fetchOrgBundle,
+  type Organization,
+  type OrganizationMembership,
+  type OrgBundle,
+  type OrgRole,
+  type OrgWithRole,
+} from '@/lib/fetchOrgBundle';
+import {
+  readStartupSection,
+  STARTUP_ORG_STALE_MS,
+  startupOrgKey,
+  writeStartupSection,
+} from '@/lib/startupCache';
 
-interface Organization {
-  id: string;
-  name: string;
-  slug: string | null;
-  logo_url: string | null;
-  owner_id: string;
-  /** Set by provision-trial-org, cleared by onboarding submit.
-   *  Not in generated types yet — defaults to false for pre-migration orgs. */
-  needs_onboarding?: boolean;
-}
+export type { Organization, OrganizationMembership, OrgRole, OrgWithRole };
 
-export type OrgRole = 'owner' | 'admin' | 'manager' | 'member';
 export type OrganizationResolution = 'loading' | 'ready' | 'empty' | 'error';
-
-interface OrganizationMembership {
-  organization_id: string;
-  role: OrgRole;
-}
-
-interface OrgWithRole {
-  organization: Organization;
-  role: OrgRole;
-}
 
 interface OrganizationContextType {
   organization: Organization | null;
@@ -59,219 +53,91 @@ const OrganizationContext = createContext<OrganizationContextType | undefined>(u
 export function OrganizationProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { user, loading: authLoading } = useAuth();
-  const [organization, setOrganization] = useState<Organization | null>(null);
-  const [membership, setMembership] = useState<OrganizationMembership | null>(null);
-  const [allOrganizations, setAllOrganizations] = useState<OrgWithRole[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [resolution, setResolution] = useState<OrganizationResolution>('loading');
-  // Tracks which user we last RESOLVED orgs for. Fixes the sign-in flash:
-  // after logging out (or on the login page) state settles at
-  // { organization: null, loading: false }. The instant a user signs in,
-  // the fetch starts async — but consumers (AdminRoute) still read the
-  // stale "not loading, no org" state and redirect existing users to
-  // /onboarding for ~300ms until their org arrives. Flipping loading=true
-  // synchronously whenever we fetch for a not-yet-resolved user closes
-  // that window on web, desktop, and the iOS app alike. Token refreshes
-  // (same user id) intentionally do NOT toggle loading, so the dashboard
-  // doesn't flicker every time the session renews.
-  const resolvedUserIdRef = useRef<string | null>(null);
+  const userId = user?.id ?? null;
+  const cached = userId ? readStartupSection<OrgBundle>(userId, 'org') : null;
 
-  // Core fetch logic, parameterized by userId so it can be called both
-  // from the useEffect (with closure user) and imperatively from the
-  // signup handler (with the session user, bypassing stale closure).
-  const fetchOrgForUser = useCallback(async (userId: string) => {
-    if (resolvedUserIdRef.current !== userId) {
-      setLoading(true);
-      setResolution('loading');
-    }
+  const query = useQuery({
+    queryKey: userId ? startupOrgKey(userId) : ['startup-org', 'signed-out'],
+    queryFn: () => fetchOrgBundle(userId as string),
+    enabled: !!userId && !authLoading,
+    staleTime: STARTUP_ORG_STALE_MS,
+    gcTime: 1000 * 60 * 60 * 24,
+    ...(cached ? { initialData: cached.value, initialDataUpdatedAt: cached.at } : {}),
+  });
 
-    try {
-      const { data: memberships, error: membershipError } = await supabase
-        .from('org_memberships')
-        .select('organization_id, role')
-        .eq('user_id', userId);
-
-      if (membershipError) {
-        console.error('Error fetching organization memberships:', membershipError);
-        setOrganization(null);
-        setMembership(null);
-        setAllOrganizations([]);
-        setResolution('error');
-        return;
-      }
-
-      if (!memberships || memberships.length === 0) {
-        setOrganization(null);
-        setMembership(null);
-        setAllOrganizations([]);
-        setResolution('empty');
-        return;
-      }
-
-      const orgIds = memberships.map(m => m.organization_id);
-      const { data: orgs, error: orgError } = await supabase
-        .from('organizations')
-        .select('*')
-        .in('id', orgIds);
-
-      if (orgError || !orgs) {
-        console.error('Error fetching organizations:', orgError);
-        setOrganization(null);
-        setMembership(null);
-        setAllOrganizations([]);
-        setResolution('error');
-        return;
-      }
-
-      const allOrgs: OrgWithRole[] = [];
-      for (const m of memberships) {
-        const org = orgs.find(o => o.id === m.organization_id);
-        if (!org) continue;
-        allOrgs.push({ organization: org, role: m.role as OrgRole });
-      }
-
-      setAllOrganizations(allOrgs);
-
-      // Determine which org to activate.
-      const rolePriority = (r: OrgRole) =>
-        r === 'owner' ? 0 : r === 'admin' ? 1 : r === 'manager' ? 2 : 3;
-      const sortedByRole = [...allOrgs].sort(
-        (a, b) => rolePriority(a.role) - rolePriority(b.role)
-      );
-      const savedOrgId = localStorage.getItem(ACTIVE_ORG_KEY);
-      const savedOrg = allOrgs.find(o => o.organization.id === savedOrgId);
-      const wasChosen = localStorage.getItem(ORG_CHOSEN_KEY) === 'true';
-      const isAdminOrg = (entry: OrgWithRole) =>
-        entry.role === 'owner' || entry.role === 'admin' || entry.role === 'manager';
-      // On a new device there is no saved workspace choice. Prefer an existing,
-      // completed workspace over an unfinished trial business, even when the
-      // unfinished one gives the user a numerically higher role. This prevents
-      // invited teammates from being sent to business onboarding after login.
-      const bestAdminOrg =
-        sortedByRole.find(o => isAdminOrg(o) && !o.organization.needs_onboarding) ??
-        sortedByRole.find(isAdminOrg);
-
-      let activeOrg: OrgWithRole | undefined;
-      if (wasChosen && savedOrg) {
-        // Deliberate choice and the org still exists — respect it.
-        activeOrg = savedOrg;
-      } else if (wasChosen && !savedOrg) {
-        // Chosen org is gone (removed as staff, org deleted). Drop the
-        // flag and fall back to the default.
-        localStorage.removeItem(ORG_CHOSEN_KEY);
-        activeOrg = bestAdminOrg ?? sortedByRole[0];
-      } else if (
-        savedOrg &&
-        !savedOrg.organization.needs_onboarding &&
-        (savedOrg.role !== 'member' || !bestAdminOrg)
-      ) {
-        // Saved but not explicitly chosen — keep it unless it's an unfinished
-        // auto-provisioned org or a member role with a better admin org. An
-        // unfinished owner org can be a stale invite-flow artifact and must
-        // never outrank an existing completed workspace.
-        activeOrg = savedOrg;
-      } else {
-        activeOrg = bestAdminOrg ?? sortedByRole[0];
-      }
-
-      if (activeOrg) {
-        setOrganization(activeOrg.organization);
-        setMembership({
-          organization_id: activeOrg.organization.id,
-          role: activeOrg.role,
-        });
-        localStorage.setItem(ACTIVE_ORG_KEY, activeOrg.organization.id);
-        setResolution('ready');
-      } else {
-        // Membership rows existed but none of their organizations could be
-        // resolved. This is not a new account and must never open onboarding.
-        setOrganization(null);
-        setMembership(null);
-        setResolution('error');
-      }
-    } catch (error) {
-      console.error('Error fetching organization:', error);
-      setOrganization(null);
-      setMembership(null);
-      setAllOrganizations([]);
-      setResolution('error');
-    } finally {
-      resolvedUserIdRef.current = userId;
-      setLoading(false);
-    }
-  }, []);
-
-  // Effect-driven fetch: runs when the React `user` state changes (login, logout).
-  const fetchOrganization = useCallback(async () => {
-    if (!user) {
-      resolvedUserIdRef.current = null;
-      setOrganization(null);
-      setMembership(null);
-      setAllOrganizations([]);
-      setResolution('empty');
-      setLoading(false);
-      return;
-    }
-    return fetchOrgForUser(user.id);
-  }, [user, fetchOrgForUser]);
-
-  // Imperative refetch: reads the current user from supabase.auth.getSession()
-  // instead of from the React closure. This works even when called during
-  // signup before React has re-rendered with the new auth state.
-  const refetch = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const sessionUser = session?.user;
-    if (!sessionUser) return;
-    return fetchOrgForUser(sessionUser.id);
-  }, [fetchOrgForUser]);
-
-  useEffect(() => {
-    if (!authLoading) {
-      fetchOrganization();
-    }
-  }, [fetchOrganization, authLoading]);
+  const bundle = userId ? (query.data ?? cached?.value ?? null) : null;
+  const loading = authLoading || (!!userId && !bundle && !query.isError);
+  const resolution: OrganizationResolution = !userId
+    ? (authLoading ? 'loading' : 'empty')
+    : bundle
+      ? bundle.resolution
+      : query.isError
+        ? 'error'
+        : 'loading';
 
   const [switching, setSwitching] = useState(false);
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const switchOrganization = useCallback((orgId: string) => {
-    const target = allOrganizations.find(o => o.organization.id === orgId);
+    if (!userId || !bundle) return;
+    const target = bundle.allOrganizations.find((o) => o.organization.id === orgId);
     if (!target) return;
-    // Show the transition overlay immediately
     setSwitching(true);
     localStorage.setItem(ACTIVE_ORG_KEY, orgId);
     localStorage.setItem(ORG_CHOSEN_KEY, 'true');
-    setOrganization(target.organization);
-    setMembership({ organization_id: orgId, role: target.role });
-    setResolution('ready');
+    const next: OrgBundle = {
+      ...bundle,
+      organization: target.organization,
+      membership: { organization_id: orgId, role: target.role },
+      resolution: 'ready',
+    };
+    queryClient.setQueryData(startupOrgKey(userId), next);
+    writeStartupSection(userId, 'org', next);
     clearSidebarHiddenItemsCache();
-    // resetQueries instead of clear: clears all data (no cross-org flash)
-    // but keeps observers attached so hooks refetch immediately. clear()
-    // calls remove() which detaches observers — on mobile, the delayed
-    // re-render left queries stuck in loading forever.
-    queryClient.resetQueries();
-    // Wipe the persisted localStorage cache so data from the previous org
-    // doesn't rehydrate on the next app restart.
+    // Keep the startup snapshot. resetQueries would drop it and flash the
+    // skeleton; list queries are the ones that must not leak across orgs.
+    queryClient.resetQueries({
+      predicate: (q) => q.queryKey[0] !== 'startup-org'
+        && q.queryKey[0] !== 'startup-subscription'
+        && q.queryKey[0] !== 'startup-profile',
+    });
     try { localStorage.removeItem('tw-offline-cache'); } catch { /* ignore */ }
-    // Dismiss the overlay after queries have had time to start refetching.
-    // 600ms covers the round trip for most connections; the skeleton
-    // handles anything longer.
     if (switchTimerRef.current) clearTimeout(switchTimerRef.current);
     switchTimerRef.current = setTimeout(() => setSwitching(false), 600);
-  }, [allOrganizations, queryClient]);
+  }, [bundle, queryClient, userId]);
 
   const setOrganizationDirect = useCallback((org: Organization, role: OrgRole) => {
-    setOrganization(org);
-    setMembership({ organization_id: org.id, role });
-    setResolution('ready');
+    const uid = userId ?? org.owner_id;
+    const prev = queryClient.getQueryData<OrgBundle>(startupOrgKey(uid));
+    const others = (prev?.allOrganizations ?? bundle?.allOrganizations ?? []).filter(
+      (entry) => entry.organization.id !== org.id,
+    );
+    const next: OrgBundle = {
+      organization: org,
+      membership: { organization_id: org.id, role },
+      allOrganizations: [{ organization: org, role }, ...others],
+      resolution: 'ready',
+    };
+    queryClient.setQueryData(startupOrgKey(uid), next);
+    writeStartupSection(uid, 'org', next);
     localStorage.setItem(ACTIVE_ORG_KEY, org.id);
-    resolvedUserIdRef.current = org.owner_id;
-    setLoading(false);
-  }, []);
+  }, [bundle, queryClient, userId]);
 
+  const refetch = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const sessionUser = session?.user;
+    if (!sessionUser) return;
+    await queryClient.fetchQuery({
+      queryKey: startupOrgKey(sessionUser.id),
+      queryFn: () => fetchOrgBundle(sessionUser.id),
+      staleTime: 0,
+    });
+  }, [queryClient]);
+
+  const organization = bundle?.organization ?? null;
+  const membership = bundle?.membership ?? null;
+  const allOrganizations = bundle?.allOrganizations ?? [];
   const isOwner = membership?.role === 'owner';
-  // Admin dashboard access: owners, admins, AND managers (invited virtual
-  // assistants). Cleaners (role='member') are blocked and sent to /staff.
   const isAdmin =
     membership?.role === 'owner' ||
     membership?.role === 'admin' ||
@@ -282,7 +148,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
       value={{
         organization,
         membership,
-        loading: authLoading || loading,
+        loading,
         resolution,
         switching,
         isOwner,

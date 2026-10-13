@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sendPushBestEffort } from '@/lib/pushNotify';
 import { supabase } from '@/lib/supabase';
@@ -171,30 +171,139 @@ const CUSTOMER_LIST_SELECT = `
   stripe_customer_id, stripe_payment_method_id
 `;
 
-export async function fetchOrgBookings(organizationId: string): Promise<BookingWithDetails[]> {
-  let allBookings: BookingWithDetails[] = [];
+const RECENT_WINDOW_MS = 120 * 24 * 60 * 60 * 1000;
+const RECENT_PAGE = 200;
+const ARCHIVE_PAGE = 500;
+const ARCHIVE_CAP = 2000;
+
+async function fetchBookingPage(
+  organizationId: string,
+  range: { gte?: string; lt?: string },
+  ascending: boolean,
+  limit: number,
+): Promise<BookingWithDetails[]> {
+  let query = supabase
+    .from('bookings')
+    .select(BOOKING_LIST_SELECT)
+    .eq('organization_id', organizationId)
+    .or('is_draft.is.null,is_draft.eq.false')
+    .order('scheduled_at', { ascending })
+    .order('id', { ascending })
+    .limit(limit);
+  if (range.gte) query = query.gte('scheduled_at', range.gte);
+  if (range.lt) query = query.lt('scheduled_at', range.lt);
+  const { data, error } = await query;
+  if (error) {
+    console.error('Error fetching bookings:', error);
+    throw error;
+  }
+  return (data ?? []) as unknown as BookingWithDetails[];
+}
+
+/** Upcoming jobs plus the recent past. Two indexed reads, not the whole table. */
+export async function fetchRecentOrgBookings(organizationId: string): Promise<BookingWithDetails[]> {
+  const now = Date.now();
+  const horizon = new Date(now - 36 * 60 * 60 * 1000).toISOString();
+  const since = new Date(now - RECENT_WINDOW_MS).toISOString();
+  const [upcoming, past] = await Promise.all([
+    fetchBookingPage(organizationId, { gte: horizon }, true, RECENT_PAGE),
+    fetchBookingPage(organizationId, { gte: since, lt: horizon }, false, RECENT_PAGE),
+  ]);
+  const seen = new Set(upcoming.map((b) => b.id));
+  return upcoming.concat(past.filter((b) => !seen.has(b.id)));
+}
+
+/** Older than the recent window, capped so a long history cannot page forever. */
+export async function fetchArchiveOrgBookings(organizationId: string): Promise<BookingWithDetails[]> {
+  const since = new Date(Date.now() - RECENT_WINDOW_MS).toISOString();
+  const all: BookingWithDetails[] = [];
   let from = 0;
-  const PAGE_SIZE = 1000;
-  while (true) {
+  while (all.length < ARCHIVE_CAP) {
     const { data, error } = await supabase
       .from('bookings')
       .select(BOOKING_LIST_SELECT)
       .eq('organization_id', organizationId)
       .or('is_draft.is.null,is_draft.eq.false')
-      .order('scheduled_at', { ascending: true })
-      .order('id', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
-
+      .lt('scheduled_at', since)
+      .order('scheduled_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, from + ARCHIVE_PAGE - 1);
     if (error) {
       console.error('Error fetching bookings:', error);
       throw error;
     }
     const page = (data ?? []) as unknown as BookingWithDetails[];
-    allBookings = allBookings.concat(page);
-    if (page.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
+    all.push(...page);
+    if (page.length < ARCHIVE_PAGE) break;
+    from += ARCHIVE_PAGE;
   }
-  return allBookings;
+  return all.slice(0, ARCHIVE_CAP);
+}
+
+export const bookingsRecentKey = (organizationId: string) => ['bookings', organizationId, 'recent'] as const;
+
+const DASHBOARD_UPCOMING_SELECT = `
+  id, booking_number, scheduled_at, duration, total_amount, status, payment_status,
+  address, city, state, zip_code, apt_suite,
+  customer:customers(id, first_name, last_name, email, phone),
+  service:services(id, name),
+  staff:staff(id, name, phone)
+`;
+
+const DASHBOARD_CHART_SELECT = `
+  id, scheduled_at, total_amount, status, payment_status,
+  customer:customers(id)
+`;
+
+export function dashboardUpcomingKey(organizationId: string) {
+  return ['bookings', 'dashboard-upcoming', organizationId] as const;
+}
+
+export async function fetchDashboardUpcoming(organizationId: string): Promise<BookingWithDetails[]> {
+  const start = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
+  const end = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('bookings')
+    .select(DASHBOARD_UPCOMING_SELECT)
+    .eq('organization_id', organizationId)
+    .or('is_draft.is.null,is_draft.eq.false')
+    .gte('scheduled_at', start)
+    .lte('scheduled_at', end)
+    .order('scheduled_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(80);
+  if (error) throw error;
+  return (data ?? []) as unknown as BookingWithDetails[];
+}
+
+export async function fetchDashboardChart(organizationId: string): Promise<BookingWithDetails[]> {
+  const start = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('bookings')
+    .select(DASHBOARD_CHART_SELECT)
+    .eq('organization_id', organizationId)
+    .or('is_draft.is.null,is_draft.eq.false')
+    .gte('scheduled_at', start)
+    .order('scheduled_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(1500);
+  if (error) throw error;
+  return (data ?? []) as unknown as BookingWithDetails[];
+}
+
+export async function fetchDashboardCustomers(organizationId: string) {
+  const start = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('customers')
+    .select('id, created_at')
+    .eq('organization_id', organizationId)
+    .is('merged_into', null)
+    .gte('created_at', start)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(1000);
+  if (error) throw error;
+  return data ?? [];
 }
 
 export async function fetchOrgCustomers(organizationId: string) {
@@ -245,12 +354,75 @@ export function useBookings() {
     };
   }, [organizationId, queryClient]);
 
-  return useQuery({
-    queryKey: ['bookings', organizationId],
-    queryFn: () => (organizationId ? fetchOrgBookings(organizationId) : Promise.resolve([])),
+  const recent = useQuery({
+    queryKey: organizationId ? bookingsRecentKey(organizationId) : ['bookings', 'none', 'recent'],
+    queryFn: () => fetchRecentOrgBookings(organizationId as string),
     enabled: !!organizationId,
     staleTime: 1000 * 60 * 2,
-    gcTime: 1000 * 60 * 10,
+    gcTime: 1000 * 60 * 60 * 24,
+  });
+  const archive = useQuery({
+    queryKey: ['bookings', organizationId, 'archive'],
+    queryFn: () => fetchArchiveOrgBookings(organizationId as string),
+    enabled: !!organizationId && recent.isSuccess,
+    staleTime: 1000 * 60 * 10,
+    gcTime: 1000 * 60 * 30,
+  });
+  const data = useMemo(() => {
+    const head = recent.data ?? [];
+    const tail = archive.data ?? [];
+    if (tail.length === 0) return head;
+    const seen = new Set(head.map((b) => b.id));
+    return head.concat(tail.filter((b) => !seen.has(b.id)));
+  }, [recent.data, archive.data]);
+
+  return {
+    ...recent,
+    data,
+    isLoading: recent.isLoading && data.length === 0,
+    error: recent.error ?? archive.error,
+    refetch: async () => {
+      const [nextRecent] = await Promise.all([recent.refetch(), archive.refetch()]);
+      return nextRecent;
+    },
+  };
+}
+
+export function useDashboardUpcoming() {
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
+  return useQuery({
+    queryKey: organizationId ? dashboardUpcomingKey(organizationId) : ['bookings', 'dashboard-upcoming', 'none'],
+    queryFn: () => fetchDashboardUpcoming(organizationId as string),
+    enabled: !!organizationId,
+    staleTime: 60_000,
+    gcTime: 1000 * 60 * 60 * 24,
+  });
+}
+
+export function useDashboardChart(ready = true) {
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
+  return useQuery({
+    queryKey: ['bookings', 'dashboard-chart', organizationId],
+    queryFn: () => fetchDashboardChart(organizationId as string),
+    // The chart is a year of rows. It waits until today's jobs are on screen
+    // so it does not compete with the query the first paint is blocked on.
+    enabled: !!organizationId && ready,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 1000 * 60 * 60 * 24,
+  });
+}
+
+export function useDashboardCustomers() {
+  const { organization } = useOrganization();
+  const organizationId = organization?.id;
+  return useQuery({
+    queryKey: ['customers', 'dashboard', organizationId],
+    queryFn: () => fetchDashboardCustomers(organizationId as string),
+    enabled: !!organizationId,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 1000 * 60 * 60 * 24,
   });
 }
 
@@ -544,7 +716,7 @@ export function useCustomers() {
     },
     enabled: !!organizationId,
     staleTime: 1000 * 60 * 5, // 5 minutes - customers change less frequently
-    gcTime: 1000 * 60 * 30, // Keep in cache for 30 minutes
+    gcTime: 1000 * 60 * 60 * 24,
   });
 }
 

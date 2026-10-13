@@ -203,13 +203,17 @@ export function useAppStateHandler() {
     const init = async () => {
       const { App } = await import('@capacitor/app');
 
-      // Sync widget data on initial app launch (not just resume)
-      syncWidgetData();
+      // Widget sync is five booking reads plus a native bridge call. It used
+      // to start during the same tick as the dashboard's own queries and
+      // hold the auth lock. The home screen can wait.
+      const widgetTimer = window.setTimeout(() => { void syncWidgetData(); }, 8000);
 
       const resumeListener = await App.addListener('appStateChange', async ({ isActive }) => {
         if (isActive) {
-          queryClient.invalidateQueries();
-          syncWidgetData(); // fire-and-forget, non-blocking
+          void queryClient.invalidateQueries({ queryKey: ['bookings'] });
+          void queryClient.invalidateQueries({ queryKey: ['customers'] });
+          void queryClient.invalidateQueries({ queryKey: ['startup-subscription'] });
+          void syncWidgetData();
           try {
             const { data: { session } } = await supabase.auth.getSession();
             if (session) {
@@ -252,6 +256,7 @@ export function useAppStateHandler() {
       });
 
       cleanup = () => {
+        window.clearTimeout(widgetTimer);
         resumeListener.remove();
         backListener.remove();
       };
