@@ -2711,6 +2711,7 @@ export type Database = {
           resend_api_key: string | null
           review_sms_template: string | null
           scheduling_mode: string
+          show_public_activity: boolean
           surge_holiday_enabled: boolean
           surge_holiday_multiplier: number
           surge_lastminute_enabled: boolean
@@ -2786,6 +2787,7 @@ export type Database = {
           resend_api_key?: string | null
           review_sms_template?: string | null
           scheduling_mode?: string
+          show_public_activity?: boolean
           surge_holiday_enabled?: boolean
           surge_holiday_multiplier?: number
           surge_lastminute_enabled?: boolean
@@ -2861,6 +2863,7 @@ export type Database = {
           resend_api_key?: string | null
           review_sms_template?: string | null
           scheduling_mode?: string
+          show_public_activity?: boolean
           surge_holiday_enabled?: boolean
           surge_holiday_multiplier?: number
           surge_lastminute_enabled?: boolean
@@ -5554,6 +5557,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      growth_public_cache: {
+        Row: {
+          cache_key: string
+          payload: Json
+          refreshed_at: string
+        }
+        Insert: {
+          cache_key: string
+          payload: Json
+          refreshed_at: string
+        }
+        Update: {
+          cache_key?: string
+          payload?: Json
+          refreshed_at?: string
+        }
+        Relationships: []
+      }
+      growth_public_rate: {
+        Row: {
+          caller_key: string
+          hits: number
+          window_start: string
+        }
+        Insert: {
+          caller_key: string
+          hits: number
+          window_start: string
+        }
+        Update: {
+          caller_key?: string
+          hits?: number
+          window_start?: string
+        }
+        Relationships: []
       }
       help_videos: {
         Row: {
@@ -12614,7 +12653,9 @@ export type Database = {
           tier_order: number
         }[]
       }
+      get_public_activity_feed: { Args: never; Returns: Json }
       get_public_booking_settings: { Args: { p_org_id: string }; Returns: Json }
+      get_public_growth_counters: { Args: never; Returns: Json }
       get_review_request_by_token: {
         Args: { p_token: string }
         Returns: {
@@ -12657,6 +12698,14 @@ export type Database = {
         }[]
       }
       get_user_organization_id: { Args: never; Returns: string }
+      growth_org_is_public: {
+        Args: { p_feed: boolean; p_org_id: string }
+        Returns: boolean
+      }
+      growth_public_caller_role: { Args: never; Returns: string }
+      growth_public_city: { Args: { raw: string }; Returns: string }
+      growth_public_rate_ok: { Args: never; Returns: boolean }
+      growth_public_service: { Args: { raw: string }; Returns: string }
       has_active_subscription: { Args: { _org_id: string }; Returns: boolean }
       has_openphone_api_key: { Args: { _org_id: string }; Returns: boolean }
       has_org_financial_access: { Args: { _org_id: string }; Returns: boolean }
