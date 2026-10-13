@@ -1883,6 +1883,7 @@ export type Database = {
           photo_url: string
           proof_stamped: boolean
           staff_id: string | null
+          stamped_photo_url: string | null
           timestamp_source: string | null
         }
         Insert: {
@@ -1901,6 +1902,7 @@ export type Database = {
           photo_url: string
           proof_stamped?: boolean
           staff_id?: string | null
+          stamped_photo_url?: string | null
           timestamp_source?: string | null
         }
         Update: {
@@ -1919,6 +1921,7 @@ export type Database = {
           photo_url?: string
           proof_stamped?: boolean
           staff_id?: string | null
+          stamped_photo_url?: string | null
           timestamp_source?: string | null
         }
         Relationships: [

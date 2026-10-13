@@ -141,6 +141,13 @@
       "when": 1791902195533,
       "tag": "0019_reopen_assigned_booking",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791902220875,
+      "tag": "0020_booking_photo_original_and_proof_lock",
+      "breakpoints": true
     }
   ]
 }
