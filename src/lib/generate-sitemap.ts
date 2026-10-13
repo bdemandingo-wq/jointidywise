@@ -68,7 +68,7 @@ const EXCLUDED_PATHS = new Set<string>([
 // inside an authorization handshake — it only functions with a live
 // authorization_id in the query string — so a crawler reaching it finds a
 // broken page at best, and listing it invites exactly that.
-const EXCLUDED_PREFIXES = ["/dashboard", "/staff", "/portal", "/admin", "/auth", "/checkout", "/.lovable"];
+const EXCLUDED_PREFIXES = ["/dashboard", "/staff", "/portal", "/admin", "/auth", "/checkout", "/billing", "/.lovable"];
 
 function shouldExclude(path: string): boolean {
   if (EXCLUDED_PATHS.has(path)) return true;
