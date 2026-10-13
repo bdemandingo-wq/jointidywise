@@ -753,6 +753,11 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
       cleaner_override_hours: cleanerOverrideHours ? parseFloat(cleanerOverrideHours) : null,
       // Team job fields. Unchecked = 1 cleaner and pay cleared.
       ...teamFieldsForSave(teamNeeded, teamCount, teamPay, teamPayType),
+      // Mirror team pay into the booking wage so server payroll (which reads
+      // cleaner_wage) pays each cleaner the same rate/amount.
+      ...(teamNeeded && teamPay !== '' && Number.isFinite(Number(teamPay))
+        ? { cleaner_wage: Number(teamPay), cleaner_wage_type: teamPayType }
+        : {}),
       // Compute and persist cleaner_pay_expected — SINGLE SOURCE OF TRUTH for payroll
       cleaner_pay_expected: computeExpectedPay(
         cleanerWageType,
