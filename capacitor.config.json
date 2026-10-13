@@ -17,6 +17,8 @@
       "*.jointidywise.com",
       "js.stripe.com",
       "*.stripe.com",
+      "*.stripecdn.com",
+      "m.stripe.network",
       "*.loom.com",
       "*.youtube.com",
       "*.ytimg.com",
