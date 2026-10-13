@@ -1,3 +1,6 @@
+import { formatDuration } from '@/lib/formatDuration';
+import { isTeamJob, claimedLabel, teamPayEach, type TeamFields } from '@/lib/teamJobs';
+import { useTeamClaims } from '@/hooks/useTeamClaims';
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 
@@ -241,6 +244,7 @@ export function BookingDetailsDialog({
               <div>
                 <dt className="text-xs text-muted-foreground">Service</dt>
                 <dd className="text-sm font-medium">{booking.service?.name || (booking.total_amount === 0 ? 'Re-clean' : 'Service')}</dd>
+                <dd className="text-xs text-muted-foreground">{formatDuration(booking.duration)}</dd>
               </div>
               <div>
                 <dt className="text-xs text-muted-foreground">Scheduled</dt>
@@ -253,6 +257,7 @@ export function BookingDetailsDialog({
                 <dt className="text-xs text-muted-foreground">Staff</dt>
                 <dd className="text-sm font-medium">{booking.staff?.name || "Unassigned"}</dd>
               </div>
+              {isTeamJob(booking as TeamFields) && <TeamClaimStatus booking={booking} />}
               <div>
                 <dt className="text-xs text-muted-foreground">Status</dt>
                 <dd className="text-sm font-medium capitalize">{booking.status.replace("_", " ")}</dd>
@@ -1007,5 +1012,23 @@ export function AdjustPaymentDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function TeamClaimStatus({ booking }: { booking: { id: string; staff_id?: string | null; staff?: { name?: string | null } | null } & TeamFields }) {
+  const { data: claims = [], isLoading, error } = useTeamClaims(booking.id, true);
+  // A primary cleaner set before any team row exists still counts as a claim.
+  const names = claims.map((c) => c.name);
+  const ids = new Set(claims.map((c) => c.staffId));
+  if (booking.staff_id && !ids.has(booking.staff_id)) names.unshift(booking.staff?.name || 'Cleaner');
+  return (
+    <div>
+      <dt className="text-xs text-muted-foreground">Team</dt>
+      <dd className="text-sm font-medium">
+        {isLoading ? 'Loading…' : error ? 'Could not load team' : claimedLabel(booking, names.length)}
+      </dd>
+      {names.length > 0 && <dd className="text-xs text-muted-foreground">{names.join(', ')}</dd>}
+      {teamPayEach(booking) && <dd className="text-xs text-muted-foreground">{teamPayEach(booking)} ({booking.pay_type === 'hourly' ? 'hourly' : 'flat'})</dd>}
+    </div>
   );
 }

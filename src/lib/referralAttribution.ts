@@ -29,6 +29,22 @@ export interface ReferralStorage {
 
 const KEY = 'tw-referral-code';
 
+/** First-party cookie. Same 30-day window as the localStorage capture. */
+export const REFERRAL_COOKIE_NAME = 'tw_ref';
+export const REFERRAL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export const REFERRAL_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+export interface ReferralCookieJar {
+  get(): string | null;
+  set(code: string): void;
+  clear(): void;
+}
+
+interface StoredReferral {
+  code: string;
+  expiresAt: number;
+}
+
 /**
  * localStorage when it exists, and a no-op otherwise so this module is safe to
  * import during SSR, in tests, and in any context without a window.
@@ -52,6 +68,79 @@ export function extractReferralFromSearch(search: string): string | null {
   return normalizeReferralCode(new URLSearchParams(qs).get('ref'));
 }
 
+/** Pull a code out of `/r/CODE`, including a hash-router path. */
+export function extractReferralFromPath(pathname: string): string | null {
+  const match = pathname.match(/(?:^|\/)r\/([^/?#]+)/i);
+  if (!match) return null;
+  try {
+    return normalizeReferralCode(decodeURIComponent(match[1]));
+  } catch {
+    return normalizeReferralCode(match[1]);
+  }
+}
+
+function defaultCookies(): ReferralCookieJar | undefined {
+  if (typeof document === 'undefined') return undefined;
+  return {
+    get: () => {
+      const prefix = `${REFERRAL_COOKIE_NAME}=`;
+      const part = document.cookie.split('; ').find((item) => item.startsWith(prefix));
+      if (!part) return null;
+      try {
+        return decodeURIComponent(part.slice(prefix.length));
+      } catch {
+        return null;
+      }
+    },
+    set: (code: string) => {
+      const secure = typeof location !== 'undefined' && location.protocol === 'https:';
+      const parts = [
+        `${REFERRAL_COOKIE_NAME}=${encodeURIComponent(code)}`,
+        'Path=/',
+        `Max-Age=${REFERRAL_TTL_SECONDS}`,
+        'SameSite=Lax',
+      ];
+      if (secure) parts.push('Secure');
+      document.cookie = parts.join('; ');
+    },
+    clear: () => {
+      document.cookie = `${REFERRAL_COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax`;
+    },
+  };
+}
+
+function decodeStored(raw: string | null, now: number): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(trimmed) as Partial<StoredReferral>;
+      if (typeof parsed.expiresAt === 'number' && parsed.expiresAt < now) return null;
+      return normalizeReferralCode(typeof parsed.code === 'string' ? parsed.code : null);
+    } catch {
+      return null;
+    }
+  }
+  // Plain strings are the previous capture format. They have no expiry of
+  // their own; new captures always store an expiresAt.
+  return normalizeReferralCode(trimmed);
+}
+
+function remember(
+  code: string,
+  storage: ReferralStorage,
+  now: number,
+  cookies?: ReferralCookieJar,
+): void {
+  const payload = JSON.stringify({ code, expiresAt: now + REFERRAL_TTL_MS } satisfies StoredReferral);
+  storage.setItem(KEY, payload);
+  try {
+    (cookies ?? defaultCookies())?.set(code);
+  } catch {
+    // Cookie rejected. localStorage still holds the code.
+  }
+}
+
 /**
  * Record the code from a landing URL. FIRST TOUCH WINS: an existing capture is
  * never overwritten, so someone who clicks A's link, browses, then arrives via
@@ -63,16 +152,72 @@ export function extractReferralFromSearch(search: string): string | null {
 export function captureReferralFromUrl(
   search: string,
   storage: ReferralStorage = defaultStorage(),
+  now: number = Date.now(),
+  cookies?: ReferralCookieJar,
 ): void {
-  const code = extractReferralFromSearch(search);
-  if (!code) return;
+  captureReferralCode(extractReferralFromSearch(search), storage, now, cookies);
+}
 
+export function captureReferralFromPath(
+  pathname: string,
+  storage: ReferralStorage = defaultStorage(),
+  now: number = Date.now(),
+  cookies?: ReferralCookieJar,
+): void {
+  captureReferralCode(extractReferralFromPath(pathname), storage, now, cookies);
+}
+
+/**
+ * Capture from a browser location, including HashRouter (`#/r/CODE` and
+ * `#/signup?ref=`). First touch still wins across the search, the path, and
+ * the hash.
+ */
+export function captureReferralFromLocation(
+  loc: { search: string; pathname: string; hash?: string },
+  storage: ReferralStorage = defaultStorage(),
+  now: number = Date.now(),
+  cookies?: ReferralCookieJar,
+): void {
+  captureReferralFromUrl(loc.search, storage, now, cookies);
+  captureReferralFromPath(loc.pathname, storage, now, cookies);
+  const hash = loc.hash ?? '';
+  if (hash.length <= 1) return;
+  const raw = hash.startsWith('#') ? hash.slice(1) : hash;
+  const queryAt = raw.indexOf('?');
+  const path = queryAt >= 0 ? raw.slice(0, queryAt) : raw;
+  const search = queryAt >= 0 ? raw.slice(queryAt) : '';
+  captureReferralFromPath(path, storage, now, cookies);
+  if (search) captureReferralFromUrl(search, storage, now, cookies);
+}
+
+function captureReferralCode(
+  code: string | null,
+  storage: ReferralStorage,
+  now: number,
+  cookies?: ReferralCookieJar,
+): void {
+  if (!code) return;
   try {
-    if (normalizeReferralCode(storage.getItem(KEY))) return; // first touch wins
-    storage.setItem(KEY, code);
+    if (readCapturedReferral(storage, now, cookies)) return; // first touch wins
+    remember(code, storage, now, cookies);
   } catch {
     // Storage unavailable or denied. No attribution, no crash.
   }
+}
+
+/**
+ * Keep a referral code on an OAuth or email-confirmation redirect so the
+ * round trip through Google (or Apple) does not drop it when storage is not
+ * shared with the browser that comes back.
+ */
+export function appendReferralParam(url: string, code: string | null | undefined): string {
+  const normalized = normalizeReferralCode(code);
+  if (!normalized) return url;
+  const hashAt = url.indexOf('#');
+  const before = hashAt >= 0 ? url.slice(0, hashAt) : url;
+  const hash = hashAt >= 0 ? url.slice(hashAt) : '';
+  const sep = before.includes('?') ? '&' : '?';
+  return `${before}${sep}ref=${encodeURIComponent(normalized)}${hash}`;
 }
 
 /**
@@ -82,9 +227,18 @@ export function captureReferralFromUrl(
  */
 export function readCapturedReferral(
   storage: ReferralStorage = defaultStorage(),
+  now: number = Date.now(),
+  cookies?: ReferralCookieJar,
 ): string | null {
   try {
-    return normalizeReferralCode(storage.getItem(KEY));
+    const stored = decodeStored(storage.getItem(KEY), now);
+    if (stored) return stored;
+  } catch {
+    // Fall through to the cookie.
+  }
+  try {
+    const jar = cookies ?? defaultCookies();
+    return normalizeReferralCode(jar?.get() ?? null);
   } catch {
     return null;
   }
@@ -100,11 +254,17 @@ export function readCapturedReferral(
  */
 export function clearCapturedReferral(
   storage: ReferralStorage = defaultStorage(),
+  cookies?: ReferralCookieJar,
 ): void {
   try {
     storage.removeItem(KEY);
   } catch {
-    // Nothing to do; a stale capture is bounded by org_referrals' UNIQUE
-    // constraint on referred_org_id server-side.
+    // Nothing to do; a stale capture is bounded by referral_signups'
+    // UNIQUE constraint on referred_org_id server-side.
+  }
+  try {
+    (cookies ?? defaultCookies())?.clear();
+  } catch {
+    // Cookie jar unavailable. The stored code is already gone.
   }
 }

@@ -1,3 +1,4 @@
+import { teamCleanerPay } from './teamJobs.ts';
 /**
  * Shared wage calculation — the READ side counterpart to lib/cleanerPay.ts.
  *
@@ -47,6 +48,10 @@ export interface WageBooking {
   subtotal?: number | null;
   discount_amount?: number | null;
   pay_locked?: boolean | null;
+  /** Team jobs (see teamJobs.ts). Absent or 1 = single cleaner, unchanged. */
+  cleaners_needed?: number | null;
+  pay_per_cleaner?: number | string | null;
+  pay_type?: string | null;
 }
 
 export interface WageStaff {
@@ -441,8 +446,26 @@ export function resolveCleanerPay(
     return { ...base, calculatedPay: Number(payShare), source: 'pay_share', isExact: true };
   }
 
+  // A locked snapshot is an admin decision and beats the team rate. base
+  // already carries cleaner_pay_expected when pay_locked is set.
   if (booking.pay_locked === true && booking.cleaner_pay_expected != null) {
     return { ...base, source: 'pay_expected', isExact: true };
+  }
+
+  // Team job with owner-set per-cleaner pay: every assigned cleaner gets it
+  // (flat) or rate × their own hours (hourly). Solo bookings skip this.
+  const teamPay = teamCleanerPay(booking, base.hoursWorked);
+  if (teamPay != null) {
+    const teamHourly = booking.pay_type === 'hourly';
+    return {
+      ...base,
+      calculatedPay: teamPay,
+      wageType: teamHourly ? 'hourly' : 'flat',
+      wageRate: Number(booking.pay_per_cleaner),
+      isMissingPay: false,
+      source: 'computed',
+      isExact: teamHourly ? hasValidClock(booking) : true,
+    };
   }
   if (!hourly && booking.cleaner_pay_expected != null) {
     return { ...base, source: 'pay_expected', isExact: true };

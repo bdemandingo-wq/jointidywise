@@ -14,10 +14,15 @@ import {
 } from '@/components/pricing/AdManagementRequestDialog';
 import { useAuth } from '@/hooks/useAuth';
 import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
+import { usePublicGrowth } from '@/hooks/usePublicGrowth';
+import { GrowthCounters } from '@/components/growth/GrowthCounters';
+import { lifetimeSpotsLabel } from '@/lib/publicActivity';
+import { TRIAL_CTA } from '@/lib/trialOffer';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
+import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import {
   Check,
   Sparkles,
@@ -29,6 +34,7 @@ import {
 } from 'lucide-react';
 
 import { LIFETIME_FEATURES, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
+import { pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
 
 type Interval = 'monthly' | 'yearly';
 type Tier = PublicTier;
@@ -159,6 +165,7 @@ export default function PricingPage() {
   const yearlyRadioRef = useRef<HTMLButtonElement>(null);
   const [checkoutBusy, setCheckoutBusy] = useState<string | null>(null);
   const lifetime = useLifetimeCounter();
+  const growth = usePublicGrowth();
   const [waitlistEmail, setWaitlistEmail] = useState('');
   const [waitlistSubmitted, setWaitlistSubmitted] = useState(false);
   const [highlightedPlan, setHighlightedPlan] = useState<Tier['id'] | null>(null);
@@ -176,22 +183,8 @@ export default function PricingPage() {
     const reset = () => {
       isRedirectingRef.current = false;
       setCheckoutBusy(null);
-      if (checkoutToastTimerRef.current) {
-        window.clearTimeout(checkoutToastTimerRef.current);
-        checkoutToastTimerRef.current = null;
-      }
     };
-    // pagehide fires when the user is navigating away (including to
-    // Stripe). Cancel the fallback toast so it doesn't pop in during
-    // the unload transition — the load-bearing fix for the glitch the
-    // user reported.
     window.addEventListener('pageshow', reset);
-    window.addEventListener('pagehide', () => {
-      if (checkoutToastTimerRef.current) {
-        window.clearTimeout(checkoutToastTimerRef.current);
-        checkoutToastTimerRef.current = null;
-      }
-    });
     return () => window.removeEventListener('pageshow', reset);
   }, []);
   const spotsLeft = lifetime.spotsLeft;
@@ -289,113 +282,15 @@ export default function PricingPage() {
 
 
 
-  // Detect iframe once per call. Cross-origin top access throws → iframed.
-  function isInIframe(): boolean {
-    try {
-      return window.self !== window.top;
-    } catch {
-      return true;
-    }
-  }
-
-  // Synchronously open a blank tab from inside a user-gesture click handler.
-  // Browsers only honor window.open() during the gesture; after an `await`
-  // it's treated as programmatic and popup-blocked. Call this BEFORE
-  // awaiting the edge function, then point the returned window at the
-  // Stripe URL once it resolves. Returns null when not iframed (we use
-  // same-tab navigation instead, which is never popup-blocked) or when
-  // the popup was blocked outright.
-  function preopenCheckoutTab(): Window | null {
-    if (!isInIframe()) return null;
-    try {
-      return window.open('', '_blank', 'noopener,noreferrer');
-    } catch {
-      return null;
-    }
-  }
-
-  // Navigate to Stripe. Preferred path: top-level same-tab navigation,
-  // which browsers never popup-block. If we're inside an iframe (Lovable
-  // preview, in-app webview), use the pre-opened tab from the click
-  // gesture, then fall back to top-frame break, then plain navigation.
-  // A "Continue to secure checkout" toast appears after 2s as a safety
-  // net for the rare case all paths are blocked.
-  // Track the "Continue to secure checkout" toast timer at component
-  // scope so the click handlers can cancel it once the redirect actually
-  // succeeds. Without this, the toast fires after every click — even
-  // successful navigations — and pops in during the brief unload window,
-  // which looked like "glitching" to the user.
-  const checkoutToastTimerRef = useRef<number | null>(null);
-
-  function goToCheckout(url: string, preopened?: Window | null) {
-    // Exactly ONE navigation per call. Caller MUST set
-    // isRedirectingRef before invoking so duplicate sessions can't
-    // ride alongside.
-    if (preopened && !preopened.closed) {
-      try {
-        preopened.location.href = url;
-      } catch {
-        try { preopened.close(); } catch { /* ignore */ }
-        try {
-          if (window.top && window.top !== window.self) {
-            window.top.location.href = url;
-          } else {
-            window.location.href = url;
-          }
-        } catch {
-          window.location.href = url;
-        }
-      }
-    } else {
-      try {
-        if (window.top && window.top !== window.self) {
-          window.top.location.href = url;
-        } else {
-          window.location.href = url;
-        }
-      } catch {
-        window.location.href = url;
-      }
-    }
-
-    // Safety-net fallback toast in case the navigation is silently
-    // blocked (popup blockers in some in-app webviews). Cancellable from
-    // outside — once the browser actually starts navigating away (the
-    // page hides via visibilitychange OR pagehide) we clear the timer
-    // so it doesn't pop in during unload.
-    if (checkoutToastTimerRef.current) {
-      window.clearTimeout(checkoutToastTimerRef.current);
-    }
-    checkoutToastTimerRef.current = window.setTimeout(() => {
-      checkoutToastTimerRef.current = null;
-      // If the document is already hidden, we ARE mid-redirect. Skip
-      // the toast — by the time the user gets back the toast is stale.
-      if (document.visibilityState !== 'visible') return;
-      toast.message('Continue to secure checkout', {
-        description: 'If Stripe did not open automatically, tap below.',
-        duration: 30000,
-        action: {
-          label: 'Open Stripe',
-          onClick: () => {
-            window.open(url, '_blank', 'noopener,noreferrer') ??
-              (window.location.href = url);
-          },
-        },
-      });
-    }, 2500);
-  }
-
-
   // Subscription cards link to signup (or the dashboard, if already
-  // signed in). Lifetime is still a one-time Stripe payment. A canceled
-  // lifetime checkout can return with ?plan= in the URL; the highlight
-  // restores, and we do not auto-open Stripe again.
+  // signed in). Lifetime opens Embedded Checkout on this site. A canceled
+  // checkout returns with ?plan= in the URL; the highlight restores, and
+  // we do not auto-open checkout again.
 
   async function startLifetimeCheckout() {
     if (isRedirectingRef.current || checkoutBusy) return;
     isRedirectingRef.current = true;
 
-    const preopened = preopenCheckoutTab();
     setCheckoutBusy('lifetime');
     try {
       const { data, error } = await supabase.functions.invoke('buy-lifetime', {
@@ -405,25 +300,16 @@ export default function PricingPage() {
       // price not configured. Throwing the raw error showed "non-2xx status
       // code" instead of any of them.
       if (error) throw new Error(await readEdgeFunctionError(error, 'Could not start the lifetime checkout. Try again.'));
-      const payload = data as { url?: string; error?: string } | null;
-      if (payload?.error) throw new Error(payload.error);
-      const url = payload?.url;
-      if (!url) throw new Error('Checkout URL missing');
-      goToCheckout(url, preopened);
-      window.setTimeout(() => {
-        if (document.visibilityState === 'visible') {
-          setCheckoutBusy((current) => (current === 'lifetime' ? null : current));
-        }
-      }, 2000);
+      const session = readCheckoutSession(data);
+      openEmbeddedCheckout({
+        ...session,
+        plan: 'lifetime',
+        cancelPath: '/pricing?plan=lifetime&canceled=1',
+      });
     } catch (err) {
-      if (preopened && !preopened.closed) {
-        try { preopened.close(); } catch { /* ignore */ }
-      }
       const message = err instanceof Error ? err.message : '';
       // A 409 "you already have lifetime access" is not a failure — it is the
-      // correct answer for someone who already bought. Treating it as an error
-      // left them staring at a blank pre-opened tab and a red toast, so send
-      // them to the dashboard with a neutral message instead.
+      // correct answer for someone who already bought.
       if (/already have lifetime access/i.test(message)) {
         toast.success('You already have lifetime access — nothing more to buy.');
         setCheckoutBusy(null);
@@ -435,7 +321,6 @@ export default function PricingPage() {
       setCheckoutBusy(null);
       isRedirectingRef.current = false;
     }
-
   }
 
 
@@ -517,10 +402,18 @@ export default function PricingPage() {
             No setup fees. Every plan includes Stripe payments, mobile-friendly web access,
             and real human support.
           </p>
-          <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-sm font-medium text-primary">
-            <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
-            Start with a 14-day free trial — no card. The dashboard locks when it ends.
-          </p>
+          <div className="mt-6 flex flex-col items-center gap-3">
+            <Button asChild size="lg" className="h-auto whitespace-normal px-6 py-3 text-base">
+              <Link to={user ? '/dashboard' : '/signup'}>{TRIAL_CTA}</Link>
+            </Button>
+            <p className="text-sm text-muted-foreground max-w-xl">
+              Full Pro access for 30 days. No card. Basic stays $49, Pro $97, and Lifetime $300 — pick one when the trial ends and the dashboard locks.
+            </p>
+            <GrowthCounters lifetime={lifetime} counters={growth.counters} />
+            <p className="text-sm text-muted-foreground">
+              {pricingPageLoyaltyLine()}
+            </p>
+          </div>
 
           <div
             role="group"
@@ -634,7 +527,7 @@ export default function PricingPage() {
                     </span>
                   </div>
                   <p className="text-xs font-medium text-primary mb-6">
-                    14 days free, then {price.display}{price.sub}
+                    30 days of Pro free, then {price.display}{price.sub}
                   </p>
 
                   <Button
@@ -645,13 +538,13 @@ export default function PricingPage() {
                   >
                     <Link
                       to={user ? '/dashboard' : '/signup'}
-                      aria-label={`Start 14-day free trial of ${tier.name} plan, ${billingInterval === 'yearly' ? 'billed yearly after trial' : 'billed monthly after trial'}`}
+                      aria-label={`Choose the ${tier.name} plan, ${billingInterval === 'yearly' ? 'billed yearly after the free Pro trial' : 'billed monthly after the free Pro trial'}`}
                     >
-                      Start 14-day free trial
+                      Choose {tier.name}
                     </Link>
                   </Button>
                   <p className="text-[11px] text-muted-foreground text-center mb-6">
-                    No card to start. After 14 days the app asks you to pick a plan.
+                    No card to start. After 30 days of Pro the app asks you to pick a plan.
                   </p>
 
                   <ul className="space-y-2.5 text-sm">
@@ -815,7 +708,7 @@ export default function PricingPage() {
             </div>
 
             <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 mb-4 uppercase tracking-wider text-[10px]">
-              Founding offer · 100 spots only
+              Founding offer{lifetime.loading || lifetime.unavailable ? '' : ` · ${lifetime.total} spots only`}
             </Badge>
 
             <h2 className="pv-display text-4xl md:text-5xl mb-3">
@@ -823,8 +716,11 @@ export default function PricingPage() {
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mb-8">
               One $300 payment locks in lifetime access to every Pro feature — including
-              everything we ship in the future. No recurring bill, ever. Only 100 spots
-              at launch.
+              everything we ship in the future. No recurring bill, ever.
+              {' '}
+              {lifetime.loading || lifetime.unavailable
+                ? 'Limited spots at launch.'
+                : `Only ${lifetime.total} spots at launch.`}
             </p>
 
             <div className="grid md:grid-cols-2 gap-8 items-start">
@@ -843,12 +739,13 @@ export default function PricingPage() {
                   ) : (
                     <p className="text-sm font-medium text-foreground">
                       <span className="text-amber-700 dark:text-amber-400 font-bold">
-                        {spotsLeft} of {lifetime.total}
-                      </span>{' '}
-                      spots remaining
+                        {lifetime.unavailable
+                          ? 'Lifetime spots'
+                          : lifetimeSpotsLabel(spotsLeft, lifetime.total)}
+                      </span>
                     </p>
                   )}
-                  {!lifetime.loading && !lifetime.soldOut && (
+                  {!lifetime.loading && !lifetime.soldOut && !lifetime.unavailable && (
                     <div className="mt-3 h-2 w-full bg-muted/60 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-amber-500 transition-all"
@@ -1025,7 +922,7 @@ export default function PricingPage() {
               },
               {
                 q: 'How does the free trial work?',
-                a: 'Every new account gets 14 days in the app with no card. When that ends, the dashboard locks until you pick a plan and add a card. Cancel before then and you pay nothing. After you subscribe, canceling keeps access until the end of the month you paid for.',
+                a: 'Every new account gets 30 days of Pro with no card. When that ends, the dashboard locks until you pick a plan and add a card. Cancel before then and you pay nothing. Accounts already on a trial keep the end date they have. After you subscribe, canceling keeps access until the end of the month you paid for.',
               },
               {
                 q: 'What happens at the end of my paid month if I cancel?',

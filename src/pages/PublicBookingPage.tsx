@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { formatDuration } from '@/lib/formatDuration';
 import { AddressAutocomplete } from '@/components/address/AddressAutocomplete';
 import { isSafeHttpUrl } from '@/lib/websiteUrl';
 import { useParams } from 'react-router-dom';
@@ -990,6 +991,7 @@ export default function PublicBookingPage() {
                             <div className="flex-1 min-w-0">
                               <h3 className="font-semibold">{svc.name}</h3>
                               <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{svc.description}</p>
+                               <p className="text-sm text-muted-foreground mt-2">{formatDuration(svc.duration)}</p>
                               <div className="flex items-center gap-2 mt-3">
                                 <div className="flex items-center gap-1 text-lg font-bold text-success">
                                   <DollarSign className="w-5 h-5" />
@@ -1343,6 +1345,7 @@ export default function PublicBookingPage() {
                       </div>
                       <div className="text-right">
                         <p className="font-medium">{service?.name}</p>
+                         <p className="text-sm text-muted-foreground">{formatDuration(service?.duration)}</p>
                         {selectedSqFtIndex !== null && (
                           <p className="text-sm text-muted-foreground">
                             {squareFootageRanges[selectedSqFtIndex].label}
@@ -1717,6 +1720,7 @@ export default function PublicBookingPage() {
                     </div>
                     <div className="text-right">
                       <p className="font-medium">{service?.name}</p>
+                      <p className="text-sm text-muted-foreground">{formatDuration(service?.duration)}</p>
                       <p className="text-sm text-muted-foreground">
                         {selectedSqFtIndex !== null ? squareFootageRanges[selectedSqFtIndex].label : ''}
                       </p>
@@ -1782,6 +1786,7 @@ export default function PublicBookingPage() {
                     <div>
                       <p className="text-sm text-muted-foreground">Service</p>
                       <p className="font-medium">{service?.name}</p>
+                      <p className="text-sm text-muted-foreground">{formatDuration(service?.duration)}</p>
                     </div>
                     <div>
                       <p className="text-sm text-muted-foreground">Home Size</p>

@@ -1,3 +1,4 @@
+import { formatDuration } from '@/lib/formatDuration';
 import { Phone, MapPin, User, Navigation, MapPinned, ClipboardList, Clock } from 'lucide-react';
 import type { CleanerPayResult } from '@/lib/wageCalculation';
 import { describeCleanerPay } from '@/lib/wageCalculation';
@@ -273,6 +274,7 @@ export function JobDetailView({
       badge={statusBadge}
       onBack={onBack}
     >
+      <p className="text-sm text-muted-foreground">Estimated duration: {formatDuration(job.duration)}</p>
       <InverseCard>
         <div className="flex items-start gap-3">
           <Eyebrow onInverse>Your pay</Eyebrow>

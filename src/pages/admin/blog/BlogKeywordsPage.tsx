@@ -42,6 +42,9 @@ const statusVariant: Record<string, string> = {
   failed: "bg-destructive/10 text-destructive",
 };
 
+// Same threshold as generate-daily-blogs and the badge on /admin/blog.
+const LOW_QUEUE_THRESHOLD = 7;
+
 const opportunityVariant: Record<string, string> = {
   High: "bg-success/10 text-success",
   Medium: "bg-warning/10 text-warning",
@@ -57,6 +60,18 @@ export default function BlogKeywordsPage() {
   const [bulkIntent, setBulkIntent] = useState<Intent>("middle_funnel");
   const [bulkPriority, setBulkPriority] = useState(5);
   const [editing, setEditing] = useState<KeywordRow | null>(null);
+
+  const { data: queuedTotal, error: queuedTotalError } = useQuery({
+    queryKey: ["blog-keywords", "queued-count"],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("blog_keyword_queue")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "queued");
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
 
   const { data: rows = [], isLoading, error: rowsError } = useQuery({
     queryKey: ["blog-keywords", statusFilter],
@@ -106,6 +121,7 @@ export default function BlogKeywordsPage() {
       setBulkOpen(false);
       setBulkText("");
       qc.invalidateQueries({ queryKey: ["blog-keywords"] });
+      qc.invalidateQueries({ queryKey: ["admin-blog-queued-keywords"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -129,6 +145,7 @@ export default function BlogKeywordsPage() {
       toast.success("Updated");
       setEditing(null);
       qc.invalidateQueries({ queryKey: ["blog-keywords"] });
+      qc.invalidateQueries({ queryKey: ["admin-blog-queued-keywords"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -142,6 +159,7 @@ export default function BlogKeywordsPage() {
     onSuccess: () => {
       toast.success("Deleted");
       qc.invalidateQueries({ queryKey: ["blog-keywords"] });
+      qc.invalidateQueries({ queryKey: ["admin-blog-queued-keywords"] });
     },
     onError: (e: Error) => { if (e.message !== "Cancelled") toast.error(e.message); },
   });
@@ -157,11 +175,12 @@ export default function BlogKeywordsPage() {
     onSuccess: () => {
       toast.success("Re-queued");
       qc.invalidateQueries({ queryKey: ["blog-keywords"] });
+      qc.invalidateQueries({ queryKey: ["admin-blog-queued-keywords"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  if (rowsError) return <QueryError subject="keyword queue" />;
+  if (rowsError || queuedTotalError) return <QueryError subject="keyword queue" />;
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -178,6 +197,11 @@ export default function BlogKeywordsPage() {
             <p className="text-sm text-muted-foreground">
               {counts.queued} queued · {counts.in_progress} in progress · {counts.completed} completed · {counts.failed} failed
             </p>
+            {queuedTotal != null && queuedTotal < LOW_QUEUE_THRESHOLD && (
+              <p className="text-sm text-destructive mt-1">
+                Keyword queue is low ({queuedTotal} queued). The daily publisher needs at least {LOW_QUEUE_THRESHOLD} keywords or it runs dry within a week.
+              </p>
+            )}
           </div>
           <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
             <DialogTrigger asChild>

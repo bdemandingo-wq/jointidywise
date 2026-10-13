@@ -7,6 +7,7 @@ import { SEOHead } from '@/components/SEOHead';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useAuthNoSession, supabaseNoSession } from '@/hooks/useAuthNoSession';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,6 +23,7 @@ import { Eye, EyeOff, Loader2, ArrowLeft, Mail, Lock, User, Phone, Crown, Sparkl
 import { z } from 'zod';
 import { validatePhone } from '@/lib/phoneValidation';
 import { PERSON_NAME_MAX } from '@/lib/displayName';
+import { ReferredSignupBanner } from '@/components/ReferredSignupBanner';
 
 // Plan metadata for the "you're signing up to start X" banner. Kept
 // inline so the signup page doesn't have to import the full features.ts
@@ -288,21 +290,6 @@ export default function SignupPage() {
       return;
     }
 
-    // Helper: navigate to Stripe Checkout. Use top window so we break
-    // out of the Lovable preview iframe (Stripe Checkout sends
-    // X-Frame-Options: DENY, which would otherwise blank the iframe).
-    const goToCheckout = (url: string) => {
-      try {
-        if (window.top && window.top !== window.self) {
-          window.top.location.href = url;
-          return;
-        }
-      } catch {
-        // Cross-origin top access blocked — fall through to _top open.
-      }
-      window.open(url, '_top');
-    };
-
     if (selectedPlan === 'lifetime') {
       try {
         const { data, error } = await supabaseNoSession.functions.invoke('buy-lifetime', { body: {} });
@@ -310,12 +297,13 @@ export default function SignupPage() {
         // function's own reason — sold out, already subscribed, price not
         // configured — completes the sentence instead of "non-2xx status code".
         if (error) throw new Error(await readEdgeFunctionError(error, 'please try again'));
-        const url = (data as { url?: string })?.url;
-        if (url) {
-          goToCheckout(url);
-          return;
-        }
-        throw new Error('Checkout URL missing');
+        const session = readCheckoutSession(data);
+        openEmbeddedCheckout({
+          ...session,
+          plan: 'lifetime',
+          cancelPath: '/pricing?plan=lifetime&canceled=1',
+        });
+        return;
       } catch (err) {
         toast.error(
           err instanceof Error
@@ -336,12 +324,14 @@ export default function SignupPage() {
         // function's own reason — sold out, already subscribed, price not
         // configured — completes the sentence instead of "non-2xx status code".
         if (error) throw new Error(await readEdgeFunctionError(error, 'please try again'));
-        const url = (data as { url?: string })?.url;
-        if (url) {
-          goToCheckout(url);
-          return;
-        }
-        throw new Error('Checkout URL missing');
+        const session = readCheckoutSession(data);
+        openEmbeddedCheckout({
+          ...session,
+          plan: selectedPlan,
+          interval: selectedInterval,
+          cancelPath: `/pricing?plan=${encodeURIComponent(selectedPlan)}&interval=${encodeURIComponent(selectedInterval)}&canceled=1`,
+        });
+        return;
       } catch (err) {
         toast.error(
           err instanceof Error
@@ -419,6 +409,8 @@ export default function SignupPage() {
           </div>
         )}
 
+        <ReferredSignupBanner />
+
         <Card className="border-border/50 shadow-lg">
           <CardHeader className="text-center pb-4">
             <h1 className="pv-display text-3xl leading-none tracking-tight">
@@ -427,7 +419,7 @@ export default function SignupPage() {
             <CardDescription>
               {planMeta
                 ? `One quick step before checkout for ${planMeta.label}.`
-                : '14-day free trial, no card required.'}
+                : '30 days of Pro, no card required.'}
             </CardDescription>
           </CardHeader>
           <CardContent>

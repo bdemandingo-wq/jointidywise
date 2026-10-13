@@ -3,6 +3,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { REFUND_POLICY, CANCELLATION_POLICY, POLICY_DISCLOSURE, TOS_VERSION } from "../_shared/policies.ts";
 import { rejectReason, isVested } from "../_shared/referral-eligibility.ts";
+import { recordReferralInvoicePaid, recordReferralReversal, type BalanceClient } from "../_shared/saas-referral-db.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
 
 /**
@@ -986,14 +987,39 @@ const handler = async (req: Request): Promise<Response> => {
     // briefly precede a refund/dispute.
     if (event.type === "invoice.paid") {
       const inv = event.data.object as Stripe.Invoice;
+      // Stripe API 2025-03-31+ (basil) moved invoice.subscription,
+      // invoice.subscription_details and invoice.payment_intent under
+      // invoice.parent / invoice.payments. Without this, every subscription
+      // invoice looked like "not a subscription" and nothing below ran —
+      // payment_evidence stayed empty and a fraud dispute had no evidence.
+      // Normalise onto the legacy fields so the downstream code keeps working
+      // under either payload shape.
+      const invAny = inv as any;
+      const parentSub = invAny.parent?.subscription_details ?? null;
+      if (!invAny.subscription && parentSub?.subscription) {
+        invAny.subscription = typeof parentSub.subscription === "string"
+          ? parentSub.subscription
+          : parentSub.subscription?.id ?? null;
+      }
+      if (!invAny.subscription_details && parentSub) invAny.subscription_details = parentSub;
       const meta = (inv.metadata || {}) as Record<string, string>;
-      const subMeta = ((inv.subscription_details?.metadata as any) || {}) as Record<string, string>;
+      const subMeta = ((invAny.subscription_details?.metadata as any) || {}) as Record<string, string>;
       const combined = { ...subMeta, ...meta };
 
-      if (combined.purpose === "tidywise_saas_subscription" || inv.subscription) {
+      if (combined.purpose === "tidywise_saas_subscription" || invAny.subscription) {
         try {
           const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", { apiVersion: "2025-08-27.basil" });
-          const pi = inv.payment_intent ? await stripe.paymentIntents.retrieve(inv.payment_intent as string) : null;
+          if (!invAny.payment_intent && (inv.amount_paid ?? 0) > 0) {
+            try {
+              const full = await stripe.invoices.retrieve(inv.id, { expand: ["payments"] }) as any;
+              const paid = (full.payments?.data ?? []).find((p: any) => p?.status === "paid") ?? full.payments?.data?.[0];
+              const piRef = paid?.payment?.payment_intent;
+              invAny.payment_intent = typeof piRef === "string" ? piRef : piRef?.id ?? null;
+            } catch (e) {
+              console.error("[stripe-invoice-webhook] invoice payments lookup failed:", e);
+            }
+          }
+          const pi = invAny.payment_intent ? await stripe.paymentIntents.retrieve(invAny.payment_intent as string) : null;
           const charge = pi?.latest_charge ? await stripe.charges.retrieve(pi.latest_charge as string) : null;
           const threeDS = (charge?.payment_method_details as any)?.card?.three_d_secure?.result || null;
 
@@ -1124,6 +1150,35 @@ const handler = async (req: Request): Promise<Response> => {
             console.error("[referral] vesting block failed (swallowed):", e);
           }
 
+          // Org-owner referral programme: count the first invoice with
+          // amount > 0, once, and apply or bank a free month per pair.
+          try {
+            const balance: BalanceClient = {
+              createBalanceTransaction: (customerId, body, options) =>
+                stripe.customers.createBalanceTransaction(customerId, body, {
+                  idempotencyKey: options.idempotencyKey,
+                }),
+            };
+            const subscriptionId = typeof invAny.subscription === "string"
+              ? invAny.subscription
+              : invAny.subscription?.id ?? null;
+            const customerId = typeof inv.customer === "string"
+              ? inv.customer
+              : (inv.customer as { id?: string } | null)?.id ?? null;
+            await recordReferralInvoicePaid(supabase, {
+              invoiceId: inv.id,
+              amountPaid: inv.amount_paid ?? 0,
+              organizationId: (combined.organization_id as string) || null,
+              subscriptionId,
+              stripeCustomerId: customerId,
+              chargeId: charge?.id ?? null,
+              paidAt: new Date(((inv as any).status_transitions?.paid_at ?? event.created) * 1000).toISOString(),
+              purpose: (combined.purpose as string) || null,
+            }, balance);
+          } catch (e) {
+            console.error("[saas-referral] invoice.paid handler failed (swallowed):", e);
+          }
+
 
 
           // Look up Supabase user by account_id metadata or customer email
@@ -1142,7 +1197,7 @@ const handler = async (req: Request): Promise<Response> => {
             tosRow = tos;
           }
 
-          await supabase.from("payment_evidence").upsert({
+          const { error: evidenceErr } = await supabase.from("payment_evidence").upsert({
             user_id: userId,
             email: customerEmail || "",
             stripe_customer_id: inv.customer as string,
@@ -1162,7 +1217,8 @@ const handler = async (req: Request): Promise<Response> => {
             metadata: combined,
           }, { onConflict: "stripe_payment_intent_id" });
 
-          console.log("[stripe-invoice-webhook] Payment evidence captured for", inv.id);
+          if (evidenceErr) console.error("[stripe-invoice-webhook] payment_evidence upsert FAILED:", inv.id, evidenceErr);
+          else console.log("[stripe-invoice-webhook] Payment evidence captured for", inv.id);
 
           // Branded receipt email. Yearly subscribers in particular need
           // a clear "next billing date" so they know when the renewal
@@ -1189,6 +1245,32 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
 
+    // A refund of the qualifying charge undoes the referral count when it
+    // lands inside 30 days. The balance transaction is a debit of the credit
+    // already given — it does not create a new charge.
+    if (event.type === "charge.refunded") {
+      try {
+        const refundedCharge = event.data.object as Stripe.Charge;
+        const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
+          apiVersion: "2025-08-27.basil",
+        });
+        const balance: BalanceClient = {
+          createBalanceTransaction: (customerId, body, options) =>
+            stripe.customers.createBalanceTransaction(customerId, body, {
+              idempotencyKey: options.idempotencyKey,
+            }),
+        };
+        await recordReferralReversal(supabase, {
+          chargeId: refundedCharge.id,
+          invoiceId: typeof refundedCharge.invoice === "string" ? refundedCharge.invoice : null,
+          eventAt: new Date(event.created * 1000).toISOString(),
+          reason: "refund",
+        }, balance);
+      } catch (e) {
+        console.error("[saas-referral] refund reversal failed (swallowed):", e);
+      }
+    }
+
     // ── DISPUTE / CHARGEBACK HANDLING (Visa CE 3.0, reason 10.4) ────────────
     if (event.type === "charge.dispute.created" || event.type === "charge.dispute.updated") {
       try {
@@ -1198,6 +1280,25 @@ const handler = async (req: Request): Promise<Response> => {
         });
 
         const charge = await stripe.charges.retrieve(dispute.charge as string);
+
+        if (event.type === "charge.dispute.created") {
+          try {
+            const balance: BalanceClient = {
+              createBalanceTransaction: (customerId, body, options) =>
+                stripe.customers.createBalanceTransaction(customerId, body, {
+                  idempotencyKey: options.idempotencyKey,
+                }),
+            };
+            await recordReferralReversal(supabase, {
+              chargeId: typeof dispute.charge === "string" ? dispute.charge : charge.id,
+              invoiceId: typeof charge.invoice === "string" ? charge.invoice : null,
+              eventAt: new Date(event.created * 1000).toISOString(),
+              reason: "dispute",
+            }, balance);
+          } catch (e) {
+            console.error("[saas-referral] dispute reversal failed (swallowed):", e);
+          }
+        }
         const paymentIntentId = (charge.payment_intent as string) || null;
         const customerId = (charge.customer as string) || null;
         const customerEmail = charge.billing_details?.email || charge.receipt_email || null;
@@ -1256,6 +1357,49 @@ const handler = async (req: Request): Promise<Response> => {
             .limit(1)
             .maybeSingle();
           tos = tosRow;
+        }
+
+        // ── Post-charge usage evidence ("they used what they paid for") ──
+        // Resolve the account even when no payment_evidence row exists
+        // (older charges) by falling back to the profile email.
+        let usageUserId: string | null = disputedEvidence?.user_id ?? null;
+        const lookupEmail = (customerEmail || disputedEvidence?.email || "").toLowerCase();
+        if (!usageUserId && lookupEmail) {
+          const { data: prof } = await supabase
+            .from("profiles").select("id").ilike("email", lookupEmail).limit(1).maybeSingle();
+          usageUserId = prof?.id ?? null;
+        }
+        let usageSummary: string | null = null;
+        if (usageUserId && charge.created) {
+          try {
+            const sinceIso = new Date(charge.created * 1000).toISOString();
+            const { count: sessionCount, data: lastSessions } = await supabase
+              .from("user_sessions")
+              .select("session_start", { count: "exact" })
+              .eq("user_id", usageUserId)
+              .gt("session_start", sinceIso)
+              .order("session_start", { ascending: false })
+              .limit(1);
+            const { data: mem } = await supabase
+              .from("org_memberships").select("organization_id")
+              .eq("user_id", usageUserId).limit(1).maybeSingle();
+            let bookingCount = 0;
+            if (mem?.organization_id) {
+              const { count } = await supabase
+                .from("bookings").select("id", { count: "exact", head: true })
+                .eq("organization_id", mem.organization_id)
+                .gt("created_at", sinceIso);
+              bookingCount = count ?? 0;
+            }
+            if ((sessionCount ?? 0) > 0 || bookingCount > 0) {
+              usageSummary =
+                `After this charge (${String(sinceIso).slice(0, 10)}), the account holder signed in ${sessionCount ?? 0} time(s)` +
+                (lastSessions?.[0]?.session_start ? `, most recently on ${new Date(lastSessions[0].session_start).toISOString().slice(0, 10)}` : "") +
+                ` and the business created ${bookingCount} booking(s) in the software — the service was actively used.`;
+            }
+          } catch (e) {
+            console.error("[stripe-invoice-webhook] usage evidence lookup failed", e);
+          }
         }
 
         // Compose draft evidence mapped to Stripe dispute evidence fields
@@ -1362,8 +1506,9 @@ const handler = async (req: Request): Promise<Response> => {
           cancellation_policy: customerSawPolicy ? CANCELLATION_POLICY : null,
           cancellation_policy_disclosure: customerSawPolicy ? POLICY_DISCLOSURE : null,
           cancellation_rebuttal: cancellationRebuttal,
-          refund_refusal_explanation: refundRefusalExplanation,
-          uncategorized_text: uncategorizedText,
+          refund_refusal_explanation: refundRefusalExplanation && usageSummary ? `${refundRefusalExplanation} ${usageSummary}` : refundRefusalExplanation,
+          uncategorized_text: usageSummary ? `${usageSummary} ${uncategorizedText}` : uncategorizedText,
+          service_date: charge.created ? fmt(new Date(charge.created * 1000).toISOString()) : null,
         };
 
         await supabase

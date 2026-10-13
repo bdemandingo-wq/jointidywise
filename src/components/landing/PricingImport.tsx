@@ -1,3 +1,4 @@
+import { formatDuration } from '@/lib/formatDuration';
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -211,7 +212,7 @@ export function PricingImport() {
                           ${service.basePrice.toFixed(2)}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {service.duration} min • {service.priceType}
+                          {formatDuration(service.duration)} • {service.priceType}
                         </p>
                       </div>
                     </div>

@@ -71,7 +71,7 @@ export function useSubscription(): SubscriptionAccess {
     trialActive: isTrialActive,
   });
 
-  // Tier-aware Pro-feature gate. Even during the 14-day trial, the
+  // Tier-aware Pro-feature gate. Even during the card-free Pro trial, the
   // user only gets access to the FEATURES of the plan they selected.
   // Basic-plan users (paid or trialing) must NOT see Pro-only modules
   // like AI, Campaigns, Reports, Inventory, etc.

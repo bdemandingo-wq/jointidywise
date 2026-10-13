@@ -38,6 +38,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { fmt } from '@/lib/activeCurrency';
 import { mustAffectRows } from '@/lib/mustAffectRows';
 import { CustomerNotesBlock } from '@/components/CustomerNotesBlock';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { mirroredCleanerWage, teamSummary, teamFieldsForSave } from '@/lib/teamJobs';
 
 // computeExpectedPay now lives in @/lib/cleanerPay (shared across all pay write sites).
 
@@ -53,6 +56,14 @@ export function PaymentStep() {
     setCleanerWageType,
     cleanerOverrideHours,
     setCleanerOverrideHours,
+    teamNeeded,
+    setTeamNeeded,
+    teamCount,
+    setTeamCount,
+    teamPay,
+    setTeamPay,
+    teamPayType,
+    setTeamPayType,
     cardInfo,
     setCardInfo,
     loadingCard,
@@ -126,9 +137,10 @@ export function PaymentStep() {
     if (!editingBookingId) return; // Only autosave for existing bookings
     
     const base = finalPrice > 0 ? finalPrice : (totalAmount > 0 ? totalAmount : calculatedPrice);
+    const wage = mirroredCleanerWage(teamNeeded, teamPay, teamPayType, cleanerWage, cleanerWageType);
     const expectedPay = computeExpectedPay(
-      cleanerWageType,
-      cleanerWage,
+      wage.wageType,
+      wage.wage,
       cleanerOverrideHours,
       selectedService?.duration || 60,
       base,
@@ -140,10 +152,11 @@ export function PaymentStep() {
         supabase
           .from('bookings')
           .update({
-            cleaner_wage: cleanerWage ? parseFloat(cleanerWage) : null,
-            cleaner_wage_type: cleanerWageType,
+            cleaner_wage: wage.wage ? parseFloat(wage.wage) : null,
+            cleaner_wage_type: wage.wageType,
             cleaner_override_hours: cleanerOverrideHours ? parseFloat(cleanerOverrideHours) : null,
             cleaner_pay_expected: expectedPay,
+            ...teamFieldsForSave(teamNeeded, teamCount, teamPay, teamPayType),
             pay_last_saved_at: new Date().toISOString(),
             pay_last_saved_by: user?.id || null,
           })
@@ -161,7 +174,7 @@ export function PaymentStep() {
       setPaySaveStatus('error');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- organizationId is stable per session; including it would not change behavior
-  }, [editingBookingId, cleanerWage, cleanerWageType, cleanerOverrideHours, selectedService, finalPrice, totalAmount, calculatedPrice, user?.id]);
+  }, [editingBookingId, cleanerWage, cleanerWageType, cleanerOverrideHours, teamNeeded, teamCount, teamPay, teamPayType, selectedService, finalPrice, totalAmount, calculatedPrice, user?.id]);
 
   // Trigger debounced save when pay fields change
   useEffect(() => {
@@ -529,6 +542,65 @@ export function PaymentStep() {
                 />
               </div>
             )}
+
+            {/* Team job: several cleaners can claim this booking */}
+            <div className="mt-4 rounded-lg border border-border/50 p-3 space-y-3">
+              <label className="flex items-center gap-3 min-h-11 cursor-pointer">
+                <Checkbox
+                  checked={teamNeeded}
+                  onCheckedChange={(v) => setTeamNeeded(v === true)}
+                  aria-label="Team needed"
+                />
+                <span className="text-sm font-medium">Team needed</span>
+              </label>
+              {teamNeeded && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Number of cleaners</Label>
+                      <Select value={String(teamCount)} onValueChange={(v) => setTeamCount(Number(v))}>
+                        <SelectTrigger className="mt-2 h-11 bg-secondary/30 border-border/50" aria-label="Number of cleaners">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-popover border-border">
+                          {[2, 3, 4, 5, 6].map((n) => (
+                            <SelectItem key={n} value={String(n)}>{n} cleaners</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">
+                        {teamPayType === 'hourly' ? 'Pay per cleaner ($/hr)' : 'Pay per cleaner ($)'}
+                      </Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        inputMode="decimal"
+                        value={teamPay}
+                        onChange={(e) => setTeamPay(e.target.value)}
+                        placeholder="0.00"
+                        className="mt-2 h-11 bg-secondary/30 border-border/50"
+                        aria-label="Pay per cleaner"
+                      />
+                    </div>
+                  </div>
+                  <ToggleGroup
+                    type="single"
+                    value={teamPayType}
+                    onValueChange={(v) => v && setTeamPayType(v as 'flat' | 'hourly')}
+                    className="justify-start"
+                    aria-label="Team pay type"
+                  >
+                    <ToggleGroupItem value="flat" className="h-11 px-4">Flat</ToggleGroupItem>
+                    <ToggleGroupItem value="hourly" className="h-11 px-4">Hourly</ToggleGroupItem>
+                  </ToggleGroup>
+                  <p className="text-sm text-muted-foreground">
+                    {teamSummary(teamFieldsForSave(true, teamCount, teamPay, teamPayType))}
+                  </p>
+                </>
+              )}
+            </div>
 
             {/* Save Status Indicator */}
             {editingBookingId && paySaveStatus !== 'idle' && (

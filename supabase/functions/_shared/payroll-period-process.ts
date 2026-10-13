@@ -66,7 +66,8 @@ export type ProcessSkippedReason =
   | "no_owner_email"
   | "no_email_settings"
   | "already_sent"
-  | "no_completed_bookings";
+  | "no_completed_bookings"
+  | "opted_out";
 
 export interface ProcessOrgResult {
   organizationId: string;

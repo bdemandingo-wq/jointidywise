@@ -113,6 +113,34 @@
       "when": 1791808839946,
       "tag": "0015_winback_sends",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791864497254,
+      "tag": "0016_add_team_job_fields_to_bookings",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791864858183,
+      "tag": "0017_team_job_claims",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791865000000,
+      "tag": "0018_team_claim_org_and_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791902799022,
+      "tag": "0019_thirty_day_trial_and_public_growth",
+      "breakpoints": true
     }
   ]
 }

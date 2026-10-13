@@ -1,7 +1,9 @@
+import { formatDuration } from '@/lib/formatDuration';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
-import { Calendar, MapPin, Clock, DollarSign, CheckCircle } from 'lucide-react';
+import { Calendar, MapPin, Clock, DollarSign, CheckCircle, RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface Booking {
@@ -26,9 +28,11 @@ interface Booking {
 
 interface Props {
   booking: Booking;
+  onUndo?: () => void;
+  undoPending?: boolean;
 }
 
-export function JobHistoryCard({ booking }: Props) {
+export function JobHistoryCard({ booking, onUndo, undoPending }: Props) {
   const getStatusBadge = (status: string) => {
     const config: Record<string, { variant: 'default' | 'secondary' | 'outline' | 'destructive'; label: string }> = {
       completed: { variant: 'default', label: 'Completed' },
@@ -78,13 +82,19 @@ export function JobHistoryCard({ booking }: Props) {
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Clock className="w-4 h-4" />
           <span>
-            <OrgTimestamp value={booking.scheduled_at} /> ({booking.duration} min)
+            <OrgTimestamp value={booking.scheduled_at} /> ({formatDuration(booking.duration)})
           </span>
         </div>
         {booking.customer && (
           <p className="text-sm text-muted-foreground">
             {booking.customer.first_name} {booking.customer.last_name}
           </p>
+        )}
+        {onUndo && (
+          <Button type="button" variant="outline" size="sm" className="gap-2" onClick={onUndo} disabled={undoPending}>
+            <RotateCcw className="w-4 h-4" />
+            Undo completion
+          </Button>
         )}
         {booking.address && (
           <div className="flex items-start gap-2 text-sm text-muted-foreground">

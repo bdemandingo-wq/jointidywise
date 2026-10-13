@@ -1,3 +1,4 @@
+import { formatDuration } from '@/lib/formatDuration';
 import { useState, useMemo } from 'react';
 import { BookingWithDetails } from '@/hooks/useBookings';
 import { cn } from '@/lib/utils';
@@ -334,7 +335,7 @@ export function UpcomingBookings({ bookings }: UpcomingBookingsProps) {
                       {formatInTimezone(selectedBooking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}
                     </p>
                     <p className="text-muted-foreground">
-                      Duration: {selectedBooking.duration} minutes
+                      Duration: {formatDuration(selectedBooking.duration)}
                     </p>
                   </div>
                 </div>

@@ -62,7 +62,7 @@ export function extractStoragePath(urlOrPath: string | null): string | null {
   // Format: https://xxx.supabase.co/storage/v1/object/public/bucket-name/path
   const match = urlOrPath.match(/\/storage\/v1\/object\/(?:public|sign)\/[^/]+\/(.+)/);
   if (match) {
-    return decodeURIComponent(match[1]);
+    return decodeURIComponent(match[1].split('?')[0]);
   }
   
   return urlOrPath;
@@ -83,6 +83,7 @@ export interface SignedUrlTransform {
 // Cache signed URLs in memory for the session, and allow a transform so
 // grids request server-resized thumbnails instead of originals.
 const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+const pendingSignedUrls = new Map<string, Promise<string | null>>();
 
 export async function getSignedUrl(
   bucket: string,
@@ -100,16 +101,21 @@ export async function getSignedUrl(
       return cached.url;
     }
 
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .createSignedUrl(storagePath, expiresIn, transform ? { transform } : undefined);
-
-    if (error) throw error;
-    signedUrlCache.set(cacheKey, {
-      url: data.signedUrl,
-      expiresAt: Date.now() + expiresIn * 1000,
-    });
-    return data.signedUrl;
+    const pending = pendingSignedUrls.get(cacheKey);
+    if (pending) return pending;
+    const task = (async () => {
+      const { data, error } = await supabase.storage.from(bucket)
+        .createSignedUrl(storagePath, expiresIn, transform ? { transform } : undefined);
+      if (error) throw error;
+      if (signedUrlCache.size >= 500) {
+        const oldest = signedUrlCache.keys().next().value;
+        if (oldest) signedUrlCache.delete(oldest);
+      }
+      signedUrlCache.set(cacheKey, { url: data.signedUrl, expiresAt: Date.now() + expiresIn * 1000 });
+      return data.signedUrl;
+    })();
+    pendingSignedUrls.set(cacheKey, task);
+    try { return await task; } finally { pendingSignedUrls.delete(cacheKey); }
   } catch (err) {
     console.error('Error generating signed URL:', err);
     return null;

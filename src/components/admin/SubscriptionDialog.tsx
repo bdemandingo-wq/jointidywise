@@ -25,6 +25,7 @@ import { usePlatform } from "@/hooks/usePlatform";
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from '@/lib/startSubscriptionCheckout';
+import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 
 interface SubscriptionDialogProps {
   open: boolean;
@@ -145,7 +146,12 @@ export function SubscriptionDialog({
         throw new Error(await readEdgeFunctionError(error, "Failed to start checkout"));
       }
       if (data?.error) throw new Error(data.error);
-      if (data?.url) window.location.href = data.url;
+      const session = readCheckoutSession(data);
+      openEmbeddedCheckout({
+        ...session,
+        plan: 'lifetime',
+        cancelPath: '/dashboard?lifetime=canceled',
+      });
     } catch (error: any) {
       toast.error(error.message || "Failed to start checkout");
     } finally {

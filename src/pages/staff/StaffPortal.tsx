@@ -1,4 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
+import { isTeamJob, remainingSpots } from '@/lib/teamJobs';
 import { QueryError } from '@/components/QueryError';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -29,6 +30,8 @@ import { SEOHead } from '@/components/SEOHead';
 import { StaffLocationPrompt } from '@/components/staff/StaffLocationPrompt';
 import { TimeOffRequests } from '@/components/staff/TimeOffRequests';
 import { orgStartOfDay } from '@/lib/orgDateRange';
+import { decideReopen } from '@/lib/reopenBooking';
+import { reopenAssignedBooking } from '@/lib/reopenAssignedBooking';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useMyStaffOrgs } from '@/hooks/useMyStaffOrgs';
@@ -69,6 +72,7 @@ const TabFallback = () => (
 );
 
 interface Booking extends WageBooking {
+  team_claimed?: number;
   id: string;
   booking_number: number;
   scheduled_at: string;
@@ -91,6 +95,9 @@ interface Booking extends WageBooking {
   service: {
     name: string;
   } | null;
+  payment_status?: string | null;
+  payroll_locked_week?: string | null;
+  completed_at?: string | null;
 }
 
 interface StaffInfo {
@@ -352,6 +359,7 @@ export default function StaffPortal() {
           total_amount, subtotal, discount_amount, cleaner_wage, cleaner_wage_type,
           cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
           cleaner_checkin_at, cleaner_checkout_at, notes, customer_notes,
+          cleaners_needed, pay_per_cleaner, pay_type,
           customer:customers(first_name, last_name, phone),
           service:services(name)
         `)
@@ -373,6 +381,7 @@ export default function StaffPortal() {
             total_amount, subtotal, discount_amount, cleaner_wage, cleaner_wage_type,
             cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
             cleaner_checkin_at, cleaner_checkout_at, notes, customer_notes,
+            cleaners_needed, pay_per_cleaner, pay_type,
             customer:customers(first_name, last_name, phone),
             service:services(name)
           )
@@ -467,6 +476,7 @@ export default function StaffPortal() {
           : Promise.resolve({ data: [] as any[] }),
         supabase.from('booking_reminder_log').select('booking_id').in('booking_id', assignedIds).eq('reminder_type', `on_the_way:${staffInfo!.id}`),
       ]);
+      if (photoRes.error) throw photoRes.error;
       const photoCountByBooking: Record<string, number> = {};
       for (const row of ((photoRes as any).data as any[]) || []) {
         photoCountByBooking[row.booking_id] = (photoCountByBooking[row.booking_id] ?? 0) + 1;
@@ -509,19 +519,37 @@ export default function StaffPortal() {
           cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
           cleaner_checkin_at, cleaner_checkout_at,
           square_footage, bedrooms, bathrooms, notes, customer_notes,
+          staff_id, cleaners_needed, pay_per_cleaner, pay_type,
           customer:customers(first_name, last_name, phone),
           service:services(name)
         `)
         .eq('organization_id', staffInfo.organization_id)
-        .is('staff_id', null)
+        // One or() only. A second or() is a separate query parameter and can
+        // drop this filter, which would list every upcoming job in the org.
+        // Unclaimed solo jobs, plus team jobs that may still have open spots,
+        // and not drafts.
+        .or('and(staff_id.is.null,is_draft.is.null),and(staff_id.is.null,is_draft.eq.false),and(cleaners_needed.gt.1,is_draft.is.null),and(cleaners_needed.gt.1,is_draft.eq.false)')
         .in('status', ['pending', 'confirmed'])
-        .or('is_draft.is.null,is_draft.eq.false')
         .gte('scheduled_at', new Date().toISOString())
         .order('scheduled_at', { ascending: true });
 
       if (error) throw error;
       setNewJobAlert(false);
-      return data as Booking[];
+      const rows = (data ?? []) as unknown as (Booking & { staff_id: string | null; cleaners_needed: number | null })[];
+      const teamIds = rows.filter((r) => isTeamJob(r)).map((r) => r.id);
+      const counts = new Map<string, { claimed: number; mine: boolean }>();
+      if (teamIds.length) {
+        const { data: c, error: cErr } = await supabase.rpc('get_team_claim_counts', { p_booking_ids: teamIds });
+        if (cErr) throw cErr;
+        for (const r of c ?? []) counts.set(r.booking_id, { claimed: r.claimed, mine: r.mine });
+      }
+      // Plain objects only (persisted cache — no Map in the result).
+      return rows
+        .map((r) => {
+          const c = counts.get(r.id);
+          return { ...r, team_claimed: isTeamJob(r) ? c?.claimed ?? (r.staff_id ? 1 : 0) : 0, team_mine: c?.mine ?? false };
+        })
+        .filter((r) => (isTeamJob(r) ? !r.team_mine && remainingSpots(r, r.team_claimed) > 0 : !r.staff_id)) as Booking[];
     },
     enabled: !!staffInfo?.id && !!staffInfo?.organization_id,
   });
@@ -561,6 +589,35 @@ export default function StaffPortal() {
     },
   });
 
+  const { data: completedRecent = [], error: reopenableError } = useQuery({
+    queryKey: ['staff-reopenable', staffInfo?.id, orgTimezone],
+    enabled: !!staffInfo?.id,
+    queryFn: async () => {
+      const start = orgStartOfDay(new Date(), orgTimezone).toISOString();
+      const { data, error } = await supabase
+        .from('bookings')
+        .select('id, booking_number, status, payment_status, payroll_locked_week, cleaner_actual_payment, cleaner_checkout_at, completed_at')
+        .eq('staff_id', staffInfo!.id)
+        .eq('status', 'completed')
+        .or(`cleaner_checkout_at.gte.${start},completed_at.gte.${start}`)
+        .order('cleaner_checkout_at', { ascending: false })
+        .order('id', { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const reopenableToday = completedRecent.filter((booking) => decideReopen({
+    role: 'cleaner',
+    status: booking.status,
+    paymentStatus: booking.payment_status,
+    payrollLockedWeek: booking.payroll_locked_week,
+    cleanerActualPayment: booking.cleaner_actual_payment,
+    completedAt: booking.cleaner_checkout_at || booking.completed_at,
+    now: new Date(),
+    timeZone: orgTimezone,
+  }).ok);
+
   // Fetch job history (completed, cancelled, no_show) - only when history tab is active
   const { data: jobHistory = [], isLoading: loadingHistory, error: historyError } = useQuery({
     queryKey: ['staff-bookings', 'history', staffInfo?.id],
@@ -573,7 +630,8 @@ export default function StaffPortal() {
           id, booking_number, scheduled_at, duration, status, address, city, state, zip_code,
           total_amount, subtotal, discount_amount, cleaner_wage, cleaner_wage_type,
           cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
-          cleaner_checkin_at, cleaner_checkout_at,
+          cleaner_checkin_at, cleaner_checkout_at, completed_at,
+          payment_status, payroll_locked_week,
           customer:customers(first_name, last_name),
           service:services(name)
         `)
@@ -597,23 +655,31 @@ export default function StaffPortal() {
       }
       setClaimingBookingId(bookingId);
 
+      // Server-side claim: locks the booking and re-counts spots, so two
+      // cleaners racing for the last spot cannot both get it.
+      const { data: res, error: claimErr } = await supabase.rpc('claim_booking', { p_booking_id: bookingId });
+      if (claimErr) throw claimErr;
+      const result = (res as { result?: string } | null)?.result;
+      if (result === 'already_claimed') throw new Error('You already claimed this job');
+      if (result === 'full') {
+        const needed = (res as { needed?: number }).needed ?? 1;
+        throw new Error(needed > 1 ? 'This job was just filled' : 'Job was already claimed by someone else');
+      }
+      if (result !== 'claimed') throw new Error('Job was already claimed by someone else');
+
       const { data, error } = await supabase
         .from('bookings')
-        .update({ staff_id: staffInfo.id })
-        .eq('id', bookingId)
-        .is('staff_id', null) // Only claim if still unassigned
         .select(`
           booking_number,
           scheduled_at,
           service:services(name),
           customer:customers(first_name, last_name)
-        `);
-
+        `)
+        .eq('id', bookingId)
+        .maybeSingle();
       if (error) throw error;
-      if (!data || data.length === 0) {
-        throw new Error('Job was already claimed by someone else');
-      }
-      return data[0];
+      if (!data) throw new Error('Job was already claimed by someone else');
+      return data;
     },
     onSuccess: (data) => {
       setClaimingBookingId(null);
@@ -637,6 +703,12 @@ export default function StaffPortal() {
 
       // Kept as a special case because it does more than reword: the job is
       // gone, so the available list has to be refetched.
+      if (error.message === 'This job was just filled' || error.message === 'You already claimed this job') {
+        toast.error(error.message);
+        queryClient.invalidateQueries({ queryKey: ['staff-bookings', 'unassigned'] });
+        queryClient.invalidateQueries({ queryKey: ['staff-bookings', 'assigned'] });
+        return;
+      }
       if (error.message === 'Job was already claimed by someone else') {
         toast.error('This job was already claimed by another cleaner');
         queryClient.invalidateQueries({ queryKey: ['staff-bookings', 'unassigned'] });
@@ -787,9 +859,12 @@ export default function StaffPortal() {
             const notify = await supabase.functions.invoke('send-job-complete-sms', {
               body: { bookingId, staffId: staffInfo.id },
             });
+            const notifyData = notify.data as JobNotifyResult | null;
             officeNotice = notify.error
               ? 'Job completed. The office notification failed.'
-              : describeJobComplete(notify.data as JobNotifyResult | null);
+              : notifyData?.deduplicated
+                ? 'Job completed. The office was already notified, so no second text was sent.'
+                : describeJobComplete(notifyData);
           }
         } catch (notifyErr) {
           console.warn('Admin completion notification failed:', notifyErr);
@@ -798,6 +873,19 @@ export default function StaffPortal() {
 
 
         try {
+          // A second completion must not email the customer again. The office
+          // text is already deduped in send-job-complete-sms.
+          const { data: existingReviews, error: existingReviewError } = await supabase
+            .from('review_requests')
+            .select('id')
+            .eq('booking_id', bookingId)
+            .limit(1);
+          if (existingReviewError) {
+            console.warn('Could not check for an existing review request', existingReviewError);
+          } else if (existingReviews && existingReviews.length > 0) {
+            return { status, reviewSent: false, officeNotice };
+          }
+
           // Get booking details for review request
           const { data: bookingData } = await supabase
             .from('bookings')
@@ -884,6 +972,22 @@ export default function StaffPortal() {
           : 'Failed to update status';
       toast.error(message);
       console.error(error);
+    },
+  });
+
+  const reopenJob = useMutation({
+    mutationFn: async (bookingId: string) => {
+      const { error } = await reopenAssignedBooking(bookingId);
+      if (error) throw new Error(error.message || 'Could not undo completion');
+    },
+    onSuccess: () => {
+      toast.success('Job is in progress again. Photos stay, and nothing new was charged or texted.');
+      void queryClient.invalidateQueries({ queryKey: ['staff-bookings'] });
+      void queryClient.invalidateQueries({ queryKey: ['staff-completed-today'] });
+      void queryClient.invalidateQueries({ queryKey: ['staff-reopenable'] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || 'Could not undo completion');
     },
   });
 
@@ -1198,6 +1302,31 @@ export default function StaffPortal() {
                   ✓ {completedToday} completed today
                 </p>
               )}
+              {reopenableError && (
+                <p className="mb-4 text-sm text-destructive">
+                  Could not check which completed jobs can be undone. Open Job history and try again.
+                </p>
+              )}
+              {reopenableToday.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {reopenableToday.map((job) => (
+                    <div key={job.id} className="flex items-center justify-between gap-3 rounded-2xl border p-4">
+                      <p className="text-sm">
+                        Job #{job.booking_number} was marked complete. You can undo that until the end of today.
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={reopenJob.isPending}
+                        onClick={() => reopenJob.mutate(job.id)}
+                      >
+                        Undo
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <h2 className="pv-display text-2xl">Your upcoming jobs</h2>
               <p className="pv-meta mt-1">Jobs assigned to you that are coming up.</p>
             </div>
@@ -1313,9 +1442,26 @@ export default function StaffPortal() {
                 </div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {jobHistory.map((booking) => (
-                    <JobHistoryCard key={booking.id} booking={booking} />
-                  ))}
+                  {jobHistory.map((booking) => {
+                    const canUndo = decideReopen({
+                      role: 'cleaner',
+                      status: booking.status,
+                      paymentStatus: booking.payment_status,
+                      payrollLockedWeek: booking.payroll_locked_week,
+                      cleanerActualPayment: booking.cleaner_actual_payment,
+                      completedAt: booking.cleaner_checkout_at || booking.completed_at,
+                      now: new Date(),
+                      timeZone: orgTimezone,
+                    }).ok;
+                    return (
+                      <JobHistoryCard
+                        key={booking.id}
+                        booking={booking}
+                        onUndo={canUndo ? () => reopenJob.mutate(booking.id) : undefined}
+                        undoPending={reopenJob.isPending}
+                      />
+                    );
+                  })}
                 </div>
               )}
             </Suspense>

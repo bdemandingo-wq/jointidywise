@@ -2,17 +2,20 @@ import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/integrations/supabase/types';
 import { isVideoFile, type MediaType } from '@/lib/bookingMediaErrors';
+import { stampedSiblingPath } from '@/lib/photoDownload';
 import {
   burnProofStamp,
   chooseStampGps,
   deviceTimeZone,
   formatPropertyAddress,
+  isMissingColumn,
   isMissingProofColumn,
   mergeCaptureExif,
   parseImageExif,
   parsePluginExif,
   proofStampLines,
   resolveProofClock,
+  type CaptureExif,
   type GeoPoint,
   type TimestampSource,
 } from '@/lib/photoProofStamp';
@@ -57,8 +60,18 @@ export interface UploadBookingMediaArgs {
    * dropped the EXIF segment, so this is the only capture time on iOS.
    */
   captureExif?: unknown;
+  /**
+   * EXIF already parsed from the original file. Compression strips the
+   * segment, so the queue passes this in beside the smaller JPEG.
+   */
+  parsedExif?: CaptureExif | null;
   /** True when the cleaner just took the photo, not when they picked one from the library. */
   liveCapture?: boolean;
+  /**
+   * Stable id for this photo. A retry uploads to the same path and will not
+   * insert a second row if the first attempt already saved it.
+   */
+  idempotencyKey?: string;
 }
 
 export interface UploadBookingMediaResult {
@@ -88,6 +101,7 @@ interface ProofColumns {
   capture_latitude: number | null;
   capture_longitude: number | null;
   proof_stamped: boolean;
+  stamped_photo_url?: string | null;
 }
 
 /**
@@ -155,10 +169,22 @@ async function normalizeImage(file: File): Promise<File> {
   }
 }
 
-type BookingPhotoInsert = Database['public']['Tables']['booking_photos']['Insert'];
+type BookingPhotoInsert = Database['public']['Tables']['booking_photos']['Insert'] & {
+  stamped_photo_url?: string | null;
+};
+
+async function findSavedPhoto(filePath: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('booking_photos')
+    .select('id')
+    .eq('photo_url', filePath)
+    .limit(1);
+  if (error) throw error;
+  return !!data?.length;
+}
 
 async function insertBookingPhoto(row: BookingPhotoInsert) {
-  return supabase.from('booking_photos').insert(row as BookingPhotoInsert);
+  return supabase.from('booking_photos').insert(row as Database['public']['Tables']['booking_photos']['Insert']);
 }
 
 async function preparePhotoFile(args: {
@@ -167,12 +193,16 @@ async function preparePhotoFile(args: {
   address: string | null;
   businessTimeZone: string;
   captureExif: unknown;
+  parsedExif?: CaptureExif | null;
   liveCapture: boolean;
   deviceGps: GeoPoint | null;
   uploadedAt: Date;
-}): Promise<{ file: File; proof: ProofColumns }> {
+}): Promise<{ original: File; stamped: File | null; proof: ProofColumns }> {
   const bytes = new Uint8Array(await args.file.arrayBuffer());
-  const exif = mergeCaptureExif(parseImageExif(bytes), parsePluginExif(args.captureExif));
+  const exif = mergeCaptureExif(
+    mergeCaptureExif(parseImageExif(bytes), args.parsedExif ?? null),
+    parsePluginExif(args.captureExif),
+  );
   const clock = resolveProofClock({
     exif,
     uploadedAt: args.uploadedAt,
@@ -195,24 +225,23 @@ async function preparePhotoFile(args: {
     longitude: gps?.longitude ?? null,
   });
 
-  let file = args.file;
-  let stamped = false;
+  // The unstamped file is what we keep as the original. The painted JPEG
+  // is a second object. A failed burn still uploads the original: losing
+  // the cleaner's photo is worse than a missing bar, and the viewer can
+  // paint the bar on download from the columns below.
+  let original = args.file;
+  let stamped: File | null = null;
   try {
-    file = await burnProofStamp(args.file, lines);
-    stamped = true;
+    stamped = await burnProofStamp(original, lines);
   } catch (firstError) {
-    // HEIC that the canvas cannot decode is re-encoded to JPEG first, then
-    // stamped. A second failure uploads the unstamped file: losing the
-    // cleaner's photo is worse than a missing bar, and the viewer overlays
-    // the stored time when proof_stamped is false.
-    const normalized = await normalizeImage(args.file);
-    if (normalized !== args.file) {
+    const normalized = await normalizeImage(original);
+    if (normalized !== original) {
+      original = normalized;
       try {
-        file = await burnProofStamp(normalized, lines);
-        stamped = true;
+        stamped = await burnProofStamp(normalized, lines);
       } catch (secondError) {
         console.error('[booking-photos] proof stamp failed', secondError);
-        file = normalized;
+        stamped = null;
       }
     } else {
       console.error('[booking-photos] proof stamp failed', firstError);
@@ -220,13 +249,14 @@ async function preparePhotoFile(args: {
   }
 
   return {
-    file,
+    original,
+    stamped,
     proof: {
       captured_at: clock.at.toISOString(),
       timestamp_source: clock.source,
       capture_latitude: gps?.latitude ?? null,
       capture_longitude: gps?.longitude ?? null,
-      proof_stamped: stamped,
+      proof_stamped: !!stamped,
     },
   };
 }
@@ -243,7 +273,9 @@ export async function uploadBookingMedia(
     extra,
     index,
     captureExif,
+    parsedExif,
     liveCapture = false,
+    idempotencyKey,
   } = args;
   const uploadedAt = new Date();
 
@@ -272,6 +304,7 @@ export async function uploadBookingMedia(
   const mediaType: MediaType = isVideoFile(originalFile) ? 'video' : 'photo';
 
   let file = originalFile;
+  let stampedFile: File | null = null;
   let proof: ProofColumns | null = null;
   if (mediaType === 'photo') {
     const [settingsRes, deviceGps] = await Promise.all([
@@ -291,11 +324,13 @@ export async function uploadBookingMedia(
       address: formatPropertyAddress(bookingData),
       businessTimeZone: settingsRes.data?.timezone || 'America/New_York',
       captureExif,
+      parsedExif,
       liveCapture,
       deviceGps,
       uploadedAt,
     });
-    file = prepared.file;
+    file = prepared.original;
+    stampedFile = prepared.stamped;
     proof = prepared.proof;
   } else {
     proof = {
@@ -309,20 +344,57 @@ export async function uploadBookingMedia(
 
   const ext = file.name.split('.').pop() || (mediaType === 'video' ? 'mp4' : 'jpg');
   const suffix = index === undefined ? '' : `_${index}`;
-  const filePath = `${organizationId}/${bookingId}/${staffId}/${photoType}/${Date.now()}${suffix}.${ext}`;
+  const safeKey = idempotencyKey?.replace(/[^a-zA-Z0-9_-]/g, '') ?? '';
+  const filePath = safeKey
+    ? `${organizationId}/${bookingId}/${staffId}/${photoType}/${safeKey}.${ext}`
+    : `${organizationId}/${bookingId}/${staffId}/${photoType}/${Date.now()}${suffix}.${ext}`;
 
-  const { error: uploadError } = await supabase.storage
-    .from('booking-photos')
-    .upload(filePath, file, {
+  const alreadySaved = await findSavedPhoto(filePath);
+  if (alreadySaved) return { filePath, mediaType, organizationId };
+
+  const created: string[] = [];
+  const uploadObject = async (path: string, body: File, contentType: string) => {
+    const { error } = await supabase.storage.from('booking-photos').upload(path, body, {
       upsert: false,
-      // .mov from iOS often arrives with an empty type; storage then falls
-      // back to a type the bucket does not accept.
-      contentType: file.type || (mediaType === 'video' ? 'video/quicktime' : 'image/jpeg'),
+      contentType,
     });
-  if (uploadError) throw uploadError;
+    if (!error) {
+      created.push(path);
+      return;
+    }
+    // A retry must not delete a file the previous attempt already stored.
+    if (/already exists|duplicate/i.test(error.message)) return;
+    throw error;
+  };
 
+  await uploadObject(
+    filePath,
+    file,
+    file.type || (mediaType === 'video' ? 'video/quicktime' : 'image/jpeg'),
+  );
+
+  let stampedPath: string | null = null;
+  if (stampedFile && proof) {
+    stampedPath = stampedSiblingPath(filePath);
+    try {
+      await uploadObject(stampedPath, stampedFile, 'image/jpeg');
+      proof = { ...proof, proof_stamped: true, stamped_photo_url: stampedPath };
+    } catch (stampError) {
+      console.error('[booking-photos] stamped copy failed; the original is still saved', stampError);
+      proof = { ...proof, proof_stamped: false };
+      stampedPath = null;
+    }
+  }
+
+  const dropCreated = async (path: string | null) => {
+    if (!path || !created.includes(path)) return;
+    await supabase.storage.from('booking-photos').remove([path]).catch(() => {});
+    const index = created.indexOf(path);
+    if (index >= 0) created.splice(index, 1);
+  };
 
   try {
+    if (await findSavedPhoto(filePath)) return { filePath, mediaType, organizationId };
     const baseRow: BookingPhotoInsert = {
       booking_id: bookingId,
       photo_url: filePath,
@@ -334,20 +406,36 @@ export async function uploadBookingMedia(
     };
     // created_at is left to the database default so the row keeps the upload
     // instant even when captured_at is the earlier EXIF time.
-    let { error: dbError } = await insertBookingPhoto({ ...baseRow, ...proof });
-    if (dbError && proof && isMissingProofColumn(dbError)) {
+    const withProof: BookingPhotoInsert = proof
+      ? { ...baseRow, ...proof }
+      : baseRow;
+    let { error: dbError } = await insertBookingPhoto(withProof);
+    if (dbError && stampedPath && isMissingColumn(dbError, 'stamped_photo_url')) {
       console.warn(
-        '[booking-photos] proof columns are not on the live table yet. The stamp is in the image; created_at still records the upload. Run the booking photo proof migration.',
+        '[booking-photos] stamped_photo_url is not on the live table yet. The original and the proof columns are saved; Download with timestamp paints the bar in the browser. Run the booking photo original migration.',
         dbError.message,
       );
+      await dropCreated(stampedPath);
+      const { stamped_photo_url: _ignored, ...proofWithoutPath } = proof ?? {};
+      ({ error: dbError } = await insertBookingPhoto({
+        ...baseRow,
+        ...proofWithoutPath,
+        proof_stamped: false,
+      }));
+    }
+    if (dbError && proof && isMissingProofColumn(dbError)) {
+      console.warn(
+        '[booking-photos] proof columns are not on the live table yet. The unstamped photo is saved. Run the booking photo proof migration.',
+        dbError.message,
+      );
+      await dropCreated(stampedPath);
       ({ error: dbError } = await insertBookingPhoto(baseRow));
     }
     if (dbError) throw dbError;
   } catch (e) {
-    // The object is written but unreferenced. Remove it rather than leave it
-    // paid for and invisible. Best-effort: a failed cleanup must not replace
-    // the caller's real error with a second, less useful one.
-    await supabase.storage.from('booking-photos').remove([filePath]).catch(() => {});
+    if (created.length) {
+      await supabase.storage.from('booking-photos').remove(created).catch(() => {});
+    }
     throw e;
   }
 

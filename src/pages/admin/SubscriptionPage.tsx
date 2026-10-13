@@ -10,6 +10,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2, PauseCircle, PlayCircle, CreditCard } from "lucide-react";
 import CancellationFlowDialog from "@/components/subscription/CancellationFlowDialog";
+import { LoyaltyPriceSummary } from "@/components/subscription/LoyaltyPriceSummary";
+import { useLoyaltyPricing } from "@/hooks/useLoyaltyPricing";
+import { cancelLoyaltyWarning } from "../../../supabase/functions/_shared/loyalty-pricing";
 import { PlanSwitcher } from "@/components/subscription/PlanSwitcher";
 import { RedeemAccessCodeCard } from "@/components/subscription/RedeemAccessCodeCard";
 import { StripeModeBadge } from "@/components/subscription/StripeModeBadge";
@@ -25,6 +28,8 @@ export function SubscriptionPanel() {
   const [openingPortal, setOpeningPortal] = useState(false);
   const [paused, setPaused] = useState(false);
   const nextStep = billingNextStep(subscription);
+  const loyalty = useLoyaltyPricing();
+  const loyaltyWarning = loyalty.quote ? cancelLoyaltyWarning(loyalty.quote) : null;
 
   const isSubscribed = subscription?.subscribed === true;
   const periodEnd = subscription?.subscription_end ?? null;
@@ -144,6 +149,8 @@ export function SubscriptionPanel() {
                   )}
                 </p>
 
+                <LoyaltyPriceSummary state={loyalty} />
+
                 <div className="flex flex-wrap gap-2">
                   {showResume && (
                     <Button
@@ -226,6 +233,7 @@ export function SubscriptionPanel() {
         open={cancelOpen}
         onOpenChange={setCancelOpen}
         periodEndDate={periodEnd}
+        loyaltyWarning={loyaltyWarning}
         onCancelled={() => checkSubscription()}
         onPaused={() => {
           setPaused(true);

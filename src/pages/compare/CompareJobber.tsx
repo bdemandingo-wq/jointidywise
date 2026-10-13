@@ -288,7 +288,7 @@ export default function CompareJobber() {
             Ready to Switch from Jobber?
           </h2>
           <p className="text-lg text-primary-foreground/80 mb-8">
-            Start your 14-day free trial today. Cancel any time. Import your Jobber data in minutes.
+            Start free — 30 days of Pro, no card. Cancel any time. Import your Jobber data in minutes.
           </p>
           <Button size="lg" variant="secondary" className="h-12 px-8" onClick={handleStartFreeTrial}>
             Get started <ArrowRight className="ml-2 h-4 w-4" />

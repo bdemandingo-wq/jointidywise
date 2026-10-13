@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { claimPayShare, mirroredCleanerWage, shouldKeepClaimedCleaners, teamFieldsForSave } from '@/lib/teamJobs';
 import { computeExpectedPay } from '@/lib/cleanerPay';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -280,6 +281,10 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
     cleanerWage,
     cleanerWageType,
     cleanerOverrideHours,
+    teamNeeded,
+    teamCount,
+    teamPay,
+    teamPayType,
     sendConfirmationEmail,
     setSendConfirmationEmail,
     sendConfirmationSms,
@@ -743,17 +748,27 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
       square_footage: squareFootage || null,
       extras: selectedExtras,
       is_draft: isDraft,
-      cleaner_wage: cleanerWage ? parseFloat(cleanerWage) : null,
-      cleaner_wage_type: cleanerWageType,
       cleaner_override_hours: cleanerOverrideHours ? parseFloat(cleanerOverrideHours) : null,
-      // Compute and persist cleaner_pay_expected — SINGLE SOURCE OF TRUTH for payroll
-      cleaner_pay_expected: computeExpectedPay(
-        cleanerWageType,
-        cleanerWage,
-        cleanerOverrideHours,
-        selectedService?.duration || 60,
-        finalPrice > 0 ? finalPrice : (totalAmount > 0 ? totalAmount : calculatedPrice),
-      ),
+      // Team job fields. Unchecked = 1 cleaner and pay cleared.
+      ...teamFieldsForSave(teamNeeded, teamCount, teamPay, teamPayType),
+      // Mirror team pay into the booking wage, then snapshot expected pay from
+      // that same wage. Using the solo fields here stored a different amount
+      // than the rate payroll reads.
+      ...(() => {
+        const wage = mirroredCleanerWage(teamNeeded, teamPay, teamPayType, cleanerWage, cleanerWageType);
+        const price = finalPrice > 0 ? finalPrice : (totalAmount > 0 ? totalAmount : calculatedPrice);
+        return {
+          cleaner_wage: wage.wage ? parseFloat(wage.wage) : null,
+          cleaner_wage_type: wage.wageType,
+          cleaner_pay_expected: computeExpectedPay(
+            wage.wageType,
+            wage.wage,
+            cleanerOverrideHours,
+            selectedService?.duration || 60,
+            price,
+          ),
+        };
+      })(),
     };
   };
 
@@ -778,9 +793,10 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
     // occurrences, or a percentage-wage cleaner would be quietly
     // underpaid on every future occurrence. Flat/hourly wages don't
     // depend on price, so recomputing is a no-op for those types.
+    const recurringWage = mirroredCleanerWage(teamNeeded, teamPay, teamPayType, cleanerWage, cleanerWageType);
     const undiscountedCleanerPayExpected = computeExpectedPay(
-      cleanerWageType,
-      cleanerWage,
+      recurringWage.wageType,
+      recurringWage.wage,
       cleanerOverrideHours,
       selectedService?.duration || 60,
       undiscountedTotal,
@@ -1012,7 +1028,28 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
         });
         persistedBookingId = booking.id;
 
-        // ALWAYS sync team assignments on update to prevent stale/duplicate entries
+        // Open team jobs keep whoever already claimed. Rebuilding the roster
+        // here deleted those rows on every save (a note edit included).
+        // Admin-assigned teams still rebuild, because the schedule picker is
+        // the roster for that mode.
+        const keepClaims = shouldKeepClaimedCleaners(
+          teamNeeded,
+          isTeamMode && selectedTeamMembers.length > 1,
+        );
+        if (keepClaims) {
+          const { error: claimPayError } = await supabase
+            .from('booking_team_assignments')
+            .update({
+              pay_share: claimPayShare(bookingData.pay_type, bookingData.pay_per_cleaner),
+              ...(organizationId ? { organization_id: organizationId } : {}),
+            })
+            .eq('booking_id', booking.id);
+          if (claimPayError) {
+            throw new Error(
+              `Could not update team pay (${claimPayError.message}). The booking was saved, but claimed cleaners still have the previous amount.`,
+            );
+          }
+        } else {
         // Delete all existing team assignments for this booking first.
         // If this delete fails, we must NOT proceed to re-insert below —
         // doing so would leave the old pay-share rows in place alongside
@@ -1080,6 +1117,7 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
               `Please retry. Old assignments were already cleared.`
             );
           }
+        }
         }
 
         // Update checklist if a checklist template was selected during edit
@@ -1264,7 +1302,11 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
             const { error: newSingleAssignmentError } = await supabase.from('booking_team_assignments').insert({
               booking_id: newBooking.id,
               staff_id: bookingData.staff_id,
-              pay_share: bookingData.cleaner_pay_expected,
+              // Hourly team spots stay null so each cleaner is paid rate × hours.
+              // A dollar snapshot here froze the estimate from the booking length.
+              pay_share: teamNeeded
+                ? claimPayShare(bookingData.pay_type, bookingData.pay_per_cleaner)
+                : bookingData.cleaner_pay_expected,
               is_primary: true,
               organization_id: organizationId,
             });

@@ -17,6 +17,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -127,21 +128,33 @@ serve(async (req) => {
       metadata.email = user.email;
     }
 
+    const publishableKey = readPublishableKey();
+    if (!publishableKey) {
+      return new Response(JSON.stringify({
+        error: "Checkout is not configured. STRIPE_PUBLISHABLE_KEY is missing on the server. Nothing was charged.",
+      }), {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       customer_email: customerId ? undefined : user?.email,
       ...(user ? {} : { customer_creation: "always" as const }),
       mode: "payment",
+      ...embeddedCheckoutParams(origin),
       line_items: [{ price: LIFETIME_PRICE_ID, quantity: 1 }],
+      // Lifetime is a one-time $300 charge. Always request 3D Secure so a
+      // later dispute has liability shift. Monthly checkout stays on Stripe's
+      // automatic default in create-subscription.
       payment_method_options: {
-        card: { request_three_d_secure: "automatic" },
+        card: { request_three_d_secure: "any" },
       },
       metadata,
-      success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}&plan=lifetime`,
-      cancel_url: `${origin}/pricing?lifetime=cancelled`,
     });
 
-    return new Response(JSON.stringify({ url: session.url }), {
+    return new Response(JSON.stringify(embeddedCheckoutBody(session.client_secret, publishableKey)), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });

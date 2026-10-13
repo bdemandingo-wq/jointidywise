@@ -18,6 +18,7 @@ import { supabase } from '@/lib/supabase';
 import { lovable } from '@/integrations/lovable/index';
 import { Capacitor } from '@capacitor/core';
 import { signInWithOAuthNative } from '@/lib/nativeOAuth';
+import { appendReferralParam, readCapturedReferral } from '@/lib/referralAttribution';
 import { Sentry } from '@/lib/sentry';
 import { clearStartupCache, readStartupSection } from '@/lib/startupCache';
 
@@ -211,7 +212,9 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
         if (memErr) throw memErr;
 
         if (!memberships || memberships.length === 0) {
-          const { data, error: provErr } = await supabaseNoSession.functions.invoke('provision-trial-org');
+          const { data, error: provErr } = await supabaseNoSession.functions.invoke('provision-trial-org', {
+            body: { referral_code: readCapturedReferral() },
+          });
 
           if (cancelled) return;
 
@@ -272,7 +275,10 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
         password,
         options: {
           data: metadata,
-          emailRedirectTo: `${window.location.origin}/signup`,
+          emailRedirectTo: appendReferralParam(
+            `${window.location.origin}/signup`,
+            readCapturedReferral(),
+          ),
         },
       });
       return { data, error };
@@ -292,7 +298,7 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
         return await signInWithOAuthNative('google');
       }
       const result = await lovable.auth.signInWithOAuth('google', {
-        redirect_uri: window.location.origin,
+        redirect_uri: appendReferralParam(`${window.location.origin}/`, readCapturedReferral()),
       });
       if (result.error) {
         return { error: result.error instanceof Error ? result.error : new Error(String(result.error)) };
@@ -314,7 +320,7 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
         return await signInWithOAuthNative('apple');
       }
       const result = await lovable.auth.signInWithOAuth('apple', {
-        redirect_uri: window.location.origin,
+        redirect_uri: appendReferralParam(`${window.location.origin}/`, readCapturedReferral()),
       });
       if (result.error) {
         return { error: result.error instanceof Error ? result.error : new Error(String(result.error)) };

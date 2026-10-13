@@ -364,7 +364,9 @@ serve(async (req) => {
 
     const orgData = membership.organizations as any;
 
-    // ── Step 1.5: New-style profile-backed 14-day trial (plan_type = 'trial') ──
+    // ── Step 1.5: Profile-backed Pro trial (plan_type = 'trial') ──
+    // New signups are 30 days. The end timestamp on the profile is the
+    // access boundary, so an older 14-day trial still ends on its own date.
     if (orgData?.plan_type === "trial") {
       const { data: trialProfile, error: trialProfileError } = await supabaseClient
         .from("profiles")
@@ -397,7 +399,7 @@ serve(async (req) => {
               subscribed: false,
               trial_active: false,
               trial_end: trialEndsAt,
-              message: "Your 14-day trial has ended. Subscribe to keep using TidyWise.",
+              message: "Your free trial has ended. Subscribe to keep using TidyWise.",
             }
       ), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

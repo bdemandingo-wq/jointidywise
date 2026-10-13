@@ -38,7 +38,7 @@ export function TrialDaysBanner() {
         {' '}
         in your free trial.
         {orgTrial
-          ? ' No card is on file. When the trial ends, the dashboard locks until you pick a plan.'
+          ? ' Full Pro access. No card is on file. When the trial ends, the dashboard locks until you pick a plan.'
           : ' Your current trial billing is unchanged.'}
       </p>
       {onSettings ? (

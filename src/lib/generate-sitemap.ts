@@ -49,6 +49,8 @@ const EXCLUDED_PATHS = new Set<string>([
   "/onboarding",
   "/card-saved",
   "/delete-account",
+  // Token link from marketing email. Nothing to index, and the page noindexes.
+  "/unsubscribe",
   "/forgot-password",
   "/reset-password",
   // The hard paywall between onboarding and the dashboard. Reachable only with
@@ -68,7 +70,7 @@ const EXCLUDED_PATHS = new Set<string>([
 // inside an authorization handshake — it only functions with a live
 // authorization_id in the query string — so a crawler reaching it finds a
 // broken page at best, and listing it invites exactly that.
-const EXCLUDED_PREFIXES = ["/dashboard", "/staff", "/portal", "/admin", "/auth", "/checkout", "/.lovable"];
+const EXCLUDED_PREFIXES = ["/dashboard", "/staff", "/portal", "/admin", "/auth", "/checkout", "/billing", "/.lovable"];
 
 function shouldExclude(path: string): boolean {
   if (EXCLUDED_PATHS.has(path)) return true;

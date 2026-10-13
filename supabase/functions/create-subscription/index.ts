@@ -24,6 +24,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { ensureOnboardingCoupon, type OnboardingCouponOffer } from "../_shared/onboarding-coupons.ts";
+import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -236,13 +237,13 @@ serve(async (req) => {
     // not on a Checkout session. This function is only the paid conversion.
     //
     // - Active org trial, more than 48h left: optional card, and the Stripe
-    //   trial ends on the SAME timestamp. No second 14 days, and Stripe
+    //   trial ends on the SAME timestamp. No second trial, and Stripe
     //   cancels at that time if they never add a card.
     // - Org trial already over: card required, billed from today. The
     //   paywall is not another free period.
     // - Any other existing plan: keep the previous checkout (card required,
     //   14-day Stripe trial). Those subscriptions are not rewritten.
-    // - Anonymous first checkout: card optional, 14-day Stripe trial,
+    // - Anonymous first checkout: card optional, 30-day Stripe trial,
     //   cancel if no card when it ends.
     // Stripe rejects trial_end inside 48 hours, so a last-day upgrade
     // collects a card and starts billing instead of erroring.
@@ -258,7 +259,7 @@ serve(async (req) => {
     // still earns their month.
     //
     // The coupon is `repeating`/`duration_in_months: 1`, NOT `once`: with a
-    // 14-day trial Stripe issues a $0 invoice at creation, and a `once` coupon
+    // A trial Stripe issues a $0 invoice at creation, and a `once` coupon
     // could be consumed by it, leaving nothing for the first real charge.
     let referralDiscount: { coupon: string }[] | undefined;
     let referralRowId: string | null = null;
@@ -345,7 +346,17 @@ serve(async (req) => {
       subscriptionData.trial_period_days = 14;
     } else {
       paymentMethodCollection = "if_required";
-      subscriptionData.trial_period_days = 14;
+      subscriptionData.trial_period_days = 30;
+    }
+
+    const publishableKey = readPublishableKey();
+    if (!publishableKey) {
+      return new Response(
+        JSON.stringify({
+          error: "Checkout is not configured. STRIPE_PUBLISHABLE_KEY is missing on the server. Nothing was charged.",
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
+      );
     }
 
     const session = await stripe.checkout.sessions.create({
@@ -358,6 +369,7 @@ serve(async (req) => {
 
       line_items: [{ price: priceId, quantity: 1 }],
       mode: "subscription",
+      ...embeddedCheckoutParams(origin),
       // Subscription checkout uses the Billing Payments configuration, not the
       // account Default. Link and Cash App are disabled inside that config:
       // they accounted for 14 of 36 SaaS payment failures (partner_insufficient_funds,
@@ -380,8 +392,6 @@ serve(async (req) => {
 
       ...(checkoutDiscounts ? { discounts: checkoutDiscounts } : {}),
       subscription_data: subscriptionData,
-      success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}&plan=${requestedPlan}&interval=${requestedInterval}`,
-      cancel_url: `${origin}/pricing?canceled=true`,
     });
 
     // Record that a discounted session was attached. This is informational
@@ -418,7 +428,7 @@ serve(async (req) => {
     });
 
 
-    return new Response(JSON.stringify({ url: session.url }), {
+    return new Response(JSON.stringify(embeddedCheckoutBody(session.client_secret, publishableKey)), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });
