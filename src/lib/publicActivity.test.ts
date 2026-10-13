@@ -7,7 +7,9 @@ import {
   parseGrowthCounters,
   publicCity,
   roundPublicAmount,
+  shouldShowTrustedBy,
   shouldShowWeeklySignups,
+  trustedByLabel,
   weeklySignupLabel,
 } from "./publicActivity.ts";
 
@@ -97,10 +99,22 @@ test("an empty feed stays empty", () => {
   assert.deepEqual(parseActivityFeed(null), []);
 });
 
-test("weekly signups hide below three", () => {
-  assert.equal(shouldShowWeeklySignups(2), false);
-  assert.equal(shouldShowWeeklySignups(3), true);
+test("weekly signups stay hidden below the configured threshold", () => {
+  assert.equal(shouldShowWeeklySignups(14), false);
+  assert.equal(shouldShowWeeklySignups(15), true);
+  assert.equal(shouldShowWeeklySignups(5, 15), false);
+  assert.equal(shouldShowWeeklySignups(3, 3), true);
+  assert.equal(shouldShowWeeklySignups(2, 3), false);
   assert.equal(weeklySignupLabel(4), "4 cleaning businesses joined this week");
+  assert.equal(weeklySignupLabel(1), "1 cleaning business joined this week");
+});
+
+test("trusted-by uses the real organization count and hides when it is missing", () => {
+  assert.equal(trustedByLabel(131), "Trusted by 131 cleaning businesses");
+  assert.equal(trustedByLabel(1), "Trusted by 1 cleaning business");
+  assert.equal(shouldShowTrustedBy(131), true);
+  assert.equal(shouldShowTrustedBy(0), false);
+  assert.equal(shouldShowTrustedBy(null), false);
 });
 
 test("lifetime spots use the real remaining count", () => {
@@ -108,9 +122,27 @@ test("lifetime spots use the real remaining count", () => {
     lifetime_total: 100,
     lifetime_sold: 12,
     weekly_signups: 5,
+    organization_count: 131,
+    weekly_signup_min: 15,
   });
   assert.ok(counters);
   assert.equal(lifetimeSpotsLabel(counters.lifetimeRemaining, counters.lifetimeTotal), "88 of 100 Lifetime spots left");
   assert.equal(counters.weeklySignups, 5);
+  assert.equal(counters.organizationCount, 131);
+  assert.equal(counters.weeklySignupMin, 15);
+  assert.equal(shouldShowWeeklySignups(counters.weeklySignups, counters.weeklySignupMin), false);
   assert.equal(parseGrowthCounters({ lifetime_sold: 1 }), null);
+});
+
+test("an older counter payload does not invent an organization count", () => {
+  const counters = parseGrowthCounters({
+    lifetime_total: 100,
+    lifetime_sold: 3,
+    weekly_signups: 5,
+  });
+  assert.ok(counters);
+  assert.equal(counters.organizationCount, null);
+  assert.equal(counters.weeklySignupMin, 15);
+  assert.equal(shouldShowTrustedBy(counters.organizationCount), false);
+  assert.equal(shouldShowWeeklySignups(counters.weeklySignups, counters.weeklySignupMin), false);
 });

@@ -209,6 +209,11 @@ verify_jwt = true
   [functions.score-lookup]
     verify_jwt = false
 
+  # Landing leaderboard seed. Public and rate limited. Writes only Google
+  # Places house-cleaning listings. Requires GOOGLE_PLACES_API_KEY.
+  [functions.score-seed-house-cleaners]
+    verify_jwt = false
+
   [functions.score-compute]
     verify_jwt = false
 

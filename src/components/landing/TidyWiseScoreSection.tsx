@@ -1,22 +1,45 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Search, Sparkles, Trophy, MapPin, ArrowRight } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { useScoreLeaderboard, type LeaderboardCity } from "@/hooks/useScoreLeaderboard";
+import type { ScoreListing } from "@/lib/scoreLeaderboard";
 
-type TopRow = {
-  id: string;
-  slug: string;
-  name: string;
-  city: string | null;
-  state: string | null;
-  score: number | null;
-  score_grade: string | null;
-};
+const DEFAULT_CITY: LeaderboardCity = { city: "Austin", state: "TX", city_slug: "austin-tx" };
 
-const DEFAULT_CITY = { city: "Austin", state: "TX", city_slug: "austin-tx" };
+function companyPath(slug: string): string | null {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(slug) ? `/score/c/${slug}` : null;
+}
+
+function ScoreFigure({ row }: { row: ScoreListing }) {
+  if (row.score != null) {
+    return (
+      <>
+        <div className="font-serif text-2xl text-foreground tabular-nums leading-none">{row.score}</div>
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">
+          Grade {row.score_grade ?? "—"}
+        </div>
+      </>
+    );
+  }
+  if (row.google_rating != null) {
+    return (
+      <>
+        <div className="font-serif text-2xl text-foreground tabular-nums leading-none">
+          {row.google_rating.toFixed(1)}
+        </div>
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">
+          Google rating
+        </div>
+      </>
+    );
+  }
+  return (
+    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Not scored yet</div>
+  );
+}
 
 export function TidyWiseScoreSection() {
   const navigate = useNavigate();
@@ -25,10 +48,13 @@ export function TidyWiseScoreSection() {
   const [searching, setSearching] = useState(false);
   const [city, setCity] = useState(DEFAULT_CITY);
   const [cityReady, setCityReady] = useState(false);
-  const [top, setTop] = useState<TopRow[] | null>(null);
+  const [located, setLocated] = useState(false);
+  const leaderboard = useScoreLeaderboard(cityReady ? city : null, located);
 
   // Best-effort IP geo. The list stays on this city — never a national
-  // fallback under a different city's heading and link.
+  // fallback under a different city's heading and link. Seeding runs only
+  // after a real geo hit, so a failed lookup does not spend a Places search
+  // on the Austin placeholder.
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
@@ -43,6 +69,7 @@ export function TidyWiseScoreSection() {
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-|-$/g, "");
           setCity({ city: geo.city, state: geo.region_code, city_slug: slug });
+          setLocated(true);
         }
       } catch {
         // Keep the default city.
@@ -56,29 +83,6 @@ export function TidyWiseScoreSection() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!cityReady) return;
-    let cancelled = false;
-    setTop(null);
-    (async () => {
-      const { data, error } = await supabase
-        .from("score_companies")
-        .select("id, slug, name, city, state, score, score_grade")
-        .eq("city_slug", city.city_slug)
-        .not("score", "is", null)
-        .order("score", { ascending: false })
-        .limit(10);
-      if (cancelled) return;
-      if (error) {
-        console.warn("[score] city rankings failed", error);
-        setTop([]);
-        return;
-      }
-      setTop(data ?? []);
-    })();
-    return () => { cancelled = true; };
-  }, [cityReady, city.city_slug]);
-
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -89,7 +93,10 @@ export function TidyWiseScoreSection() {
     setSearching(false);
   };
 
-  const cityLabel = useMemo(() => `${city.city}, ${city.state}`, [city]);
+  const board = leaderboard.data;
+  const cityLabel = board?.label ?? `${city.city}, ${city.state}`;
+  const title = board?.title ?? "Top cleaners this week";
+  const loading = !cityReady || leaderboard.isLoading;
 
   return (
     <section
@@ -153,7 +160,7 @@ export function TidyWiseScoreSection() {
         <div className="flex items-end justify-between mb-4">
           <div>
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
-              Top 10 this week
+              {title}
             </p>
             <h3 className="font-serif text-2xl text-foreground">{cityLabel}</h3>
           </div>
@@ -161,27 +168,31 @@ export function TidyWiseScoreSection() {
             to={`/score/city/${city.city_slug}`}
             className="text-sm text-primary hover:underline inline-flex items-center gap-1"
           >
-            See full rankings <ArrowRight className="h-3.5 w-3.5" />
+            {board && board.scope !== "city" ? `See ${city.city} rankings` : "See full rankings"}
+            <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
 
         <Card variant="elevated" className="relative z-10 overflow-hidden">
-          {top === null ? (
+          {loading ? (
             <div className="space-y-3 p-5" aria-busy="true" aria-label="Loading rankings">
               {Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="h-10 animate-pulse rounded bg-muted" />
               ))}
             </div>
-          ) : top.length === 0 ? (
+          ) : leaderboard.isError ? (
             <div className="p-10 text-center text-sm text-muted-foreground">
-              No companies scored in {cityLabel} yet. Look one up above.
+              Rankings could not be loaded. Look a business up above.
+            </div>
+          ) : !board || board.entries.length === 0 ? (
+            <div className="p-10 text-center text-sm text-muted-foreground">
+              No house-cleaning companies scored in {cityLabel} yet. Look one up above.
             </div>
           ) : (
             <ol>
-              {top.map((c, i) => {
-                const companyPath = /^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(c.slug)
-                  ? `/score/c/${c.slug}`
-                  : null;
+              {board.entries.map((c, i) => {
+                const path = companyPath(c.slug);
+                const place = [c.city, c.state].filter(Boolean).join(", ");
                 return (
                 <li
                   key={c.id}
@@ -191,9 +202,9 @@ export function TidyWiseScoreSection() {
                     {i + 1}
                   </span>
                   <div className="flex-1 min-w-0">
-                    {companyPath ? (
+                    {path ? (
                       <Link
-                        to={companyPath}
+                        to={path}
                         className="font-medium text-foreground hover:text-primary truncate block"
                       >
                         {c.name}
@@ -202,16 +213,11 @@ export function TidyWiseScoreSection() {
                       <span className="font-medium text-foreground truncate block">{c.name}</span>
                     )}
                     <p className="text-xs text-muted-foreground truncate">
-                      {c.city}, {c.state}
+                      {place}
                     </p>
                   </div>
                   <div className="text-right">
-                    <div className="font-serif text-2xl text-foreground tabular-nums leading-none">
-                      {c.score}
-                    </div>
-                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5">
-                      Grade {c.score_grade}
-                    </div>
+                    <ScoreFigure row={c} />
                   </div>
                 </li>
                 );

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Search, Sparkles, Star, Globe, TrendingUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { SEOHead } from "@/components/SEOHead";
+import { dedupeScoreListings } from "@/lib/scoreLeaderboard";
 
 type Row = {
   id: string;
@@ -28,24 +29,35 @@ export default function ScoreCityPage() {
   const { citySlug } = useParams<{ citySlug: string }>();
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [cityMeta, setCityMeta] = useState<{ city: string; state: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [{ data: cityRow }, { data: companies }] = await Promise.all([
+      setLoadError(false);
+      const [{ data: cityRow }, companiesResult] = await Promise.all([
         supabase.from("score_top_cities").select("city, state").eq("city_slug", citySlug!).maybeSingle(),
         supabase
           .from("score_companies")
           .select("id, slug, name, city, state, score, score_grade, google_rating, google_review_count")
           .eq("city_slug", citySlug!)
           .order("score", { ascending: false, nullsFirst: false })
+          .order("id", { ascending: true })
           .limit(100),
       ]);
       if (cancelled) return;
-      setCityMeta(cityRow ?? (companies?.[0] ? { city: companies[0].city ?? "", state: companies[0].state ?? "" } : null));
-      setRows(companies ?? []);
+      if (companiesResult.error) {
+        console.warn("[score] city rankings failed", companiesResult.error);
+        setLoadError(true);
+        setRows([]);
+        setLoading(false);
+        return;
+      }
+      const companies = companiesResult.data ?? [];
+      setCityMeta(cityRow ?? (companies[0] ? { city: companies[0].city ?? "", state: companies[0].state ?? "" } : null));
+      setRows(dedupeScoreListings(companies));
       setLoading(false);
     })();
     return () => { cancelled = true; };
@@ -70,6 +82,10 @@ export default function ScoreCityPage() {
 
         {loading ? (
           <p className="text-muted-foreground">Loading rankings…</p>
+        ) : loadError ? (
+          <Card variant="elevated" className="p-10 text-center">
+            <p className="text-foreground font-medium">Rankings could not be loaded.</p>
+          </Card>
         ) : rows.length === 0 ? (
           <Card variant="elevated" className="p-10 text-center">
             <p className="text-foreground font-medium mb-2">No companies scored in {label} yet.</p>

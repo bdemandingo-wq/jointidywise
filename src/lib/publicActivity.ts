@@ -22,7 +22,14 @@ export interface PublicGrowthCounters {
   lifetimeRemaining: number;
   lifetimeSoldOut: boolean;
   weeklySignups: number | null;
+  /** Real organizations, test/demo excluded. Null when the payload has no count. */
+  organizationCount: number | null;
+  /** Hide the weekly line below this. From the database, otherwise the default. */
+  weeklySignupMin: number;
 }
+
+/** Weekly signup line stays off until the count reaches this. Change it in growth_public_settings. */
+export const DEFAULT_WEEKLY_SIGNUP_MIN = 15;
 
 const SERVICES = new Set([
   'clean',
@@ -89,12 +96,26 @@ export function activitySentence(event: PublicActivityEvent): string | null {
   return null;
 }
 
-export function shouldShowWeeklySignups(count: number | null | undefined): boolean {
-  return typeof count === 'number' && Number.isFinite(count) && count >= 3;
+export function shouldShowWeeklySignups(
+  count: number | null | undefined,
+  minimum: number = DEFAULT_WEEKLY_SIGNUP_MIN,
+): boolean {
+  const floor = Number.isFinite(minimum) && minimum >= 1 ? minimum : DEFAULT_WEEKLY_SIGNUP_MIN;
+  return typeof count === 'number' && Number.isFinite(count) && count >= floor;
 }
 
 export function weeklySignupLabel(count: number): string {
-  return `${count} cleaning businesses joined this week`;
+  const noun = count === 1 ? 'cleaning business' : 'cleaning businesses';
+  return `${count} ${noun} joined this week`;
+}
+
+export function trustedByLabel(count: number): string {
+  const noun = count === 1 ? 'cleaning business' : 'cleaning businesses';
+  return `Trusted by ${count} ${noun}`;
+}
+
+export function shouldShowTrustedBy(count: number | null | undefined): boolean {
+  return typeof count === 'number' && Number.isInteger(count) && count >= 1;
 }
 
 export function lifetimeSpotsLabel(remaining: number, total: number): string {
@@ -143,11 +164,19 @@ export function parseGrowthCounters(payload: unknown): PublicGrowthCounters | nu
   if (typeof total !== 'number' || typeof sold !== 'number' || total < 1 || sold < 0) return null;
   const remaining = Math.max(0, total - sold);
   const weekly = root.weekly_signups;
+  const organizations = root.organization_count;
+  const weeklyMin = root.weekly_signup_min;
   return {
     lifetimeTotal: total,
     lifetimeSold: sold,
     lifetimeRemaining: remaining,
     lifetimeSoldOut: sold >= total,
     weeklySignups: typeof weekly === 'number' && weekly >= 0 ? weekly : null,
+    organizationCount: typeof organizations === 'number' && Number.isInteger(organizations) && organizations >= 0
+      ? organizations
+      : null,
+    weeklySignupMin: typeof weeklyMin === 'number' && Number.isInteger(weeklyMin) && weeklyMin >= 1
+      ? weeklyMin
+      : DEFAULT_WEEKLY_SIGNUP_MIN,
   };
 }
