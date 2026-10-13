@@ -8,6 +8,7 @@ import { useNavigate, Link, useLocation, useSearchParams } from 'react-router-do
 import { useAuthNoSession, supabaseNoSession } from '@/hooks/useAuthNoSession';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import { invokeLifetimeCheckout, LifetimeCheckoutError } from '@/lib/lifetimeCheckout';
 import { safeOnboardingNext } from '@/lib/onboardingWinback';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -188,18 +189,15 @@ export default function LoginPage() {
 
     if (pendingPlan === 'lifetime') {
       try {
-        const { data, error } = await supabaseNoSession.functions.invoke('buy-lifetime', { body: {} });
-        // The catch below prefixes this with "Couldn't open checkout:", so the
-        // function's own reason — sold out, already subscribed, price not
-        // configured — completes the sentence instead of "non-2xx status code".
-        if (error) throw new Error(await readEdgeFunctionError(error, 'please try again'));
-        const url = (data as { url?: string })?.url;
-        if (url) {
-          window.location.href = url;
+        const { url } = await invokeLifetimeCheckout(supabaseNoSession);
+        window.location.href = url;
+        return;
+      } catch (err) {
+        if (err instanceof LifetimeCheckoutError && err.alreadyLifetime) {
+          toast.success('You already have lifetime access — nothing more to buy.');
+          navigate('/dashboard');
           return;
         }
-        throw new Error('Checkout URL missing');
-      } catch (err) {
         toast.error(
           err instanceof Error
             ? `Couldn't open lifetime checkout: ${err.message}`

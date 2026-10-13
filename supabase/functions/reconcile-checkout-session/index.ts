@@ -243,11 +243,14 @@ serve(async (req) => {
     };
 
     const getOrgId = async (): Promise<string | null> => {
+      const fromSession = session.metadata?.organization_id;
+      if (typeof fromSession === "string" && fromSession.trim()) return fromSession.trim();
       if (!userId) return null;
       const { data: mem } = await supabase
         .from("org_memberships")
         .select("organization_id")
         .eq("user_id", userId)
+        .order("created_at", { ascending: true })
         .limit(1)
         .maybeSingle();
       return mem?.organization_id ?? null;

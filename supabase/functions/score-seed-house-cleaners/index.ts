@@ -15,6 +15,7 @@
 // Deploy this function after migration 20261013460000_growth_trust_count_and_score_geo.sql.
 // Confirm deployed, not just committed.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import { circlesForCounty, clampPlacesRadius } from "../_shared/places-search-circles.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -66,6 +67,30 @@ type Place = {
   primaryType?: string;
   types?: string[];
 };
+
+function counts(partial: { inserted?: number; updated?: number; skipped?: number; errors?: number } = {}) {
+  return {
+    inserted: partial.inserted ?? 0,
+    updated: partial.updated ?? 0,
+    skipped: partial.skipped ?? 0,
+    errors: partial.errors ?? 0,
+  };
+}
+
+function clampSearchBody(extra: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...extra };
+  for (const key of ["locationBias", "locationRestriction"]) {
+    const bias = next[key];
+    if (!bias || typeof bias !== "object") continue;
+    const circle = (bias as { circle?: { radius?: number } }).circle;
+    if (!circle || typeof circle.radius !== "number") continue;
+    next[key] = {
+      ...(bias as Record<string, unknown>),
+      circle: { ...circle, radius: clampPlacesRadius(circle.radius) },
+    };
+  }
+  return next;
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -158,7 +183,7 @@ async function searchPlaces(textQuery: string, extra: Record<string, unknown>): 
         includePureServiceAreaBusinesses: true,
         regionCode: "us",
         ...(strict ? { includedType: "house_cleaning_service", strictTypeFiltering: true } : {}),
-        ...extra,
+        ...clampSearchBody(extra),
       }),
     });
     if (!response.ok) {
@@ -182,7 +207,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
-  if (limited(clientIp(req))) return json({ inserted: 0, updated: 0, reason: "rate_limited" }, 429);
+  if (limited(clientIp(req))) return json({ ...counts(), reason: "rate_limited" }, 429);
 
   const body = await req.json().catch(() => null) as { city?: unknown; state?: unknown } | null;
   const city = typeof body?.city === "string" ? body.city.trim() : "";
@@ -193,8 +218,7 @@ Deno.serve(async (req) => {
 
   if (!PLACES_KEY) {
     return json({
-      inserted: 0,
-      updated: 0,
+      ...counts(),
       reason: "GOOGLE_PLACES_API_KEY not configured",
     });
   }
@@ -212,9 +236,9 @@ Deno.serve(async (req) => {
     .select("id", { count: "exact", head: true })
     .eq("status", "ok")
     .gte("seeded_at", since);
-  if (dailyError) return json({ inserted: 0, updated: 0, reason: dailyError.message }, 500);
+  if (dailyError) return json({ ...counts(), reason: dailyError.message }, 500);
   if ((dailyCount ?? 0) >= DAILY_CITY_CAP) {
-    return json({ inserted: 0, updated: 0, reason: "daily_quota" });
+    return json({ ...counts(), reason: "daily_quota" });
   }
 
   const { data: recent, error: recentError } = await supabase
@@ -224,7 +248,7 @@ Deno.serve(async (req) => {
     .gte("seeded_at", since)
     .order("seeded_at", { ascending: false })
     .limit(8);
-  if (recentError) return json({ inserted: 0, updated: 0, reason: recentError.message }, 500);
+  if (recentError) return json({ ...counts(), reason: recentError.message }, 500);
 
   const now = Date.now();
   const blocked = (recent ?? []).some((row) => {
@@ -233,7 +257,7 @@ Deno.serve(async (req) => {
     if (row.status === "started") return now - at < STARTED_MS;
     return false;
   });
-  if (blocked) return json({ inserted: 0, updated: 0, reason: "already_seeded" });
+  if (blocked) return json({ ...counts(), reason: "already_seeded" });
 
   const { data: started, error: startError } = await supabase
     .from("score_seed_runs")
@@ -241,20 +265,27 @@ Deno.serve(async (req) => {
     .select("id")
     .single();
   if (startError || !started) {
-    return json({ inserted: 0, updated: 0, reason: startError?.message ?? "seed log failed" }, 500);
+    return json({ ...counts(), reason: startError?.message ?? "seed log failed" }, 500);
   }
 
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
+  let errors = 0;
   const seen = new Set<string>();
 
   const finish = async (status: string, reason: string | null, http = 200) => {
-    await supabase
+    const { error: finishError } = await supabase
       .from("score_seed_runs")
       .update({ status, inserted_count: inserted, updated_count: updated })
       .eq("id", started.id);
-    return json({ inserted, updated, skipped, reason }, http);
+    if (finishError) console.error("[score-seed] run log update failed", citySlug, finishError.message);
+    return json({ inserted, updated, skipped, errors, reason }, http);
+  };
+
+  const noteRowError = (placeId: string, message: string) => {
+    errors += 1;
+    console.error("[score-seed] row failed", citySlug, placeId, message);
   };
 
   const upsertPlace = async (place: Place, strict: boolean) => {
@@ -262,6 +293,7 @@ Deno.serve(async (req) => {
     const name = place.displayName?.text?.trim() ?? "";
     if (!placeId || seen.has(placeId)) return;
     seen.add(placeId);
+    try {
     if (!acceptPlace(place, strict)) {
       skipped += 1;
       return;
@@ -288,7 +320,11 @@ Deno.serve(async (req) => {
       .select("id, claimed")
       .eq("google_place_id", placeId)
       .maybeSingle();
-    if (existingError) throw new Error(existingError.message);
+    if (existingError) {
+      seen.delete(placeId);
+      noteRowError(placeId, existingError.message);
+      return;
+    }
 
     const shared = {
       city: placeCity,
@@ -309,7 +345,11 @@ Deno.serve(async (req) => {
     if (existing) {
       const patch = existing.claimed ? shared : { ...shared, name };
       const { error } = await supabase.from("score_companies").update(patch).eq("id", existing.id);
-      if (error) throw new Error(error.message);
+      if (error) {
+        seen.delete(placeId);
+        noteRowError(placeId, error.message);
+        return;
+      }
       updated += 1;
       return;
     }
@@ -322,56 +362,108 @@ Deno.serve(async (req) => {
       google_place_id: placeId,
       source: "google_places",
     });
-    if (error) throw new Error(error.message);
+    if (error) {
+      seen.delete(placeId);
+      noteRowError(placeId, error.message);
+      return;
+    }
     inserted += 1;
+    } catch (error) {
+      seen.delete(placeId);
+      noteRowError(placeId, error instanceof Error ? error.message : String(error));
+    }
   };
 
+  const noteSearchError = (label: string, error: unknown) => {
+    errors += 1;
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[score-seed] search failed", citySlug, label, message);
+    return message;
+  };
+
+  let failureReason: string | null = null;
+
   try {
-    const citySearch = await searchPlaces(`house cleaning service in ${city}, ${state}`, {});
-    const cityPlaces = citySearch.places;
-    for (const place of cityPlaces) await upsertPlace(place, citySearch.strict);
+    let cityPlaces: Place[] = [];
+    let cityStrict = false;
+    try {
+      const citySearch = await searchPlaces(`house cleaning service in ${city}, ${state}`, {});
+      cityPlaces = citySearch.places;
+      cityStrict = citySearch.strict;
+      for (const place of cityPlaces) await upsertPlace(place, cityStrict);
+    } catch (error) {
+      failureReason = noteSearchError("city", error);
+    }
 
-    const { data: cityRows } = await supabase
-      .from("score_companies")
-      .select("name, primary_type")
-      .eq("city_slug", citySlug)
-      .limit(80);
-    const cityKeys = new Set(
-      (cityRows ?? [])
-        .filter((row) => directoryHouseCleaner(row.name ?? "", row.primary_type ?? null))
-        .map((row) => businessNameKey(row.name ?? ""))
-        .filter(Boolean),
-    );
+    let thin = true;
+    try {
+      const { data: cityRows, error: cityRowsError } = await supabase
+        .from("score_companies")
+        .select("name, primary_type")
+        .eq("city_slug", citySlug)
+        .limit(80);
+      if (cityRowsError) {
+        errors += 1;
+        failureReason = cityRowsError.message;
+        console.error("[score-seed] city count failed", citySlug, cityRowsError.message);
+      } else {
+        const cityKeys = new Set(
+          (cityRows ?? [])
+            .filter((row) => directoryHouseCleaner(row.name ?? "", row.primary_type ?? null))
+            .map((row) => businessNameKey(row.name ?? ""))
+            .filter(Boolean),
+        );
+        thin = cityKeys.size < 10;
+      }
+    } catch (error) {
+      failureReason = noteSearchError("city count", error);
+    }
 
-    if (cityKeys.size < 10) {
-      const countyPlace = cityPlaces.find((place) => acceptPlace(place, citySearch.strict));
+    if (thin) {
+      const countyPlace = cityPlaces.find((place) => acceptPlace(place, cityStrict));
       const county = countyPlace ? componentText(countyPlace, "administrative_area_level_2", "long") : null;
       if (county) {
-        const countySearch = await searchPlaces(`house cleaning service in ${county}, ${state}`, {});
-        for (const place of countySearch.places) await upsertPlace(place, countySearch.strict);
+        try {
+          const countySearch = await searchPlaces(`house cleaning service in ${county}, ${state}`, {});
+          for (const place of countySearch.places) await upsertPlace(place, countySearch.strict);
+        } catch (error) {
+          failureReason = noteSearchError(`county ${county}`, error);
+        }
       }
 
       const located = cityPlaces.find((place) =>
         typeof place.location?.latitude === "number" && typeof place.location?.longitude === "number"
       );
-      if (located?.location?.latitude != null && located.location.longitude != null) {
-        const radiusSearch = await searchPlaces(`house cleaning service in ${city}, ${state}`, {
-          locationBias: {
-            circle: {
-              center: { latitude: located.location.latitude, longitude: located.location.longitude },
-              radius: 64000,
+      const origin = located?.location?.latitude != null && located.location.longitude != null
+        ? { latitude: located.location.latitude, longitude: located.location.longitude }
+        : null;
+      const circles = circlesForCounty(county, origin);
+      for (const circle of circles) {
+        try {
+          const radiusSearch = await searchPlaces("house cleaning service", {
+            locationBias: {
+              circle: {
+                center: { latitude: circle.latitude, longitude: circle.longitude },
+                radius: circle.radius,
+              },
             },
-          },
-        });
-        for (const place of radiusSearch.places) await upsertPlace(place, radiusSearch.strict);
+          });
+          for (const place of radiusSearch.places) await upsertPlace(place, radiusSearch.strict);
+        } catch (error) {
+          failureReason = noteSearchError(
+            `radius ${circle.radius} @ ${circle.latitude},${circle.longitude}`,
+            error,
+          );
+        }
       }
     }
 
-    console.log("[score-seed]", citySlug, "inserted", inserted, "updated", updated, "skipped", skipped);
-    return await finish("ok", null);
+    console.log("[score-seed]", citySlug, "inserted", inserted, "updated", updated, "skipped", skipped, "errors", errors);
+    return await finish(errors === 0 ? "ok" : "error", errors === 0 ? null : failureReason);
   } catch (error) {
     const message = error instanceof Error ? error.message : "seed failed";
+    errors += 1;
     console.error("[score-seed]", citySlug, message);
-    return await finish("error", message, 502);
+    return await finish("error", message);
   }
 });

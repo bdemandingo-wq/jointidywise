@@ -15,6 +15,7 @@ import { SEOHead } from '@/components/SEOHead';
 import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { lifetimeSpotsLabel } from '@/lib/publicActivity';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import { invokeLifetimeCheckout, LifetimeCheckoutError } from '@/lib/lifetimeCheckout';
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
 import { shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
 import {
@@ -193,15 +194,17 @@ export default function ChoosePlanPage() {
     }, 20000);
 
     try {
-      // One code path, one branch. Lifetime is a single payment, so it goes to
-      // buy-lifetime — which claims a spot atomically and rejects the sale if
-      // the last one went while this page was open. The billing interval is
-      // meaningless for it and is not sent.
-      const { data, error } = planId === 'lifetime'
-        ? await supabase.functions.invoke('buy-lifetime', { body: {} })
-        : await supabase.functions.invoke('create-subscription', {
-            body: { plan: planId, interval: billingInterval },
-          });
+      // Lifetime is a single payment for the signed-in user's org. The billing
+      // interval is meaningless for it and is not sent.
+      if (planId === 'lifetime') {
+        const { url } = await invokeLifetimeCheckout(supabase);
+        window.clearTimeout(timeoutId);
+        window.location.href = url;
+        return;
+      }
+      const { data, error } = await supabase.functions.invoke('create-subscription', {
+        body: { plan: planId, interval: billingInterval },
+      });
       // Was a hand-rolled copy of readEdgeFunctionError. Folded into the shared
       // helper so the sold-out and already-subscribed messages buy-lifetime and
       // create-subscription return reach the person, and so there is one
@@ -227,6 +230,11 @@ export default function ChoosePlanPage() {
       window.clearTimeout(timeoutId);
       isRedirectingRef.current = false;
       setCheckoutBusy(null);
+      if (err instanceof LifetimeCheckoutError && err.alreadyLifetime) {
+        toast.success(ALREADY_LIFETIME_MESSAGE);
+        navigate('/dashboard');
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Failed to start checkout';
       toast.error(message);
     }

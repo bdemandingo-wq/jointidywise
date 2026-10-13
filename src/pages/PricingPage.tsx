@@ -18,8 +18,8 @@ import { usePublicGrowth } from '@/hooks/usePublicGrowth';
 import { GrowthCounters } from '@/components/growth/GrowthCounters';
 import { lifetimeSpotsLabel } from '@/lib/publicActivity';
 import { TRIAL_CTA } from '@/lib/trialOffer';
-import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { supabase } from '@/integrations/supabase/client';
+import { invokeLifetimeCheckout, LifetimeCheckoutError } from '@/lib/lifetimeCheckout';
 import { toast } from 'sonner';
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
 import {
@@ -153,7 +153,7 @@ function priceFor(tier: Tier, interval: Interval): { display: string; sub: strin
 
 export default function PricingPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   // billingInterval / setBillingInterval — NOT named "setInterval" so it
   // doesn't shadow the global timer function. Renaming because the prior
@@ -397,23 +397,28 @@ export default function PricingPage() {
   // restores, and we do not auto-open Stripe again.
 
   async function startLifetimeCheckout() {
-    if (isRedirectingRef.current || checkoutBusy) return;
+    if (isRedirectingRef.current || checkoutBusy || authLoading) return;
+
+    // Lifetime checkout creates a live charge and requires a signed-in
+    // user tied to an org. Send a visitor to signup first; after they
+    // have a session, SignupPage and LoginPage open Stripe.
+    if (!user) {
+      try {
+        sessionStorage.setItem(
+          'tw_pending_plan',
+          JSON.stringify({ plan: 'lifetime', interval: 'monthly' }),
+        );
+      } catch { /* private mode */ }
+      navigate('/signup?plan=lifetime');
+      return;
+    }
+
     isRedirectingRef.current = true;
 
     const preopened = preopenCheckoutTab();
     setCheckoutBusy('lifetime');
     try {
-      const { data, error } = await supabase.functions.invoke('buy-lifetime', {
-        body: {},
-      });
-      // buy-lifetime returns real reasons — sold out, already subscribed,
-      // price not configured. Throwing the raw error showed "non-2xx status
-      // code" instead of any of them.
-      if (error) throw new Error(await readEdgeFunctionError(error, 'Could not start the lifetime checkout. Try again.'));
-      const payload = data as { url?: string; error?: string } | null;
-      if (payload?.error) throw new Error(payload.error);
-      const url = payload?.url;
-      if (!url) throw new Error('Checkout URL missing');
+      const { url } = await invokeLifetimeCheckout(supabase);
       goToCheckout(url, preopened);
       window.setTimeout(() => {
         if (document.visibilityState === 'visible') {
@@ -429,7 +434,7 @@ export default function PricingPage() {
       // correct answer for someone who already bought. Treating it as an error
       // left them staring at a blank pre-opened tab and a red toast, so send
       // them to the dashboard with a neutral message instead.
-      if (/already have lifetime access/i.test(message)) {
+      if ((err instanceof LifetimeCheckoutError && err.alreadyLifetime) || /already have lifetime access/i.test(message)) {
         toast.success('You already have lifetime access — nothing more to buy.');
         setCheckoutBusy(null);
         isRedirectingRef.current = false;
@@ -895,7 +900,7 @@ export default function PricingPage() {
                 ) : (
                   <Button
                     onClick={() => startLifetimeCheckout()}
-                    disabled={checkoutBusy === 'lifetime'}
+                    disabled={checkoutBusy === 'lifetime' || authLoading}
                     size="lg"
                     className="w-full md:w-auto bg-amber-600 hover:bg-amber-700"
                   >

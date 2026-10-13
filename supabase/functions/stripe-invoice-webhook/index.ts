@@ -613,16 +613,26 @@ const handler = async (req: Request): Promise<Response> => {
         {
 
 
-          // Update the organization's plan_type to 'lifetime'
-          if (userId) {
-            const { data: membership } = await supabase
-              .from("org_memberships")
-              .select("organization_id")
-              .eq("user_id", userId)
-              .limit(1)
-              .maybeSingle();
+          // Update the organization's plan_type to 'lifetime'.
+          // Prefer the org stamped on the Checkout Session so a user with
+          // more than one membership is not updated on the wrong row.
+          const metaOrgId = typeof session.metadata?.organization_id === "string"
+            ? session.metadata.organization_id.trim()
+            : "";
+          if (userId || metaOrgId) {
+            let organizationId = metaOrgId || null;
+            if (!organizationId && userId) {
+              const { data: membership } = await supabase
+                .from("org_memberships")
+                .select("organization_id")
+                .eq("user_id", userId)
+                .order("created_at", { ascending: true })
+                .limit(1)
+                .maybeSingle();
+              organizationId = membership?.organization_id ?? null;
+            }
 
-            if (membership?.organization_id) {
+            if (organizationId) {
               // Flip plan_type to 'lifetime'. Do NOT set
               // grandfathered_lifetime — that flag is reserved for
               // original launch/founder users only. plan_type='lifetime'
@@ -632,12 +642,12 @@ const handler = async (req: Request): Promise<Response> => {
                 .update({
                   plan_type: "lifetime",
                 })
-                .eq("id", membership.organization_id);
+                .eq("id", organizationId);
 
               // Link purchase to org
               await supabase
                 .from("lifetime_access_purchases")
-                .update({ organization_id: membership.organization_id })
+                .update({ organization_id: organizationId })
                 .eq("stripe_session_id", session.id);
 
               // Mirror into stripe_subscriptions as a synthetic 'active'
@@ -650,7 +660,7 @@ const handler = async (req: Request): Promise<Response> => {
               // out. Idempotent on stripe_subscription_id.
               await supabase.from("stripe_subscriptions").upsert(
                 {
-                  organization_id: membership.organization_id,
+                  organization_id: organizationId,
                   stripe_subscription_id: `lifetime_${session.id}`,
                   stripe_customer_id: (session.customer as string) || null,
                   status: "active",
@@ -660,7 +670,7 @@ const handler = async (req: Request): Promise<Response> => {
                 { onConflict: "stripe_subscription_id", ignoreDuplicates: true },
               );
 
-              console.log("[stripe-invoice-webhook] Organization plan_type set to lifetime:", membership.organization_id);
+              console.log("[stripe-invoice-webhook] Organization plan_type set to lifetime:", organizationId);
             }
           }
 
