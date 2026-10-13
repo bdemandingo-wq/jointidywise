@@ -1,7 +1,10 @@
 // In-app bell + push for owner/admin/manager devices.
 // SMS is deliberately not in here: a missing OpenPhone setup must not
-// skip these two channels.
+// skip these two channels. Customer texts sent by the callers are separate.
+// master.native_push === false skips the push and still writes the bell row.
 
+import { ownerNativePushAllowed } from "./owner-notify-gates.ts";
+import { readOwnerChannels, type OwnerChannelReader } from "./read-owner-channels.ts";
 import { sendPushToOrg } from "./send-push.ts";
 
 type AdminClient = {
@@ -39,6 +42,17 @@ export async function notifyOffice(
   const duplicate = !!error && /duplicate key|23505/i.test(error.message ?? "");
   if (error && !duplicate) console.warn("[notifyOffice] bell insert failed:", error);
   else bell = true;
+
+  const prefs = await readOwnerChannels(
+    supabase as unknown as OwnerChannelReader,
+    args.organizationId,
+  );
+  if (prefs.error) {
+    console.warn("[notifyOffice] prefs read failed, native push stays on:", prefs.error);
+  }
+  if (!ownerNativePushAllowed(prefs.channels)) {
+    return { bell, push: false };
+  }
 
   const push = await sendPushToOrg(
     args.organizationId,

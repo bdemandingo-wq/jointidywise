@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { ownerNewBookingSmsAllowed } from "../_shared/owner-notify-gates.ts";
 import { verifyPortalSession } from "../_shared/portal-session.ts";
+import { readOwnerChannels, type OwnerChannelReader } from "../_shared/read-owner-channels.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -144,7 +146,7 @@ serve(async (req) => {
 
     const { data: bizSettings, error: bizError } = await supabase
       .from("business_settings")
-      .select("company_phone, company_name")
+      .select("company_phone, company_name, notify_new_booking, timezone")
       .eq("organization_id", organizationId)
       .maybeSingle();
 
@@ -152,6 +154,23 @@ serve(async (req) => {
       console.error("[notify-booking-request] Failed to load business settings:", bizError);
       return new Response(
         JSON.stringify({ success: false, error: "Failed to load admin phone" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // This function texts the owner only. Customer confirmation SMS is elsewhere.
+    const prefs = await readOwnerChannels(supabase as unknown as OwnerChannelReader, organizationId);
+    if (prefs.error) {
+      console.warn("[notify-booking-request] prefs read failed, SMS master stays on:", prefs.error);
+    }
+    const decision = ownerNewBookingSmsAllowed({
+      notifyNewBooking: bizSettings?.notify_new_booking,
+      channels: prefs.channels,
+    });
+    if (!decision.allowed) {
+      console.log("[notify-booking-request] Owner SMS skipped:", decision.reason, organizationId);
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: decision.reason, message: "Owner booking SMS disabled - skipping" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -167,13 +186,7 @@ serve(async (req) => {
 
     const companyName = bizSettings?.company_name || "Your Business";
 
-    // Fetch org timezone to avoid UTC offset in Deno runtime
-    const { data: tzSettings } = await supabase
-      .from("business_settings")
-      .select("timezone")
-      .eq("organization_id", organizationId)
-      .maybeSingle();
-    const orgTimezone = tzSettings?.timezone || "America/New_York";
+    const orgTimezone = bizSettings?.timezone || "America/New_York";
 
     const dateObj = new Date(requestedDate);
     const formattedDate = new Intl.DateTimeFormat("en-US", {

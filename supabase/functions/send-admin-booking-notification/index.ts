@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getOrgEmailSettings, formatEmailFrom } from "../_shared/get-org-email-settings.ts";
+import { ownerNewBookingEmailAllowed } from "../_shared/owner-notify-gates.ts";
+import { readOwnerChannels, type OwnerChannelReader } from "../_shared/read-owner-channels.ts";
 import { sendOrgEmail } from "../_shared/send-org-email.ts";
 import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
 
@@ -62,6 +64,41 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
 
+    // Owner email only. Customer confirmation mail is a different function.
+    // Skip before looking up a sender so a turned-off org is not a 400.
+    let orgTimezone = "America/New_York";
+    if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+      const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+      const { data: settings, error: settingsError } = await supabase
+        .from("business_settings")
+        .select("timezone, notify_new_booking")
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+      if (settingsError) {
+        console.warn("[send-admin-booking-notification] business_settings read failed, email stays on:", settingsError.message);
+      }
+      const prefs = await readOwnerChannels(supabase as unknown as OwnerChannelReader, organizationId);
+      if (prefs.error) {
+        console.warn("[send-admin-booking-notification] prefs read failed, email master stays on:", prefs.error);
+      }
+      const decision = ownerNewBookingEmailAllowed({
+        notifyNewBooking: settingsError ? undefined : settings?.notify_new_booking,
+        channels: prefs.channels,
+      });
+      if (!decision.allowed) {
+        console.log("[send-admin-booking-notification] Owner email skipped:", decision.reason, organizationId);
+        return new Response(JSON.stringify({
+          success: true,
+          skipped: true,
+          reason: decision.reason,
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      }
+      if (settings?.timezone) orgTimezone = settings.timezone;
+    }
+
     // Get email settings from organization_email_settings table
     const emailSettingsResult = await getOrgEmailSettings(organizationId);
     if (!emailSettingsResult.success || !emailSettingsResult.settings) {
@@ -78,26 +115,6 @@ const handler = async (req: Request): Promise<Response> => {
     const senderFrom = formatEmailFrom(emailSettings);
     // Admin notifications go to the organization's email
     const adminEmail = emailSettings.from_email;
-
-    // Get business settings for branding
-    let companyName = emailSettings.from_name;
-    let orgTimezone = "America/New_York";
-    
-    if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
-      const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-      const { data: settings } = await supabase
-        .from('business_settings')
-        .select('company_name, timezone')
-        .eq('organization_id', organizationId)
-        .maybeSingle();
-      
-      if (settings?.company_name) {
-        companyName = settings.company_name;
-      }
-      if (settings?.timezone) {
-        orgTimezone = settings.timezone;
-      }
-    }
 
     const bookingDate = new Date(scheduledAt);
     // Use org timezone to avoid UTC shift in Deno runtime

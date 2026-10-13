@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { parseAlertPhones, sendToExtraAlertPhones } from '../_shared/alertPhones.ts';
+import { ownerNewBookingSmsAllowed } from "../_shared/owner-notify-gates.ts";
+import { readOwnerChannels, type OwnerChannelReader } from "../_shared/read-owner-channels.ts";
 import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
 
 const corsHeaders = {
@@ -114,11 +116,19 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    // Check if new booking notifications are enabled
-    if (businessSettings?.notify_new_booking === false) {
-      console.log("[send-admin-sms-notification] New booking notifications disabled for org:", organizationId);
+    // Owner text only. The Text switch is master.sms; the bookings switch writes notify_new_booking.
+    const prefs = await readOwnerChannels(supabase as unknown as OwnerChannelReader, organizationId);
+    if (prefs.error) {
+      console.warn("[send-admin-sms-notification] prefs read failed, SMS master stays on:", prefs.error);
+    }
+    const decision = ownerNewBookingSmsAllowed({
+      notifyNewBooking: businessSettings?.notify_new_booking,
+      channels: prefs.channels,
+    });
+    if (!decision.allowed) {
+      console.log("[send-admin-sms-notification] Owner SMS skipped:", decision.reason, organizationId);
       return new Response(
-        JSON.stringify({ success: false, error: "New booking notifications are disabled" }),
+        JSON.stringify({ success: true, skipped: true, reason: decision.reason }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
