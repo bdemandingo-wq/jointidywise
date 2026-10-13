@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { teamFieldsForSave } from '@/lib/teamJobs';
 import { computeExpectedPay } from '@/lib/cleanerPay';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -280,6 +281,10 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
     cleanerWage,
     cleanerWageType,
     cleanerOverrideHours,
+    teamNeeded,
+    teamCount,
+    teamPay,
+    teamPayType,
     sendConfirmationEmail,
     setSendConfirmationEmail,
     sendConfirmationSms,
@@ -746,6 +751,8 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
       cleaner_wage: cleanerWage ? parseFloat(cleanerWage) : null,
       cleaner_wage_type: cleanerWageType,
       cleaner_override_hours: cleanerOverrideHours ? parseFloat(cleanerOverrideHours) : null,
+      // Team job fields. Unchecked = 1 cleaner and pay cleared.
+      ...teamFieldsForSave(teamNeeded, teamCount, teamPay, teamPayType),
       // Compute and persist cleaner_pay_expected — SINGLE SOURCE OF TRUTH for payroll
       cleaner_pay_expected: computeExpectedPay(
         cleanerWageType,
