@@ -469,6 +469,21 @@ const App = () => (
                        <Route path="/dashboard/import" element={<AdminRoute><ErrorBoundary featureName="Data Import"><DataImportPage /></ErrorBoundary></AdminRoute>} />
                        <Route path="/dashboard/booking-photos" element={<AdminRoute><ErrorBoundary featureName="Booking Photos"><BookingPhotosPage /></ErrorBoundary></AdminRoute>} />
                        <Route path="/dashboard/benchmarks" element={<AdminRoute><ErrorBoundary featureName="Benchmarks"><BenchmarksPage /></ErrorBoundary></AdminRoute>} />
+                      {/* Same pages as the web router. The native table is separate,
+                          and anything missing here is the "Oops! Page not found" screen. */}
+                      <Route path="/dashboard/platform-revenue" element={<PlatformAdminRoute><ErrorBoundary featureName="Platform Revenue"><PlatformRevenuePage /></ErrorBoundary></PlatformAdminRoute>} />
+                      <Route path="/dashboard/platform-feedback" element={<PlatformAdminRoute><ErrorBoundary featureName="Platform Feedback"><PlatformFeedbackPage /></ErrorBoundary></PlatformAdminRoute>} />
+                      <Route path="/dashboard/broadcasts" element={<Navigate to="/dashboard/platform-analytics?tab=broadcasts" replace />} />
+                      <Route path="/dashboard/broadcasts/:id" element={<PlatformOwnerRoute><ErrorBoundary featureName="Broadcast Detail"><BroadcastDetailPage /></ErrorBoundary></PlatformOwnerRoute>} />
+
+                      {/* Specific /admin pages must come BEFORE the legacy /admin/* catch-all. */}
+                      <Route path="/admin/blog" element={<PlatformAdminRoute><ErrorBoundary featureName="Blog Admin"><BlogAdminListPage /></ErrorBoundary></PlatformAdminRoute>} />
+                      <Route path="/admin/blog/keywords" element={<PlatformAdminRoute><ErrorBoundary featureName="Blog Keywords"><BlogKeywordsPage /></ErrorBoundary></PlatformAdminRoute>} />
+                      <Route path="/admin/blog/new" element={<PlatformAdminRoute><ErrorBoundary featureName="Blog Editor"><BlogAdminEditPage mode="new" /></ErrorBoundary></PlatformAdminRoute>} />
+                      <Route path="/admin/blog/generate" element={<PlatformAdminRoute><ErrorBoundary featureName="Blog Generate"><BlogAdminGeneratePage /></ErrorBoundary></PlatformAdminRoute>} />
+                      <Route path="/admin/blog/:id/edit" element={<PlatformAdminRoute><ErrorBoundary featureName="Blog Editor"><BlogAdminEditPage mode="edit" /></ErrorBoundary></PlatformAdminRoute>} />
+                      <Route path="/admin/blog/:id/preview" element={<PlatformAdminRoute><ErrorBoundary featureName="Blog Preview"><BlogAdminPreviewPage /></ErrorBoundary></PlatformAdminRoute>} />
+                      <Route path="/admin/access-codes" element={<PlatformAdminRoute><ErrorBoundary featureName="Access Codes"><AccessCodesAdminPage /></ErrorBoundary></PlatformAdminRoute>} />
 
                       <Route path="/admin" element={<AdminRoute><ErrorBoundary featureName="Dashboard"><AdminDashboard /></ErrorBoundary></AdminRoute>} />
                       <Route path="/admin/*" element={<AdminRoute><ErrorBoundary featureName="Dashboard"><AdminDashboard /></ErrorBoundary></AdminRoute>} />
@@ -627,6 +642,8 @@ const App = () => (
                     <Route path="/dashboard/import" element={<AdminRoute><ErrorBoundary featureName="Data Import"><DataImportPage /></ErrorBoundary></AdminRoute>} />
                     <Route path="/dashboard/booking-photos" element={<AdminRoute><ErrorBoundary featureName="Booking Photos"><BookingPhotosPage /></ErrorBoundary></AdminRoute>} />
                     <Route path="/dashboard/benchmarks" element={<AdminRoute><ErrorBoundary featureName="Benchmarks"><BenchmarksPage /></ErrorBoundary></AdminRoute>} />
+                    <Route path="/dashboard/custom-work" element={<AdminRoute><ErrorBoundary featureName="Custom Work"><CustomWorkRequestPage /></ErrorBoundary></AdminRoute>} />
+                    <Route path="/dashboard/admin/custom-work" element={<PlatformAdminRoute><ErrorBoundary featureName="Custom Work Admin"><AdminCustomWorkRequestsPage /></ErrorBoundary></PlatformAdminRoute>} />
 
                     {/* Platform-admin Blog Editor (must come BEFORE the legacy /admin/* catch-all) */}
                     <Route path="/dashboard/platform-revenue" element={<PlatformAdminRoute><ErrorBoundary featureName="Platform Revenue"><PlatformRevenuePage /></ErrorBoundary></PlatformAdminRoute>} />
