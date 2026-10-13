@@ -118,11 +118,11 @@ serve(async (req) => {
     const orgName = fullName ? `${fullName}'s Business` : "My Cleaning Business";
 
     // New orgs only (the already-provisioned branch returned above). If the
-    // signup trigger did not stamp a trial end, give this new profile 14 days.
+    // signup trigger did not stamp a trial end, give this new profile 30 days.
     // Never overwrite a date that is already set.
     let trialEndsAt = profile?.trial_ends_at ?? null;
     if (!trialEndsAt) {
-      trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+      trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       const { error: trialError } = await supabase
         .from("profiles")
         .update({ trial_ends_at: trialEndsAt })

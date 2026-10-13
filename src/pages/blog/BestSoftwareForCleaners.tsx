@@ -64,7 +64,7 @@ export default function BestSoftwareForCleaners() {
             <p className="text-muted-foreground">The ideal cleaning business software should offer: online booking, client CRM, team scheduling, automated notifications, invoicing, and reporting. Bonus points for mobile apps, payment processing, and a client portal.</p>
 
             <h2 className="text-2xl font-bold mt-8">1. TidyWise — Best All-in-One Platform</h2>
-            <p className="text-muted-foreground">TidyWise is purpose-built for cleaning businesses with booking, scheduling, CRM, invoicing, SMS/email automation, a staff portal, client portal, and AI-powered business intelligence. Pricing starts at $49/month, and every plan begins with a 14-day free trial.</p>
+            <p className="text-muted-foreground">TidyWise is purpose-built for cleaning businesses with booking, scheduling, CRM, invoicing, SMS/email automation, a staff portal, client portal, and AI-powered business intelligence. Pricing starts at $49/month, and every new account begins with 30 days of Pro, no card.</p>
             <p className="text-muted-foreground"><strong>Best for:</strong> Growing cleaning businesses that want everything in one place without juggling multiple tools.</p>
 
             <h2 className="text-2xl font-bold mt-8">2. Jobber — Best for Field Service Variety</h2>

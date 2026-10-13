@@ -13,6 +13,7 @@ import { Check, Crown, Loader2, Lock, LogOut, Sparkles } from 'lucide-react';
 import { StripeModeBadge } from '@/components/subscription/StripeModeBadge';
 import { SEOHead } from '@/components/SEOHead';
 import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
+import { lifetimeSpotsLabel } from '@/lib/publicActivity';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
 import { shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
@@ -310,7 +311,7 @@ export default function ChoosePlanPage() {
             {hasFullAccess
               ? 'Your trial is active and the dashboard stays open. Add a card only if you want billing to continue when the trial ends. The trial date does not move.'
               : painPitch ??
-                'Your 14-day trial has ended. Pick a plan and add a card to unlock the dashboard again.'}
+                'Your free trial has ended. Pick a plan and add a card to unlock the dashboard again.'}
           </p>
         </div>
 
@@ -402,7 +403,7 @@ export default function ChoosePlanPage() {
           {showLifetime && (
             <Card className="relative flex flex-col border-amber-500/50 bg-amber-50/30 dark:bg-amber-950/20">
               <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-amber-500 text-white text-xs font-semibold px-3 py-1 whitespace-nowrap tabular-nums">
-                {lifetime.spotsLeft} of {lifetime.total} left
+                {lifetime.unavailable ? 'Lifetime' : lifetimeSpotsLabel(lifetime.spotsLeft, lifetime.total)}
               </div>
               <CardContent className="flex flex-col flex-1 pt-6 space-y-4">
                 <div>

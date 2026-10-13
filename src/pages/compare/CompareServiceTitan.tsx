@@ -137,7 +137,7 @@ export default function CompareServiceTitan() {
                 <span className="font-bold text-foreground text-lg">TIDYWISE</span>
               </div>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                {["$49/month (Basic) — all users included", "Built specifically for cleaning businesses", "Operational in hours, not weeks", "14-day free trial", "Square footage and room-based pricing", "Automated payroll included"].map(p => (
+                {["$49/month (Basic) — all users included", "Built specifically for cleaning businesses", "Operational in hours, not weeks", "30 days of Pro, no card", "Square footage and room-based pricing", "Automated payroll included"].map(p => (
                   <li key={p} className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />{p}
                   </li>
