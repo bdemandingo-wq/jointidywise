@@ -28,6 +28,8 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { PullToRefreshIndicator } from '@/components/admin/PullToRefreshIndicator';
 import { SEOHead } from '@/components/SEOHead';
 import { StaffLocationPrompt } from '@/components/staff/StaffLocationPrompt';
+import { StaffLocationBanner } from '@/components/staff/StaffLocationBanner';
+import { staffLocationSearch } from '@/lib/locationPermission';
 import { TimeOffRequests } from '@/components/staff/TimeOffRequests';
 import { orgStartOfDay } from '@/lib/orgDateRange';
 import { decideReopen } from '@/lib/reopenBooking';
@@ -1296,6 +1298,12 @@ export default function StaffPortal() {
 
           {/* My Jobs Tab */}
           <TabsContent value="my-jobs" className="space-y-4">
+            <StaffLocationBanner
+              onOpen={() => {
+                setActiveTab('profile');
+                setSearchParams((prev) => staffLocationSearch(prev), { replace: true });
+              }}
+            />
             <div>
               {completedToday > 0 && (
                 <p className="text-sm font-medium text-success mb-1">
