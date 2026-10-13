@@ -1431,8 +1431,9 @@ const handler = async (req: Request): Promise<Response> => {
           cancellation_policy: customerSawPolicy ? CANCELLATION_POLICY : null,
           cancellation_policy_disclosure: customerSawPolicy ? POLICY_DISCLOSURE : null,
           cancellation_rebuttal: cancellationRebuttal,
-          refund_refusal_explanation: refundRefusalExplanation,
-          uncategorized_text: uncategorizedText,
+          refund_refusal_explanation: refundRefusalExplanation && usageSummary ? `${refundRefusalExplanation} ${usageSummary}` : refundRefusalExplanation,
+          uncategorized_text: usageSummary ? `${usageSummary} ${uncategorizedText}` : uncategorizedText,
+          service_date: charge.created ? fmt(new Date(charge.created * 1000).toISOString()) : null,
         };
 
         await supabase
