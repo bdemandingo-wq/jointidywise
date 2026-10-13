@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
                 organization_id: r.organization_id,
                 to,
                 subject: "New time-off request",
-                html: `<p><strong>${staffName}</strong> requested time off for <strong>${range}</strong>.</p>${r.reason ? `<p>${escapeHtml(r.reason)}</p>` : ""}<p>Open the Staff → Time Off tab to review.</p>`,
+                html: `<p><strong>${escapeHtml(staffName)}</strong> requested time off for <strong>${escapeHtml(range)}</strong>.</p>${r.reason ? `<p>${escapeHtml(r.reason)}</p>` : ""}<p>Open the Staff → Time Off tab to review.</p>`,
                 text: `${staffName} requested time off (${range}).${r.reason ? "\n\n" + r.reason : ""}`,
               }),
             }).catch(() => {});
@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
             organization_id: r.organization_id,
             to: r.staff.email,
             subject: `Your time-off request was ${r.status}`,
-            html: `<p>Your request for <strong>${range}</strong> was <strong>${r.status}</strong>.</p>${r.admin_note ? `<p>${escapeHtml(r.admin_note)}</p>` : ""}`,
+            html: `<p>Your request for <strong>${escapeHtml(range)}</strong> was <strong>${escapeHtml(String(r.status))}</strong>.</p>${r.admin_note ? `<p>${escapeHtml(r.admin_note)}</p>` : ""}`,
             text: `Your time-off request for ${range} was ${r.status}.${r.admin_note ? "\n\n" + r.admin_note : ""}`,
           }),
         }).catch(() => {});

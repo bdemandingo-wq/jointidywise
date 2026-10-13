@@ -6,6 +6,7 @@ import { ArrowLeft, Clock, Calendar, Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
+import { safeJsonLd } from "@/lib/safeJsonLd";
 import { CopyrightYear } from '@/components/CopyrightYear';
 
 export default function DynamicBlogPost() {
@@ -150,10 +151,10 @@ export default function DynamicBlogPost() {
         canonical={`/blog/post/${post.slug}`}
         ogImage={post.featured_image_url || undefined}
       />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(articleSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbSchema) }} />
       {faqSchema && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(faqSchema) }} />
       )}
 
       {/* Navigation */}

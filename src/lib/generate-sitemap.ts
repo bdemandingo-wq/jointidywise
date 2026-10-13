@@ -62,6 +62,10 @@ const EXCLUDED_PATHS = new Set<string>([
   // page that cannot work for them.
   "/set-password",
   "/accept-invite",
+  // Aliases of /referral and /contact. The canonical page is indexed.
+  "/refer",
+  "/affiliate",
+  "/feedback",
   "*",
 ]);
 

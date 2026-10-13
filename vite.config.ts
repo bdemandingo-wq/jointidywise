@@ -7,6 +7,43 @@ import { ViteImageOptimizer } from "vite-plugin-image-optimizer";
 import { mcpPlugin } from "@lovable.dev/mcp-js/stacks/supabase/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+function resolveAppBuildId(): string {
+  const fromEnv = process.env.GITHUB_SHA
+    || process.env.VERCEL_GIT_COMMIT_SHA
+    || process.env.CF_PAGES_COMMIT_SHA
+    || "";
+  if (fromEnv.trim()) return fromEnv.trim();
+  try {
+    const sha = execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    if (sha) return sha;
+  } catch {
+    /* no git metadata in this build */
+  }
+  return `build-${Date.now()}`;
+}
+
+const APP_BUILD_ID = resolveAppBuildId();
+
+function appVersionPlugin(buildId: string): Plugin {
+  return {
+    name: "tidywise-app-version",
+    config() {
+      return {
+        define: {
+          "import.meta.env.VITE_APP_BUILD_ID": JSON.stringify(buildId),
+        },
+      };
+    },
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "version.json",
+        source: JSON.stringify({ buildId }),
+      });
+    },
+  };
+}
+
 // Runs the sitemap generator after the production build completes so
 // public/sitemap.xml stays in sync with the routes declared in src/App.tsx.
 function sitemapPlugin(): Plugin {
@@ -128,6 +165,7 @@ export default defineConfig(({ mode }) => ({
       skipWaiting, which swaps assets underneath a live tab mid-session — that
       is the CAUSE of chunk-load errors, not a fix for them.
     */
+    appVersionPlugin(APP_BUILD_ID),
     VitePWA({
       registerType: "prompt",
       // Registration is done by hand in src/lib/registerPwa.ts so it can be
@@ -183,7 +221,7 @@ export default defineConfig(({ mode }) => ({
         // made the service worker install compete with first paint. Route
         // chunks are cached on use via runtimeCaching below.
         globPatterns: ["assets/index-*.js", "assets/index-*.css", "assets/vendor-*.js"],
-        globIgnores: ["**/images/**", "**/blog/**", "**/locations/**"],
+        globIgnores: ["**/images/**", "**/blog/**", "**/locations/**", "**/version.json"],
         navigateFallback: null,
         runtimeCaching: [
           {

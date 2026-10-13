@@ -14,7 +14,7 @@ import { useOrganization } from '@/contexts/OrganizationContext';
 const HIDE_CHECKLIST_EMAILS = ['support@tidywisecleaning.com', 'applereview@tidywise.com'];
 
 export function OnboardingChecklist() {
-  const { data: items = [], isLoading, isError, refetch } = useOnboardingChecklist();
+  const { data: items = [], isLoading, isError, refetch } = useOnboardingChecklist(true);
   const navigate = useNavigate();
   const { user } = useAuth();
   const { organization } = useOrganization();

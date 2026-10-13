@@ -79,13 +79,14 @@ function getGreeting() {
 
 export default function AdminDashboard() {
   const { data: bookings = [], isLoading: bookingsLoading } = useDashboardUpcoming();
-  const { data: chartBookings, isLoading: chartLoading, isError: chartError } = useDashboardChart(!bookingsLoading);
-  const { data: customers = [] } = useDashboardCustomers();
+  const upcomingReady = !bookingsLoading;
+  const { data: chartBookings, isLoading: chartLoading, isError: chartError } = useDashboardChart(upcomingReady);
+  const { data: customers = [] } = useDashboardCustomers(upcomingReady);
   const queryClient = useQueryClient();
   const { organization } = useOrganization();
   const { isTrialActive, hasFullAccess, isLoading: subscriptionLoading } = useSubscription();
-  const lifetime = useLifetimeCounter();
-  const growth = usePublicGrowth();
+  const lifetime = useLifetimeCounter(upcomingReady);
+  const growth = usePublicGrowth(upcomingReady);
   const showUpgrade = !subscriptionLoading && (isTrialActive || !hasFullAccess);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();

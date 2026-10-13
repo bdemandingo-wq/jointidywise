@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { requireOrgAdmin } from "../_shared/requireOrgAdmin.ts";
 import { sendOrgEmail } from "../_shared/send-org-email.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -228,8 +229,8 @@ const handler = async (req: Request): Promise<Response> => {
                 <h1 style="margin:0;">🔒 Secure Card Setup</h1>
               </div>
               <div style="background:#f9fafb;padding:30px;border-radius:0 0 10px 10px;">
-                <p>Hi ${customerName},</p>
-                <p>We need your payment card on file to complete your booking with ${companyName}.</p>
+                <p>Hi ${escapeHtml(customerName)},</p>
+                <p>We need your payment card on file to complete your booking with ${escapeHtml(companyName)}.</p>
                 <div style="background:white;padding:20px;border-radius:8px;margin:20px 0;border-left:4px solid #10b981;">
                   <p><strong>Why do we need this?</strong></p>
                   <p style="margin:0;color:#666;">Your card will be securely saved for your upcoming service. You won't be charged until after your service is completed.</p>
@@ -241,7 +242,7 @@ const handler = async (req: Request): Promise<Response> => {
                 <p style="color:#666;font-size:14px;margin-top:20px;">This link will expire in 24 hours.</p>
               </div>
               <div style="text-align:center;color:#666;font-size:12px;margin-top:20px;">
-                <p>&copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.</p>
+                <p>&copy; ${new Date().getFullYear()} ${escapeHtml(companyName)}. All rights reserved.</p>
               </div>
             </div>
           </body></html>

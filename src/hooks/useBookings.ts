@@ -414,13 +414,13 @@ export function useDashboardChart(ready = true) {
   });
 }
 
-export function useDashboardCustomers() {
+export function useDashboardCustomers(ready = true) {
   const { organization } = useOrganization();
   const organizationId = organization?.id;
   return useQuery({
     queryKey: ['customers', 'dashboard', organizationId],
     queryFn: () => fetchDashboardCustomers(organizationId as string),
-    enabled: !!organizationId,
+    enabled: !!organizationId && ready,
     staleTime: 5 * 60 * 1000,
     gcTime: 1000 * 60 * 60 * 24,
   });

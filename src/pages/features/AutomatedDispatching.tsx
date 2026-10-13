@@ -1,3 +1,4 @@
+import { safeJsonLd } from "@/lib/safeJsonLd";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { SEOHead } from '@/components/SEOHead';
@@ -242,7 +243,7 @@ export default function AutomatedDispatching() {
 
       {/* Schema */}
       <script type="application/ld+json" dangerouslySetInnerHTML={{
-        __html: JSON.stringify({
+        __html: safeJsonLd({
           "@context": "https://schema.org",
           "@type": "SoftwareApplication",
           "name": "TIDYWISE Automated Dispatching",

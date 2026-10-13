@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 
 import { LIFETIME_FEATURES, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
-import { pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
+import { formatLoyaltyDollars, LOYALTY_PRICING, pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
 
 type Interval = 'monthly' | 'yearly';
 type Tier = PublicTier;
@@ -287,6 +287,51 @@ export default function PricingPage() {
   // checkout returns with ?plan= in the URL; the highlight restores, and
   // we do not auto-open checkout again.
 
+  async function startPlanCheckout(planId: 'basic' | 'pro' | 'custom') {
+    if (!user) {
+      navigate(`/signup?plan=${encodeURIComponent(planId)}&interval=${encodeURIComponent(billingInterval)}`);
+      return;
+    }
+    if (isRedirectingRef.current || checkoutBusy) return;
+    isRedirectingRef.current = true;
+    setCheckoutBusy(planId);
+    try {
+      sessionStorage.setItem(
+        'tw_pending_plan',
+        JSON.stringify({ plan: planId, interval: billingInterval }),
+      );
+    } catch {
+      /* no-op */
+    }
+    try {
+      const { data, error } = await supabase.functions.invoke('create-subscription', {
+        body: { plan: planId, interval: billingInterval },
+      });
+      if (error) {
+        if (await isAlreadyLifetimeError(error)) {
+          isRedirectingRef.current = false;
+          setCheckoutBusy(null);
+          toast.success(ALREADY_LIFETIME_MESSAGE);
+          navigate('/dashboard');
+          return;
+        }
+        throw new Error(await readEdgeFunctionError(error, 'Could not start checkout. Try again.'));
+      }
+      const session = readCheckoutSession(data);
+      openEmbeddedCheckout({
+        ...session,
+        plan: planId,
+        interval: billingInterval,
+        cancelPath: `/pricing?plan=${encodeURIComponent(planId)}&interval=${encodeURIComponent(billingInterval)}&canceled=1`,
+      });
+    } catch (err) {
+      isRedirectingRef.current = false;
+      setCheckoutBusy(null);
+      const message = err instanceof Error ? err.message : 'Could not start checkout. Try again.';
+      toast.error(message);
+    }
+  }
+
   async function startLifetimeCheckout() {
     if (isRedirectingRef.current || checkoutBusy) return;
     isRedirectingRef.current = true;
@@ -413,6 +458,33 @@ export default function PricingPage() {
             <p className="text-sm text-muted-foreground">
               {pricingPageLoyaltyLine()}
             </p>
+            <div className="w-full max-w-xl overflow-x-auto text-left">
+              <table className="w-full text-sm border border-border rounded-lg">
+                <caption className="sr-only">Monthly loyalty prices</caption>
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground">
+                    <th scope="col" className="px-3 py-2 font-medium">Plan</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Starts at</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Every {LOYALTY_PRICING.intervalMonths} months</th>
+                    <th scope="col" className="px-3 py-2 font-medium">Lowest</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-border">
+                    <th scope="row" className="px-3 py-2 font-medium text-foreground">Pro</th>
+                    <td className="px-3 py-2">{formatLoyaltyDollars(LOYALTY_PRICING.plans.pro.listCents)}/mo</td>
+                    <td className="px-3 py-2">Drops {formatLoyaltyDollars(LOYALTY_PRICING.plans.pro.stepCents)}</td>
+                    <td className="px-3 py-2">{formatLoyaltyDollars(LOYALTY_PRICING.plans.pro.floorCents)}/mo</td>
+                  </tr>
+                  <tr>
+                    <th scope="row" className="px-3 py-2 font-medium text-foreground">Basic</th>
+                    <td className="px-3 py-2">{formatLoyaltyDollars(LOYALTY_PRICING.plans.basic.listCents)}/mo</td>
+                    <td className="px-3 py-2">Drops {formatLoyaltyDollars(LOYALTY_PRICING.plans.basic.stepCents)}</td>
+                    <td className="px-3 py-2">{formatLoyaltyDollars(LOYALTY_PRICING.plans.basic.floorCents)}/mo</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <div
@@ -531,17 +603,19 @@ export default function PricingPage() {
                   </p>
 
                   <Button
-                    asChild
+                    type="button"
                     variant={tier.highlight ? 'default' : 'outline'}
                     size="lg"
                     className="w-full mb-2"
+                    disabled={checkoutBusy === tier.id}
+                    aria-label={`Choose the ${tier.name} plan, ${billingInterval === 'yearly' ? 'billed yearly after the free Pro trial' : 'billed monthly after the free Pro trial'}`}
+                    onClick={() => startPlanCheckout(tier.id)}
                   >
-                    <Link
-                      to={user ? '/dashboard' : '/signup'}
-                      aria-label={`Choose the ${tier.name} plan, ${billingInterval === 'yearly' ? 'billed yearly after the free Pro trial' : 'billed monthly after the free Pro trial'}`}
-                    >
-                      Choose {tier.name}
-                    </Link>
+                    {checkoutBusy === tier.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      `Choose ${tier.name}`
+                    )}
                   </Button>
                   <p className="text-[11px] text-muted-foreground text-center mb-6">
                     No card to start. After 30 days of Pro the app asks you to pick a plan.

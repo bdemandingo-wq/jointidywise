@@ -6,6 +6,7 @@ import {
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -251,12 +252,12 @@ function buildWinbackEmail({ customerName, companyName, offerPercent, bookingUrl
 <table cellpadding="0" cellspacing="0" width="100%"><tr><td style="padding:20px;">
 <table cellpadding="0" cellspacing="0" width="600" style="margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
   <tr><td style="background:#1e5bb0;padding:30px;text-align:center;">
-    <h1 style="color:#fff;margin:0;font-size:24px;">${companyName}</h1>
+    <h1 style="color:#fff;margin:0;font-size:24px;">${escapeHtml(companyName)}</h1>
   </td></tr>
   <tr><td style="padding:40px 30px;text-align:center;">
     <div style="font-size:48px;margin-bottom:16px;">🏠</div>
-    <h2 style="color:#1e5bb0;margin:0 0 16px;">Hi ${customerName}!</h2>
-    <p style="font-size:16px;color:#555;margin:0 0 24px;">${bodyText || messages[step]}</p>
+    <h2 style="color:#1e5bb0;margin:0 0 16px;">Hi ${escapeHtml(customerName)}!</h2>
+    <p style="font-size:16px;color:#555;margin:0 0 24px;">${escapeHtml(bodyText || messages[step])}</p>
     <div style="background:#f0f7ff;border-radius:8px;padding:20px;margin-bottom:24px;">
       <p style="font-size:14px;color:#777;margin:0 0 8px;">Special offer just for you</p>
       <p style="font-size:36px;font-weight:bold;color:#1e5bb0;margin:0;">${offerPercent}% OFF</p>
@@ -266,7 +267,7 @@ function buildWinbackEmail({ customerName, companyName, offerPercent, bookingUrl
     <p style="font-size:12px;color:#aaa;margin-top:20px;">Just reply to this email and mention this offer when booking.</p>
   </td></tr>
   <tr><td style="background:#333;padding:20px;text-align:center;">
-    <p style="color:#fff;font-size:13px;margin:0;">${companyName} &copy; ${new Date().getFullYear()}</p>
+    <p style="color:#fff;font-size:13px;margin:0;">${escapeHtml(companyName)} &copy; ${new Date().getFullYear()}</p>
   </td></tr>
 </table></td></tr></table>
 </body></html>`;

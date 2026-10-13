@@ -23,6 +23,7 @@ import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { cn } from "@/lib/utils";
 import { selectedDateTimeToUTCISO } from "@/lib/timezoneUtils";
 import { useOrgTiers } from "@/hooks/useOrgTiers";
+import { sanitizeDisplayName } from "@/lib/displayName";
 
 interface Service {
   id: string;
@@ -301,7 +302,7 @@ export default function PortalRequestPage() {
       const serviceName = services.find((s) => s.id === selectedService)?.name;
       const notifyResult = await invokePortal("notify-booking-request", {
         body: {
-          customerName: `${customer.first_name} ${customer.last_name}`,
+          customerName: sanitizeDisplayName(`${customer.first_name ?? ""} ${customer.last_name ?? ""}`),
           requestedDate: requestedDateISO,
           serviceName,
           notes: notes.trim() || undefined,

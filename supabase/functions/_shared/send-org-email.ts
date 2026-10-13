@@ -10,6 +10,7 @@
 // they call Resend directly with the platform key.
 
 import { parseRecipients } from "./email-address.ts";
+import { escapeHtml } from "./escapeHtml.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isEmailOptedOut } from "./marketing-guard.ts";
 import { ensureUnsubscribeToken } from "./unsubscribe-token.ts";
@@ -217,7 +218,7 @@ async function sendViaGmailSmtp(
     },
   });
   try {
-    const html = opts.html + (settings.email_footer ? `<br/><br/><p style="color:#666;font-size:12px;">${settings.email_footer}</p>` : "");
+    const html = opts.html + (settings.email_footer ? `<br/><br/><p style="color:#666;font-size:12px;">${escapeHtml(settings.email_footer)}</p>` : "");
     const text = opts.text ?? "This email requires an HTML-capable client.";
     // Stamp a real Message-ID so bounces landing in the org's Gmail inbox can be
     // matched back to this send via email_send_log.message_id.
@@ -268,7 +269,7 @@ async function sendViaResend(
     to: toArr(opts.to),
     reply_to: replyTo,
     subject: opts.subject,
-    html: opts.html + (settings.email_footer ? `<br/><br/><p style="color:#666;font-size:12px;">${settings.email_footer}</p>` : ""),
+    html: opts.html + (settings.email_footer ? `<br/><br/><p style="color:#666;font-size:12px;">${escapeHtml(settings.email_footer)}</p>` : ""),
   };
   if (opts.cc) payload.cc = toArr(opts.cc);
   if (opts.bcc) payload.bcc = toArr(opts.bcc);

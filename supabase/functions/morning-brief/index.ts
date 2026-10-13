@@ -2,6 +2,12 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronOrUser } from "../_shared/requireCronOrUser.ts";
 import { checkOrgEmailEligibility, unsubscribeFooterHtml } from "../_shared/emailEligibility.ts";
 import { tidywiseSupportFrom } from "../_shared/email-footer.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
+
+function htmlPerson(c: { first_name?: string | null; last_name?: string | null } | null | undefined): string {
+  const raw = c ? `${c.first_name || ""} ${c.last_name || ""}`.trim() : "";
+  return escapeHtml(raw || "Unknown");
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -711,22 +717,22 @@ Deno.serve(async (req) => {
         <strong style="color:#dc2626;">⚠️ ${unconfirmedBookings.length} Unconfirmed Booking${unconfirmedBookings.length > 1 ? "s" : ""}</strong>
         ${unconfirmedBookings.map(b => {
           const c = b.customers;
-          const name = c ? `${c.first_name || ""} ${c.last_name || ""}`.trim() : "Unknown";
-          return `<div style="${rowStyle}"><strong>${name}</strong> — ${formatTime(b.scheduled_at)} · ${b.status}</div>`;
+          const name = htmlPerson(c);
+          return `<div style="${rowStyle}"><strong>${name}</strong> — ${formatTime(b.scheduled_at)} · ${escapeHtml(String(b.status || ""))}</div>`;
         }).join("")}
       </div>` : "";
 
   const jobRows = todayBookings.map(b => {
     const c = b.customers;
-    const name = c ? `${c.first_name || ""} ${c.last_name || ""}`.trim() : "Unknown";
-    const staffName = b.staff?.name || "Unassigned";
-    const serviceName = b.services?.name || "—";
+    const name = htmlPerson(c);
+    const staffName = escapeHtml(b.staff?.name || "Unassigned");
+    const serviceName = escapeHtml(b.services?.name || "—");
     const statusColor = b.status === "completed" ? "#16a34a" : b.status === "cancelled" ? "#dc2626" : b.status === "confirmed" ? "#2563eb" : "#ca8a04";
     const payColor = b.payment_status === "paid" ? "#16a34a" : "#dc2626";
     return `<div style="${rowStyle}">
       <strong>${name}</strong> · ${formatTime(b.scheduled_at)}<br/>
       <span style="color:#6b7280;">👤 ${staffName} · 🧹 ${serviceName}</span><br/>
-      <span style="color:#6b7280;">📍 ${b.address || "No address"}</span><br/>
+      <span style="color:#6b7280;">📍 ${escapeHtml(b.address || "No address")}</span><br/>
       <span style="color:${statusColor};">${b.status}</span> · <span style="color:${payColor};">💳 ${b.payment_status}</span> · ${fmt(Number(b.total_amount) || 0)}
     </div>`;
   });
@@ -740,13 +746,13 @@ Deno.serve(async (req) => {
 
   // Section 2: Alerts
   const alertItems: string[] = [];
-  if (cancellations24h.length > 0) alertItems.push(`<div style="margin-bottom:12px;"><strong style="color:#dc2626;">🚫 ${cancellations24h.length} Cancellation${cancellations24h.length > 1 ? "s" : ""} (24h)</strong>${renderList(cancellations24h.map(b => `<div style="${rowStyle}">${b.customers ? `${b.customers.first_name || ""} ${b.customers.last_name || ""}`.trim() : "Unknown"} — ${formatShortDate(b.scheduled_at)} · ${fmt(Number(b.total_amount) || 0)}</div>`))}</div>`);
-  if (noShows.length > 0) alertItems.push(`<div style="margin-bottom:12px;"><strong style="color:#dc2626;">❌ ${noShows.length} No-Show${noShows.length > 1 ? "s" : ""} Yesterday</strong>${renderList(noShows.map(b => `<div style="${rowStyle}">${b.customers ? `${b.customers.first_name || ""} ${b.customers.last_name || ""}`.trim() : "Unknown"} — ${formatShortDate(b.scheduled_at)}</div>`))}</div>`);
+  if (cancellations24h.length > 0) alertItems.push(`<div style="margin-bottom:12px;"><strong style="color:#dc2626;">🚫 ${cancellations24h.length} Cancellation${cancellations24h.length > 1 ? "s" : ""} (24h)</strong>${renderList(cancellations24h.map(b => `<div style="${rowStyle}">${htmlPerson(b.customers)} — ${formatShortDate(b.scheduled_at)} · ${fmt(Number(b.total_amount) || 0)}</div>`))}</div>`);
+  if (noShows.length > 0) alertItems.push(`<div style="margin-bottom:12px;"><strong style="color:#dc2626;">❌ ${noShows.length} No-Show${noShows.length > 1 ? "s" : ""} Yesterday</strong>${renderList(noShows.map(b => `<div style="${rowStyle}">${htmlPerson(b.customers)} — ${formatShortDate(b.scheduled_at)}</div>`))}</div>`);
   if (overduePayments.length > 0) {
     const overdueTotal = overduePayments.reduce((s, b) => s + (Number(b.total_amount) || 0), 0);
-    alertItems.push(`<div style="margin-bottom:12px;"><strong style="color:#dc2626;">💸 ${overduePayments.length} Overdue Payment${overduePayments.length > 1 ? "s" : ""} (${fmt(overdueTotal)})</strong>${renderList(overduePayments.map(b => `<div style="${rowStyle}">${b.customers ? `${b.customers.first_name || ""} ${b.customers.last_name || ""}`.trim() : "Unknown"} — ${formatShortDate(b.scheduled_at)} · ${fmt(Number(b.total_amount) || 0)}</div>`))}</div>`);
+    alertItems.push(`<div style="margin-bottom:12px;"><strong style="color:#dc2626;">💸 ${overduePayments.length} Overdue Payment${overduePayments.length > 1 ? "s" : ""} (${fmt(overdueTotal)})</strong>${renderList(overduePayments.map(b => `<div style="${rowStyle}">${htmlPerson(b.customers)} — ${formatShortDate(b.scheduled_at)} · ${fmt(Number(b.total_amount) || 0)}</div>`))}</div>`);
   }
-  if (lowRatings.length > 0) alertItems.push(`<div style="margin-bottom:12px;"><strong style="color:#ca8a04;">⭐ ${lowRatings.length} Low Rating${lowRatings.length > 1 ? "s" : ""} (48h)</strong>${renderList(lowRatings.map(r => `<div style="${rowStyle}">${r.customer_name || (r.customers ? `${r.customers.first_name || ""} ${r.customers.last_name || ""}`.trim() : "Unknown")} — ${r.rating ? `${r.rating}★` : "N/A"} · ${r.comment || r.issue_description || "No comment"}</div>`))}</div>`);
+  if (lowRatings.length > 0) alertItems.push(`<div style="margin-bottom:12px;"><strong style="color:#ca8a04;">⭐ ${lowRatings.length} Low Rating${lowRatings.length > 1 ? "s" : ""} (48h)</strong>${renderList(lowRatings.map(r => `<div style="${rowStyle}">${escapeHtml(r.customer_name || "") || htmlPerson(r.customers)} — ${r.rating ? `${r.rating}★` : "N/A"} · ${escapeHtml(r.comment || r.issue_description || "No comment")}</div>`))}</div>`);
 
   const sec2Html = `<div style="${sectionStyle}">
     <h2 style="${headerStyle("#dc2626")}">🚨 ALERTS & ATTENTION NEEDED</h2>
@@ -779,10 +785,10 @@ Deno.serve(async (req) => {
   const sec4Html = `<div style="${sectionStyle}">
     <h2 style="${headerStyle("#7c3aed")}">📈 SALES PIPELINE</h2>
     <strong>New Leads (24h): ${newLeads.length}</strong>
-    ${renderList(newLeads.map(l => `<div style="${rowStyle}"><strong>${l.name}</strong> · ${l.source} · ${l.service}</div>`))}
+    ${renderList(newLeads.map(l => `<div style="${rowStyle}"><strong>${escapeHtml(l.name)}</strong> · ${escapeHtml(l.source)} · ${escapeHtml(l.service)}</div>`))}
     <div style="margin-top:12px;"><strong>Open Estimates: ${openEstimates.length}</strong></div>
-    ${renderList(openEstimates.map(e => `<div style="${rowStyle}"><strong>${e.client_name || "Unknown"}</strong> — ${e.estimated_total ? fmt(Number(e.estimated_total)) : "N/A"} · Sent ${formatShortDate(e.quote_sent_at)}</div>`))}
-    ${staleEstimates.length > 0 ? `<div style="margin-top:12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:8px;"><strong style="color:#92400e;">⏰ ${staleEstimates.length} Stale Estimate${staleEstimates.length > 1 ? "s" : ""} (>7 days)</strong>${renderList(staleEstimates.map(e => `<div style="${rowStyle}">${e.client_name || "Unknown"} — ${e.estimated_total ? fmt(Number(e.estimated_total)) : "N/A"}</div>`))}</div>` : ""}
+    ${renderList(openEstimates.map(e => `<div style="${rowStyle}"><strong>${escapeHtml(e.client_name || "Unknown")}</strong> — ${e.estimated_total ? fmt(Number(e.estimated_total)) : "N/A"} · Sent ${formatShortDate(e.quote_sent_at)}</div>`))}
+    ${staleEstimates.length > 0 ? `<div style="margin-top:12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:8px;"><strong style="color:#92400e;">⏰ ${staleEstimates.length} Stale Estimate${staleEstimates.length > 1 ? "s" : ""} (>7 days)</strong>${renderList(staleEstimates.map(e => `<div style="${rowStyle}">${escapeHtml(e.client_name || "Unknown")} — ${e.estimated_total ? fmt(Number(e.estimated_total)) : "N/A"}</div>`))}</div>` : ""}
     <table style="margin-top:12px;">
       ${metricRow("Wins (7 days)", String(estimateWins.length))}
       ${metricRow("Conversion Rate (30d)", convRate)}
@@ -794,12 +800,12 @@ Deno.serve(async (req) => {
   const sec5Html = `<div style="${sectionStyle}">
     <h2 style="${headerStyle("#0891b2")}">👥 CUSTOMERS</h2>
     <table>
-      ${metricRow("New (24h)", `${newCustomers24h.length}${newCustomers24h.length > 0 ? " — " + newCustomers24h.slice(0, 3).map(c => `${c.first_name || ""} ${c.last_name || ""}`.trim()).join(", ") : ""}`)}
+      ${metricRow("New (24h)", `${newCustomers24h.length}${newCustomers24h.length > 0 ? " — " + newCustomers24h.slice(0, 3).map(c => htmlPerson(c)).join(", ") : ""}`)}
       ${metricRow("New (7 days)", String(newCustomers7d))}
       ${metricRow("Total Active", String(totalActiveCustomers))}
     </table>
-    ${churnRisk.length > 0 ? `<div style="margin-top:12px;"><strong style="color:#dc2626;">⚠️ Churn Risk (no booking >90 days)</strong>${renderList(churnRisk.map(c => `<div style="${rowStyle}">${c.first_name || ""} ${c.last_name || ""} — Last: ${formatShortDate(c.lastBooking)}</div>`))}</div>` : ""}
-    ${topCustomersMonth.length > 0 ? `<div style="margin-top:12px;"><strong>🏆 Top Customers This Month</strong>${topCustomersMonth.map((c, i) => `<div style="${rowStyle}">${i + 1}. ${c.name} — ${fmt(c.total)}</div>`).join("")}</div>` : ""}
+    ${churnRisk.length > 0 ? `<div style="margin-top:12px;"><strong style="color:#dc2626;">⚠️ Churn Risk (no booking >90 days)</strong>${renderList(churnRisk.map(c => `<div style="${rowStyle}">${htmlPerson(c)} — Last: ${formatShortDate(c.lastBooking)}</div>`))}</div>` : ""}
+    ${topCustomersMonth.length > 0 ? `<div style="margin-top:12px;"><strong>🏆 Top Customers This Month</strong>${topCustomersMonth.map((c, i) => `<div style="${rowStyle}">${i + 1}. ${escapeHtml(c.name)} — ${fmt(c.total)}</div>`).join("")}</div>` : ""}
   </div>`;
 
   // Section 6: Marketing
@@ -831,8 +837,8 @@ Deno.serve(async (req) => {
       ${metricRow("Checklist Completion (7d)", `${checklistCompletion.rate}% (${checklistCompletion.completed}/${checklistCompletion.total})`)}
       ${metricRow("Avg Rating (7d)", avgRatingWeek.count > 0 ? `${avgRatingWeek.avg}★ (${avgRatingWeek.count} reviews)` : "No reviews")}
     </table>
-    ${staffUtilization.length > 0 ? `<div style="margin-top:12px;"><strong>Staff Utilization Today</strong>${staffUtilization.map(s => `<div style="${rowStyle}">${s.name}: ${s.count} job${s.count > 1 ? "s" : ""}</div>`).join("")}</div>` : ""}
-    ${serviceVolume.length > 0 ? `<div style="margin-top:12px;"><strong>Top Services This Week</strong>${serviceVolume.map(s => `<div style="${rowStyle}">${s.name}: ${s.count} booking${s.count > 1 ? "s" : ""}</div>`).join("")}</div>` : ""}
+    ${staffUtilization.length > 0 ? `<div style="margin-top:12px;"><strong>Staff Utilization Today</strong>${staffUtilization.map(s => `<div style="${rowStyle}">${escapeHtml(s.name)}: ${s.count} job${s.count > 1 ? "s" : ""}</div>`).join("")}</div>` : ""}
+    ${serviceVolume.length > 0 ? `<div style="margin-top:12px;"><strong>Top Services This Week</strong>${serviceVolume.map(s => `<div style="${rowStyle}">${escapeHtml(s.name)}: ${s.count} booking${s.count > 1 ? "s" : ""}</div>`).join("")}</div>` : ""}
   </div>`;
 
   // Section 9: Week-over-Week

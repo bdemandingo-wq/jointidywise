@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, BookOpen, Clock, Calendar, Loader2 } from "lucid
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
+import { blogSortTime } from "@/lib/blogDates";
 import { CopyrightYear } from '@/components/CopyrightYear';
 import { QueryError } from '@/components/QueryError';
 
@@ -225,10 +226,11 @@ export default function BlogIndex() {
 
   if (dynamicPostsError) return <QueryError subject="blog posts" />;
 
-  // Combine static, feature, and dynamic posts
+  // Newest first. Static cards used to be concatenated ahead of the
+  // database, so the February 2026 cornerstone stayed on top of later posts.
   const allPosts = [
-    ...staticPosts.map(post => ({ ...post, isFeaturePage: false as const })),
-    ...featureArticles.map(post => ({ ...post, isStatic: false as const })),
+    ...staticPosts.map(post => ({ ...post, isFeaturePage: false as const, sortAt: blogSortTime({ dateLabel: post.date }) })),
+    ...featureArticles.map(post => ({ ...post, isStatic: false as const, sortAt: blogSortTime({ dateLabel: post.date }) })),
     ...dynamicPosts.map(post => ({
       slug: post.slug,
       title: post.title,
@@ -238,12 +240,13 @@ export default function BlogIndex() {
       // published_at is nullable. new Date(null) is Invalid Date and date-fns
       // format() THROWS on it — that took the whole index down rather than
       // hiding one post. An unpublished post simply shows no date.
-      date: post.published_at ? format(new Date(post.published_at), "MMMM yyyy") : "",
+      date: post.published_at ? format(new Date(post.published_at), "MMMM d, yyyy") : "",
       featured: post.is_featured,
       isStatic: false as const,
-      isFeaturePage: false as const
+      isFeaturePage: false as const,
+      sortAt: blogSortTime({ publishedAt: post.published_at, dateLabel: "" }),
     }))
-  ];
+  ].sort((a, b) => b.sortAt - a.sortAt || String(a.title).localeCompare(String(b.title)));
 
   return (
     <div className="min-h-screen bg-background">

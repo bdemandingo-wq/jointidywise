@@ -93,21 +93,9 @@ export default function SignupPage() {
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // /signup?plan=… is the OLD signup-first checkout path. The new
-  // pricing flow goes /pricing → Stripe directly (anonymous checkout)
-  // → webhook creates the account → email link sets password. Any
-  // visitor still landing here from a cached link or stale bookmark
-  // gets redirected back to /pricing with their plan choice so they
-  // re-enter the canonical flow instead of falling through this
-  // deprecated path.
-  useEffect(() => {
-    if (selectedPlan) {
-      const params = new URLSearchParams();
-      params.set('plan', selectedPlan);
-      params.set('interval', selectedInterval);
-      navigate(`/pricing?${params.toString()}`, { replace: true });
-    }
-  }, [selectedPlan, selectedInterval, navigate]);
+  // /signup?plan= keeps the plan through account creation and opens
+  // embedded checkout afterwards. Logged-in visitors start that checkout
+  // from /pricing directly.
 
   // Standard "already authenticated" redirect.
   useEffect(() => {

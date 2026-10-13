@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getOrgEmailSettings, formatEmailFrom, getReplyTo } from "../_shared/get-org-email-settings.ts";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -180,7 +181,7 @@ const handler = async (req: Request): Promise<Response> => {
           <tr>
             <td style="background-color:#1e5bb0;padding:30px;text-align:center;">
               <div style="font-size:32px;font-weight:bold;color:#ffffff;">
-                ${companyName}
+                ${escapeHtml(companyName)}
               </div>
               <p style="color:#ffffff;font-size:14px;margin:5px 0 0 0;">Professional Cleaning Services</p>
             </td>
@@ -189,10 +190,10 @@ const handler = async (req: Request): Promise<Response> => {
           <!-- Main Content -->
           <tr>
             <td style="padding:40px 30px;text-align:center;">
-              <h1 style="margin:0 0 20px 0;color:#1e5bb0;font-size:28px;">How was your ${serviceName}?</h1>
+              <h1 style="margin:0 0 20px 0;color:#1e5bb0;font-size:28px;">How was your ${escapeHtml(serviceName)}?</h1>
               
               <p style="font-size:16px;margin:0 0 30px 0;color:#666;">
-                Hi ${customerName}! We'd love to hear about your experience. Your feedback helps us improve and helps others find great cleaning services.
+                Hi ${escapeHtml(customerName)}! We'd love to hear about your experience. Your feedback helps us improve and helps others find great cleaning services.
               </p>
               
               <p style="font-size:16px;margin:0 0 20px 0;color:#333;font-weight:600;">
@@ -236,9 +237,9 @@ const handler = async (req: Request): Promise<Response> => {
           <!-- Footer -->
           <tr>
             <td style="background-color:#333333;padding:20px;text-align:center;">
-              <p style="color:#ffffff;font-size:14px;font-weight:600;margin:0 0 5px 0;">${companyName}</p>
+              <p style="color:#ffffff;font-size:14px;font-weight:600;margin:0 0 5px 0;">${escapeHtml(companyName)}</p>
               <p style="color:#999999;font-size:12px;margin:0;">
-                © ${new Date().getFullYear()} ${companyName}. All rights reserved.
+                © ${new Date().getFullYear()} ${escapeHtml(companyName)}. All rights reserved.
               </p>
             </td>
           </tr>

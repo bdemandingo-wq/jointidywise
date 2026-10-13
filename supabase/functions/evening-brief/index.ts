@@ -2,6 +2,12 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronOrUser } from "../_shared/requireCronOrUser.ts";
 import { checkOrgEmailEligibility, unsubscribeFooterHtml } from "../_shared/emailEligibility.ts";
 import { tidywiseSupportFrom } from "../_shared/email-footer.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
+
+function htmlPerson(c: { first_name?: string | null; last_name?: string | null } | null | undefined): string {
+  const raw = c ? `${c.first_name || ""} ${c.last_name || ""}`.trim() : "";
+  return escapeHtml(raw || "Unknown");
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -210,7 +216,7 @@ Deno.serve(async (req) => {
     completedHtml = completedJobs
       .map((b) => {
         const c = b.customers;
-        const name = c ? `${c.first_name || ""} ${c.last_name || ""}`.trim() : "Unknown";
+        const name = htmlPerson(c);
         return `<div style="padding:6px 0;border-bottom:1px solid #eee;">
           <strong>${name}</strong> — ${formatTime(b.scheduled_at)} · 
           $${Number(b.total_amount || 0).toFixed(2)} · 
@@ -228,7 +234,7 @@ Deno.serve(async (req) => {
         <h3 style="color:#dc2626;margin:0 0 8px;font-size:14px;">⚠️ ${unpaidJobs.length} Unpaid Completed Job${unpaidJobs.length > 1 ? 's' : ''}</h3>
         ${unpaidJobs.map((b) => {
           const c = b.customers;
-          const name = c ? `${c.first_name || ""} ${c.last_name || ""}`.trim() : "Unknown";
+          const name = htmlPerson(c);
           return `<div style="padding:4px 0;color:#991b1b;">${name} — $${Number(b.total_amount || 0).toFixed(2)}</div>`;
         }).join("")}
       </div>`;
@@ -242,7 +248,7 @@ Deno.serve(async (req) => {
     tomorrowHtml = tomorrowBookings
       .map((b) => {
         const c = b.customers;
-        const name = c ? `${c.first_name || ""} ${c.last_name || ""}`.trim() : "Unknown";
+        const name = htmlPerson(c);
         return `<div style="padding:6px 0;border-bottom:1px solid #eee;">
           <strong>${name}</strong> — ${formatTime(b.scheduled_at)}
         </div>`;
@@ -258,7 +264,7 @@ Deno.serve(async (req) => {
       ${openEstimates.map((e) => {
         const amount = e.estimated_total ? `$${Number(e.estimated_total).toFixed(2)}` : "N/A";
         return `<div style="padding:6px 0;border-bottom:1px solid #eee;">
-          <strong>${e.client_name || "Unknown"}</strong> — ${amount}
+          <strong>${escapeHtml(e.client_name || "Unknown")}</strong> — ${amount}
         </div>`;
       }).join("")}`;
   }
@@ -267,7 +273,7 @@ Deno.serve(async (req) => {
   if (errors.length > 0) {
     errorsHtml = `<div style="background:#fef2f2;border:1px solid #fca5a5;padding:12px;border-radius:8px;margin-top:20px;">
       <h3 style="color:#dc2626;margin:0 0 8px;">⚠️ Errors</h3>
-      ${errors.map((e) => `<p style="margin:4px 0;color:#991b1b;">${e}</p>`).join("")}
+      ${errors.map((e) => `<p style="margin:4px 0;color:#991b1b;">${escapeHtml(e)}</p>`).join("")}
     </div>`;
   }
 

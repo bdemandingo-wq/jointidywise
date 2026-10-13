@@ -1,5 +1,6 @@
 import { useLayoutEffect, useEffect } from "react";
 import { Helmet } from "react-helmet-async";
+import { safeJsonLd } from "@/lib/safeJsonLd";
 
 // useLayoutEffect runs synchronously after DOM mutations but before paint, so
 // the per-route head tags are set before any prerender snapshot captures the
@@ -112,8 +113,8 @@ export function SEOHead({
 
   const jsonLdPayload = schemaJson
     ? Array.isArray(schemaJson)
-      ? JSON.stringify({ "@context": "https://schema.org", "@graph": schemaJson })
-      : JSON.stringify({ "@context": "https://schema.org", ...schemaJson })
+      ? safeJsonLd({ "@context": "https://schema.org", "@graph": schemaJson })
+      : safeJsonLd({ "@context": "https://schema.org", ...schemaJson })
     : undefined;
 
   // All conventional head tags (title, description, robots, canonical, OG,

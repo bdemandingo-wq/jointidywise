@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { registerSW } from 'virtual:pwa-register';
-import { toast } from 'sonner';
+import { DISMISSED_BUILD_KEY, shouldOfferAppUpdate } from '@/lib/appUpdate';
 
 /**
  * The iOS shell sets this on the web view even when the Capacitor bridge has
@@ -56,30 +56,95 @@ export function registerPwa(): void {
   if (import.meta.env.DEV) return;
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
 
-  // The callback below closes over `updateSW` before the assignment completes.
-  // Safe: onNeedRefresh only fires once a new worker has installed, long after
-  // registerSW has returned and the binding is initialised.
-  const updateSW = registerSW({
+  // A waiting worker is not proof of a new deploy. Workbox calls
+  // onNeedRefresh on every load while a worker is waiting, which is why the
+  // banner was covering mobile on each visit. version.json is emitted beside
+  // the bundle and is not precached; the offer is the string compare in
+  // shouldOfferAppUpdate.
+  let updateSW: (reloadPage?: boolean) => Promise<void> = async () => {
+    window.location.reload();
+  };
+
+  const offerUpdate = async () => {
+    let remoteBuildId: string | null = null;
+    try {
+      const response = await fetch(`/version.json?ts=${Date.now()}`, { cache: 'no-store' });
+      if (response.ok) {
+        const body = await response.json() as { buildId?: unknown };
+        remoteBuildId = typeof body.buildId === 'string' ? body.buildId : null;
+      }
+    } catch {
+      remoteBuildId = null;
+    }
+    let dismissed: string | null = null;
+    try {
+      dismissed = localStorage.getItem(DISMISSED_BUILD_KEY);
+    } catch {
+      dismissed = null;
+    }
+    const show = shouldOfferAppUpdate({
+      localBuildId: import.meta.env.VITE_APP_BUILD_ID,
+      remoteBuildId,
+      dismissedBuildId: dismissed,
+    });
+    if (!show) {
+      document.getElementById('tw-update-banner')?.remove();
+      return;
+    }
+    if (document.getElementById('tw-update-banner')) return;
+    const bar = document.createElement('div');
+    bar.id = 'tw-update-banner';
+    bar.setAttribute('role', 'status');
+    bar.style.cssText = [
+      'position:fixed',
+      'z-index:80',
+      'top:0',
+      'left:0',
+      'right:0',
+      'display:flex',
+      'align-items:center',
+      'justify-content:center',
+      'gap:8px',
+      'flex-wrap:wrap',
+      'padding:8px 12px',
+      'padding-top:calc(env(safe-area-inset-top, 0px) + 8px)',
+      'background:#0f172a',
+      'color:#fff',
+      'font:500 13px/1.3 ui-sans-serif,system-ui,sans-serif',
+    ].join(';');
+    const text = document.createElement('span');
+    text.textContent = 'A new version of TidyWise is ready.';
+    const reload = document.createElement('button');
+    reload.type = 'button';
+    reload.textContent = 'Reload';
+    reload.style.cssText = 'background:#fff;color:#0f172a;border:0;border-radius:999px;padding:4px 12px;font:600 13px ui-sans-serif,system-ui;cursor:pointer';
+    reload.addEventListener('click', () => {
+      void updateSW(true);
+    });
+    const dismiss = document.createElement('button');
+    dismiss.type = 'button';
+    dismiss.textContent = 'Not now';
+    dismiss.setAttribute('aria-label', 'Dismiss update notice');
+    dismiss.style.cssText = 'background:transparent;color:#fff;border:1px solid rgba(255,255,255,.45);border-radius:999px;padding:4px 12px;font:500 13px ui-sans-serif,system-ui;cursor:pointer';
+    dismiss.addEventListener('click', () => {
+      try {
+        if (remoteBuildId) localStorage.setItem(DISMISSED_BUILD_KEY, remoteBuildId);
+      } catch {
+        /* private mode */
+      }
+      bar.remove();
+    });
+    bar.append(text, reload, dismiss);
+    document.body.append(bar);
+  };
+
+  updateSW = registerSW({
     onNeedRefresh() {
-      toast('A new version of TidyWise is ready', {
-        description: 'Reload when you reach a good stopping point.',
-        // No auto-dismiss: this is the only affordance for taking the update,
-        // and a toast that vanishes leaves the person on an old build with no
-        // way back other than a manual refresh.
-        duration: Infinity,
-        action: {
-          label: 'Reload',
-          onClick: () => {
-            void updateSW(true);
-          },
-        },
-      });
+      void offerUpdate();
     },
     onRegisterError(error) {
-      // Not fatal and not worth interrupting anyone over — the app works
-      // perfectly well uninstalled. Logged so it reaches Sentry's console
-      // breadcrumbs rather than disappearing.
       console.warn('[pwa] service worker registration failed', error);
     },
   });
+  void offerUpdate();
 }

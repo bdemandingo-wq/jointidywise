@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -87,7 +88,7 @@ const handler = async (req: Request): Promise<Response> => {
           <!-- Main Content -->
           <tr>
             <td style="padding:40px 30px;">
-              <p style="font-size:20px;margin:0 0 20px 0;color:#1f2937;">Hi ${userName},</p>
+              <p style="font-size:20px;margin:0 0 20px 0;color:#1f2937;">Hi ${escapeHtml(userName)},</p>
               
               <p style="margin:0 0 20px 0;font-size:16px;color:#4b5563;">Welcome to <strong>${companyName}</strong>! We're thrilled to have you join our community of cleaning professionals.</p>
               

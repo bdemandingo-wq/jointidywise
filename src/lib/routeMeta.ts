@@ -108,6 +108,12 @@ export const STATIC_ROUTE_META: Record<string, RouteMeta> = {
       "See how TidyWise replaces 5+ tools for cleaning businesses. Book a 20-minute demo and watch us run your scheduling, payroll, and CRM in one place.",
     h1: "See TidyWise in action",
   },
+  "/referral": {
+    title: "Refer a cleaning business | TidyWise",
+    description:
+      "Share TidyWise with another cleaning business. When two of them become paying customers, you earn a free month.",
+    h1: "Refer another cleaning business",
+  },
   "/contact": {
     title: "Contact TidyWise — Cleaning Business Support",
     description:

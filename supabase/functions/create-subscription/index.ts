@@ -25,6 +25,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { ensureOnboardingCoupon, type OnboardingCouponOffer } from "../_shared/onboarding-coupons.ts";
 import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
+import { stripeTrialEndUnix } from "../_shared/trial-end.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -148,13 +149,27 @@ serve(async (req) => {
       { auth: { persistSession: false } },
     );
     if (user) {
-      const { data: existingOrg } = await accessAdmin
+      // limit(1) with no order picked an arbitrary membership. An owner of a
+      // trial org and another org could miss plan_type trial and get a
+      // different Stripe trial than the dashboard clock.
+      const { data: membershipRows } = await accessAdmin
         .from("org_memberships")
-        .select("organizations(id, plan_type, grandfathered_lifetime)")
-        .eq("user_id", user.id)
-        .limit(1)
-        .maybeSingle();
-      const org = (existingOrg as { organizations?: { id?: string; plan_type?: string; grandfathered_lifetime?: boolean } } | null)?.organizations;
+        .select("role, organizations(id, plan_type, grandfathered_lifetime)")
+        .eq("user_id", user.id);
+      type MembershipOrg = { id?: string; plan_type?: string; grandfathered_lifetime?: boolean };
+      const memberships = (membershipRows ?? []) as Array<{
+        role?: string;
+        organizations?: MembershipOrg | MembershipOrg[] | null;
+      }>;
+      const orgFrom = (row: (typeof memberships)[number]): MembershipOrg | null => {
+        const value = row.organizations;
+        if (!value) return null;
+        return Array.isArray(value) ? (value[0] ?? null) : value;
+      };
+      const trialMembership = memberships.find((row) => orgFrom(row)?.plan_type === "trial");
+      const ownerMembership = memberships.find((row) => row.role === "owner" || row.role === "admin");
+      const chosen = trialMembership ?? ownerMembership ?? memberships[0];
+      const org = chosen ? orgFrom(chosen) : null;
       referredOrgId = org?.id ?? null;
       orgPlanType = org?.plan_type ?? null;
       if (org?.grandfathered_lifetime || org?.plan_type === "lifetime") {
@@ -236,9 +251,11 @@ serve(async (req) => {
     // Card-free trial lives on the org (plan_type trial + trial_ends_at),
     // not on a Checkout session. This function is only the paid conversion.
     //
-    // - Active org trial, more than 48h left: optional card, and the Stripe
-    //   trial ends on the SAME timestamp. No second trial, and Stripe
-    //   cancels at that time if they never add a card.
+    // - Active org trial, more than 48h left: optional card. Stripe's
+    //   trial_end is the profile timestamp, moved forward only far enough
+    //   that Checkout's floored day count matches the dashboard's ceil.
+    //   It is never earlier. Stripe cancels at that time if they never
+    //   add a card.
     // - Org trial already over: card required, billed from today. The
     //   paywall is not another free period.
     // - Any other existing plan: keep the previous checkout (card required,
@@ -316,7 +333,6 @@ serve(async (req) => {
       }
     }
 
-    const MIN_TRIAL_END_LEAD_MS = 48 * 60 * 60 * 1000;
     let paymentMethodCollection: "always" | "if_required" = "if_required";
     const subscriptionData: {
       metadata: Record<string, string>;
@@ -334,9 +350,9 @@ serve(async (req) => {
         .select("trial_ends_at")
         .eq("id", user.id)
         .maybeSingle();
-      const endsMs = trialProfile?.trial_ends_at ? Date.parse(trialProfile.trial_ends_at) : NaN;
-      if (Number.isFinite(endsMs) && endsMs - Date.now() >= MIN_TRIAL_END_LEAD_MS) {
-        subscriptionData.trial_end = Math.floor(endsMs / 1000);
+      const trialEnd = stripeTrialEndUnix(trialProfile?.trial_ends_at);
+      if (trialEnd != null) {
+        subscriptionData.trial_end = trialEnd;
         paymentMethodCollection = "if_required";
       } else {
         paymentMethodCollection = "always";
