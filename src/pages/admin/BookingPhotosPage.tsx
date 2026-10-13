@@ -13,10 +13,9 @@ import { Capacitor } from '@capacitor/core';
 import { Share } from '@capacitor/share';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Search, Camera, Calendar, User, Loader2, Image as ImageIcon, Trash2, Play, Download, Video, ArrowLeftRight, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useOrganization } from '@/contexts/OrganizationContext';
-import { format } from 'date-fns';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { formatInTimezone } from '@/lib/timezoneUtils';
 import { toast } from 'sonner';
@@ -25,41 +24,12 @@ import { confirmDialog } from "@/components/AppDialogs";
 import { stepGalleryIndex } from '@/lib/photoGallery';
 import { proofOverlayLabel } from '@/lib/photoProofStamp';
 import { useGalleryNavigation } from '@/hooks/useGalleryNavigation';
-
-interface BookingPhoto {
-  id: string;
-  booking_id: string;
-  staff_id: string | null;
-  photo_url: string;
-  photo_type: string | null;
-  caption: string | null;
-  created_at: string | null;
-  /** EXIF or upload instant. Present after the proof-stamp migration. */
-  captured_at?: string | null;
-  /** 'exif' (Taken) or 'upload' (Uploaded). */
-  timestamp_source?: string | null;
-  proof_stamped?: boolean | null;
-  media_type?: string;
-  inspection_note?: string | null;
-  issue_category?: string | null;
-  booking?: {
-    booking_number: number;
-    scheduled_at: string;
-    customer?: {
-      first_name: string;
-      last_name: string;
-    } | null;
-  } | null;
-  staff?: {
-    name: string;
-  } | null;
-}
-
-function isVideoMedia(item: BookingPhoto): boolean {
-  if (item.media_type === 'video') return true;
-  const url = item.photo_url.toLowerCase();
-  return url.endsWith('.mp4') || url.endsWith('.mov') || url.endsWith('.m4v');
-}
+import { useBookingMediaGallery, isVideoMedia, type BookingPhoto } from '@/hooks/useBookingMediaGallery';
+import { VirtualMediaGrid } from '@/components/admin/VirtualMediaGrid';
+import { GalleryZoom } from '@/components/admin/GalleryZoom';
+import { adjacentMedia } from '@/lib/bookingMediaGallery';
+import { prefetchMediaOriginal } from '@/lib/mediaThumbnail';
+import { Skeleton } from '@/components/ui/skeleton';
 
 function SignedVideo({ src, bucket, className }: { src: string; bucket: string; className?: string }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -110,118 +80,13 @@ export default function BookingPhotosPage() {
   const [movingId, setMovingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const bookingPhotoSelect = `
-    *, inspection_note, issue_category,
-    booking:bookings!booking_photos_booking_id_fkey(
-      booking_number,
-      scheduled_at,
-      customer:customers!bookings_customer_id_fkey(first_name, last_name)
-    ),
-    staff:staff!booking_photos_staff_id_fkey(name)
-  `;
-
-  // Live gallery: new cleaner uploads appear within seconds, like a native
-  // photo library, instead of waiting for a manual refresh.
-  useEffect(() => {
-    if (!organization?.id) return;
-    const channel = supabase
-      .channel(`booking-photos-${organization.id}`)
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'booking_photos', filter: `organization_id=eq.${organization.id}` },
-        () => queryClient.invalidateQueries({ queryKey: ['booking-photos', organization.id] }))
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [organization?.id, queryClient]);
-
-  const { data: photos = [], isLoading, error: photosError, refetch } = useQuery({
-    queryKey: ['booking-photos', organization?.id],
-    queryFn: async () => {
-      if (!organization?.id) return [];
-
-      const merged = new Map<string, BookingPhoto>();
-
-      const { data: directRows, error: directError } = await supabase
-        .from('booking_photos')
-        .select(bookingPhotoSelect)
-        .eq('organization_id', organization.id)
-        .order('created_at', { ascending: false });
-
-      if (directError) {
-        console.error('[BookingPhotos] direct query error:', directError);
-        throw directError;
-      }
-
-      for (const row of (directRows || []) as unknown as BookingPhoto[]) {
-        merged.set(row.id, row);
-      }
-
-      const { data: orgBookingRows, error: bookingError } = await supabase
-        .from('bookings')
-        .select('id')
-        .eq('organization_id', organization.id)
-        .limit(5000);
-
-      if (bookingError) {
-        console.error('[BookingPhotos] bookings query error:', bookingError);
-        throw bookingError;
-      }
-
-      const bookingIds = (orgBookingRows || []).map((row) => row.id);
-      if (bookingIds.length) {
-        const { data: fallbackRows, error: fallbackError } = await supabase
-          .from('booking_photos')
-          .select(bookingPhotoSelect)
-          .in('booking_id', bookingIds)
-          .order('created_at', { ascending: false });
-
-        if (fallbackError) {
-          console.error('[BookingPhotos] fallback query error:', fallbackError);
-          throw fallbackError;
-        }
-
-        for (const row of (fallbackRows || []) as unknown as BookingPhoto[]) {
-          merged.set(row.id, row);
-        }
-      }
-
-      console.log(`[BookingPhotos] loaded ${merged.size} media items for org ${organization.id}`);
-      return Array.from(merged.values()).sort((a, b) => {
-        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-        return bTime - aTime;
-      });
-    },
-    enabled: !!organization?.id,
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: true,
-    staleTime: 0,
-  });
-
+  const { photos, isLoading, error: photosError, refetch, complete, hasNextPage, fetchNextPage } = useBookingMediaGallery(organization?.id);
   // Surface query errors so silent RLS/permission failures don't look like "no data"
   useEffect(() => {
     if (photosError) {
       toast.error(`Couldn't load booking media: ${(photosError as Error).message || 'unknown error'}`);
     }
   }, [photosError]);
-
-  // Live updates — when a cleaner uploads a photo, refresh instantly.
-  useEffect(() => {
-    if (!organization?.id) return;
-    const channel = supabase
-      .channel(`booking-photos-${organization.id}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'booking_photos', filter: `organization_id=eq.${organization.id}` },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['booking-photos', organization.id] });
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [organization?.id, queryClient]);
-
 
   const filtered = photos.filter((photo) => {
     const matchesType = typeFilter === 'all' || photo.photo_type === typeFilter;
@@ -257,8 +122,11 @@ export default function BookingPhotosPage() {
   };
 
   const galleryNav = useGalleryNavigation(viewerIndex >= 0, showDelta, () => setViewerId(null));
-  const timestampOverlay = selectedPhoto ? proofOverlayLabel(selectedPhoto, orgTz) : null;
   const visibleIds = filtered.map((photo) => photo.id).join('\n');
+  useEffect(() => {
+    for (const photo of adjacentMedia(filteredRef.current, viewerIndex, isVideoMedia)) void prefetchMediaOriginal('booking-photos', photo.photo_url);
+  }, [viewerIndex, visibleIds]);
+  const timestampOverlay = selectedPhoto ? proofOverlayLabel(selectedPhoto, orgTz) : null;
   useEffect(() => {
     if (viewerId && !filteredRef.current.some((photo) => photo.id === viewerId)) setViewerId(null);
   }, [viewerId, visibleIds]);
@@ -277,10 +145,7 @@ export default function BookingPhotosPage() {
         .eq('id', photo.id);
       if (error) throw error;
 
-      queryClient.setQueryData<BookingPhoto[]>(['booking-photos', organization?.id], (current) =>
-        current?.map((row) => (row.id === photo.id ? { ...row, photo_type: target } : row)),
-      );
-      queryClient.invalidateQueries({ queryKey: ['booking-photos'] });
+      queryClient.invalidateQueries({ queryKey: ['booking-photos', organization?.id] });
       toast.success(`Moved to ${target}`);
     } catch (error) {
       console.error(error);
@@ -305,7 +170,7 @@ export default function BookingPhotosPage() {
         console.warn('Storage remove failed (orphaned file):', storageError.message);
       }
 
-      queryClient.invalidateQueries({ queryKey: ['booking-photos'] });
+      queryClient.invalidateQueries({ queryKey: ['booking-photos', organization?.id] });
       toast.success(`${isVideoMedia(photo) ? 'Video' : 'Photo'} deleted`);
       if (viewerId === photo.id) {
         const neighbor = filtered[viewerIndex + 1] ?? filtered[viewerIndex - 1] ?? null;
@@ -402,8 +267,8 @@ export default function BookingPhotosPage() {
             </Select>
           </div>
 
-          <div className="flex gap-4 text-sm text-muted-foreground">
-            <span>{photos.length} total</span>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
+            <span>{complete ? `${photos.length} total` : `Loading library · ${photos.length} loaded`}</span>
             <span>•</span>
             <span>📷 {photoCount} photos</span>
             <span>•</span>
@@ -417,11 +282,9 @@ export default function BookingPhotosPage() {
           </div>
 
           {isLoading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">{Array.from({ length: 10 }, (_, i) => <Skeleton key={i} className="aspect-square rounded-lg" />)}</div>
           ) : photosError ? (
-            <QueryError subject="booking photos" onRetry={() => window.location.reload()} />
+            <QueryError subject="booking photos" onRetry={() => { void (hasNextPage ? fetchNextPage() : refetch()); }} />
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
               <Camera className="w-12 h-12 mb-3" />
@@ -429,19 +292,20 @@ export default function BookingPhotosPage() {
               <p className="text-sm">Photos and videos will appear here when your cleaners upload them from the staff portal</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {filtered.map((photo) => {
+            <VirtualMediaGrid items={filtered} renderItem={(photo) => {
                 const isVideo = isVideoMedia(photo);
                 return (
                   <Card
                     key={photo.id}
+                    role="button" tabIndex={0} aria-label={`Open ${photo.photo_type || 'booking'} ${isVideo ? 'video' : 'photo'} ${photo.id}`}
+                    onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setViewerId(photo.id); } }}
                     className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow group"
                     onClick={() => setViewerId(photo.id)}
                   >
                     <div className="aspect-square relative bg-muted">
                       {isVideo ? (
-                        <div className="w-full h-full flex items-center justify-center bg-black/80">
-                          <Play className="w-10 h-10 text-white fill-white" />
+                        <div className="w-full h-full flex items-center justify-center bg-muted">
+                          <Play className="w-10 h-10 text-foreground fill-current" />
                         </div>
                       ) : (
                         <SignedImage
@@ -450,6 +314,7 @@ export default function BookingPhotosPage() {
                           alt={`${photo.photo_type || 'Booking'} photo`}
                           className="w-full h-full object-cover"
                           thumbWidth={400}
+                          galleryThumbnail
                           fallback={
                             <div className="w-full h-full flex items-center justify-center">
                               <ImageIcon className="w-8 h-8 text-muted-foreground" />
@@ -486,21 +351,20 @@ export default function BookingPhotosPage() {
                     </CardContent>
                   </Card>
                 );
-              })}
-            </div>
+              }} />
           )}
         </div>
 
         <Dialog open={!!selectedPhoto} onOpenChange={(open) => !open && setViewerId(null)}>
           <DialogContent
-            className="max-w-2xl"
+            className="portal-v2 !fixed !inset-0 !left-0 !top-0 !translate-x-0 !translate-y-0 !w-full !max-w-none !h-dvh !max-h-dvh !rounded-none !border-0 !p-0 !z-[10000] [&>button]:!h-11 [&>button]:!w-11 [&>button]:!top-[max(4px,env(safe-area-inset-top))] [&>button]:!right-2 flex flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]"
             onEscapeKeyDown={(event) => {
               event.preventDefault();
               event.stopPropagation();
               setViewerId(null);
             }}
           >
-            <DialogHeader className="pr-8">
+            <DialogHeader className="px-4 pt-4 pr-14 shrink-0">
               <div className="flex items-start justify-between gap-3">
                 <DialogTitle className="flex items-center gap-2 text-left">
                   {selectedPhoto && isVideoMedia(selectedPhoto) ? <Video className="w-5 h-5" /> : <Camera className="w-5 h-5" />}
@@ -514,11 +378,11 @@ export default function BookingPhotosPage() {
               </div>
             </DialogHeader>
             {selectedPhoto && (
-              <div className="space-y-4">
+              <div className="flex flex-1 min-h-0 flex-col gap-3">
                 <div
-                  className="relative rounded-lg overflow-hidden bg-muted touch-pan-y"
-                  onPointerDown={galleryNav.onPointerDown}
-                  onPointerUp={galleryNav.onPointerUp}
+                  className="relative flex-1 min-h-0 overflow-hidden bg-muted touch-pan-y"
+                  onPointerDown={isVideoMedia(selectedPhoto) ? galleryNav.onPointerDown : undefined}
+                  onPointerUp={isVideoMedia(selectedPhoto) ? galleryNav.onPointerUp : undefined}
                   onPointerCancel={galleryNav.onPointerCancel}
                 >
                   {isVideoMedia(selectedPhoto) ? (
@@ -526,25 +390,24 @@ export default function BookingPhotosPage() {
                       key={selectedPhoto.id}
                       src={selectedPhoto.photo_url}
                       bucket="booking-photos"
-                      className="w-full max-h-[60vh]"
+                      className="w-full h-full object-contain"
                     />
                   ) : (
-                    <SignedImage
-                      key={selectedPhoto.id}
+                    <GalleryZoom key={selectedPhoto.id} onStep={showDelta}><SignedImage
                       src={selectedPhoto.photo_url}
                       bucket="booking-photos"
                       alt="Full size"
-                      className="w-full max-h-[60vh] object-contain"
+                      className="w-full h-full object-contain"
                       loading="eager"
                       fallback={
                         <div className="w-full h-64 flex items-center justify-center">
                           <ImageIcon className="w-12 h-12 text-muted-foreground" />
                         </div>
                       }
-                    />
+                    /></GalleryZoom>
                   )}
                   {timestampOverlay && (
-                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/75 px-3 py-2 text-center text-xs font-medium text-white">
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-background/90 px-3 py-2 text-center text-xs font-medium text-foreground">
                       {timestampOverlay}
                     </div>
                   )}
@@ -552,7 +415,7 @@ export default function BookingPhotosPage() {
                     type="button"
                     variant="secondary"
                     size="icon"
-                    className="hidden md:inline-flex absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90 shadow"
+                    className={`${isVideoMedia(selectedPhoto) ? 'inline-flex' : 'hidden md:inline-flex'} absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90 shadow`}
                     disabled={viewerIndex <= 0}
                     aria-label="Previous photo"
                     onClick={() => showDelta(-1)}
@@ -563,7 +426,7 @@ export default function BookingPhotosPage() {
                     type="button"
                     variant="secondary"
                     size="icon"
-                    className="hidden md:inline-flex absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90 shadow"
+                    className={`${isVideoMedia(selectedPhoto) ? 'inline-flex' : 'hidden md:inline-flex'} absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90 shadow`}
                     disabled={viewerIndex < 0 || viewerIndex >= filtered.length - 1}
                     aria-label="Next photo"
                     onClick={() => showDelta(1)}
@@ -572,7 +435,7 @@ export default function BookingPhotosPage() {
                   </Button>
                 </div>
                 {selectedPhoto.photo_type === 'inspection' && (
-                  <div className="rounded-lg border bg-orange-50 dark:bg-orange-950/20 p-3 space-y-1">
+                  <div className="border border-destructive/30 bg-destructive/10 mx-4 p-3 space-y-1 max-h-24 overflow-y-auto shrink-0">
                     <div className="flex items-center gap-2">
                       <Badge variant="destructive" className="text-xs capitalize">
                         ⚠️ {selectedPhoto.issue_category?.replace('_', ' ') || 'Inspection'}
@@ -583,7 +446,7 @@ export default function BookingPhotosPage() {
                     )}
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs px-4 shrink-0 max-h-[20dvh] overflow-y-auto">
                   <div className="flex items-center gap-2">
                     <User className="w-4 h-4 text-muted-foreground" />
                     <span>
@@ -609,7 +472,7 @@ export default function BookingPhotosPage() {
                     <span>Uploaded: {selectedPhoto.created_at ? formatInTimezone(selectedPhoto.created_at, orgTz, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' }) : '—'}</span>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-3 shrink-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       variant="outline"
@@ -662,3 +525,4 @@ export default function BookingPhotosPage() {
 </AdminLayout>
   );
 }
+
