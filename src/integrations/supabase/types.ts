@@ -5594,6 +5594,24 @@ export type Database = {
         }
         Relationships: []
       }
+      growth_public_settings: {
+        Row: {
+          id: number
+          updated_at: string
+          weekly_signup_min: number
+        }
+        Insert: {
+          id: number
+          updated_at?: string
+          weekly_signup_min?: number
+        }
+        Update: {
+          id?: number
+          updated_at?: string
+          weekly_signup_min?: number
+        }
+        Relationships: []
+      }
       help_videos: {
         Row: {
           created_at: string
@@ -7614,6 +7632,59 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "org_stripe_settings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      org_subscription_loyalty: {
+        Row: {
+          applied_coupon_id: string | null
+          applied_discount_cents: number
+          billing_interval: string | null
+          continuous_since: string | null
+          created_at: string
+          last_status: string | null
+          organization_id: string
+          plan: string | null
+          reset_at: string | null
+          reset_reason: string | null
+          stripe_subscription_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          applied_coupon_id?: string | null
+          applied_discount_cents?: number
+          billing_interval?: string | null
+          continuous_since?: string | null
+          created_at?: string
+          last_status?: string | null
+          organization_id: string
+          plan?: string | null
+          reset_at?: string | null
+          reset_reason?: string | null
+          stripe_subscription_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          applied_coupon_id?: string | null
+          applied_discount_cents?: number
+          billing_interval?: string | null
+          continuous_since?: string | null
+          created_at?: string
+          last_status?: string | null
+          organization_id?: string
+          plan?: string | null
+          reset_at?: string | null
+          reset_reason?: string | null
+          stripe_subscription_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "org_subscription_loyalty_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: true
             referencedRelation: "organizations"
@@ -9810,6 +9881,7 @@ export type Database = {
           claimed_at: string | null
           claimed_organization_id: string | null
           claimed_user_id: string | null
+          county: string | null
           created_at: string
           formatted_address: string | null
           google_place_id: string | null
@@ -9821,6 +9893,7 @@ export type Database = {
           longitude: number | null
           name: string
           phone: string | null
+          primary_type: string | null
           score: number | null
           score_grade: string | null
           slug: string
@@ -9839,6 +9912,7 @@ export type Database = {
           claimed_at?: string | null
           claimed_organization_id?: string | null
           claimed_user_id?: string | null
+          county?: string | null
           created_at?: string
           formatted_address?: string | null
           google_place_id?: string | null
@@ -9850,6 +9924,7 @@ export type Database = {
           longitude?: number | null
           name: string
           phone?: string | null
+          primary_type?: string | null
           score?: number | null
           score_grade?: string | null
           slug: string
@@ -9868,6 +9943,7 @@ export type Database = {
           claimed_at?: string | null
           claimed_organization_id?: string | null
           claimed_user_id?: string | null
+          county?: string | null
           created_at?: string
           formatted_address?: string | null
           google_place_id?: string | null
@@ -9879,6 +9955,7 @@ export type Database = {
           longitude?: number | null
           name?: string
           phone?: string | null
+          primary_type?: string | null
           score?: number | null
           score_grade?: string | null
           slug?: string
@@ -9954,6 +10031,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      score_seed_runs: {
+        Row: {
+          city_slug: string
+          id: number
+          inserted_count: number
+          seeded_at: string
+          status: string
+          updated_count: number
+        }
+        Insert: {
+          city_slug: string
+          id?: never
+          inserted_count?: number
+          seeded_at?: string
+          status: string
+          updated_count?: number
+        }
+        Update: {
+          city_slug?: string
+          id?: never
+          inserted_count?: number
+          seeded_at?: string
+          status?: string
+          updated_count?: number
+        }
+        Relationships: []
       }
       score_top_cities: {
         Row: {
