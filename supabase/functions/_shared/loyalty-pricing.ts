@@ -1,8 +1,8 @@
 /**
  * Loyalty pricing for TidyWise subscriptions.
  *
- * One config: list price, step, interval, and floor. Pro drops $5 every 6
- * months of continuous paid subscription until $77. Basic drops $3 until $39.
+ * One config: list price, step, interval, and floor. Pro drops $2 every 2
+ * months of continuous paid subscription until $77. Basic drops $1 until $39.
  * Cancel, or an unpaid end, restarts the business at the list price. A
  * past_due that recovers does not. Lifetime, Custom, and yearly plans are
  * not on this schedule.
@@ -13,7 +13,7 @@
 
 export const LOYALTY_PRICING = {
   /** Months of continuous paid subscription between price drops. */
-  intervalMonths: 6,
+  intervalMonths: 2,
   /** Stable Stripe coupon id prefix. Coupons are amount-off, forever, usd. */
   couponPrefix: "tw_loyalty_",
   /**
@@ -23,8 +23,8 @@ export const LOYALTY_PRICING = {
    */
   applyWindowDays: 7,
   plans: {
-    basic: { listCents: 4900, stepCents: 300, floorCents: 3900 },
-    pro: { listCents: 9700, stepCents: 500, floorCents: 7700 },
+    basic: { listCents: 4900, stepCents: 100, floorCents: 3900 },
+    pro: { listCents: 9700, stepCents: 200, floorCents: 7700 },
   },
 } as const;
 
@@ -110,7 +110,7 @@ export interface LoyaltyQuote {
   steps: number;
   discountCents: number;
   nextDrop: { priceCents: number; on: string } | null;
-  /** 0 at the start of the current 6-month window, 1 at the floor. */
+  /** 0 at the start of the current 2-month window, 1 at the floor. */
   progress: number;
   atFloor: boolean;
 }

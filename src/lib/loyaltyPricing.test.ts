@@ -38,26 +38,26 @@ function clock(over: Partial<LoyaltyClockInput> = {}): LoyaltyClockInput {
 }
 
 test("step, interval, and floor live in one config", () => {
-  assert.equal(LOYALTY_PRICING.intervalMonths, 6);
-  assert.deepEqual(LOYALTY_PRICING.plans.pro, { listCents: 9700, stepCents: 500, floorCents: 7700 });
-  assert.deepEqual(LOYALTY_PRICING.plans.basic, { listCents: 4900, stepCents: 300, floorCents: 3900 });
-  assert.equal(pricingPageLoyaltyLine(), "Your price drops every 6 months you stay.");
+  assert.equal(LOYALTY_PRICING.intervalMonths, 2);
+  assert.deepEqual(LOYALTY_PRICING.plans.pro, { listCents: 9700, stepCents: 200, floorCents: 7700 });
+  assert.deepEqual(LOYALTY_PRICING.plans.basic, { listCents: 4900, stepCents: 100, floorCents: 3900 });
+  assert.equal(pricingPageLoyaltyLine(), "Your price drops every 2 months you stay.");
 });
 
-test("pro drops $5 every 6 months and stops at $77", () => {
+test("pro drops $2 every 2 months and stops at $77", () => {
   const at = (iso: string) => quoteLoyaltyPrice("pro", PRO_START, iso);
   const start = at(PRO_START);
   assert.equal(start.priceCents, 9700);
-  assert.equal(start.nextDrop?.priceCents, 9200);
-  assert.equal(start.nextDrop?.on, "2024-07-15T00:00:00.000Z");
-  assert.equal(billingLoyaltyLine(start), "Your price: $97/mo. Next drop: $92 on July 15, 2024. Lowest: $77");
+  assert.equal(start.nextDrop?.priceCents, 9500);
+  assert.equal(start.nextDrop?.on, "2024-03-15T00:00:00.000Z");
+  assert.equal(billingLoyaltyLine(start), "Your price: $97/mo. Next drop: $95 on March 15, 2024. Lowest: $77");
 
-  assert.equal(at("2024-07-14T23:59:59.000Z").priceCents, 9700);
-  assert.equal(at("2024-07-15T00:00:00.000Z").priceCents, 9200);
-  assert.equal(at("2025-01-15T00:00:00.000Z").priceCents, 8700);
-  assert.equal(at("2025-07-15T00:00:00.000Z").priceCents, 8200);
+  assert.equal(at("2024-03-14T23:59:59.000Z").priceCents, 9700);
+  assert.equal(at("2024-03-15T00:00:00.000Z").priceCents, 9500);
+  assert.equal(at("2024-05-15T00:00:00.000Z").priceCents, 9300);
+  assert.equal(at("2024-11-15T00:00:00.000Z").priceCents, 8700);
 
-  const floor = at("2026-01-15T00:00:00.000Z");
+  const floor = at("2025-09-15T00:00:00.000Z");
   assert.equal(floor.priceCents, 7700);
   assert.equal(floor.nextDrop, null);
   assert.equal(floor.atFloor, true);
@@ -66,19 +66,19 @@ test("pro drops $5 every 6 months and stops at $77", () => {
   assert.equal(at("2028-01-15T00:00:00.000Z").priceCents, 7700);
 });
 
-test("basic drops $3 every 6 months and the last step lands on $39, not $37", () => {
+test("basic drops $1 every 2 months and stops at $39", () => {
   const at = (months: number) => quoteLoyaltyPrice("basic", BASIC_START, addUtcMonths(BASIC_START, months));
   assert.equal(at(0).priceCents, 4900);
+  assert.equal(at(2).priceCents, 4800);
   assert.equal(at(6).priceCents, 4600);
-  assert.equal(at(12).priceCents, 4300);
   assert.equal(at(18).priceCents, 4000);
   assert.equal(at(18).nextDrop?.priceCents, 3900);
-  assert.equal(at(24).priceCents, 3900);
-  assert.equal(at(24).nextDrop, null);
+  assert.equal(at(20).priceCents, 3900);
+  assert.equal(at(20).nextDrop, null);
   assert.equal(at(36).priceCents, 3900);
 });
 
-test("the progress bar is the fraction of the current 6-month window", () => {
+test("the progress bar is the fraction of the current 2-month window", () => {
   const quote = quoteLoyaltyPrice("pro", PRO_START, PRO_START);
   const start = Date.parse(PRO_START);
   const end = Date.parse(quote.nextDrop!.on);
@@ -130,7 +130,7 @@ test("cancellation resets, and coming back starts over at the list price", () =>
   assert.equal(returned.continuousSince, "2026-04-01T00:00:00.000Z");
   const price = quoteLoyaltyPrice("pro", returned.continuousSince!, returned.continuousSince!);
   assert.equal(price.priceCents, 9700);
-  assert.equal(cancelLoyaltyWarning(quoteLoyaltyPrice("pro", PRO_START, "2025-01-15T00:00:00.000Z")),
+  assert.equal(cancelLoyaltyWarning(quoteLoyaltyPrice("pro", PRO_START, "2024-11-15T00:00:00.000Z")),
     "You'll lose your $87 rate. If you come back you'll pay $97");
 });
 
@@ -231,23 +231,23 @@ test("the renewal coupon is idempotent and leaves other discounts alone", () => 
     continuousSince: PRO_START,
     appliedDiscountCents: 0,
     existingCouponIds: ["referral_100"],
-    now: "2024-07-12T00:00:00.000Z",
-    renewalAt: "2024-07-15T00:00:00.000Z",
+    now: "2024-03-12T00:00:00.000Z",
+    renewalAt: "2024-03-15T00:00:00.000Z",
     invoiceUpcoming: false,
   });
   assert.equal(earned.action, "set");
-  assert.equal(earned.couponId, "tw_loyalty_pro_500");
-  assert.equal(earned.discountCents, 500);
+  assert.equal(earned.couponId, "tw_loyalty_pro_200");
+  assert.equal(earned.discountCents, 200);
 
   const again = loyaltyCouponChange({
     lifetime: false,
     plan: "pro",
     interval: "month",
     continuousSince: PRO_START,
-    appliedDiscountCents: 500,
-    existingCouponIds: ["referral_100", "tw_loyalty_pro_500"],
-    now: "2024-07-12T00:00:00.000Z",
-    renewalAt: "2024-07-15T00:00:00.000Z",
+    appliedDiscountCents: 200,
+    existingCouponIds: ["referral_100", "tw_loyalty_pro_200"],
+    now: "2024-03-12T00:00:00.000Z",
+    renewalAt: "2024-03-15T00:00:00.000Z",
     invoiceUpcoming: true,
   });
   assert.equal(again.action, "noop");
@@ -260,8 +260,8 @@ test("the renewal coupon is idempotent and leaves other discounts alone", () => 
     continuousSince: PRO_START,
     appliedDiscountCents: 0,
     existingCouponIds: [],
-    now: "2024-06-01T00:00:00.000Z",
-    renewalAt: "2024-06-15T00:00:00.000Z",
+    now: "2024-02-01T00:00:00.000Z",
+    renewalAt: "2024-02-15T00:00:00.000Z",
     invoiceUpcoming: false,
   });
   assert.equal(tooEarly.action, "noop");
@@ -270,7 +270,7 @@ test("the renewal coupon is idempotent and leaves other discounts alone", () => 
     nextSubscriptionDiscounts(
       [
         { id: "di_referral", couponId: "referral_100" },
-        { id: "di_old", couponId: "tw_loyalty_pro_500" },
+        { id: "di_old", couponId: "tw_loyalty_pro_200" },
       ],
       "tw_loyalty_pro_1000",
     ),
@@ -284,8 +284,8 @@ test("lifetime and a zero discount clear a loyalty coupon without touching other
     plan: "pro",
     interval: "month",
     continuousSince: PRO_START,
-    appliedDiscountCents: 500,
-    existingCouponIds: ["tw_loyalty_pro_500"],
+    appliedDiscountCents: 200,
+    existingCouponIds: ["tw_loyalty_pro_200"],
     now: "2026-01-01T00:00:00.000Z",
     renewalAt: null,
     invoiceUpcoming: false,
@@ -297,7 +297,7 @@ test("lifetime and a zero discount clear a loyalty coupon without touching other
     nextSubscriptionDiscounts([{ id: "di_referral", couponId: "referral_100" }], null),
     [{ discount: "di_referral" }],
   );
-  assert.equal(nextSubscriptionDiscounts([{ id: "di_loyalty", couponId: "tw_loyalty_basic_300" }], null), "");
+  assert.equal(nextSubscriptionDiscounts([{ id: "di_loyalty", couponId: "tw_loyalty_basic_100" }], null), "");
 });
 
 test("the list price has no cancel warning", () => {
