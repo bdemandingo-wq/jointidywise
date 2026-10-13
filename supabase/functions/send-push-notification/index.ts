@@ -22,6 +22,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { isServiceRoleRequest } from "../_shared/require-caller-org.ts";
+import { tokensForPush } from "../_shared/push-tokens.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -253,6 +254,11 @@ serve(async (req) => {
       targetUserIds = [staffRow.user_id];
     }
 
+    // Operators are matched by user_id, not organization_id. An owner of more
+    // than one company has a single device row, last saved under whichever
+    // company the app was showing. Filtering that row by organization_id
+    // would drop pushes for the other company. Staff sends also match
+    // user_id. An org broadcast (no audience) still matches organization_id.
     const loadTokens = async (columns: string) => {
       let q = supabase.from("device_push_tokens").select(columns).eq("platform", "ios");
       if (targetUserIds) q = q.in("user_id", targetUserIds);
@@ -260,15 +266,25 @@ serve(async (req) => {
       return await q;
     };
 
-    let tokenResult = await loadTokens("id, token, user_id, apns_env");
+    let tokenResult = await loadTokens("id, token, user_id, organization_id, apns_env");
     if (tokenResult.error && /apns_env|42703/i.test(tokenResult.error.message ?? "")) {
       // Migration not applied yet. Send without a stored environment.
-      tokenResult = await loadTokens("id, token, user_id");
+      tokenResult = await loadTokens("id, token, user_id, organization_id");
     }
     const { data: tokens, error } = tokenResult;
 
     if (error) throw error;
-    if (!tokens || tokens.length === 0) {
+
+    const staffUserId = staff_id && audience !== "operators" ? targetUserIds?.[0] ?? null : null;
+    const deliverable = tokensForPush({
+      rows: (tokens ?? []) as { id?: string; token: string; user_id: string; organization_id?: string | null; apns_env?: string | null }[],
+      organizationId: organization_id,
+      audience: audience === "operators" ? "operators" : "org",
+      operatorUserIds: audience === "operators" ? (targetUserIds ?? []) : [],
+      staffUserId,
+    });
+
+    if (deliverable.length === 0) {
       log("No device tokens found", { organization_id, staff_id, audience });
       return new Response(JSON.stringify({ sent: 0, message: "No registered devices" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -276,7 +292,7 @@ serve(async (req) => {
       });
     }
 
-    log("Sending to devices", { count: tokens.length });
+    log("Sending to devices", { count: deliverable.length, fetched: tokens?.length ?? 0 });
 
     const deliver = async (row: { id?: string; token: string; apns_env?: string | null }) => {
       const stored: ApnsEnv | null = row.apns_env === "sandbox" || row.apns_env === "production"
@@ -315,14 +331,12 @@ serve(async (req) => {
       return false;
     };
 
-    const results = await Promise.allSettled(
-      (tokens as { id?: string; token: string; apns_env?: string | null }[]).map((t) => deliver(t))
-    );
+    const results = await Promise.allSettled(deliverable.map((t) => deliver(t)));
 
     const sent = results.filter((r) => r.status === "fulfilled" && r.value).length;
-    log("Push sent", { sent, total: tokens.length });
+    log("Push sent", { sent, total: deliverable.length });
 
-    return new Response(JSON.stringify({ sent, total: tokens.length }), {
+    return new Response(JSON.stringify({ sent, total: deliverable.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 200,
     });
