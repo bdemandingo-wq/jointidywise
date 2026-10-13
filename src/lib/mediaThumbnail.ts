@@ -29,7 +29,14 @@ export async function mediaThumbnailUrl(bucket: string, path: string, width: num
   if (unsupportedBuckets.has(bucket)) return getSignedUrl(bucket, path);
   const url = await getSignedUrl(bucket, path, 3600, { width, quality: 70, resize: 'contain' });
   if (!url) throw new Error('Could not sign thumbnail');
-  return await thumbnailSupported(bucket, url) ? url : getSignedUrl(bucket, path);
+  try {
+    if (await thumbnailSupported(bucket, url)) return url;
+  } catch {
+    // CORS or a dropped connection fails the probe and still leaves a URL an
+    // <img> can load. Failing closed here blanks the whole gallery.
+    return url;
+  }
+  return getSignedUrl(bucket, path);
 }
 
 const prefetched = new Map<string, number>();

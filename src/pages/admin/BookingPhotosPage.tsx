@@ -281,9 +281,13 @@ export default function BookingPhotosPage() {
             <span>⚠️ {photos.filter((photo) => photo.photo_type === 'inspection').length} inspection</span>
           </div>
 
+          {photosError && photos.length > 0 && (
+            <QueryError subject="booking photos" onRetry={() => { void (hasNextPage ? fetchNextPage() : refetch()); }} />
+          )}
+
           {isLoading ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">{Array.from({ length: 10 }, (_, i) => <Skeleton key={i} className="aspect-square rounded-lg" />)}</div>
-          ) : photosError ? (
+          ) : photosError && photos.length === 0 ? (
             <QueryError subject="booking photos" onRetry={() => { void (hasNextPage ? fetchNextPage() : refetch()); }} />
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">

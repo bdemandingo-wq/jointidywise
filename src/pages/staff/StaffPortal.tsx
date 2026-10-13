@@ -354,6 +354,7 @@ export default function StaffPortal() {
           total_amount, subtotal, discount_amount, cleaner_wage, cleaner_wage_type,
           cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
           cleaner_checkin_at, cleaner_checkout_at, notes, customer_notes,
+          cleaners_needed, pay_per_cleaner, pay_type,
           customer:customers(first_name, last_name, phone),
           service:services(name)
         `)
@@ -375,6 +376,7 @@ export default function StaffPortal() {
             total_amount, subtotal, discount_amount, cleaner_wage, cleaner_wage_type,
             cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
             cleaner_checkin_at, cleaner_checkout_at, notes, customer_notes,
+            cleaners_needed, pay_per_cleaner, pay_type,
             customer:customers(first_name, last_name, phone),
             service:services(name)
           )
@@ -516,10 +518,12 @@ export default function StaffPortal() {
           service:services(name)
         `)
         .eq('organization_id', staffInfo.organization_id)
-        // Unclaimed solo jobs, plus team jobs that may still have open spots.
-        .or('staff_id.is.null,cleaners_needed.gt.1')
+        // One or() only. A second or() is a separate query parameter and can
+        // drop this filter, which would list every upcoming job in the org.
+        // Unclaimed solo jobs, plus team jobs that may still have open spots,
+        // and not drafts.
+        .or('and(staff_id.is.null,is_draft.is.null),and(staff_id.is.null,is_draft.eq.false),and(cleaners_needed.gt.1,is_draft.is.null),and(cleaners_needed.gt.1,is_draft.eq.false)')
         .in('status', ['pending', 'confirmed'])
-        .or('is_draft.is.null,is_draft.eq.false')
         .gte('scheduled_at', new Date().toISOString())
         .order('scheduled_at', { ascending: true });
 
