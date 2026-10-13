@@ -225,6 +225,7 @@ serve(async (req: Request) => {
                 },
                 body: JSON.stringify({
                   from: `${fromName} <${fromEmail}>`,
+                  reply_to: tidywiseSupportEmail(),
                   to: [staff.email],
                   subject: "You're all set — payouts are now active on your TidyWise account",
                   html: `

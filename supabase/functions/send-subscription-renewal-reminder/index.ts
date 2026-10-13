@@ -109,6 +109,7 @@ serve(async (req) => {
         headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           from: "TidyWise <billing@jointidywise.com>",
+          reply_to: SUPPORT_EMAIL,
           to: [email],
           subject: `Heads up: your TidyWise plan renews ${renewDate}`,
           html,

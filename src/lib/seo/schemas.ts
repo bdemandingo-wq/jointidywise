@@ -1,5 +1,7 @@
 // Reusable schema.org JSON-LD builders for TidyWise pages.
 
+import { SUPPORT_EMAIL } from "../supportEmail";
+
 const SITE = "https://www.jointidywise.com";
 
 export const HOME_FAQS: FaqItem[] = [
@@ -57,6 +59,13 @@ export function organizationSchema() {
     name: "TIDYWISE",
     url: SITE,
     logo: `${SITE}/images/tidywise-logo.png`,
+    email: SUPPORT_EMAIL,
+    contactPoint: {
+      "@type": "ContactPoint",
+      contactType: "customer support",
+      email: SUPPORT_EMAIL,
+      url: `${SITE}/contact`,
+    },
     sameAs: [] as string[],
   };
 }
@@ -74,6 +83,7 @@ export function localBusinessSchema() {
     url: SITE,
     image: `${SITE}/images/tidywise-og.png`,
     logo: `${SITE}/images/tidywise-logo.png`,
+    email: SUPPORT_EMAIL,
     description:
       "Cleaning business management software — booking, scheduling, invoicing, payroll, CRM, and GPS tracking for residential and commercial cleaning companies.",
     priceRange: "$49 – $300",

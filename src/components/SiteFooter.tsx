@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TermsOfServiceDialog } from "@/components/legal/TermsOfServiceDialog";
 import { CopyrightYear } from '@/components/CopyrightYear';
+import { SUPPORT_EMAIL } from '@/lib/supportEmail';
 
 // FooterAccordionSection — collapses on mobile, permanently expanded on md+.
 // The grid-template-rows: 0fr → 1fr trick animates height smoothly. Children
@@ -149,6 +150,9 @@ export function SiteFooter() {
                   <li><Link to="/demo" className={linkClass}>Book a Demo</Link></li>
                   <li><Link to="/pricing" className={linkClass}>Pricing</Link></li>
                   <li><Link to="/contact" className={linkClass}>Contact</Link></li>
+                  <li>
+                    <a href={`mailto:${SUPPORT_EMAIL}`} className={linkClass}>{SUPPORT_EMAIL}</a>
+                  </li>
                   <li><Link to="/privacy-policy" className={linkClass}>Privacy Policy</Link></li>
                   <li><Link to="/delete-account" className={linkClass}>Delete Account</Link></li>
                   <li>

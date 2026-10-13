@@ -220,6 +220,7 @@ const handler = async (req: Request): Promise<Response> => {
       },
       body: JSON.stringify({
         from: `${companyName} <${senderEmail}>`,
+        reply_to: senderEmail,
         to: [email],
         subject: `Welcome to ${companyName}! 🎉`,
         html: emailHtml,

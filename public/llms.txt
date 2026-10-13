@@ -43,6 +43,7 @@ TIDYWISE is an all-in-one software platform built specifically for residential c
 ## Contact
 
 - Website: https://www.jointidywise.com
+- Email: support@jointidywise.com
 - Sign up: https://www.jointidywise.com/signup
 
 ## Pages

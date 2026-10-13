@@ -115,6 +115,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         from: "TidyWise <billing@jointidywise.com>",
+        reply_to: SUPPORT_EMAIL,
         to: [email],
         subject: `TidyWise receipt — ${amount} paid${subjectPlan}`,
         html,
