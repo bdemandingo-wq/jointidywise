@@ -22,3 +22,5 @@
 - [x] Add full-screen swipe/pinch viewer and adjacent-image prefetch; preserve filters, stats and actions.
 - [x] Six pagination/order/prefetch/fallback tests passed; authenticated 320-photo desktop/mobile gallery verified, touch swipe and 2.55x pinch verified, cached return reused metadata, unsupported-plan original fallback verified, targeted lint and preview build clean.
 - [ ] Physical iOS/Capacitor verification needs the next native build and an installed device; browser gestures are verified, not native gestures.
+
+- [ ] Deploy 16 functions from main; run score-seed-house-cleaners for Broward, Miami-Dade, Palm Beach FL
