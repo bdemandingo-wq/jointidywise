@@ -1,7 +1,7 @@
-// Churned-owner winback. Platform mail via Resend, same key and verified
-// jointidywise.com sender as send-trial-reminders (billing@). founder@mail
-// is not a verified sender in this repo, so the visible from-name is the
-// founder's and the envelope address stays on billing@.
+// Churned-owner winback. Platform mail via Resend, on the verified
+// jointidywise.com domain. founder@mail is not a verified sender in this
+// repo, so the visible from-name is the founder's and the envelope address
+// is support@ — the same address Reply-To points at.
 //
 // Auth: x-internal-secret matching INTERNAL_DISPATCH_SECRET, or a platform
 // admin JWT (is_platform_admin). The service-role key is not accepted.
@@ -21,7 +21,7 @@ import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { buildWinbackEmail, WINBACK_SEGMENTS, type WinbackSegment, winbackPageUnsubscribeUrl } from "../_shared/winback-email.ts";
 import { listUnsubscribeHeaders, oneClickUnsubscribeUrl } from "../_shared/unsubscribe-links.ts";
 
-const FROM = "Emmanuel from TidyWise <billing@jointidywise.com>";
+const FROM = "Emmanuel from TidyWise <support@jointidywise.com>";
 const REPLY_TO = tidywiseSupportEmail();
 const BATCH_LIMIT = 20;
 const SEND_GAP_MS = 1500;
