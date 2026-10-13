@@ -85,18 +85,18 @@ function offerLine(segment: WinbackSegment, isLifetime: boolean): string {
         : "The offer: a free month, plus a 15-minute call where I fix whatever got in your way.";
     case "S4_trial_no_pay":
       // Audience SQL excludes lifetime. They finished a trial and did not pay.
-      return "The offer: a fresh 14-day trial, no card needed. If you keep going after that, Basic is $49/mo and Pro is $97/mo with unlimited users and no per-booking fees. Cancel anytime.";
+      return "The offer: a fresh 30-day trial, no card needed. If you keep going after that, Basic is $49/mo and Pro is $97/mo with unlimited users and no per-booking fees. Cancel anytime.";
     case "S2_no_bookings":
       return isLifetime
         ? "Reply \"set me up\" and I'll import your clients and set up your booking form."
-        : "The offer: a fresh 14-day trial, no card needed, and I'll import your clients for you. Reply \"set me up\" and send me your list.";
+        : "The offer: a fresh 30-day trial, no card needed, and I'll import your clients for you. Reply \"set me up\" and send me your list.";
     case "S1_no_onboarding":
       // They stopped during setup. Lifetime means they have a spot
       // (purchased or grandfathered), not that this email can say they paid.
       // "Already paid for" is the finished-setup story in S2.
       return isLifetime
         ? "The offer: reply and I'll do the setup with you on a 15-minute call, or do it for you. You already have a lifetime spot, so there's nothing to buy."
-        : "The offer: reply and I'll do the setup with you on a 15-minute call, or do it for you. A fresh 14-day trial, no card needed.";
+        : "The offer: reply and I'll do the setup with you on a 15-minute call, or do it for you. A fresh 30-day trial, no card needed.";
   }
 }
 
