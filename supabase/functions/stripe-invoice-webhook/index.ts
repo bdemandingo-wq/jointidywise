@@ -1393,8 +1393,8 @@ const handler = async (req: Request): Promise<Response> => {
             }
             if ((sessionCount ?? 0) > 0 || bookingCount > 0) {
               usageSummary =
-                `After this charge (${fmt(sinceIso)}), the account holder signed in ${sessionCount ?? 0} time(s)` +
-                (lastSessions?.[0]?.session_start ? `, most recently on ${fmt(lastSessions[0].session_start)}` : "") +
+                `After this charge (${String(sinceIso).slice(0, 10)}), the account holder signed in ${sessionCount ?? 0} time(s)` +
+                (lastSessions?.[0]?.session_start ? `, most recently on ${new Date(lastSessions[0].session_start).toISOString().slice(0, 10)}` : "") +
                 ` and the business created ${bookingCount} booking(s) in the software — the service was actively used.`;
             }
           } catch (e) {
