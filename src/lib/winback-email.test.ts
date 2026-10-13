@@ -77,14 +77,14 @@ test("S1 lifetime does not claim the spot is already paid for", () => {
   for (const step of [1, 2] as const) {
     const email = buildWinbackEmail(recipient("S1_no_onboarding", true), step, PAGE);
     assert.doesNotMatch(email.text, /already paid/i, `step ${step}`);
-    assert.doesNotMatch(email.text, /14-day trial/);
+    assert.doesNotMatch(email.text, /30-day trial/);
     assert.doesNotMatch(email.text, /\$49/);
     assert.match(email.text, /lifetime spot/);
     assert.match(email.text, /nothing to buy/);
     assert.match(email.text, /15-minute call/);
   }
   const plain = buildWinbackEmail(recipient("S1_no_onboarding", false), 1, PAGE);
-  assert.match(plain.text, /14-day trial, no card needed/);
+  assert.match(plain.text, /30-day trial, no card needed/);
   assert.doesNotMatch(plain.text, /lifetime/i);
   assert.doesNotMatch(plain.text, /paid for/i);
 });
@@ -94,11 +94,11 @@ test("every lifetime variant stays accurate for that segment", () => {
   assert.match(s2.text, /You bought a lifetime spot/);
   assert.match(s2.text, /You've already paid, so this isn't a sales email/);
   assert.match(s2.text, /set up Sample Cleaning Co/);
-  assert.doesNotMatch(s2.text, /14-day trial/);
+  assert.doesNotMatch(s2.text, /30-day trial/);
   assert.doesNotMatch(s2.text, /\$49/);
   const s2follow = buildWinbackEmail(recipient("S2_no_bookings", true), 2, PAGE);
   assert.match(s2follow.text, /Reply "set me up"/);
-  assert.doesNotMatch(s2follow.text, /14-day trial/);
+  assert.doesNotMatch(s2follow.text, /30-day trial/);
 
   const s3 = buildWinbackEmail(recipient("S3_went_quiet", true), 1, PAGE);
   assert.match(s3.text, /You already own a lifetime spot, so there's nothing to buy/);
@@ -110,7 +110,7 @@ test("every lifetime variant stays accurate for that segment", () => {
   assert.doesNotMatch(s3plain.text, /lifetime/i);
 
   const s2plain = buildWinbackEmail(recipient("S2_no_bookings", false), 1, PAGE);
-  assert.match(s2plain.text, /14-day trial/);
+  assert.match(s2plain.text, /30-day trial/);
   assert.doesNotMatch(s2plain.text, /lifetime/i);
   assert.doesNotMatch(s2plain.text, /already paid/i);
 
@@ -118,7 +118,7 @@ test("every lifetime variant stays accurate for that segment", () => {
   // and the copy stays the trial / cancelled-plan offer.
   const s4 = buildWinbackEmail(recipient("S4_trial_no_pay", true), 1, PAGE);
   assert.match(s4.text, /you didn't pay/);
-  assert.match(s4.text, /14-day trial/);
+  assert.match(s4.text, /30-day trial/);
   assert.doesNotMatch(s4.text, /lifetime/i);
   const s5 = buildWinbackEmail(recipient("S5_cancelled_paid", true), 2, PAGE);
   assert.match(s5.text, /\$49\/mo/);
