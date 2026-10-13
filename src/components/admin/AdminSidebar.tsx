@@ -684,7 +684,7 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
           return list;
         })()}
 
-        {/* Platform Admin Links - Only visible for support@tidywisecleaning.com */}
+        {/* Platform admin links. Compared to the owner's login, not SUPPORT_EMAIL. */}
         {user?.email === 'support@tidywisecleaning.com' && (
           <div className="mt-4 pt-4 border-t border-sidebar-border space-y-1">
             <Link

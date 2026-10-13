@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Shield, Trash2, Mail, CheckCircle2 } from "lucide-react";
 import { SiteFooter } from "@/components/SiteFooter";
+import { SUPPORT_EMAIL } from "@/lib/supportEmail";
 
 export default function DeleteAccountPage() {
   const [name, setName] = useState("");
@@ -53,7 +54,7 @@ export default function DeleteAccountPage() {
       toast.success("Your deletion request has been submitted.");
     } catch (err) {
       console.error("Deletion request error:", err);
-      toast.error("Something went wrong. Please email Support@tidywisecleaning.com directly.");
+      toast.error(`Something went wrong. Please email ${SUPPORT_EMAIL} directly.`);
     } finally {
       setSubmitting(false);
     }
@@ -63,7 +64,7 @@ export default function DeleteAccountPage() {
     <>
       <SEOHead
         title="Delete Your TidyWise Account | Data Deletion Request"
-        description="Request deletion of your TidyWise account and all associated data. Email Support@tidywisecleaning.com — processed within 7 business days."
+        description={`Request deletion of your TidyWise account and all associated data. Email ${SUPPORT_EMAIL} — processed within 7 business days.`}
         canonical="/delete-account"
         noIndex
       />
@@ -105,10 +106,10 @@ export default function DeleteAccountPage() {
                 To request deletion of your account and all associated data, you can either fill out the form below or email us directly at:
               </p>
               <a
-                href="mailto:Support@tidywisecleaning.com"
+                href={`mailto:${SUPPORT_EMAIL}`}
                 className="inline-block text-primary font-semibold hover:underline text-lg"
               >
-                Support@tidywisecleaning.com
+                {SUPPORT_EMAIL}
               </a>
               <p className="text-muted-foreground text-sm">
                 Please include the following information:

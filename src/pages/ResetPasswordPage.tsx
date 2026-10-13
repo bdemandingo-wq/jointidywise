@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { toast } from 'sonner';
 import { ArrowLeft, Eye, EyeOff, KeyRound, Loader2, Lock, Mail } from 'lucide-react';
 import { z } from 'zod';
+import { SUPPORT_EMAIL } from '@/lib/supportEmail';
 
 // Accept 6–8 digit codes — Supabase's default OTP is 6 digits, but the
 // project can be configured up to 8. Hardcoding 8 here previously
@@ -459,7 +460,7 @@ export default function ResetPasswordPage() {
               reach out to{" "}
               <Link to="/contact" className="text-primary hover:underline">support</Link>{" "}
               or email{" "}
-              <a href="mailto:Support@tidywisecleaning.com" className="text-primary hover:underline">Support@tidywisecleaning.com</a>{" "}
+              <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>{" "}
               with the email you believe is registered and we will verify it manually.
             </p>
           </div>

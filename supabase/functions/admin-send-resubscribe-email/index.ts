@@ -11,6 +11,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { tidywiseSupportEmail, tidywiseSupportFrom } from "../_shared/email-footer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -402,9 +403,9 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "TidyWise <support@tidywisecleaning.com>",
+        from: tidywiseSupportFrom(),
         to: [customerEmail],
-        reply_to: "support@tidywisecleaning.com",
+        reply_to: tidywiseSupportEmail(),
         subject: "Reactivate your TidyWise subscription",
         html,
       }),

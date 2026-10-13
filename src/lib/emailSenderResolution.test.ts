@@ -18,11 +18,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  PLATFORM_SENDER_EMAIL,
+  PLATFORM_SENDER_FROM,
   resolveSender,
   type FallbackReason,
 } from "../../supabase/functions/_shared/email-sender-resolution.ts";
+import { TIDYWISE_SUPPORT_EMAIL } from "../../supabase/functions/_shared/email-footer.ts";
+import { SUPPORT_EMAIL } from "./supportEmail.ts";
 
-const PLATFORM_FROM = "TidyWise <noreply@tidywisecleaning.com>";
+const PLATFORM_FROM = PLATFORM_SENDER_FROM;
+
+test("the platform sender stays on the verified jointidywise.com domain", () => {
+  assert.equal(PLATFORM_SENDER_EMAIL, "noreply@jointidywise.com");
+  assert.equal(PLATFORM_SENDER_FROM, "TidyWise <noreply@jointidywise.com>");
+});
+
+test("public support inbox is one address on the verified domain", () => {
+  assert.equal(SUPPORT_EMAIL, "support@jointidywise.com");
+  assert.equal(TIDYWISE_SUPPORT_EMAIL, SUPPORT_EMAIL);
+});
 
 const ORG_OK = {
   from_name: "Clean Collective",

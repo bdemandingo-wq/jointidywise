@@ -17,12 +17,12 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { timingSafeEqualString } from "../_shared/require-caller-org.ts";
 import { ensureUnsubscribeToken } from "../_shared/unsubscribe-token.ts";
-import { TIDYWISE_SUPPORT_EMAIL } from "../_shared/email-footer.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { buildWinbackEmail, WINBACK_SEGMENTS, type WinbackSegment, winbackPageUnsubscribeUrl } from "../_shared/winback-email.ts";
 import { listUnsubscribeHeaders, oneClickUnsubscribeUrl } from "../_shared/unsubscribe-links.ts";
 
 const FROM = "Emmanuel from TidyWise <billing@jointidywise.com>";
-const REPLY_TO = TIDYWISE_SUPPORT_EMAIL;
+const REPLY_TO = tidywiseSupportEmail();
 const BATCH_LIMIT = 20;
 const SEND_GAP_MS = 1500;
 const STEP2_AFTER_MS = 3 * 24 * 60 * 60 * 1000;

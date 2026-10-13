@@ -2,6 +2,8 @@
 // Does NOT charge or create a Stripe subscription.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { PLATFORM_SENDER_FROM } from "../_shared/email-sender-resolution.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -178,8 +180,8 @@ serve(async (req) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            from: "TidyWise <noreply@tidywisecleaning.com>",
-            to: ["support@tidywisecleaning.com"],
+            from: PLATFORM_SENDER_FROM,
+            to: [tidywiseSupportEmail()],
             reply_to: body.contact_email || user.email,
             subject: `📣 Ad mgmt: ${SERVICE_LABEL[service_type]} — ${body.business_name || orgName}`,
             html,

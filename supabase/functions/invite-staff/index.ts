@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { PLATFORM_SENDER_FROM } from "../_shared/email-sender-resolution.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -445,9 +447,9 @@ serve(async (req) => {
           method: "POST",
           headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            from: "TidyWise <noreply@tidywisecleaning.com>",
+            from: PLATFORM_SENDER_FROM,
             to: [email.toLowerCase().trim()],
-            reply_to: "support@tidywisecleaning.com",
+            reply_to: tidywiseSupportEmail(),
             subject: `Welcome to ${orgName} — your staff login`,
             html: emailHtml,
           }),

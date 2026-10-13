@@ -4,6 +4,7 @@ import App from "./App.tsx";
 import "./index.css";
 import { setupDeepLinkListener } from "@/lib/nativeOAuth";
 import { initSentry, Sentry } from "@/lib/sentry";
+import { SUPPORT_EMAIL } from "@/lib/supportEmail";
 import { initSitePong } from "@/lib/sitepong";
 
 // Initialize observability before anything renders — earlier init means
@@ -129,7 +130,7 @@ createRoot(document.getElementById("root")!).render(
         <h1 style={{ fontSize: "1.25rem", margin: 0 }}>TidyWise couldn't start</h1>
         <p style={{ color: "#666", margin: 0, maxWidth: "32rem" }}>
           The app failed while loading. We've been told. Try reloading — if it
-          keeps happening, email support@tidywisecleaning.com.
+          keeps happening, email {SUPPORT_EMAIL}.
         </p>
         <button
           onClick={() => {

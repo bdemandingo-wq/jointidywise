@@ -2,7 +2,7 @@
 //
 // Previously sent SMS via OpenPhone to two platform admin phone numbers.
 // SMS removed for cost control — now sends a single email to
-// support@tidywisecleaning.com (the platform admin inbox) via Resend.
+// the public support inbox via Resend.
 //
 // SECURITY (2026-07-14): previously trusted email/fullName/phone entirely
 // from the request body with no caller-identity check — anyone could spam
@@ -19,13 +19,15 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { checkAndRecord, getClientIp } from "../_shared/rate-limit.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { PLATFORM_SENDER_FROM } from "../_shared/email-sender-resolution.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const ADMIN_EMAIL = "support@tidywisecleaning.com";
+const ADMIN_EMAIL = tidywiseSupportEmail();
 
 interface NotifySignupRequest {
   phone?: string;
@@ -124,7 +126,7 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "TidyWise <noreply@tidywisecleaning.com>",
+        from: PLATFORM_SENDER_FROM,
         to: [ADMIN_EMAIL],
         reply_to: email,
         subject: `🚀 New signup: ${fullName || email}`,

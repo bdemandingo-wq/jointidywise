@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { SUPPORT_EMAIL } from '@/lib/supportEmail';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -227,13 +228,13 @@ export function GmailConnectionCard() {
               <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
                 <p className="text-sm text-foreground">
                   Gmail integration is currently in private beta. To request access, email{' '}
-                  <span className="font-medium">support@tidywisecleaning.com</span> with your TidyWise account email and we'll add you to the test users list.
+                  <span className="font-medium">{SUPPORT_EMAIL}</span> with your TidyWise account email and we'll add you to the test users list.
                 </p>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    navigator.clipboard.writeText('support@tidywisecleaning.com');
+                    navigator.clipboard.writeText(SUPPORT_EMAIL);
                     toast.success('Email copied');
                   }}
                 >

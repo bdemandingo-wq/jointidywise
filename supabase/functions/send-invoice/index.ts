@@ -212,7 +212,7 @@ const handler = async (req: Request): Promise<Response> => {
         total: Number(item.total || 0),
       }));
 
-    const origin = req.headers.get("origin") || "https://tidywisecleaning.com";
+    const origin = req.headers.get("origin") || "https://jointidywise.com";
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       line_items: [

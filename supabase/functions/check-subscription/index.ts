@@ -20,6 +20,8 @@ const logStep = (step: string, details?: any) => {
   console.log(`[CHECK-SUBSCRIPTION] ${step}${detailsStr}`);
 };
 
+// Login allowlist. The first address is the owner's account, not the public
+// support inbox. Do not replace it.
 const FREE_ACCOUNTS = new Set([
   "support@tidywisecleaning.com",
   "applereview@tidywise.com",

@@ -17,8 +17,7 @@ import {
 import { toast } from 'sonner';
 import { ArrowRight, Clock, Loader2, MessageCircle, Users } from 'lucide-react';
 import { z } from 'zod';
-
-const SUPPORT_EMAIL = 'support@tidywisecleaning.com';
+import { SUPPORT_EMAIL } from '@/lib/supportEmail';
 
 const schema = z.object({
   name: z.string().trim().min(2, 'Please enter your name').max(100),
@@ -114,7 +113,7 @@ export default function ContactPage() {
     name: 'Contact TidyWise CRM',
     url: 'https://www.jointidywise.com/contact',
     description:
-      'Get in touch with the TidyWise team. We help cleaning business owners every day. Email support@tidywisecleaning.com or send a message — we reply within 24 hours.',
+      `Get in touch with the TidyWise team. We help cleaning business owners every day. Email ${SUPPORT_EMAIL} or send a message — we reply within 24 hours.`,
     mainEntity: {
       '@type': 'Organization',
       name: 'TidyWise CRM',

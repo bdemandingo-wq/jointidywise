@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -42,9 +43,9 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("[send-welcome-email] Sending welcome email to:", email);
 
-    // Welcome emails for NEW signups use the main TidyWise account
-    // tidywisecleaning.com is the verified Resend domain (same sender as Daily Brief).
-    const TIDYWISE_DEFAULT_EMAIL = "support@tidywisecleaning.com";
+    // Welcome emails for new signups come from the public support inbox.
+    // jointidywise.com is the verified Resend domain.
+    const TIDYWISE_DEFAULT_EMAIL = tidywiseSupportEmail();
     const TIDYWISE_DEFAULT_NAME = "TidyWise";
 
     const senderEmail = TIDYWISE_DEFAULT_EMAIL;
@@ -196,9 +197,9 @@ const handler = async (req: Request): Promise<Response> => {
                 © ${new Date().getFullYear()} ${companyName}. All rights reserved.
               </p>
               <p style="color:#9ca3af;font-size:11px;margin:0;">
-                <a href="mailto:support@tidywisecleaning.com?subject=Unsubscribe" style="color:#9ca3af;">Unsubscribe</a>
+                <a href="mailto:${senderEmail}?subject=Unsubscribe" style="color:#9ca3af;">Unsubscribe</a>
                 ·
-                <a href="mailto:support@tidywisecleaning.com" style="color:#9ca3af;">support@tidywisecleaning.com</a>
+                <a href="mailto:${senderEmail}" style="color:#9ca3af;">${senderEmail}</a>
               </p>
             </td>
           </tr>

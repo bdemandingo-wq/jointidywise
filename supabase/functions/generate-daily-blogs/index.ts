@@ -11,6 +11,7 @@ import {
   parseModelJson,
   type GeneratedBlog,
 } from "../_shared/blogJson.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,7 +26,7 @@ const LOW_QUEUE_THRESHOLD = 7;
 const MODEL = "openai/gpt-5";
 const TITLE_SIMILARITY_THRESHOLD = 0.85;
 const COMPETITORS = ["Jobber", "Housecall Pro", "ZenMaid", "Launch27", "ServiceM8", "BookingKoala", "HubSpot"];
-const FAILURE_ALERT_EMAIL = "support@tidywisecleaning.com";
+const FAILURE_ALERT_EMAIL = tidywiseSupportEmail();
 const FALLBACK_IMAGE = "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=1200&q=80";
 
 function generateSlug(title: string): string {

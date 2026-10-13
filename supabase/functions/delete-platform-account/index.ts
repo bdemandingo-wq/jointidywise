@@ -7,6 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Owner login. Not the public support inbox.
 const PLATFORM_ADMIN_EMAIL = "support@tidywisecleaning.com";
 
 serve(async (req) => {

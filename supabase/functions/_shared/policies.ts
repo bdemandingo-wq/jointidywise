@@ -5,7 +5,12 @@
  * src/components/legal/termsContent.tsx (the single source of truth for the
  * Terms of Service rendered at /terms and in the signup dialog). Keep these
  * in sync if that file changes.
+ *
+ * The contact address is TIDYWISE_SUPPORT_EMAIL (the published default), not
+ * the SUPPORT_EMAIL secret, so dispute evidence matches the terms page.
  */
+
+import { TIDYWISE_SUPPORT_EMAIL } from "./email-footer.ts";
 
 export const TOS_VERSION = '2026-07-22';
 
@@ -23,7 +28,7 @@ export const REFUND_POLICY =
 export const CANCELLATION_POLICY =
   'Subscriptions may be cancelled at any time, self-serve, from Settings → ' +
   'Billing inside the TidyWise dashboard, or by emailing ' +
-  'support@tidywisecleaning.com. Cancellation takes effect at the end of the ' +
+  `${TIDYWISE_SUPPORT_EMAIL}. Cancellation takes effect at the end of the ` +
   'current billing period; access continues until that date. No further ' +
   'charges occur after cancellation. Failure to cancel before a renewal date ' +
   'constitutes authorization of the renewal charge.';

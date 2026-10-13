@@ -12,13 +12,14 @@ import {
   renderBroadcastText,
 } from "../_shared/broadcast-render.ts";
 import { ensureUnsubscribeToken } from "../_shared/unsubscribe-token.ts";
+import { tidywiseSupportFrom } from "../_shared/email-footer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const FROM = "TidyWise <support@tidywisecleaning.com>";
+const FROM = tidywiseSupportFrom();
 
 function json(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {

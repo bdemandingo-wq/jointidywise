@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { SUPPORT_EMAIL } from "@/lib/supportEmail";
 import { useSearchParams } from "react-router-dom";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -834,8 +835,8 @@ export default function PaymentIntegrationPage() {
                 <h3 className="font-semibold text-foreground">Need Help?</h3>
                 <p className="text-sm text-muted-foreground mt-1">
                   Having trouble connecting Stripe? Contact us at{" "}
-                  <a href="mailto:support@tidywisecleaning.com" className="text-primary hover:underline">
-                    support@tidywisecleaning.com
+                  <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary hover:underline">
+                    {SUPPORT_EMAIL}
                   </a>
                 </p>
               </div>

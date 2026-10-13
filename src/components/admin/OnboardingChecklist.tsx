@@ -9,6 +9,8 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { useOrganization } from '@/contexts/OrganizationContext';
 
+// Login identities that should not see the new-owner checklist. Not the
+// public support inbox — the first address is the platform owner's login.
 const HIDE_CHECKLIST_EMAILS = ['support@tidywisecleaning.com', 'applereview@tidywise.com'];
 
 export function OnboardingChecklist() {

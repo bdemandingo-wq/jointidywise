@@ -7,6 +7,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Caller allowlist keyed on login email. Not the public support inbox.
 const FREE_ACCOUNTS = new Set([
   "support@tidywisecleaning.com",
   "applereview@tidywise.com",

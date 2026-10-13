@@ -1,5 +1,5 @@
 // Contact form notifier. Sends two emails per submission:
-//   1. Admin alert to support@tidywisecleaning.com with the message
+//   1. Admin alert to the public support inbox with the message
 //   2. Confirmation reply to the submitter so they know we received it
 //
 // The contact form previously invoked notify-demo-request and silently
@@ -8,14 +8,15 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { tidywiseEmailFooterHtml } from "../_shared/email-footer.ts";
+import { tidywiseEmailFooterHtml, tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { PLATFORM_SENDER_EMAIL } from "../_shared/email-sender-resolution.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SUPPORT_EMAIL = "support@tidywisecleaning.com";
+const SUPPORT_EMAIL = tidywiseSupportEmail();
 const TIDYWISE_ORG_ID = "e95b92d0-7099-408e-a773-e4407b34f8b4";
 
 function escapeHtml(s: string): string {
@@ -71,7 +72,7 @@ serve(async (req: Request) => {
     }
 
     const fromName = emailSettings?.from_name || "TidyWise";
-    const fromEmail = emailSettings?.from_email || "noreply@tidywisecleaning.com";
+    const fromEmail = emailSettings?.from_email || PLATFORM_SENDER_EMAIL;
     const from = `${fromName} <${fromEmail}>`;
 
     const safeName = escapeHtml(name);

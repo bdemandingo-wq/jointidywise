@@ -62,7 +62,9 @@ export const DEFAULT_SIGNATURE = {
   linkedInUrl: 'https://www.linkedin.com/in/emmanuel-forkuoh-567724145/',
   title: 'Founder, TidyWise',
   phone: '561-571-8725',
-  email: 'support@tidywisecleaning.com',
+  // Public support inbox. Keep in sync with SUPPORT_EMAIL (src/lib/supportEmail.ts).
+  // This module stays import-free so Node can load it; do not import the constant.
+  email: 'support@jointidywise.com',
 };
 
 /**

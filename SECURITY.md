@@ -2,7 +2,7 @@
 
 ## Reporting
 
-If you discover a security issue, email **support@tidywisecleaning.com**. Please don't open a public issue.
+If you discover a security issue, email **support@jointidywise.com**. Please don't open a public issue.
 
 ## Secrets policy
 

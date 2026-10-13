@@ -5,7 +5,7 @@
 //      last day they retain access (period_end_date)
 //   2. SMS to the customer — short version of the same, only if we
 //      have their phone on file in profiles
-//   3. Email to support@tidywisecleaning.com (Emmanuel) — admin alert
+//   3. Email to the public support inbox — admin alert
 //      with reason / feedback so a personal save-call is possible
 //   4. SMS to platform admin phones — same alert, mobile-first
 //
@@ -19,14 +19,15 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { tidywiseEmailFooterHtml } from "../_shared/email-footer.ts";
+import { tidywiseEmailFooterHtml, tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { PLATFORM_SENDER_EMAIL } from "../_shared/email-sender-resolution.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const ADMIN_EMAIL = "support@tidywisecleaning.com";
+const ADMIN_EMAIL = tidywiseSupportEmail();
 
 const REASON_LABELS: Record<string, string> = {
   not_enough_jobs: "Not enough jobs to justify it",
@@ -123,7 +124,7 @@ serve(async (req: Request) => {
     // ── 1. Customer email ─────────────────────────────────────────────────
     const resendKey = Deno.env.get("RESEND_API_KEY");
     const fromName = "TidyWise";
-    const fromEmail = "noreply@tidywisecleaning.com";
+    const fromEmail = PLATFORM_SENDER_EMAIL;
     const from = `${fromName} <${fromEmail}>`;
 
     if (resendKey) {

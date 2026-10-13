@@ -30,7 +30,11 @@ import { toast } from 'sonner';
 import { useOrgId } from '@/hooks/useOrgId';
 import { useAuth } from '@/hooks/useAuth';
 import { SEOHead } from '@/components/SEOHead';
+import { SUPPORT_EMAIL } from '@/lib/supportEmail';
 
+// Login identity for the "manage videos" controls. Not the public support
+// inbox — see platformOwner.ts. Swapping this for SUPPORT_EMAIL would hide
+// those controls from the account that actually signs in.
 const PLATFORM_ADMIN_EMAIL = 'support@tidywisecleaning.com';
 
 /** Extract a thumbnail URL from a Loom/YouTube/Vimeo embed URL. */
@@ -400,8 +404,8 @@ export default function HelpPage() {
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
               Have a question or idea? Email us at{' '}
-              <a href="mailto:support@tidywisecleaning.com" className="text-primary underline">
-                support@tidywisecleaning.com
+              <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary underline">
+                {SUPPORT_EMAIL}
               </a>
             </p>
           </CardContent>

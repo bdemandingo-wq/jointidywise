@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/
 import { toast } from 'sonner';
 import { ArrowLeft, Loader2, Mail } from 'lucide-react';
 import { z } from 'zod';
+import { SUPPORT_EMAIL } from '@/lib/supportEmail';
 
 const schema = z.object({
   email: z.string().trim().email('Please enter a valid email address').max(255),
@@ -153,7 +154,7 @@ export default function ForgotPasswordPage() {
               seconds and try again — make sure you're checking the same email address
               your TidyWise account is registered under. If you've recently changed your
               email, the code goes to the address on file. Still nothing? Reach out to{" "}
-              <a href="mailto:Support@tidywisecleaning.com" className="text-primary hover:underline">Support@tidywisecleaning.com</a>{" "}
+              <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary hover:underline">{SUPPORT_EMAIL}</a>{" "}
               and we'll help verify your identity manually.
             </p>
             <p className="text-muted-foreground leading-relaxed mt-3">
