@@ -4,6 +4,14 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { NotificationAuth } from '@/lib/notificationAuth';
+import { readEdgeFunctionErrorBody } from '@/lib/edgeFunctionError';
+import {
+  claimPushSaveFailureToast,
+  clearPushSaveFailureToast,
+  persistDevicePushToken,
+  PUSH_TOKEN_SAVE_FAILED_MESSAGE,
+  type PushSaveResult,
+} from '@/lib/pushTokenSave';
 import {
   describePushRuntime,
   readPushRuntimeFacts,
@@ -43,10 +51,10 @@ function publishTokenSaved(value: boolean) {
   registeredListeners.forEach((listener) => listener(value));
 }
 
-// One OS permission dialog at a time. The registrar and a settings toggle
-// can both fire during the same launch. The promise resolves with a message
-// the screen can show; it does not toast. Callers decide whether to toast.
-let nativeRegisterInFlight: Promise<PushAttempt> | null = null;
+// One registration at a time. A resume sync and a settings tap can both fire
+// during the same launch. Queuing them keeps iOS from presenting two
+// permission dialogs, and each caller still saves with its own organization.
+let nativeRegisterQueue: Promise<unknown> = Promise.resolve();
 
 export type PushStatusPhase = 'idle' | 'working' | 'saved' | 'failed';
 
@@ -60,6 +68,10 @@ export interface PushAttempt {
   prompted: boolean;
   /** Bridge missing, plugin missing, timeout, or a thrown native error. */
   hard: boolean;
+  /** Resume saw that iOS has not granted permission. Leave the screen alone. */
+  skipToast?: boolean;
+  /** The token save failed after retries. Automatic launches toast this once. */
+  saveFailure?: boolean;
   message: string;
 }
 
@@ -164,9 +176,70 @@ export const showBrowserNotification = ({ title, body, tag, onClick }: Notificat
 export type PushRegistrationOptions = {
   /** Automatic post-login call: no error toast if the user declines. */
   quiet?: boolean;
+  /**
+   * Resume and company switch. When iOS has not already granted permission,
+   * return without prompting. A granted phone re-saves the token quietly.
+   */
+  background?: boolean;
   /** Active company. register-push-token checks the caller belongs to it. */
   organizationId?: string | null;
 };
+
+function pushToastStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage;
+  } catch {
+    return null;
+  }
+}
+
+async function saveTokenOnce(args: {
+  token: string;
+  platform: string;
+  organizationId: string | null;
+  apnsEnv: 'sandbox' | 'production' | null;
+}): Promise<PushSaveResult> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const accessToken = session?.access_token;
+  // The session can still be restoring on a cold start. Retry rather than
+  // reporting a save failure for a call that never left the phone.
+  if (!accessToken) return { ok: false, errorMessage: 'No session' };
+
+  const { data, error } = await supabase.functions.invoke('register-push-token', {
+    body: {
+      token: args.token,
+      platform: args.platform,
+      ...(args.organizationId ? { organization_id: args.organizationId } : {}),
+      ...(args.apnsEnv ? { apns_env: args.apnsEnv } : {}),
+    },
+    // Fresh access token from this attempt. The client's cached Authorization
+    // header can still be the previous, expired JWT.
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!error && data && typeof data === 'object' && (data as { success?: boolean }).success !== false) {
+    return { ok: true };
+  }
+  const body = await readEdgeFunctionErrorBody(error);
+  const fromBody = typeof body?.error === 'string' ? body.error : null;
+  const message = fromBody || (error instanceof Error ? error.message : 'save failed');
+  console.error('[PUSH] Failed to save token', message);
+  return { ok: false, errorMessage: message };
+}
+
+async function tokenAlreadyStored(token: string): Promise<boolean> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const userId = session?.user?.id;
+  if (!userId) return false;
+  const { data, error } = await supabase
+    .from('device_push_tokens')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('token', token)
+    .limit(1);
+  if (error) return false;
+  return (data?.length ?? 0) > 0;
+}
 
 export function usePushNotifications(staffId?: string) {
   const [token, setToken] = useState<string | null>(null);
@@ -240,7 +313,15 @@ export function usePushNotifications(staffId?: string) {
 
   const registerNative = async (options?: PushRegistrationOptions): Promise<PushAttempt> => {
     const organizationId = options?.organizationId ?? null;
+    const background = options?.background === true;
     const facts = readPushRuntimeFacts();
+    const skipBackground = (): PushAttempt => ({
+      ok: false,
+      prompted: false,
+      hard: false,
+      skipToast: true,
+      message: '',
+    });
 
     // Already-denied is a settled OS state. Calling requestPermissions again
     // does not show a dialog and must not toast on every cold start.
@@ -271,6 +352,7 @@ export function usePushNotifications(staffId?: string) {
         throw new Error('PushNotifications.checkPermissions() returned no permission state.');
       }
       if (permission.receive !== 'granted' && permission.receive !== 'denied') {
+        if (background) return skipBackground();
         prompted = true;
         reportPermission('working', 'iOS has not asked yet. Asking the push plugin to show the notification prompt…');
         permission = asPermissionRead(
@@ -286,6 +368,7 @@ export function usePushNotifications(staffId?: string) {
         }
       }
     } catch (error) {
+      if (background) return skipBackground();
       officialError = error instanceof Error ? error.message : String(error);
       console.error('[PUSH] PushNotifications permission call failed:', officialError);
       try {
@@ -340,6 +423,7 @@ export function usePushNotifications(staffId?: string) {
       officialError = officialError ? `${officialError} | ${permission.error}` : permission.error;
     }
     if (permission.receive === 'denied') {
+      if (background) return skipBackground();
       const message = `Notifications are off for TidyWise. Open the iPhone Settings app, tap TidyWise, tap Notifications, and turn Allow Notifications on. ${describePushRuntime(facts, diagnosticFrom(permission, officialError))}`;
       return { ok: false, prompted, hard: false, message };
     }
@@ -409,49 +493,25 @@ export function usePushNotifications(staffId?: string) {
       console.log('[PUSH] Push registration success');
       setToken(nativeToken);
 
-      // The device itself is registered with APNs/FCM at this point — that
-      // part genuinely succeeded. But if the token never reaches our
-      // server, send-push-notification has nothing to send to, so this
-      // device won't actually receive anything despite the OS-level
-      // registration. Track that distinctly rather than reporting success.
-      let tokenSaved = false;
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.access_token) {
-          const { error: saveError } = await supabase.functions.invoke('register-push-token', {
-            // register-push-token reads platform from the body (and defaults to
-            // 'ios' only when it's absent). Returns 'ios' | 'android' | 'web';
-            // we are inside registerNative(), so it is never 'web' here.
-            //
-            // organization_id is the company the app is signed into. The
-            // function confirms this user is a member or staff there. Without
-            // it, an owner of more than one business used to fail the
-            // single-row membership lookup and store a token with no org.
-            //
-            // apns_env is a hint. TestFlight and App Store ship a production
-            // bundle (import.meta.env.PROD) and Apple issues production tokens.
-            // A dev server inside the simulator is sandbox. The push function
-            // still retries the other host if this hint is wrong.
-            body: {
-              token: nativeToken,
-              platform: Capacitor.getPlatform(),
-              ...(organizationId ? { organization_id: organizationId } : {}),
-              ...(Capacitor.getPlatform() === 'ios'
-                ? { apns_env: import.meta.env.PROD ? 'production' : 'sandbox' }
-                : {}),
-            },
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          });
-          if (saveError) {
-            console.error('[PUSH] Failed to save token', saveError);
-          } else {
-            tokenSaved = true;
-            console.log('[PUSH] Token saved to Supabase');
-          }
-        }
-      } catch (err) {
-        console.error('[PUSH] Error saving token', err);
-      }
+      // Apple has the device. The row on our side is a separate step, and it
+      // has to tolerate the row already existing. Retry a few times: the
+      // session may still be refreshing, and a duplicate key is an update.
+      // If every write fails but this exact token is already stored, the
+      // phone can already receive pushes — don't ask the person to pull to
+      // refresh.
+      const platform = Capacitor.getPlatform();
+      const persisted = await persistDevicePushToken({
+        save: () => saveTokenOnce({
+          token: nativeToken,
+          platform,
+          organizationId,
+          // TestFlight and App Store ship a production bundle and Apple
+          // issues production tokens. A dev server in the simulator is sandbox.
+          // The push function retries the other host if this hint is wrong.
+          apnsEnv: platform === 'ios' ? (import.meta.env.PROD ? 'production' : 'sandbox') : null,
+        }),
+        confirmStored: () => tokenAlreadyStored(nativeToken),
+      });
 
       if (staffId) {
         // Dev placeholder until staff-token persistence is wired up. Never log
@@ -459,11 +519,21 @@ export function usePushNotifications(staffId?: string) {
         console.log('[PUSH] Push token ready for staff registration');
       }
 
-      if (!tokenSaved) {
-        const message = "Your iPhone registered with Apple, but TidyWise couldn't save the device token. Pull to refresh and tap Enable Notifications again.";
-        return { ok: false, prompted, hard: true, message };
+      if (!persisted.ok) {
+        return {
+          ok: false,
+          prompted,
+          hard: true,
+          saveFailure: true,
+          message: PUSH_TOKEN_SAVE_FAILED_MESSAGE,
+        };
       }
 
+      if (persisted.alreadyStored) {
+        console.log('[PUSH] Token was already stored; treating the failed write as success');
+      } else {
+        console.log('[PUSH] Token saved to Supabase');
+      }
       publishTokenSaved(true);
       return { ok: true, prompted, hard: false, message: 'Notifications are enabled on this iPhone.' };
     } catch (error) {
@@ -505,31 +575,64 @@ export function usePushNotifications(staffId?: string) {
     };
   };
 
+  const registerDeviceRef = useRef<(options?: PushRegistrationOptions) => Promise<boolean>>(async () => false);
+
   const registerDevice = useCallback(async (options?: PushRegistrationOptions) => {
     const quiet = options?.quiet === true;
+    const background = options?.background === true;
     const facts = readPushRuntimeFacts();
     const decision = routePushEnable(facts);
 
     // A tap must change the screen even when a quiet post-login call is
-    // already waiting. Joining that promise used to return before
-    // setIsRegistering, so the button looked dead.
+    // already waiting. The native work is queued, and setIsRegistering runs
+    // before that wait, so the button shows progress immediately.
     if (!quiet) setIsRegistering(true);
-    publishPushStatus({
-      phase: 'working',
-      message: decision.route === 'native'
-        ? `Asking iOS to show the notification prompt… ${describePushRuntime(facts)}`
-        : 'Asking this device for notification permission…',
-    });
+    if (!background) {
+      publishPushStatus({
+        phase: 'working',
+        message: decision.route === 'native'
+          ? `Asking iOS to show the notification prompt… ${describePushRuntime(facts)}`
+          : 'Asking this device for notification permission…',
+      });
+    }
 
     const finish = (result: PushAttempt) => {
+      if (result.skipToast) return result.ok;
+      // Resume and company-switch calls must not toast a missing bridge or a
+      // declined permission. A token-save failure still surfaces once.
+      if (background && !result.ok && !result.saveFailure) return result.ok;
+      const storage = pushToastStorage();
       if (result.ok) {
+        if (storage) clearPushSaveFailureToast(storage);
+        toast.dismiss('push-token-save');
         publishPushStatus({ phase: 'saved', message: result.message });
         if (!quiet || result.prompted) toast.success('Notifications enabled!');
       } else {
         publishPushStatus({ phase: 'failed', message: result.message });
+        if (result.saveFailure) publishTokenSaved(false);
         // A quiet cold start should not toast when the person simply
-        // declines. A stall, a missing bridge, or a plugin error should.
-        if (!quiet || result.hard) toast.error(result.message, { duration: 12000 });
+        // declines. A stall or a plugin error should. A token-save failure
+        // toasts once until a later save works, so launch does not repeat it.
+        const showSaveFailure = result.saveFailure
+          ? (!quiet || (storage ? claimPushSaveFailureToast(storage) : true))
+          : false;
+        const showOther = !result.saveFailure && (!quiet || result.hard);
+        if (showSaveFailure || showOther) {
+          toast.error(result.message, {
+            duration: 12000,
+            ...(result.saveFailure
+              ? {
+                  id: 'push-token-save',
+                  action: {
+                    label: 'Try again',
+                    onClick: () => {
+                      void registerDeviceRef.current({ organizationId: options?.organizationId ?? null });
+                    },
+                  },
+                }
+              : {}),
+          });
+        }
       }
       return result.ok;
     };
@@ -547,13 +650,9 @@ export function usePushNotifications(staffId?: string) {
       }
 
       if (decision.route === 'native') {
-        if (!nativeRegisterInFlight) {
-          const run = registerNative(options).finally(() => {
-            nativeRegisterInFlight = null;
-          });
-          nativeRegisterInFlight = run;
-        }
-        return finish(await nativeRegisterInFlight);
+        const run = nativeRegisterQueue.then(() => registerNative(options));
+        nativeRegisterQueue = run.then(() => undefined, () => undefined);
+        return finish(await run);
       }
 
       return finish(await registerWeb());
@@ -573,6 +672,8 @@ export function usePushNotifications(staffId?: string) {
   // this callback every render resets the post-login timer before it fires.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [staffId]);
+
+  registerDeviceRef.current = registerDevice;
 
   const requestPermission = useCallback(() => registerDevice(), [registerDevice]);
 

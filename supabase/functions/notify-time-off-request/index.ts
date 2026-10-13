@@ -55,6 +55,10 @@ Deno.serve(async (req) => {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}` },
         body: JSON.stringify({
           organization_id: r.organization_id,
+          // Operators, not every device stored under this organization_id.
+          // An owner of two companies has one token row; user_id lookup
+          // reaches it from either company, and a duplicate row is not sent twice.
+          audience: "operators",
           title: "New time-off request",
           body: `${staffName} requested ${range}`,
         }),

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { usePushNotifications } from '@/hooks/usePushNotifications';
@@ -31,6 +31,9 @@ export function NativePushRegistrar() {
   const { organization, loading: orgLoading, resolution, allOrganizations } = useOrganization();
   const { registerDevice } = usePushNotifications();
   const [hasStaffRow, setHasStaffRow] = useState(false);
+  // The post-login effect saves on the first eligible render. Later company
+  // changes re-save without asking iOS again.
+  const sawInitialSync = useRef(false);
 
   const userId = user?.id ?? null;
   const organizationId = organization?.id ?? null;
@@ -87,6 +90,67 @@ export function NativePushRegistrar() {
     }, PROMPT_DELAY_MS);
 
     return () => window.clearTimeout(timeoutId);
+  }, [
+    authLoading,
+    orgLoading,
+    userId,
+    resolution,
+    roleEligible,
+    hasStaffRow,
+    organizationId,
+    registerDevice,
+  ]);
+
+  // Re-save the token when the company changes. Operator pushes look the
+  // token up by user, so either company can reach this phone; the row's
+  // organization_id still tracks the company the app is showing.
+  useEffect(() => {
+    if (!isIosAppShell()) return;
+    if (authLoading || orgLoading || !userId) return;
+    if (resolution === 'loading' || resolution === 'error') return;
+    if (!(roleEligible || hasStaffRow)) return;
+    if (!sawInitialSync.current) {
+      sawInitialSync.current = true;
+      return;
+    }
+    void registerDevice({ quiet: true, background: true, organizationId });
+  }, [
+    authLoading,
+    orgLoading,
+    userId,
+    resolution,
+    roleEligible,
+    hasStaffRow,
+    organizationId,
+    registerDevice,
+  ]);
+
+  // APNs can rotate the token while the app is suspended. Resume re-registers
+  // without asking again and without a toast when permission is already granted.
+  useEffect(() => {
+    if (!isIosAppShell() || !userId) return;
+    let removed = false;
+    let handle: { remove: () => Promise<void> } | undefined;
+
+    void import('@capacitor/app')
+      .then(({ App }) => App.addListener('appStateChange', ({ isActive }) => {
+        if (!isActive || removed) return;
+        if (authLoading || orgLoading || resolution === 'loading' || resolution === 'error') return;
+        if (!(roleEligible || hasStaffRow)) return;
+        void registerDevice({ quiet: true, background: true, organizationId });
+      }))
+      .then((listener) => {
+        if (removed) void listener.remove();
+        else handle = listener;
+      })
+      .catch((err) => {
+        console.error('[PUSH] Could not watch app resume for push registration', err);
+      });
+
+    return () => {
+      removed = true;
+      void handle?.remove();
+    };
   }, [
     authLoading,
     orgLoading,

@@ -444,6 +444,21 @@ export function NotificationPreferencesCard() {
     <div className="space-y-1">
       {push.isRegistered ? (
         <p className="text-xs text-muted-foreground">This phone is registered for push.</p>
+      ) : push.status.phase === 'failed' && push.isSupported ? (
+        <>
+          {push.status.message ? (
+            <p className="text-xs text-destructive">{push.status.message}</p>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={push.isRegistering}
+            onClick={() => { void push.registerDevice({ organizationId: orgId }); }}
+          >
+            {push.isRegistering ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Try again'}
+          </Button>
+        </>
       ) : push.isSupported ? (
         <Button
           type="button"
@@ -457,9 +472,6 @@ export function NotificationPreferencesCard() {
       ) : (
         <p className="text-xs text-muted-foreground">Push is not available in this browser.</p>
       )}
-      {push.status.phase === 'failed' && push.status.message ? (
-        <p className="text-xs text-destructive">{push.status.message}</p>
-      ) : null}
     </div>
   );
 
