@@ -6,6 +6,16 @@ import { Badge } from '@/components/ui/badge';
 import { extrasToLabels, type ExtraOption } from '@/lib/bookingExtras';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Calendar, MapPin, Clock, User, Phone, Navigation, DollarSign, ClipboardCheck, Car, Loader2, FileText, Users, KeyRound, PawPrint, ParkingCircle, Info, Sparkles } from 'lucide-react';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
@@ -94,17 +104,23 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
   const [onTheWaySent, setOnTheWaySent] = useState(initialOnTheWaySent);
   const [isMarkingArrived, setIsMarkingArrived] = useState(false);
   const [photoCount, setPhotoCount] = useState<number>(initialPhotoCount);
+  const [confirmComplete, setConfirmComplete] = useState(false);
 
   // photoReqs, propertyNote, and the initial photoCount / onTheWaySent are now
   // supplied by the parent's batched query (StaffPortal) instead of a per-card
   // fetch. Photo count is re-counted on demand after an upload — a single query
   // on user action, not on mount.
   const refreshPhotoCount = async () => {
-    const { count } = await supabase
+    const { count, error } = await supabase
       .from('booking_photos')
       .select('id', { count: 'exact', head: true })
       .eq('booking_id', booking.id);
-    setPhotoCount(count ?? 0);
+    // A failed count used to become 0, so a blip looked like every photo vanished.
+    if (error) {
+      console.error('Could not refresh photo count', error);
+      return;
+    }
+    setPhotoCount(count ?? photoCount);
   };
 
 
@@ -656,12 +672,32 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
             <Button
               size="sm"
               className="flex-1"
-              onClick={() => onUpdateStatus(booking.id, 'completed')}
+              onClick={() => setConfirmComplete(true)}
               disabled={isUpdating}
             >
               Complete Job
             </Button>
           )}
+          <AlertDialog open={confirmComplete} onOpenChange={setConfirmComplete}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Mark this job complete?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This tells the office you are finished and can send the customer a review request.
+                  You can undo it until the end of today, as long as the job has not been paid or paid out.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Not yet</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => onUpdateStatus?.(booking.id, 'completed')}
+                  disabled={isUpdating}
+                >
+                  Complete Job
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
         </div>}
       </CardContent>

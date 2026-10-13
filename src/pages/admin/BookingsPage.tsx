@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { reopenAssignedBooking } from '@/lib/reopenAssignedBooking';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertDialog,
@@ -399,6 +400,24 @@ export default function BookingsPage() {
     owedCount: owedBookings.length,
     confirmed: bookings.filter(b => b.status === 'confirmed').length,
     completed: bookings.filter(b => b.status === 'completed').length,
+  };
+
+  const handleReopen = async (booking: BookingWithDetails) => {
+    const { error } = await reopenAssignedBooking(booking.id);
+    if (error) {
+      toast({
+        title: 'Could not reopen',
+        description: error.message,
+        variant: 'destructive',
+      });
+      return;
+    }
+    void queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    toast({
+      title: 'Job reopened',
+      description: `Booking #${booking.booking_number} is in progress again. Payment and payouts were not changed.`,
+    });
+    setActionSheetBooking(null);
   };
 
   const handleStatusChange = async (bookingId: string, newStatus: string) => {
@@ -2568,6 +2587,7 @@ export default function BookingsPage() {
         onViewDetails={(b) => { setActionSheetBooking(null); setActiveBooking(b); setViewDialogOpen(true); }}
         onMarkPaid={async (b) => { await updateBooking.mutateAsync({ id: b.id, payment_status: 'paid' as any }); toast({ title: "Marked Paid", description: `Booking #${b.booking_number} marked as paid.` }); setActionSheetBooking(null); }}
         onMarkComplete={(b) => { handleStatusChange(b.id, 'completed'); setActionSheetBooking(null); }}
+        onReopen={(b) => { void handleReopen(b); }}
         onEdit={(b) => { setActionSheetBooking(null); setEditingBooking(b); setAddDialogOpen(true); }}
         onDuplicate={(b) => { setActionSheetBooking(null); handleDuplicate(b); }}
         onMarkCompleteAdjustPay={(b) => { handleStatusChange(b.id, 'completed'); setActiveBooking(b); setAdjustPaymentOpen(true); setActionSheetBooking(null); }}

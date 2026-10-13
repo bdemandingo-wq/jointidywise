@@ -34,6 +34,7 @@ interface BookingActionSheetProps {
   onViewDetails: (booking: BookingWithDetails) => void;
   onMarkPaid: (booking: BookingWithDetails) => void;
   onMarkComplete: (booking: BookingWithDetails) => void;
+  onReopen?: (booking: BookingWithDetails) => void;
   onEdit: (booking: BookingWithDetails) => void;
   onDuplicate: (booking: BookingWithDetails) => void;
   onMarkCompleteAdjustPay: (booking: BookingWithDetails) => void;
@@ -161,7 +162,7 @@ export function BookingActionSheet({
   getPaymentStatusInfo,
   maskAmount,
   maskName,
-  onViewDetails, onMarkPaid, onMarkComplete, onEdit, onDuplicate,
+  onViewDetails, onMarkPaid, onMarkComplete, onReopen, onEdit, onDuplicate,
   onMarkCompleteAdjustPay, onMarkScheduled, onMarkCancelled, onAdjustCleanerPay, onDelete,
   onMarkUnpaid, onAdditionalCharge, onChargeCard, onPlaceHold, onCaptureHold,
   onReleaseHold, onRefund, onPaymentHistory, onSendReminder, onNotifyCleaner,
@@ -270,6 +271,15 @@ export function BookingActionSheet({
           >
             <CheckCircle className="w-4 h-4" /> Mark Complete
           </Button>
+          {onReopen && booking.status === 'completed' && (
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2.5 h-11 font-semibold text-[13px] rounded-lg"
+              onClick={() => onReopen(booking)}
+            >
+              <RotateCcw className="w-4 h-4" /> Reopen job
+            </Button>
+          )}
 
         </div>
 

@@ -1,9 +1,13 @@
 /**
- * Chargeback proof burned into a booking photo at upload.
+ * Chargeback proof for a booking photo.
  *
- * The stamp is pixels, not a CSS overlay, so it survives a download, an
- * email, and a dispute packet. The same instant is also written on the
- * booking_photos row (captured_at) while created_at stays the insert time.
+ * burnProofStamp paints the bar into JPEG pixels. It is not a CSS overlay.
+ * The upload stores that painted file beside an unstamped copy. The same
+ * instant and GPS are written on the booking_photos row (captured_at,
+ * capture_latitude, capture_longitude) while created_at stays the insert time.
+ * A photo whose burn failed keeps the unstamped file only; the viewer then
+ * draws proofOverlayLabel, and "Download with timestamp" paints the bar
+ * in the browser from those columns.
  *
  * EXIF DateTimeOriginal wins when the file or the Capacitor camera result
  * still has it, and is labeled Taken. Otherwise the stamp says Uploaded and
@@ -437,7 +441,7 @@ export function proofOverlayLabel(photo: {
   return `${label} · ${formatProofWhen(at, businessTimeZone)}`;
 }
 
-/** PostgREST / Postgres signal that the proof columns are not on the live table yet. */
+/** PostgREST / Postgres signal that a selected or inserted column is not on the live table yet. */
 export function isMissingProofColumn(error: { code?: string; message?: string } | null | undefined): boolean {
   if (!error) return false;
   if (error.code === '42703' || error.code === 'PGRST204') return true;
@@ -445,6 +449,14 @@ export function isMissingProofColumn(error: { code?: string; message?: string } 
   return /does not exist/i.test(message)
     || /schema cache/i.test(message)
     || /could not find the '.+' column/i.test(message);
+}
+
+export function isMissingColumn(
+  error: { code?: string; message?: string } | null | undefined,
+  column: string,
+): boolean {
+  if (!isMissingProofColumn(error) || !column) return false;
+  return (error?.message ?? '').includes(column);
 }
 
 function wrapLine(ctx: CanvasRenderingContext2D, line: string, maxWidth: number): string[] {
