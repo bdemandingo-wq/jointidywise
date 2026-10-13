@@ -15,3 +15,9 @@
 ## Team jobs
 - [x] Admin form, staff badge, safe claim, admin detail, payroll, tests
 - [ ] Live phone check of staff card with a real team job (needs a test team booking)
+
+## Booking Media gallery
+- [ ] Approve the gallery performance plan.
+- [ ] Implement transformed thumbnails with unsupported-plan fallback, cached paginated metadata and virtualized grid.
+- [ ] Add full-screen swipe/pinch viewer and adjacent-image prefetch; preserve filters, stats and actions.
+- [ ] Test pagination/prefetch and verify authenticated desktop/mobile gallery; report native iOS verification limits.
