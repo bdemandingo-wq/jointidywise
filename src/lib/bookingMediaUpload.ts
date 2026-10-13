@@ -13,6 +13,7 @@ import {
   parsePluginExif,
   proofStampLines,
   resolveProofClock,
+  type CaptureExif,
   type GeoPoint,
   type TimestampSource,
 } from '@/lib/photoProofStamp';
@@ -57,8 +58,18 @@ export interface UploadBookingMediaArgs {
    * dropped the EXIF segment, so this is the only capture time on iOS.
    */
   captureExif?: unknown;
+  /**
+   * EXIF already parsed from the original file. Compression strips the
+   * segment, so the queue passes this in beside the smaller JPEG.
+   */
+  parsedExif?: CaptureExif | null;
   /** True when the cleaner just took the photo, not when they picked one from the library. */
   liveCapture?: boolean;
+  /**
+   * Stable id for this photo. A retry uploads to the same path and will not
+   * insert a second row if the first attempt already saved it.
+   */
+  idempotencyKey?: string;
 }
 
 export interface UploadBookingMediaResult {
@@ -157,6 +168,16 @@ async function normalizeImage(file: File): Promise<File> {
 
 type BookingPhotoInsert = Database['public']['Tables']['booking_photos']['Insert'];
 
+async function findSavedPhoto(filePath: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('booking_photos')
+    .select('id')
+    .eq('photo_url', filePath)
+    .limit(1);
+  if (error) throw error;
+  return !!data?.length;
+}
+
 async function insertBookingPhoto(row: BookingPhotoInsert) {
   return supabase.from('booking_photos').insert(row as BookingPhotoInsert);
 }
@@ -167,12 +188,16 @@ async function preparePhotoFile(args: {
   address: string | null;
   businessTimeZone: string;
   captureExif: unknown;
+  parsedExif?: CaptureExif | null;
   liveCapture: boolean;
   deviceGps: GeoPoint | null;
   uploadedAt: Date;
 }): Promise<{ file: File; proof: ProofColumns }> {
   const bytes = new Uint8Array(await args.file.arrayBuffer());
-  const exif = mergeCaptureExif(parseImageExif(bytes), parsePluginExif(args.captureExif));
+  const exif = mergeCaptureExif(
+    mergeCaptureExif(parseImageExif(bytes), args.parsedExif ?? null),
+    parsePluginExif(args.captureExif),
+  );
   const clock = resolveProofClock({
     exif,
     uploadedAt: args.uploadedAt,
@@ -243,7 +268,9 @@ export async function uploadBookingMedia(
     extra,
     index,
     captureExif,
+    parsedExif,
     liveCapture = false,
+    idempotencyKey,
   } = args;
   const uploadedAt = new Date();
 
@@ -291,6 +318,7 @@ export async function uploadBookingMedia(
       address: formatPropertyAddress(bookingData),
       businessTimeZone: settingsRes.data?.timezone || 'America/New_York',
       captureExif,
+      parsedExif,
       liveCapture,
       deviceGps,
       uploadedAt,
@@ -309,7 +337,13 @@ export async function uploadBookingMedia(
 
   const ext = file.name.split('.').pop() || (mediaType === 'video' ? 'mp4' : 'jpg');
   const suffix = index === undefined ? '' : `_${index}`;
-  const filePath = `${organizationId}/${bookingId}/${staffId}/${photoType}/${Date.now()}${suffix}.${ext}`;
+  const safeKey = idempotencyKey?.replace(/[^a-zA-Z0-9_-]/g, '') ?? '';
+  const filePath = safeKey
+    ? `${organizationId}/${bookingId}/${staffId}/${photoType}/${safeKey}.${ext}`
+    : `${organizationId}/${bookingId}/${staffId}/${photoType}/${Date.now()}${suffix}.${ext}`;
+
+  const alreadySaved = await findSavedPhoto(filePath);
+  if (alreadySaved) return { filePath, mediaType, organizationId };
 
   const { error: uploadError } = await supabase.storage
     .from('booking-photos')
@@ -319,10 +353,12 @@ export async function uploadBookingMedia(
       // back to a type the bucket does not accept.
       contentType: file.type || (mediaType === 'video' ? 'video/quicktime' : 'image/jpeg'),
     });
-  if (uploadError) throw uploadError;
+  const alreadyStored = !!uploadError && /already exists|duplicate/i.test(uploadError.message);
+  if (uploadError && !alreadyStored) throw uploadError;
 
 
   try {
+    if (await findSavedPhoto(filePath)) return { filePath, mediaType, organizationId };
     const baseRow: BookingPhotoInsert = {
       booking_id: bookingId,
       photo_url: filePath,
@@ -345,9 +381,11 @@ export async function uploadBookingMedia(
     if (dbError) throw dbError;
   } catch (e) {
     // The object is written but unreferenced. Remove it rather than leave it
-    // paid for and invisible. Best-effort: a failed cleanup must not replace
-    // the caller's real error with a second, less useful one.
-    await supabase.storage.from('booking-photos').remove([filePath]).catch(() => {});
+    // paid for and invisible. A retry that found the object already there
+    // must not delete that file — the row may land on the next attempt.
+    if (!alreadyStored) {
+      await supabase.storage.from('booking-photos').remove([filePath]).catch(() => {});
+    }
     throw e;
   }
 

@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Camera, Upload, X, CheckCircle, Loader2, ImageIcon, Video, Play, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Camera, Upload, Loader2, ImageIcon, Play, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { SignedImage } from '@/components/ui/signed-image';
 import { supabase } from '@/lib/supabase';
-import { uploadBookingMedia, getUploadErrorMessage, isVideoFile } from '@/lib/bookingMediaUpload';
+import { getUploadErrorMessage, isVideoFile } from '@/lib/bookingMediaUpload';
+import { dismissQueuedPhoto, photoVisibleToOrg } from '@/lib/photoUploadQueue';
+import { usePhotoUploadQueue } from '@/hooks/usePhotoUploadQueue';
+import { PhotoUploadQueueList } from '@/components/staff/PhotoUploadQueueList';
 import { inBeforeAfterOrder, stepGalleryIndex } from '@/lib/photoGallery';
 import { isMissingProofColumn, proofOverlayLabel } from '@/lib/photoProofStamp';
 import { useGalleryNavigation } from '@/hooks/useGalleryNavigation';
@@ -32,18 +34,10 @@ interface BookingOption {
   service: { name: string } | null;
 }
 
-interface UploadItem {
-  file: File;
-  preview: string;
-  progress: number;
-  status: 'pending' | 'uploading' | 'done' | 'error';
-  error?: string;
-  liveCapture?: boolean;
-}
-
 interface PhotoRecord {
   id: string;
   booking_id: string;
+  organization_id?: string | null;
   photo_url: string;
   photo_type: string | null;
   media_type: string;
@@ -90,28 +84,17 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
   // cleaner to the next — that stickiness is why photos piled into one column.
   const [photoType, setPhotoType] = useState<string>('before');
   const [typeInferred, setTypeInferred] = useState(true);
-  const [uploads, setUploads] = useState<UploadItem[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const queue = usePhotoUploadQueue({ staffId });
   const { timezone: orgTz } = useOrgTimezone(organizationId);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const libraryInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    return () => {
-      uploads.forEach((upload) => {
-        if (upload.preview.startsWith('blob:')) {
-          URL.revokeObjectURL(upload.preview);
-        }
-      });
-    };
-  }, [uploads]);
 
   // Auto-select the most recent booking so cleaners don't get stuck
   // wondering why "Upload All" is disabled when they only have one job.
 
 
-  const { data: bookings = [], error: bookingsError } = useQuery({
+  const { data: bookings = [], error: bookingsError, refetch: refetchBookings } = useQuery({
     queryKey: ['staff-photo-bookings', staffId, organizationId],
     queryFn: async () => {
       if (!staffId || !organizationId) return [];
@@ -147,13 +130,13 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
   }, [selectedBookingId, bookings]);
 
 
-  const { data: photos = [], isLoading: loadingPhotos, error: photosError } = useQuery({
+  const { data: photos = [], isLoading: loadingPhotos, error: photosError, refetch: refetchPhotos } = useQuery({
     queryKey: ['staff-uploaded-photos', staffId, organizationId],
     queryFn: async () => {
       if (!staffId || !organizationId) return [];
 
       const photoColumns: string = `
-          id, booking_id, photo_url, photo_type, media_type, created_at,
+          id, booking_id, organization_id, photo_url, photo_type, media_type, created_at,
           booking:bookings!booking_photos_booking_id_fkey(
             organization_id,
             booking_number,
@@ -180,7 +163,9 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
       }
       if (result.error) throw result.error;
 
-      return ((result.data || []) as unknown as PhotoRecord[]).filter((item) => item.booking?.organization_id === organizationId);
+      return ((result.data || []) as unknown as PhotoRecord[]).filter((item) =>
+        photoVisibleToOrg(item.organization_id, item.booking?.organization_id, organizationId),
+      );
     },
     enabled: !!staffId && !!organizationId,
   });
@@ -215,13 +200,15 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
     if (previewId && !galleryRef.current.some((item) => item.id === previewId)) setPreviewId(null);
   }, [previewId, visibleIds]);
 
-  const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>, fromCamera: boolean) => {
+  const handleFilesSelected = async (event: React.ChangeEvent<HTMLInputElement>, fromCamera: boolean) => {
     const files = Array.from(event.target.files || []);
     event.target.value = '';
 
     if (!files.length) return;
-
-    const newUploads: UploadItem[] = [];
+    if (!selectedBookingId) {
+      toast.error('Pick a booking before adding photos.');
+      return;
+    }
 
     for (const file of files) {
       const isVideo = isVideoFile(file);
@@ -242,105 +229,44 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
         continue;
       }
 
-      newUploads.push({
-        file,
-        preview: URL.createObjectURL(file),
-        progress: 0,
-        status: 'pending',
-        liveCapture: fromCamera && !isVideo,
-      });
-    }
-
-    setUploads((prev) => [...prev, ...newUploads]);
-  };
-
-  const removeUpload = (index: number) => {
-    setUploads((prev) => {
-      const copy = [...prev];
-      const removed = copy[index];
-      if (removed?.preview.startsWith('blob:')) {
-        URL.revokeObjectURL(removed.preview);
-      }
-      copy.splice(index, 1);
-      return copy;
-    });
-  };
-
-  const uploadAll = async () => {
-    if (!selectedBookingId) {
-      toast.error('Please select a booking first.');
-      return;
-    }
-
-    const pendingCount = uploads.filter((upload) => upload.status === 'pending').length;
-    if (!pendingCount) {
-      toast.error('No files to upload.');
-      return;
-    }
-
-    setIsUploading(true);
-    let successCount = 0;
-
-    for (let index = 0; index < uploads.length; index += 1) {
-      if (uploads[index].status !== 'pending') continue;
-
-      setUploads((prev) => prev.map((upload, itemIndex) => (
-        itemIndex === index ? { ...upload, status: 'uploading', progress: 10, error: undefined } : upload
-      )));
-
-      const file = uploads[index].file;
-      const isVideo = isVideoFile(file);
       try {
-        setUploads((prev) => prev.map((upload, itemIndex) => (
-          itemIndex === index ? { ...upload, progress: 30 } : upload
-        )));
-
-        await uploadBookingMedia({
+        await queue.enqueue({
           file,
           bookingId: selectedBookingId,
           staffId,
+          organizationId,
           photoType,
-          organizationIdFallback: organizationId,
-          index,
-          liveCapture: uploads[index].liveCapture,
+          liveCapture: fromCamera && !isVideo,
         });
-
-        successCount += 1;
-        setUploads((prev) => prev.map((upload, itemIndex) => (
-          itemIndex === index ? { ...upload, progress: 100, status: 'done' } : upload
-        )));
       } catch (error) {
-        console.error('Staff media upload failed:', error);
-
-
-        const uploadError = getUploadErrorMessage(error, isVideo);
-        setUploads((prev) => prev.map((upload, itemIndex) => (
-          itemIndex === index ? { ...upload, status: 'error', error: uploadError } : upload
-        )));
+        console.error('Could not save photo to the queue', error);
+        toast.error(getUploadErrorMessage(error, isVideo), { duration: 6000 });
       }
     }
+  };
 
-    setIsUploading(false);
-    queryClient.invalidateQueries({ queryKey: ['staff-uploaded-photos'] });
-    queryClient.invalidateQueries({ queryKey: ['booking-photos'] });
+  const visibleQueue = queue.items.filter((item) => (
+    item.status !== 'done' || !photos.some((photo) => photo.photo_url === item.remotePath)
+  ));
+  const doneCount = queue.items.filter((item) => item.status === 'done').length;
+  const landedIds = queue.items
+    .filter((item) => item.status === 'done' && !!item.remotePath && photos.some((photo) => photo.photo_url === item.remotePath))
+    .map((item) => item.id)
+    .join(',');
+  const prevDoneCount = useRef(0);
 
-    if (successCount > 0) {
-      toast.success(`${successCount} file${successCount > 1 ? 's' : ''} uploaded successfully!`);
-      setTimeout(() => {
-        setUploads((prev) => prev.filter((upload) => upload.status !== 'done'));
-      }, 1500);
+  useEffect(() => {
+    if (doneCount > prevDoneCount.current) {
+      void queryClient.invalidateQueries({ queryKey: ['staff-uploaded-photos'] });
+      void queryClient.invalidateQueries({ queryKey: ['booking-photos'] });
     }
-  };
+    prevDoneCount.current = doneCount;
+  }, [doneCount, queryClient]);
 
-  const retryUpload = (index: number) => {
-    setUploads((prev) => prev.map((upload, itemIndex) => (
-      itemIndex === index ? { ...upload, status: 'pending', progress: 0, error: undefined } : upload
-    )));
-  };
-
-  if (bookingsError || photosError) {
-    return <QueryError subject="photos" />;
-  }
+  useEffect(() => {
+    if (!landedIds) return;
+    landedIds.split(',').forEach((id) => { void dismissQueuedPhoto(id); });
+  }, [landedIds]);
 
   return (
     <div className="space-y-6">
@@ -348,6 +274,16 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
         <h2 className="text-lg font-semibold">📷 Job Photos & Videos</h2>
         <p className="text-sm text-muted-foreground">Upload before & after media for your bookings</p>
       </div>
+
+      {(bookingsError || photosError) && (
+        <QueryError
+          subject="photos"
+          onRetry={() => {
+            void refetchBookings();
+            void refetchPhotos();
+          }}
+        />
+      )}
 
       <Card>
         <CardContent className="p-4 space-y-4">
@@ -419,7 +355,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
               variant="outline"
               className="flex-1 gap-2 min-h-[48px] text-base"
               onClick={() => openPicker(cameraInputRef.current)}
-              disabled={isUploading || bookings.length === 0}
+              disabled={!selectedBookingId}
             >
               <Camera className="w-5 h-5" />
               Camera
@@ -428,79 +364,43 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
               variant="outline"
               className="flex-1 gap-2 min-h-[48px] text-base"
               onClick={() => openPicker(libraryInputRef.current)}
-              disabled={isUploading || bookings.length === 0}
+              disabled={!selectedBookingId}
             >
               <Upload className="w-5 h-5" />
               Library
             </Button>
           </div>
 
-          {uploads.length > 0 && (
-            <div className="space-y-2">
-              {uploads.map((item, index) => (
-                <div key={`${item.file.name}-${index}`} className="flex items-center gap-3 p-2 border rounded-lg">
-                  <div className="w-12 h-12 rounded overflow-hidden bg-muted flex-shrink-0">
-                    {isVideoFile(item.file) ? (
-                      <div className="w-full h-full flex items-center justify-center bg-black/80">
-                        <Play className="w-5 h-5 text-white" />
-                      </div>
-                    ) : (
-                      <img src={item.preview} alt="" className="w-full h-full object-cover" width={48} height={48} loading="lazy" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs truncate">{item.file.name}</p>
-                    <p className="text-xs text-muted-foreground">{(item.file.size / (1024 * 1024)).toFixed(1)} MB</p>
-                    {item.status === 'uploading' && <Progress value={item.progress} className="h-1 mt-1" />}
-                    {item.status === 'done' && <p className="text-xs text-primary">Uploaded</p>}
-                    {item.status === 'error' && (
-                      <div className="flex items-center gap-2">
-                        <p className="text-xs text-destructive truncate">{item.error}</p>
-                        <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => retryUpload(index)}>Retry</Button>
-                      </div>
-                    )}
-                  </div>
-                  {item.status === 'pending' && (
-                    <Button size="icon" variant="ghost" className="w-7 h-7" onClick={() => removeUpload(index)}>
-                      <X className="w-3 h-3" />
-                    </Button>
-                  )}
-                </div>
-              ))}
-              {!selectedBookingId && (
-                <p className="text-xs text-amber-500 text-center">
-                  ⚠️ Pick a booking from the dropdown above before uploading.
-                </p>
-              )}
-              <Button
-                className="w-full gap-2"
-                onClick={uploadAll}
-                disabled={isUploading || uploads.filter((upload) => upload.status === 'pending').length === 0}
-              >
-                {isUploading ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" />Uploading...</>
-                ) : (
-                  <><CheckCircle className="w-4 h-4" />Upload All ({uploads.filter((upload) => upload.status === 'pending').length})</>
-                )}
-              </Button>
-
-            </div>
+          {!selectedBookingId && (
+            <p className="text-center text-xs text-amber-500">
+              Pick a booking from the dropdown above before adding photos.
+            </p>
           )}
+          <p className="text-center text-xs text-muted-foreground">
+            Each photo uploads on its own and stays on this phone until it goes through.
+          </p>
+          <PhotoUploadQueueList
+            items={visibleQueue}
+            onRetry={(id) => { void queue.retry(id); }}
+            onDismiss={(id) => { void queue.dismiss(id); }}
+          />
         </CardContent>
       </Card>
 
       <div>
         <h3 className="font-medium mb-3">Your Uploaded Media</h3>
-        {loadingPhotos ? (
+        {loadingPhotos && photos.length === 0 && !photosError ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
           </div>
-        ) : Object.keys(groupedPhotos).length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground">
-            <Camera className="w-10 h-10 mx-auto mb-2" />
-            <p>No photos uploaded yet</p>
-            <p className="text-xs">Select a booking above and start uploading!</p>
-          </div>
+        ) : photos.length === 0 ? (
+          photosError ? null : (
+            <div className="text-center py-12 text-muted-foreground">
+              <Camera className="w-10 h-10 mx-auto mb-2" />
+              <p>No photos uploaded yet</p>
+              <p className="text-xs">Select a booking above and start uploading!</p>
+            </div>
+          )
         ) : (
           <div className="space-y-6">
             {Object.entries(groupedPhotos).map(([bookingId, group]) => {

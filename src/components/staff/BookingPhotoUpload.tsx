@@ -1,14 +1,15 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Camera, X, CheckCircle, Loader2, ImageIcon, Video } from 'lucide-react';
+import { Camera, Loader2, ImageIcon, Video } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/lib/supabase';
-import { uploadBookingMedia, getUploadErrorMessage } from '@/lib/bookingMediaUpload';
+import { getUploadErrorMessage } from '@/lib/bookingMediaUpload';
 import { toast } from 'sonner';
 import { useNativeCamera } from '@/hooks/useNativeCamera';
+import { usePhotoUploadQueue } from '@/hooks/usePhotoUploadQueue';
+import { PhotoUploadQueueList } from '@/components/staff/PhotoUploadQueueList';
 
 interface BookingPhotoUploadProps {
   bookingId: string;
@@ -24,11 +25,6 @@ const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/x-m4v'];
 const PICKER_INPUT_CLASS = 'absolute left-0 top-0 h-px w-px opacity-0 pointer-events-none';
 
 type MediaMode = 'photo' | 'video';
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function openPicker(input: HTMLInputElement | null) {
   if (!input) return;
@@ -73,8 +69,7 @@ function getValidationError(file: File, mediaMode: MediaMode): string | null {
 
 export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhotoUploaded }: BookingPhotoUploadProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [saving, setSaving] = useState(false);
   // Inferred from job state on open, not hardcoded. The old default was
   // 'after', so a cleaner photographing the mess on arrival filed it as
   // 'after' unless they actively tapped Before — which is most of why
@@ -82,11 +77,15 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
   const [photoType, setPhotoType] = useState<'before' | 'after'>('before');
   const [typeInferred, setTypeInferred] = useState(true);
   const [mediaMode, setMediaMode] = useState<MediaMode>('photo');
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [captureExif, setCaptureExif] = useState<unknown>(null);
-  const [liveCapture, setLiveCapture] = useState(false);
-  const [videoDuration, setVideoDuration] = useState<number | null>(null);
+  const queue = usePhotoUploadQueue({ staffId, bookingId });
+  const doneCount = queue.items.filter((item) => item.status === 'done').length;
+  const doneCountRef = useRef(0);
+  const onUploadedRef = useRef(onPhotoUploaded);
+  onUploadedRef.current = onPhotoUploaded;
+  useEffect(() => {
+    if (doneCount > doneCountRef.current) onUploadedRef.current?.('uploaded');
+    doneCountRef.current = doneCount;
+  }, [doneCount]);
 
   // Ref mirrors typeInferred so the async inference above reads the current
   // value rather than the one captured when the dialog opened.
@@ -105,46 +104,41 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
     });
   };
 
-  const clearPreview = () => {
-    if (previewUrl?.startsWith('blob:')) {
-      URL.revokeObjectURL(previewUrl);
-    }
+  const queueList = (
+    <PhotoUploadQueueList
+      items={queue.items}
+      onRetry={(id) => { void queue.retry(id); }}
+      onDismiss={(id) => { void queue.dismiss(id); }}
+    />
+  );
 
-    setPreviewUrl(null);
-    setSelectedFile(null);
-    setCaptureExif(null);
-    setLiveCapture(false);
-    setVideoDuration(null);
-    resetPickerInputs();
-  };
-
-  const setPreviewForFile = (file: File, nextPreviewUrl: string, exif?: unknown, fromCamera = false) => {
+  const saveToQueue = async (file: File, exif: unknown, fromCamera: boolean) => {
     const validationError = getValidationError(file, mediaMode);
     if (validationError) {
-      if (nextPreviewUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(nextPreviewUrl);
-      }
       toast.error(validationError, { duration: 6000 });
       return;
     }
 
-    if (previewUrl?.startsWith('blob:')) {
-      URL.revokeObjectURL(previewUrl);
-    }
-
-    setSelectedFile(file);
-    setCaptureExif(exif ?? null);
-    setLiveCapture(fromCamera);
-    setPreviewUrl(nextPreviewUrl);
-    setVideoDuration(null);
-
-    if (file.type.startsWith('video/') || file.name.toLowerCase().endsWith('.mov')) {
-      const video = document.createElement('video');
-      video.preload = 'metadata';
-      video.onloadedmetadata = () => {
-        setVideoDuration(Math.round(video.duration));
-      };
-      video.src = nextPreviewUrl;
+    setSaving(true);
+    try {
+      // Persist before the upload starts. Closing the camera, leaving this
+      // screen, or the webview reloading no longer throws the photo away.
+      await queue.enqueue({
+        file,
+        bookingId,
+        staffId,
+        organizationId,
+        photoType,
+        liveCapture: fromCamera && mediaMode === 'photo',
+        captureExif: exif,
+      });
+      toast.success(mediaMode === 'video' ? 'Video saved on this phone. Uploading…' : 'Photo saved on this phone. Uploading…');
+    } catch (error) {
+      console.error('Could not save photo to the queue', error);
+      toast.error(getUploadErrorMessage(error, mediaMode === 'video'), { duration: 6000 });
+    } finally {
+      setSaving(false);
+      resetPickerInputs();
     }
   };
 
@@ -152,82 +146,30 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-
-    const objectUrl = URL.createObjectURL(file);
-    setPreviewForFile(file, objectUrl, undefined, fromCamera);
+    void saveToQueue(file, undefined, fromCamera);
   };
 
   const handleNativeCamera = async () => {
     const result = await takePicture('camera');
-    if (result?.file && result.dataUrl) {
-      setPreviewForFile(result.file, result.dataUrl, result.exif, true);
+    if (result?.file) {
+      await saveToQueue(result.file, result.exif, true);
     }
   };
 
   const handleNativeGallery = async () => {
     const result = await pickFromGallery();
-    if (result?.file && result.dataUrl) {
-      setPreviewForFile(result.file, result.dataUrl, result.exif, false);
+    if (result?.file) {
+      await saveToQueue(result.file, result.exif, false);
     }
   };
-
-  const handleUpload = async () => {
-    if (!selectedFile) return;
-
-    setUploading(true);
-    setUploadProgress(0);
-
-    const progressInterval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 90) {
-          clearInterval(progressInterval);
-          return 90;
-        }
-        return prev + (mediaMode === 'video' ? 2 : 10);
-      });
-    }, mediaMode === 'video' ? 500 : 200);
-
-    try {
-      // The booking lookup and org resolution moved into uploadBookingMedia —
-      // doing it here as well was two round-trips for the same row.
-      const { filePath } = await uploadBookingMedia({
-        file: selectedFile,
-        bookingId,
-        staffId,
-        photoType,
-        organizationIdFallback: organizationId,
-        captureExif,
-        liveCapture: liveCapture && mediaMode === 'photo',
-      });
-
-      clearInterval(progressInterval);
-      setUploadProgress(100);
-
-      toast.success(mediaMode === 'video' ? 'Video uploaded successfully!' : 'Photo uploaded successfully!');
-      setIsOpen(false);
-      clearPreview();
-      setUploadProgress(0);
-      onPhotoUploaded?.(filePath);
-    } catch (error) {
-      clearInterval(progressInterval);
-      setUploadProgress(0);
-      console.error('Upload error:', error);
-
-
-      toast.error(getUploadErrorMessage(error, mediaMode === 'video'), { duration: 6000 });
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const isVideo = selectedFile?.type?.startsWith('video/') || selectedFile?.name?.toLowerCase().endsWith('.mov');
 
   return (
+    <div className="flex w-full flex-col gap-2">
     <Dialog
       open={isOpen}
       onOpenChange={(open) => {
         setIsOpen(open);
-        if (!open) clearPreview();
+        if (!open) resetPickerInputs();
         if (open) {
           // Re-infer on every open. An override is an exception and must not
           // silently become the default for the next job — that is the
@@ -270,7 +212,7 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
               size="sm"
               onClick={() => {
                 setMediaMode('photo');
-                clearPreview();
+                resetPickerInputs();
               }}
               className="flex-1 gap-1.5"
             >
@@ -283,7 +225,7 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
               size="sm"
               onClick={() => {
                 setMediaMode('video');
-                clearPreview();
+                resetPickerInputs();
               }}
               className="flex-1 gap-1.5"
             >
@@ -359,84 +301,49 @@ export function BookingPhotoUpload({ bookingId, staffId, organizationId, onPhoto
             onChange={(event) => handleFileSelect(event, false)}
           />
 
-          {!previewUrl ? (
-            mediaMode === 'photo' ? (
-              isNative && Capacitor.isNativePlatform() ? (
-                <div className="flex flex-col gap-3">
-                  <Button type="button" variant="outline" className="h-24 flex flex-col gap-2" onClick={handleNativeCamera} disabled={cameraLoading || uploading}>
-                    {cameraLoading ? <Loader2 className="w-8 h-8 animate-spin" /> : <><Camera className="w-8 h-8" /><span>Take Photo</span></>}
-                  </Button>
-                  <Button type="button" variant="outline" className="h-24 flex flex-col gap-2" onClick={handleNativeGallery} disabled={cameraLoading || uploading}>
-                    <ImageIcon className="w-8 h-8" /><span>Choose from Gallery</span>
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  <Button type="button" variant="outline" className="h-24 flex flex-col gap-2" onClick={() => openPicker(cameraPhotoInputRef.current)} disabled={uploading}>
-                    <Camera className="w-8 h-8" /><span>Take Photo</span>
-                  </Button>
-                  <Button type="button" variant="outline" className="h-24 flex flex-col gap-2" onClick={() => openPicker(libraryPhotoInputRef.current)} disabled={uploading}>
-                    <ImageIcon className="w-8 h-8" /><span>Choose from Gallery</span>
-                  </Button>
-                </div>
-              )
+          {mediaMode === 'photo' ? (
+            isNative && Capacitor.isNativePlatform() ? (
+              <div className="flex flex-col gap-3">
+                <Button type="button" variant="outline" className="h-24 flex flex-col gap-2" onClick={handleNativeCamera} disabled={cameraLoading || saving}>
+                  {cameraLoading || saving ? <Loader2 className="w-8 h-8 animate-spin" /> : <><Camera className="w-8 h-8" /><span>Take Photo</span></>}
+                </Button>
+                <Button type="button" variant="outline" className="h-24 flex flex-col gap-2" onClick={handleNativeGallery} disabled={cameraLoading || saving}>
+                  <ImageIcon className="w-8 h-8" /><span>Choose from Gallery</span>
+                </Button>
+              </div>
             ) : (
               <div className="flex flex-col gap-3">
-                <Button type="button" variant="outline" className="h-24 flex flex-col gap-2" onClick={() => openPicker(cameraVideoInputRef.current)} disabled={uploading}>
-                  <Video className="w-8 h-8" /><span>Record Video</span>
+                <Button type="button" variant="outline" className="h-24 flex flex-col gap-2" onClick={() => openPicker(cameraPhotoInputRef.current)} disabled={saving}>
+                  <Camera className="w-8 h-8" /><span>Take Photo</span>
                 </Button>
-                <Button type="button" variant="outline" className="h-24 flex flex-col gap-2" onClick={() => openPicker(libraryVideoInputRef.current)} disabled={uploading}>
-                  <ImageIcon className="w-8 h-8" /><span>Choose from Library</span>
+                <Button type="button" variant="outline" className="h-24 flex flex-col gap-2" onClick={() => openPicker(libraryPhotoInputRef.current)} disabled={saving}>
+                  <ImageIcon className="w-8 h-8" /><span>Choose from Gallery</span>
                 </Button>
               </div>
             )
           ) : (
-            <div className="relative">
-              {isVideo ? (
-                <video
-                  src={previewUrl}
-                  controls
-                  className="w-full max-h-48 rounded-lg bg-black"
-                  playsInline
-                />
-              ) : (
-                <img src={previewUrl} alt="Preview" className="w-full h-48 object-cover rounded-lg" height={192} />
-              )}
-              <Button type="button" variant="destructive" size="icon" className="absolute top-2 right-2 w-8 h-8" onClick={clearPreview}>
-                <X className="w-4 h-4" />
+            <div className="flex flex-col gap-3">
+              <Button type="button" variant="outline" className="h-24 flex flex-col gap-2" onClick={() => openPicker(cameraVideoInputRef.current)} disabled={saving}>
+                <Video className="w-8 h-8" /><span>Record Video</span>
               </Button>
-              {selectedFile && (
-                <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                  <span>{formatFileSize(selectedFile.size)}</span>
-                  {videoDuration != null && (
-                    <span>{Math.floor(videoDuration / 60)}:{String(videoDuration % 60).padStart(2, '0')}</span>
-                  )}
-                </div>
-              )}
+              <Button type="button" variant="outline" className="h-24 flex flex-col gap-2" onClick={() => openPicker(libraryVideoInputRef.current)} disabled={saving}>
+                <ImageIcon className="w-8 h-8" /><span>Choose from Library</span>
+              </Button>
             </div>
           )}
 
-          {uploading && (
-            <div className="space-y-1">
-              <Progress value={uploadProgress} className="h-2" />
-              <p className="text-xs text-muted-foreground text-center">Uploading... {uploadProgress}%</p>
-            </div>
-          )}
+          <p className="text-center text-xs text-muted-foreground">
+            Each photo uploads on its own. It stays on this phone until it goes through, even if the signal drops.
+          </p>
+          {queueList}
 
-          <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => setIsOpen(false)}>
-              Cancel
-            </Button>
-            <Button className="flex-1 gap-2" onClick={handleUpload} disabled={!selectedFile || uploading}>
-              {uploading ? (
-                <><Loader2 className="w-4 h-4 animate-spin" />Uploading...</>
-              ) : (
-                <><CheckCircle className="w-4 h-4" />Upload {mediaMode === 'video' ? 'Video' : 'Photo'}</>
-              )}
-            </Button>
-          </div>
+          <Button variant="outline" className="w-full" onClick={() => setIsOpen(false)}>
+            Close
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
+    {!isOpen && queueList}
+    </div>
   );
 }

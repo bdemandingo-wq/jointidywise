@@ -112,6 +112,25 @@ const handler = async (req: Request): Promise<Response> => {
       finalGoogleUrl = businessSettings.google_review_url;
     }
 
+    // Completing the job again must not email the customer a second time.
+    const { data: existingReview, error: existingReviewError } = await supabase
+      .from("review_requests")
+      .select("id")
+      .eq("booking_id", bookingId)
+      .limit(1);
+    if (existingReviewError) {
+      console.error("Failed to check existing review request:", existingReviewError);
+    } else if (existingReview && existingReview.length > 0) {
+      return new Response(JSON.stringify({
+        success: true,
+        skipped: true,
+        reason: "already_sent",
+      }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
     // Create review request record
     const { error: insertError } = await supabase
       .from("review_requests")
@@ -126,6 +145,17 @@ const handler = async (req: Request): Promise<Response> => {
       });
 
     if (insertError) {
+      const duplicate = (insertError as { code?: string }).code === "23505";
+      if (duplicate) {
+        return new Response(JSON.stringify({
+          success: true,
+          skipped: true,
+          reason: "already_sent",
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        });
+      }
       console.error("Failed to create review request:", insertError);
       throw new Error("Failed to create review request record");
     }
