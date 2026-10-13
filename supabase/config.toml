@@ -224,6 +224,11 @@ verify_jwt = true
   [functions.send-subscription-renewal-reminder]
     verify_jwt = false
 
+  [functions.apply-loyalty-pricing]
+    # Cron sends x-cron-secret. invoice.upcoming sends a Stripe signature.
+    # The function rejects anything else. It never creates a charge.
+    verify_jwt = false
+
   [functions.send-trial-reminders]
     verify_jwt = false
 

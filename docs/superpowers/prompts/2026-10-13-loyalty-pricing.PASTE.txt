@@ -1,0 +1,17 @@
+Loyalty pricing is in the repo. Please run the migration and deploy the functions. Do not create a Stripe charge, checkout, or invoice, and do not run a card payment.
+
+1. Run supabase/migrations/20261014120000_org_subscription_loyalty.sql on the live database. It creates org_subscription_loyalty (owners and admins can read their own org; only the service role can write) and schedules the daily job apply-loyalty-pricing at 15:45 UTC. Confirm the table exists and the cron job is scheduled.
+
+2. Set the secret LOYALTY_PRICING_DRY_RUN=1. Leave STRIPE_SECRET_KEY as it is. Do not switch it to a test key.
+
+3. Deploy these two functions and confirm they are deployed, not just committed:
+   - apply-loyalty-pricing
+   - stripe-subscription-webhook
+
+4. Invoke apply-loyalty-pricing once with the x-cron-secret header (the same cron secret the other jobs use) and an empty JSON body. Read the logs. You want a dry_run result and a continuous_since equal to the current subscriber's original Stripe subscription start. Lifetime orgs must be skipped. If the log shows a PaymentIntent, charge, or invoice create, stop.
+
+5. Unset LOYALTY_PRICING_DRY_RUN. Invoke apply-loyalty-pricing once more. This attaches a forever amount-off coupon (id prefix tw_loyalty_) with proration_behavior none. It must not collect a payment. Confirm the log action is "set" or "noop" / "already_applied", and that no charge was created.
+
+6. Optional, so the drop is applied as soon as Stripe schedules the next invoice: add a Stripe webhook endpoint for https://<project>.supabase.co/functions/v1/apply-loyalty-pricing, events invoice.upcoming, customer.subscription.created, customer.subscription.updated, and customer.subscription.deleted. Set STRIPE_LOYALTY_WEBHOOK_SECRET to that endpoint's signing secret and redeploy apply-loyalty-pricing. The daily cron already covers this if you skip the webhook.
+
+The price schedule is Pro $97 minus $4 every 2 months, floor $67; Basic $49 minus $2 every 2 months, floor $35. Canceling or an unpaid end restarts the clock. A past_due that recovers does not.

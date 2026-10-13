@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 
 import { LIFETIME_FEATURES, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
+import { pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
 
 type Interval = 'monthly' | 'yearly';
 type Tier = PublicTier;
@@ -530,6 +531,9 @@ export default function PricingPage() {
               Full Pro access for 30 days. No card. Basic stays $49, Pro $97, and Lifetime $300 — pick one when the trial ends and the dashboard locks.
             </p>
             <GrowthCounters lifetime={lifetime} counters={growth.counters} />
+            <p className="text-sm text-muted-foreground">
+              {pricingPageLoyaltyLine()}
+            </p>
           </div>
 
           <div
