@@ -446,6 +446,12 @@ export function resolveCleanerPay(
     return { ...base, calculatedPay: Number(payShare), source: 'pay_share', isExact: true };
   }
 
+  // A locked snapshot is an admin decision and beats the team rate. base
+  // already carries cleaner_pay_expected when pay_locked is set.
+  if (booking.pay_locked === true && booking.cleaner_pay_expected != null) {
+    return { ...base, source: 'pay_expected', isExact: true };
+  }
+
   // Team job with owner-set per-cleaner pay: every assigned cleaner gets it
   // (flat) or rate × their own hours (hourly). Solo bookings skip this.
   const teamPay = teamCleanerPay(booking, base.hoursWorked);
@@ -460,10 +466,6 @@ export function resolveCleanerPay(
       source: 'computed',
       isExact: teamHourly ? hasValidClock(booking) : true,
     };
-  }
-
-  if (booking.pay_locked === true && booking.cleaner_pay_expected != null) {
-    return { ...base, source: 'pay_expected', isExact: true };
   }
   if (!hourly && booking.cleaner_pay_expected != null) {
     return { ...base, source: 'pay_expected', isExact: true };

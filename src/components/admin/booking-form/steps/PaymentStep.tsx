@@ -40,7 +40,7 @@ import { mustAffectRows } from '@/lib/mustAffectRows';
 import { CustomerNotesBlock } from '@/components/CustomerNotesBlock';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { teamSummary, teamFieldsForSave } from '@/lib/teamJobs';
+import { mirroredCleanerWage, teamSummary, teamFieldsForSave } from '@/lib/teamJobs';
 
 // computeExpectedPay now lives in @/lib/cleanerPay (shared across all pay write sites).
 
@@ -137,9 +137,10 @@ export function PaymentStep() {
     if (!editingBookingId) return; // Only autosave for existing bookings
     
     const base = finalPrice > 0 ? finalPrice : (totalAmount > 0 ? totalAmount : calculatedPrice);
+    const wage = mirroredCleanerWage(teamNeeded, teamPay, teamPayType, cleanerWage, cleanerWageType);
     const expectedPay = computeExpectedPay(
-      cleanerWageType,
-      cleanerWage,
+      wage.wageType,
+      wage.wage,
       cleanerOverrideHours,
       selectedService?.duration || 60,
       base,
@@ -151,10 +152,11 @@ export function PaymentStep() {
         supabase
           .from('bookings')
           .update({
-            cleaner_wage: cleanerWage ? parseFloat(cleanerWage) : null,
-            cleaner_wage_type: cleanerWageType,
+            cleaner_wage: wage.wage ? parseFloat(wage.wage) : null,
+            cleaner_wage_type: wage.wageType,
             cleaner_override_hours: cleanerOverrideHours ? parseFloat(cleanerOverrideHours) : null,
             cleaner_pay_expected: expectedPay,
+            ...teamFieldsForSave(teamNeeded, teamCount, teamPay, teamPayType),
             pay_last_saved_at: new Date().toISOString(),
             pay_last_saved_by: user?.id || null,
           })
@@ -172,7 +174,7 @@ export function PaymentStep() {
       setPaySaveStatus('error');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- organizationId is stable per session; including it would not change behavior
-  }, [editingBookingId, cleanerWage, cleanerWageType, cleanerOverrideHours, selectedService, finalPrice, totalAmount, calculatedPrice, user?.id]);
+  }, [editingBookingId, cleanerWage, cleanerWageType, cleanerOverrideHours, teamNeeded, teamCount, teamPay, teamPayType, selectedService, finalPrice, totalAmount, calculatedPrice, user?.id]);
 
   // Trigger debounced save when pay fields change
   useEffect(() => {

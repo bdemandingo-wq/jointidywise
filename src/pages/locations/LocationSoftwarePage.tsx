@@ -376,7 +376,7 @@ export default function LocationSoftwarePage() {
               </div>
             </div>
             <p className="text-sm text-muted-foreground mt-6">
-              14-day free trial. Cancel any time.
+              30 days of Pro, no card. Cancel any time.
             </p>
           </div>
         </section>

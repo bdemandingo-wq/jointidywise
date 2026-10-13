@@ -16,7 +16,7 @@ export const HOME_FAQS: FaqItem[] = [
   {
     question: "Is there a free trial?",
     answer:
-      "Yes — every plan starts with a free trial so you can run real jobs, schedule cleaners, send invoices, and test payroll before paying anything.",
+      "Yes — every new account gets 30 days of Pro with no card, so you can run real jobs, schedule cleaners, send invoices, and test payroll before paying anything.",
   },
   {
     question: "Can I manage my cleaning team with TidyWise?",

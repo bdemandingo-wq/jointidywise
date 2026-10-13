@@ -119,7 +119,7 @@ const faqs = [
   },
   {
     question: "Can I use a free CRM for my cleaning business?",
-    answer: "Free CRMs like HubSpot or Zoho aren't designed for cleaning businesses and lack scheduling, dispatching, invoicing, and route optimization features. TIDYWISE gives you a 14-day free trial so you can test every feature before committing to a paid plan."
+    answer: "Free CRMs like HubSpot or Zoho aren't designed for cleaning businesses and lack scheduling, dispatching, invoicing, and route optimization features. TIDYWISE gives you 30 days of Pro, no card, so you can test every feature before committing to a paid plan."
   },
   {
     question: "How much does cleaning business software cost?",
@@ -145,7 +145,7 @@ const faqs = [
 
 // Comparison data for competitors
 const competitorComparison = [
-  { name: "TIDYWISE", price: "$49/mo", users: "Unlimited", trial: "14 days", cleaning: true, mobile: true, rating: "4.9/5" },
+  { name: "TIDYWISE", price: "$49/mo", users: "Unlimited", trial: "30 days", cleaning: true, mobile: true, rating: "4.9/5" },
   { name: "Jobber", price: "$349/mo", users: "Up to 15", trial: "14 days", cleaning: false, mobile: true, rating: "4.5/5" },
   { name: "Booking Koala", price: "$197/mo", users: "Unlimited", trial: "14 days", cleaning: true, mobile: true, rating: "4.3/5" },
   { name: "Housecall Pro", price: "$129/mo", users: "1 user", trial: "14 days", cleaning: false, mobile: true, rating: "4.5/5" },
@@ -242,7 +242,7 @@ export default function CleaningBusinessCRM() {
               <div>
                 <h2 className="text-xl font-bold text-foreground mb-3">🏆 Best CRM for Cleaning Business 2026: Quick Answer</h2>
                 <p className="text-muted-foreground mb-4">
-                  <strong>TIDYWISE</strong> is a top-rated CRM built specifically for cleaning businesses. It combines customer management, smart scheduling, automated invoicing, GPS tracking, and team coordination in one platform—starting at just <strong>$49/month with unlimited users</strong>, with a 14-day free trial.
+                  <strong>TIDYWISE</strong> is a top-rated CRM built specifically for cleaning businesses. It combines customer management, smart scheduling, automated invoicing, GPS tracking, and team coordination in one platform—starting at just <strong>$49/month with unlimited users</strong>, with 30 days of Pro, no card.
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <Button asChild size="lg">
@@ -478,7 +478,7 @@ export default function CleaningBusinessCRM() {
                     <span className="w-8 h-8 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-sm font-bold">4</span>
                     Test Before You Commit
                   </h3>
-                  <p className="text-muted-foreground">Most trials give you a fortnight of poking around an empty account. TIDYWISE gives you 14 days with your real customers, real jobs and real invoices loaded in — import your existing client list on day one and run the business through it, rather than evaluating a demo.</p>
+                  <p className="text-muted-foreground">Most trials give you a fortnight of poking around an empty account. TIDYWISE gives you 30 days of Pro with your real customers, real jobs and real invoices loaded in — import your existing client list on day one and run the business through it, rather than evaluating a demo.</p>
                 </div>
               </div>
             </section>
@@ -569,7 +569,7 @@ export default function CleaningBusinessCRM() {
               Ready to Grow Your Cleaning Business?
             </h2>
             <p className="text-muted-foreground mb-6 max-w-2xl mx-auto">
-              Try TIDYWISE to manage customers, schedule jobs, and get paid faster. Start your 14-day free trial today.
+              Try TIDYWISE to manage customers, schedule jobs, and get paid faster. Start free — 30 days of Pro, no card.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Button size="lg" asChild>

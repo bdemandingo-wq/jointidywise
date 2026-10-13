@@ -32,7 +32,7 @@ import { ProductTour } from "@/components/copilot/ProductTour";
 import { Capacitor } from "@capacitor/core";
 import { AppDialogsProvider } from "@/components/AppDialogs";
 import { useAppStateHandler } from '@/hooks/useAppStateHandler';
-import { captureReferralFromUrl } from '@/lib/referralAttribution';
+import { captureReferralFromLocation } from '@/lib/referralAttribution';
 import { requestTrackingPermission } from '@/lib/metaEvents';
 import { NativePushRegistrar } from '@/components/NativePushRegistrar';
 import { Sentry } from '@/lib/sentry';
@@ -167,6 +167,7 @@ const DemoPage = lazy(() => import("./pages/DemoPage"));
 const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const DeleteAccountPage = lazy(() => import("./pages/DeleteAccountPage"));
+const UnsubscribePage = lazy(() => import("./pages/UnsubscribePage"));
 const RedirectPage = lazy(() => import("./pages/RedirectPage"));
 const CardSavedPage = lazy(() => import("./pages/CardSavedPage"));
 const TipPage = lazy(() => import("./pages/TipPage"));
@@ -178,6 +179,8 @@ const TrackingPage = lazy(() => import("./pages/admin/TrackingPage"));
 const PlatformRevenuePage = lazy(() => import("./pages/admin/PlatformRevenuePage"));
 const BroadcastDetailPage = lazy(() => import("./pages/admin/BroadcastDetailPage"));
 const PlatformFeedbackPage = lazy(() => import("./pages/admin/PlatformFeedbackPage"));
+const PlatformReferralsPage = lazy(() => import("./pages/admin/PlatformReferralsPage"));
+const ReferralLinkPage = lazy(() => import("./pages/ReferralLinkPage"));
 
 const BlogAdminListPage = lazy(() => import("./pages/admin/blog/BlogAdminListPage"));
 const AccessCodesAdminPage = lazy(() => import("./pages/admin/AccessCodesAdminPage"));
@@ -243,11 +246,11 @@ const offlinePersister = createSyncStoragePersister({
 
 const AppStateHandler = (): null => {
   useAppStateHandler();
-  // Capture ?ref= on first load so referral signups are credited later in
-  // onboarding (readCapturedReferral -> claim-referral).
+  // Capture /r/CODE and ?ref= on first load, including the hash route the
+  // native app uses, so the code survives until the org is created.
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    captureReferralFromUrl(window.location.search);
+    captureReferralFromLocation(window.location);
   }, []);
   // Request ATT after the app is fully mounted and stable — never during
   // startup. The 3s delay lets the webview finish loading, session restore
@@ -370,6 +373,7 @@ const App = () => (
                       {/* Public Routes - Lazy Loaded */}
                       <Route path="/book/:orgSlug" element={<PublicBookingPage />} />
                       <Route path="/c/:code" element={<RedirectPage />} />
+                      <Route path="/r/:code" element={<ReferralLinkPage />} />
                       <Route path="/card-saved" element={<CardSavedPage />} />
                       <Route path="/tip/:token" element={<TipPage />} />
                       <Route path="/deposit/:token" element={<DepositPage />} />
@@ -377,6 +381,7 @@ const App = () => (
                       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
                       <Route path="/terms" element={<TermsPage />} />
                       <Route path="/delete-account" element={<DeleteAccountPage />} />
+                      <Route path="/unsubscribe" element={<UnsubscribePage />} />
                       {/* App Store 3.1.1: No pricing/marketing on native */}
                       <Route path="/pricing" element={<Navigate to="/login" replace />} />
                       {/* Native already IS the app — pointing someone at the
@@ -443,6 +448,7 @@ const App = () => (
                       <Route path="/dashboard/messages" element={<AdminRoute><ErrorBoundary featureName="Messages"><MessagesPage /></ErrorBoundary></AdminRoute>} />
                       <Route path="/dashboard/tasks" element={<AdminRoute><ErrorBoundary featureName="Tasks"><TasksPage /></ErrorBoundary></AdminRoute>} />
                       <Route path="/dashboard/platform-analytics" element={<AdminRoute><ErrorBoundary featureName="Platform Analytics"><PlatformAnalyticsPage /></ErrorBoundary></AdminRoute>} />
+                      <Route path="/dashboard/platform-referrals" element={<PlatformAdminRoute><ErrorBoundary featureName="Platform Referrals"><PlatformReferralsPage /></ErrorBoundary></PlatformAdminRoute>} />
                       <Route path="/dashboard/disputes" element={<Navigate to="/dashboard/platform-analytics?tab=evidence" replace />} />
                       <Route path="/dashboard/ai-intelligence" element={<AdminRoute><ErrorBoundary featureName="AI Intelligence"><AIIntelligencePage /></ErrorBoundary></AdminRoute>} />
                       <Route path="/dashboard/client-portal" element={<AdminRoute><ErrorBoundary featureName="Client Portal"><ClientPortalAdminPage /></ErrorBoundary></AdminRoute>} />
@@ -493,6 +499,7 @@ const App = () => (
                     {/* Public Routes - Lazy Loaded */}
                     <Route path="/book/:orgSlug" element={<PublicBookingPage />} />
                     <Route path="/c/:code" element={<RedirectPage />} />
+                    <Route path="/r/:code" element={<ReferralLinkPage />} />
                     <Route path="/card-saved" element={<CardSavedPage />} />
                     <Route path="/tip/:token" element={<TipPage />} />
                      <Route path="/deposit/:token" element={<DepositPage />} />
@@ -500,6 +507,7 @@ const App = () => (
                       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
                       <Route path="/terms" element={<TermsPage />} />
                      <Route path="/delete-account" element={<DeleteAccountPage />} />
+                     <Route path="/unsubscribe" element={<UnsubscribePage />} />
                      <Route path="/pricing" element={<ErrorBoundary featureName="Pricing"><PricingPage /></ErrorBoundary>} />
                      <Route path="/get-the-app" element={<ErrorBoundary featureName="Get the app"><GetTheAppPage /></ErrorBoundary>} />
                      <Route path="/choose-plan" element={<ErrorBoundary featureName="Choose Plan"><ChoosePlanPage /></ErrorBoundary>} />
@@ -607,6 +615,7 @@ const App = () => (
                     {/* Platform-admin Blog Editor (must come BEFORE the legacy /admin/* catch-all) */}
                     <Route path="/dashboard/platform-revenue" element={<PlatformAdminRoute><ErrorBoundary featureName="Platform Revenue"><PlatformRevenuePage /></ErrorBoundary></PlatformAdminRoute>} />
                     <Route path="/dashboard/platform-feedback" element={<PlatformAdminRoute><ErrorBoundary featureName="Platform Feedback"><PlatformFeedbackPage /></ErrorBoundary></PlatformAdminRoute>} />
+                    <Route path="/dashboard/platform-referrals" element={<PlatformAdminRoute><ErrorBoundary featureName="Platform Referrals"><PlatformReferralsPage /></ErrorBoundary></PlatformAdminRoute>} />
                     {/* The composer lives as a Platform Analytics tab, not its own page.
                         Redirect rather than drop the path, same as /dashboard/disputes above,
                         so any bookmark or link already pointing here still lands somewhere. */}

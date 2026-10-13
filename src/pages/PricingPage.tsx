@@ -14,6 +14,10 @@ import {
 } from '@/components/pricing/AdManagementRequestDialog';
 import { useAuth } from '@/hooks/useAuth';
 import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
+import { usePublicGrowth } from '@/hooks/usePublicGrowth';
+import { GrowthCounters } from '@/components/growth/GrowthCounters';
+import { lifetimeSpotsLabel } from '@/lib/publicActivity';
+import { TRIAL_CTA } from '@/lib/trialOffer';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -160,6 +164,7 @@ export default function PricingPage() {
   const yearlyRadioRef = useRef<HTMLButtonElement>(null);
   const [checkoutBusy, setCheckoutBusy] = useState<string | null>(null);
   const lifetime = useLifetimeCounter();
+  const growth = usePublicGrowth();
   const [waitlistEmail, setWaitlistEmail] = useState('');
   const [waitlistSubmitted, setWaitlistSubmitted] = useState(false);
   const [highlightedPlan, setHighlightedPlan] = useState<Tier['id'] | null>(null);
@@ -518,13 +523,18 @@ export default function PricingPage() {
             No setup fees. Every plan includes Stripe payments, mobile-friendly web access,
             and real human support.
           </p>
-          <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-sm font-medium text-primary">
-            <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
-            Start with a 14-day free trial — no card. The dashboard locks when it ends.
-          </p>
-          <p className="mt-3 text-sm text-muted-foreground">
-            {pricingPageLoyaltyLine()}
-          </p>
+          <div className="mt-6 flex flex-col items-center gap-3">
+            <Button asChild size="lg" className="h-auto whitespace-normal px-6 py-3 text-base">
+              <Link to={user ? '/dashboard' : '/signup'}>{TRIAL_CTA}</Link>
+            </Button>
+            <p className="text-sm text-muted-foreground max-w-xl">
+              Full Pro access for 30 days. No card. Basic stays $49, Pro $97, and Lifetime $300 — pick one when the trial ends and the dashboard locks.
+            </p>
+            <GrowthCounters lifetime={lifetime} counters={growth.counters} />
+            <p className="text-sm text-muted-foreground">
+              {pricingPageLoyaltyLine()}
+            </p>
+          </div>
 
           <div
             role="group"
@@ -638,7 +648,7 @@ export default function PricingPage() {
                     </span>
                   </div>
                   <p className="text-xs font-medium text-primary mb-6">
-                    14 days free, then {price.display}{price.sub}
+                    30 days of Pro free, then {price.display}{price.sub}
                   </p>
 
                   <Button
@@ -649,13 +659,13 @@ export default function PricingPage() {
                   >
                     <Link
                       to={user ? '/dashboard' : '/signup'}
-                      aria-label={`Start 14-day free trial of ${tier.name} plan, ${billingInterval === 'yearly' ? 'billed yearly after trial' : 'billed monthly after trial'}`}
+                      aria-label={`Choose the ${tier.name} plan, ${billingInterval === 'yearly' ? 'billed yearly after the free Pro trial' : 'billed monthly after the free Pro trial'}`}
                     >
-                      Start 14-day free trial
+                      Choose {tier.name}
                     </Link>
                   </Button>
                   <p className="text-[11px] text-muted-foreground text-center mb-6">
-                    No card to start. After 14 days the app asks you to pick a plan.
+                    No card to start. After 30 days of Pro the app asks you to pick a plan.
                   </p>
 
                   <ul className="space-y-2.5 text-sm">
@@ -819,7 +829,7 @@ export default function PricingPage() {
             </div>
 
             <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 mb-4 uppercase tracking-wider text-[10px]">
-              Founding offer · 100 spots only
+              Founding offer{lifetime.loading || lifetime.unavailable ? '' : ` · ${lifetime.total} spots only`}
             </Badge>
 
             <h2 className="pv-display text-4xl md:text-5xl mb-3">
@@ -827,8 +837,11 @@ export default function PricingPage() {
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mb-8">
               One $300 payment locks in lifetime access to every Pro feature — including
-              everything we ship in the future. No recurring bill, ever. Only 100 spots
-              at launch.
+              everything we ship in the future. No recurring bill, ever.
+              {' '}
+              {lifetime.loading || lifetime.unavailable
+                ? 'Limited spots at launch.'
+                : `Only ${lifetime.total} spots at launch.`}
             </p>
 
             <div className="grid md:grid-cols-2 gap-8 items-start">
@@ -847,12 +860,13 @@ export default function PricingPage() {
                   ) : (
                     <p className="text-sm font-medium text-foreground">
                       <span className="text-amber-700 dark:text-amber-400 font-bold">
-                        {spotsLeft} of {lifetime.total}
-                      </span>{' '}
-                      spots remaining
+                        {lifetime.unavailable
+                          ? 'Lifetime spots'
+                          : lifetimeSpotsLabel(spotsLeft, lifetime.total)}
+                      </span>
                     </p>
                   )}
-                  {!lifetime.loading && !lifetime.soldOut && (
+                  {!lifetime.loading && !lifetime.soldOut && !lifetime.unavailable && (
                     <div className="mt-3 h-2 w-full bg-muted/60 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-amber-500 transition-all"
@@ -1029,7 +1043,7 @@ export default function PricingPage() {
               },
               {
                 q: 'How does the free trial work?',
-                a: 'Every new account gets 14 days in the app with no card. When that ends, the dashboard locks until you pick a plan and add a card. Cancel before then and you pay nothing. After you subscribe, canceling keeps access until the end of the month you paid for.',
+                a: 'Every new account gets 30 days of Pro with no card. When that ends, the dashboard locks until you pick a plan and add a card. Cancel before then and you pay nothing. Accounts already on a trial keep the end date they have. After you subscribe, canceling keeps access until the end of the month you paid for.',
               },
               {
                 q: 'What happens at the end of my paid month if I cancel?',

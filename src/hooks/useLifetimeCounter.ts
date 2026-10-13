@@ -22,6 +22,8 @@ export interface LifetimeState {
   sold: number;
   spotsLeft: number;
   soldOut: boolean;
+  /** The count could not be read. Do not show a placeholder as if it were real. */
+  unavailable: boolean;
   loading: boolean;
 }
 
@@ -32,6 +34,7 @@ const DEFAULT: LifetimeState = {
   sold: 0,
   spotsLeft: TOTAL_SPOTS,
   soldOut: false,
+  unavailable: false,
   loading: true,
 };
 
@@ -44,7 +47,7 @@ async function fetchLifetimeState(): Promise<LifetimeState> {
   }).rpc('get_lifetime_spots_remaining');
 
   if (error || !data || data.length === 0) {
-    return { ...DEFAULT, loading: false };
+    return { ...DEFAULT, loading: false, unavailable: true };
   }
 
   const row = data[0];
@@ -56,6 +59,7 @@ async function fetchLifetimeState(): Promise<LifetimeState> {
     sold,
     spotsLeft: remaining,
     soldOut: row.sold_out || remaining <= 0,
+    unavailable: false,
     loading: false,
   };
 }

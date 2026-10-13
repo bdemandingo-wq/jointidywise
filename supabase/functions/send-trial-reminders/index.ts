@@ -14,23 +14,24 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Which reminder is due. Copied from src/lib/trialClock.ts so the cron
- * function does not import the Vite app. Keep the two in step: day 10 and
- * day 13 only, and only while trial_ends_at is still in the future.
+ * function does not import the Vite app. Keep the two in step: day 25 and
+ * day 29 only, and only while trial_ends_at is still in the future.
+ * A 14-day trial ends before day 25, so those accounts are not emailed.
  */
 function dueTrialReminder(opts: {
   createdAt: string;
   trialEndsAt: string;
   alreadySent: number[];
   now: number;
-}): 10 | 13 | null {
+}): 25 | 29 | null {
   const start = Date.parse(opts.createdAt);
   const end = Date.parse(opts.trialEndsAt);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= opts.now) return null;
   const day = Math.floor((opts.now - start) / DAY_MS) + 1;
   const sent = new Set(opts.alreadySent);
   const reaches = (reminderDay: number) => end > start + (reminderDay - 1) * DAY_MS;
-  if (day >= 13 && !sent.has(13) && reaches(13)) return 13;
-  if (day >= 10 && day < 13 && !sent.has(10) && reaches(10)) return 10;
+  if (day >= 29 && !sent.has(29) && reaches(29)) return 29;
+  if (day >= 25 && day < 29 && !sent.has(25) && reaches(25)) return 25;
   return null;
 }
 
@@ -145,10 +146,10 @@ serve(async (req) => {
       continue;
     }
 
-    const daysLeft = reminderDay === 13 ? "tomorrow" : "in 4 days";
-    const title = reminderDay === 13
+    const daysLeft = reminderDay === 29 ? "tomorrow" : "in 5 days";
+    const title = reminderDay === 29
       ? "Your free trial ends tomorrow"
-      : "4 days left in your free trial";
+      : "5 days left in your free trial";
     const message = `Your TidyWise trial ends ${daysLeft}. Pick a plan before then or the dashboard locks. Nothing is charged unless you add a card.`;
 
     const { error: notifError } = await supabase.from("admin_system_notifications").insert({

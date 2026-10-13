@@ -4,6 +4,7 @@
 
 import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/lib/supabase';
+import { appendReferralParam, captureReferralFromUrl, readCapturedReferral } from '@/lib/referralAttribution';
 
 const NATIVE_CALLBACK_URL = 'com.TidyWiseApp.app://auth/callback';
 const WEB_CALLBACK_URL = 'https://www.jointidywise.com';
@@ -19,7 +20,7 @@ export async function signInWithOAuthNative(
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: NATIVE_CALLBACK_URL,
+        redirectTo: appendReferralParam(NATIVE_CALLBACK_URL, readCapturedReferral()),
         skipBrowserRedirect: true,
       },
     });
@@ -70,6 +71,14 @@ export function setupDeepLinkListener(): (() => void) | undefined {
           window.location.hash = '#/dashboard/reports';
         }
         return;
+      }
+
+      try {
+        const callback = new URL(url);
+        const ref = callback.searchParams.get('ref');
+        if (ref) captureReferralFromUrl(`?ref=${ref}`);
+      } catch {
+        // A malformed callback still falls through to the token parser below.
       }
 
       if (!url.includes('auth/callback')) {

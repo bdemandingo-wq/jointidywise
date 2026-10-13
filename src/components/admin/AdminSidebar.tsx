@@ -36,6 +36,7 @@ import {
   Gauge,
   Bug,
   Trash2,
+  Gift,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { OrgSwitcherList } from '@/components/OrgSwitcherList';
@@ -698,6 +699,19 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
             >
               <Activity className="w-5 h-5 flex-shrink-0 text-amber-500" />
               {(isOpen || isMobile) && <span className="text-amber-500 font-medium">Platform Analytics</span>}
+            </Link>
+            <Link
+              to="/dashboard/platform-referrals"
+              onClick={handleNavClick}
+              className={cn(
+                'sidebar-link min-h-[44px] pointer-events-auto touch-manipulation',
+                location.pathname === '/dashboard/platform-referrals' && 'active',
+                !isOpen && !isMobile && 'justify-center px-2'
+              )}
+              title={!isOpen && !isMobile ? 'Referrals' : undefined}
+            >
+              <Gift className="w-5 h-5 flex-shrink-0 text-amber-500" />
+              {(isOpen || isMobile) && <span className="text-amber-500 font-medium">Referrals</span>}
             </Link>
             <Link
               to="/dashboard/platform-feedback"

@@ -249,7 +249,7 @@ export default function BookingKoalaVsJobberVsTidywise() {
               Ready to try the best cleaning business software?
             </h2>
             <p className="text-muted-foreground mb-6 max-w-lg mx-auto">
-              Try TIDYWISE for your cleaning business. Start your 14-day free trial today.
+              Try TIDYWISE for your cleaning business. Start free — 30 days of Pro, no card.
             </p>
             <Button size="lg" asChild>
               <Link to="/auth">Get started <ArrowRight className="ml-2 h-4 w-4" /></Link>

@@ -25,7 +25,7 @@ interface OnboardingWinbackProps {
 }
 
 function offerNote(offer: string | null | undefined): string | null {
-  if (offer === 'trial_30') return 'Finish these steps and your free trial is 30 days instead of 14.';
+  if (offer === 'trial_30') return 'Your free trial is 30 days of Pro, no card.';
   if (offer === 'half_off_first_month') return '50% off your first month is saved. It applies when you pick a plan.';
   if (offer === 'first_month_free') return 'Your first month free is saved. It applies when you pick a plan.';
   return null;
@@ -181,7 +181,7 @@ export function OnboardingWinback({
       body: { action: 'accept_trial_30' },
     });
     if (error) {
-      toast.error('Could not save the 30-day trial. You can keep setting up on the 14-day trial.');
+      toast.error('Could not save that preference. Your 30-day Pro trial is unchanged.');
       return;
     }
     setNote(offerNote('trial_30'));
@@ -201,9 +201,9 @@ export function OnboardingWinback({
       <Dialog open={open} onOpenChange={(next) => { if (!next) decline(); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Finish setup and get 30 days free</DialogTitle>
+            <DialogTitle>Your free trial is 30 days of Pro</DialogTitle>
             <DialogDescription>
-              Your trial is 14 days, with no card. Finish setup now and we will make it 30 days instead.
+              No card is required. Finish setup so bookings and customers are ready before the trial ends.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
@@ -211,7 +211,7 @@ export function OnboardingWinback({
               No thanks
             </Button>
             <Button type="button" variant="premium" className="min-h-[44px]" onClick={() => void accept()}>
-              Finish setup — 30 days free
+              Keep setting up
             </Button>
           </DialogFooter>
         </DialogContent>

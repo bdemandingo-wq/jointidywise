@@ -1883,6 +1883,7 @@ export type Database = {
           photo_url: string
           proof_stamped: boolean
           staff_id: string | null
+          stamped_photo_url: string | null
           timestamp_source: string | null
         }
         Insert: {
@@ -1901,6 +1902,7 @@ export type Database = {
           photo_url: string
           proof_stamped?: boolean
           staff_id?: string | null
+          stamped_photo_url?: string | null
           timestamp_source?: string | null
         }
         Update: {
@@ -1919,6 +1921,7 @@ export type Database = {
           photo_url?: string
           proof_stamped?: boolean
           staff_id?: string | null
+          stamped_photo_url?: string | null
           timestamp_source?: string | null
         }
         Relationships: [
@@ -2708,6 +2711,7 @@ export type Database = {
           resend_api_key: string | null
           review_sms_template: string | null
           scheduling_mode: string
+          show_public_activity: boolean
           surge_holiday_enabled: boolean
           surge_holiday_multiplier: number
           surge_lastminute_enabled: boolean
@@ -2783,6 +2787,7 @@ export type Database = {
           resend_api_key?: string | null
           review_sms_template?: string | null
           scheduling_mode?: string
+          show_public_activity?: boolean
           surge_holiday_enabled?: boolean
           surge_holiday_multiplier?: number
           surge_lastminute_enabled?: boolean
@@ -2858,6 +2863,7 @@ export type Database = {
           resend_api_key?: string | null
           review_sms_template?: string | null
           scheduling_mode?: string
+          show_public_activity?: boolean
           surge_holiday_enabled?: boolean
           surge_holiday_multiplier?: number
           surge_lastminute_enabled?: boolean
@@ -5552,6 +5558,42 @@ export type Database = {
           },
         ]
       }
+      growth_public_cache: {
+        Row: {
+          cache_key: string
+          payload: Json
+          refreshed_at: string
+        }
+        Insert: {
+          cache_key: string
+          payload: Json
+          refreshed_at: string
+        }
+        Update: {
+          cache_key?: string
+          payload?: Json
+          refreshed_at?: string
+        }
+        Relationships: []
+      }
+      growth_public_rate: {
+        Row: {
+          caller_key: string
+          hits: number
+          window_start: string
+        }
+        Insert: {
+          caller_key: string
+          hits: number
+          window_start: string
+        }
+        Update: {
+          caller_key?: string
+          hits?: number
+          window_start?: string
+        }
+        Relationships: []
+      }
       help_videos: {
         Row: {
           created_at: string
@@ -8225,6 +8267,7 @@ export type Database = {
           plan_downgrade_scheduled_to: string | null
           plan_tier: string
           plan_type: string | null
+          referred_by: string | null
           slug: string | null
           stripe_schedule_id: string | null
           updated_at: string
@@ -8244,6 +8287,7 @@ export type Database = {
           plan_downgrade_scheduled_to?: string | null
           plan_tier?: string
           plan_type?: string | null
+          referred_by?: string | null
           slug?: string | null
           stripe_schedule_id?: string | null
           updated_at?: string
@@ -8263,11 +8307,20 @@ export type Database = {
           plan_downgrade_scheduled_to?: string | null
           plan_tier?: string
           plan_type?: string | null
+          referred_by?: string | null
           slug?: string | null
           stripe_schedule_id?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "organizations_referred_by_fkey"
+            columns: ["referred_by"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       page_seo_metadata: {
         Row: {
@@ -9382,6 +9435,179 @@ export type Database = {
           {
             foreignKeyName: "recurring_offer_queue_organization_id_fkey"
             columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_codes: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          organization_id: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          organization_id: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_codes_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_rewards: {
+        Row: {
+          amount_cents: number | null
+          applied_at: string | null
+          created_at: string
+          currency: string
+          id: string
+          months: number
+          organization_id: string
+          reversal_balance_transaction_id: string | null
+          reversed_at: string | null
+          reward_index: number
+          source_referral_ids: string[]
+          status: string
+          stripe_balance_transaction_id: string | null
+          stripe_customer_id: string | null
+        }
+        Insert: {
+          amount_cents?: number | null
+          applied_at?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          months?: number
+          organization_id: string
+          reversal_balance_transaction_id?: string | null
+          reversed_at?: string | null
+          reward_index: number
+          source_referral_ids: string[]
+          status?: string
+          stripe_balance_transaction_id?: string | null
+          stripe_customer_id?: string | null
+        }
+        Update: {
+          amount_cents?: number | null
+          applied_at?: string | null
+          created_at?: string
+          currency?: string
+          id?: string
+          months?: number
+          organization_id?: string
+          reversal_balance_transaction_id?: string | null
+          reversed_at?: string | null
+          reward_index?: number
+          source_referral_ids?: string[]
+          status?: string
+          stripe_balance_transaction_id?: string | null
+          stripe_customer_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_rewards_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      referral_signups: {
+        Row: {
+          block_reason: string | null
+          code: string
+          created_at: string
+          id: string
+          paid_at: string | null
+          qualifying_charge_id: string | null
+          qualifying_invoice_id: string | null
+          referral_code_id: string
+          referred_email: string | null
+          referred_org_id: string
+          referred_org_name: string | null
+          referred_user_id: string | null
+          referrer_org_id: string
+          reversal_reason: string | null
+          reversed_at: string | null
+          status: string
+          stripe_customer_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          block_reason?: string | null
+          code: string
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          qualifying_charge_id?: string | null
+          qualifying_invoice_id?: string | null
+          referral_code_id: string
+          referred_email?: string | null
+          referred_org_id: string
+          referred_org_name?: string | null
+          referred_user_id?: string | null
+          referrer_org_id: string
+          reversal_reason?: string | null
+          reversed_at?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          block_reason?: string | null
+          code?: string
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          qualifying_charge_id?: string | null
+          qualifying_invoice_id?: string | null
+          referral_code_id?: string
+          referred_email?: string | null
+          referred_org_id?: string
+          referred_org_name?: string | null
+          referred_user_id?: string | null
+          referrer_org_id?: string
+          reversal_reason?: string | null
+          reversed_at?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "referral_signups_referral_code_id_fkey"
+            columns: ["referral_code_id"]
+            isOneToOne: false
+            referencedRelation: "referral_codes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_signups_referred_org_id_fkey"
+            columns: ["referred_org_id"]
+            isOneToOne: true
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "referral_signups_referrer_org_id_fkey"
+            columns: ["referrer_org_id"]
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
@@ -12183,6 +12409,7 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
+      generate_referral_code: { Args: never; Returns: string }
       get_ai_credit_status: {
         Args: { _org_id: string }
         Returns: {
@@ -12479,7 +12706,9 @@ export type Database = {
           tier_order: number
         }[]
       }
+      get_public_activity_feed: { Args: never; Returns: Json }
       get_public_booking_settings: { Args: { p_org_id: string }; Returns: Json }
+      get_public_growth_counters: { Args: never; Returns: Json }
       get_review_request_by_token: {
         Args: { p_token: string }
         Returns: {
@@ -12522,6 +12751,14 @@ export type Database = {
         }[]
       }
       get_user_organization_id: { Args: never; Returns: string }
+      growth_org_is_public: {
+        Args: { p_feed: boolean; p_org_id: string }
+        Returns: boolean
+      }
+      growth_public_caller_role: { Args: never; Returns: string }
+      growth_public_city: { Args: { raw: string }; Returns: string }
+      growth_public_rate_ok: { Args: never; Returns: boolean }
+      growth_public_service: { Args: { raw: string }; Returns: string }
       has_active_subscription: { Args: { _org_id: string }; Returns: boolean }
       has_openphone_api_key: { Args: { _org_id: string }; Returns: boolean }
       has_org_financial_access: { Args: { _org_id: string }; Returns: boolean }
@@ -12661,6 +12898,7 @@ export type Database = {
         Args: { _organization_id: string; _target_user_id: string }
         Returns: undefined
       }
+      reopen_assigned_booking: { Args: { p_booking_id: string }; Returns: Json }
       reset_client_portal_password: {
         Args: { p_new_password: string; p_user_id: string }
         Returns: boolean

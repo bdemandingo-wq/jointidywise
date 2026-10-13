@@ -19,10 +19,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   extractReferralFromSearch,
+  extractReferralFromPath,
   captureReferralFromUrl,
+  captureReferralFromPath,
+  captureReferralFromLocation,
   readCapturedReferral,
   clearCapturedReferral,
+  appendReferralParam,
+  REFERRAL_TTL_MS,
   type ReferralStorage,
+  type ReferralCookieJar,
 } from './referralAttribution.ts';
 
 /** In-memory stand-in for localStorage. */
@@ -124,6 +130,54 @@ test('a stored value that is no longer valid reads as nothing', () => {
 test('a stored value is normalised on the way out too', () => {
   const s = memoryStorage({ 'tw-referral-code': 'abc-234-56' });
   assert.equal(readCapturedReferral(s), 'ABC23456');
+});
+
+test('a capture expires after 30 days and a later link can take its place', () => {
+  const s = memoryStorage();
+  const start = Date.parse('2026-01-01T00:00:00.000Z');
+  captureReferralFromUrl('?ref=FIRSTAAA', s, start);
+  assert.equal(readCapturedReferral(s, start + REFERRAL_TTL_MS), 'FIRSTAAA');
+  assert.equal(readCapturedReferral(s, start + REFERRAL_TTL_MS + 1), null);
+  captureReferralFromUrl('?ref=SECONDBB', s, start + REFERRAL_TTL_MS + 1);
+  assert.equal(readCapturedReferral(s, start + REFERRAL_TTL_MS + 1), 'SECONDBB');
+});
+
+test('/r/CODE is captured, including from a hash route', () => {
+  assert.equal(extractReferralFromPath('/r/abc23456'), 'ABC23456');
+  const s = memoryStorage();
+  captureReferralFromPath('/r/ABC23456', s);
+  assert.equal(readCapturedReferral(s), 'ABC23456');
+  const hashed = memoryStorage();
+  captureReferralFromLocation({ search: '', pathname: '/', hash: '#/r/XYZ98765' }, hashed);
+  assert.equal(readCapturedReferral(hashed), 'XYZ98765');
+});
+
+test('the code is also written to the cookie and read back from it', () => {
+  let cookie: string | null = null;
+  const jar: ReferralCookieJar = {
+    get: () => cookie,
+    set: (code) => { cookie = code; },
+    clear: () => { cookie = null; },
+  };
+  const s = memoryStorage();
+  captureReferralFromUrl('?ref=ABC23456', s, Date.now(), jar);
+  assert.equal(cookie, 'ABC23456');
+  const empty = memoryStorage();
+  assert.equal(readCapturedReferral(empty, Date.now(), jar), 'ABC23456');
+  clearCapturedReferral(s, jar);
+  assert.equal(cookie, null);
+});
+
+test('oauth and email redirects keep the ref on the URL', () => {
+  assert.equal(
+    appendReferralParam('https://jointidywise.com/', 'abc23456'),
+    'https://jointidywise.com/?ref=ABC23456',
+  );
+  assert.equal(
+    appendReferralParam('com.TidyWiseApp.app://auth/callback', 'ABC23456'),
+    'com.TidyWiseApp.app://auth/callback?ref=ABC23456',
+  );
+  assert.equal(appendReferralParam('https://jointidywise.com/signup', null), 'https://jointidywise.com/signup');
 });
 
 test('storage that throws does not take the page down', () => {

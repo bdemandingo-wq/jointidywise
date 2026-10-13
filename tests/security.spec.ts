@@ -26,6 +26,9 @@ test.describe("13.2 — No unauthenticated edge functions", () => {
     // during signup; the public /delete-account page for locked-out
     // users). See the SECURITY comment at the top of each function.
     "check-email-staff", "send-deletion-request-email",
+    // Aggregate counters and a city-level activity feed. Rate limited.
+    // Returns no names, addresses, or ids.
+    "public-growth",
   ]);
 
   // Found via source audit to have ZERO caller-identity check of any kind

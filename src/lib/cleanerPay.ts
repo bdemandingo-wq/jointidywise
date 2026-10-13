@@ -55,6 +55,17 @@ export async function syncCleanerPayShare(
   expectedPay: number | null,
   staffId?: string | null,
 ): Promise<void> {
+  // One claimed spot on an open team job is not a solo assignment. Copying
+  // the booking-level snapshot onto it freezes hourly pay and overwrites the
+  // flat per-cleaner amount. Missing column (migration not applied yet) keeps
+  // the previous behavior instead of failing every pay save.
+  const { data: teamRow, error: teamRowError } = await supabase
+    .from('bookings')
+    .select('cleaners_needed')
+    .eq('id', bookingId)
+    .maybeSingle();
+  if (!teamRowError && Number(teamRow?.cleaners_needed ?? 1) > 1) return;
+
   let sel = supabase
     .from('booking_team_assignments')
     .select('id, staff_id')

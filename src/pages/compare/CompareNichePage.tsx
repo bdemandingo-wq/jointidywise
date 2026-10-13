@@ -131,7 +131,7 @@ export default function CompareNichePage() {
             Get started <ArrowRight className="ml-2 h-4 w-4" />
           </Button>
           <p className="text-sm text-muted-foreground mt-4">
-            Plans from $49/mo · 14-day free trial · Cancel any time
+            Plans from $49/mo · 30 days of Pro, no card · Cancel any time
           </p>
         </div>
       </section>

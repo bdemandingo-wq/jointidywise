@@ -22,7 +22,14 @@ import { toast } from 'sonner';
 import { SEOHead } from '@/components/SEOHead';
 import { confirmDialog } from "@/components/AppDialogs";
 import { stepGalleryIndex } from '@/lib/photoGallery';
-import { proofOverlayLabel } from '@/lib/photoProofStamp';
+import { burnProofStamp, proofOverlayLabel } from '@/lib/photoProofStamp';
+import {
+  displayPhotoPath,
+  downloadFileName,
+  downloadStampLines,
+  planPhotoDownload,
+  type PhotoDownloadKind,
+} from '@/lib/photoDownload';
 import { useGalleryNavigation } from '@/hooks/useGalleryNavigation';
 import { useBookingMediaGallery, isVideoMedia, type BookingPhoto } from '@/hooks/useBookingMediaGallery';
 import { VirtualMediaGrid } from '@/components/admin/VirtualMediaGrid';
@@ -79,6 +86,7 @@ export default function BookingPhotosPage() {
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState<PhotoDownloadKind | null>(null);
 
   const { photos, isLoading, error: photosError, refetch, complete, hasNextPage, fetchNextPage } = useBookingMediaGallery(organization?.id);
   // Surface query errors so silent RLS/permission failures don't look like "no data"
@@ -124,7 +132,7 @@ export default function BookingPhotosPage() {
   const galleryNav = useGalleryNavigation(viewerIndex >= 0, showDelta, () => setViewerId(null));
   const visibleIds = filtered.map((photo) => photo.id).join('\n');
   useEffect(() => {
-    for (const photo of adjacentMedia(filteredRef.current, viewerIndex, isVideoMedia)) void prefetchMediaOriginal('booking-photos', photo.photo_url);
+    for (const photo of adjacentMedia(filteredRef.current, viewerIndex, isVideoMedia)) void prefetchMediaOriginal('booking-photos', displayPhotoPath(photo));
   }, [viewerIndex, visibleIds]);
   const timestampOverlay = selectedPhoto ? proofOverlayLabel(selectedPhoto, orgTz) : null;
   useEffect(() => {
@@ -165,7 +173,8 @@ export default function BookingPhotosPage() {
       if (dbError) throw dbError;
 
       // Then remove from storage — failure here leaves an orphan file but doesn't affect UI
-      const { error: storageError } = await supabase.storage.from('booking-photos').remove([photo.photo_url]);
+      const paths = [photo.photo_url, photo.stamped_photo_url].filter((path): path is string => !!path);
+      const { error: storageError } = await supabase.storage.from('booking-photos').remove(paths);
       if (storageError) {
         console.warn('Storage remove failed (orphaned file):', storageError.message);
       }
@@ -184,16 +193,32 @@ export default function BookingPhotosPage() {
     }
   };
 
-  const handleDownload = async (photo: BookingPhoto) => {
+  const handleDownload = async (photo: BookingPhoto, kind: PhotoDownloadKind) => {
+    const plan = planPhotoDownload(photo, kind);
+    if (plan.action === 'unavailable') {
+      toast.error(plan.message || 'That download is not available for this file.');
+      return;
+    }
+    if (!plan.path) {
+      toast.error('That download is not available for this file.');
+      return;
+    }
+    setDownloading(kind);
     try {
-      const { data, error } = await supabase.storage.from('booking-photos').createSignedUrl(photo.photo_url, 300);
-      if (error || !data?.signedUrl) throw error;
-      const filename = photo.photo_url.split('/').pop() || 'photo.jpg';
+      const { data, error } = await supabase.storage.from('booking-photos').createSignedUrl(plan.path, 300);
+      if (error || !data?.signedUrl) throw error ?? new Error('Could not open the photo');
+      const filename = downloadFileName(photo, kind);
 
       // Fetch the actual bytes — a cross-origin <a download> is ignored by
       // browsers and just navigates (which opened Safari on the phone).
       const resp = await fetch(data.signedUrl);
-      const blob = await resp.blob();
+      if (!resp.ok) throw new Error('Could not download the photo');
+      let blob = await resp.blob();
+      if (plan.action === 'render') {
+        const source = new File([blob], filename, { type: blob.type || 'image/jpeg' });
+        const stamped = await burnProofStamp(source, downloadStampLines(photo, orgTz));
+        blob = stamped;
+      }
 
       if (Capacitor.isNativePlatform()) {
         // Native: write to cache then open the iOS share sheet, where the
@@ -218,8 +243,13 @@ export default function BookingPhotosPage() {
         anchor.click();
         URL.revokeObjectURL(objectUrl);
       }
-    } catch {
-      toast.error('Failed to download');
+    } catch (error) {
+      console.error(error);
+      toast.error(kind === 'timestamp'
+        ? 'Could not download the timestamped photo. The original is still saved.'
+        : 'Failed to download');
+    } finally {
+      setDownloading(null);
     }
   };
 
@@ -281,9 +311,13 @@ export default function BookingPhotosPage() {
             <span>⚠️ {photos.filter((photo) => photo.photo_type === 'inspection').length} inspection</span>
           </div>
 
+          {photosError && photos.length > 0 && (
+            <QueryError subject="booking photos" onRetry={() => { void (hasNextPage ? fetchNextPage() : refetch()); }} />
+          )}
+
           {isLoading ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">{Array.from({ length: 10 }, (_, i) => <Skeleton key={i} className="aspect-square rounded-lg" />)}</div>
-          ) : photosError ? (
+          ) : photosError && photos.length === 0 ? (
             <QueryError subject="booking photos" onRetry={() => { void (hasNextPage ? fetchNextPage() : refetch()); }} />
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
@@ -309,7 +343,7 @@ export default function BookingPhotosPage() {
                         </div>
                       ) : (
                         <SignedImage
-                          src={photo.photo_url}
+                          src={displayPhotoPath(photo)}
                           bucket="booking-photos"
                           alt={`${photo.photo_type || 'Booking'} photo`}
                           className="w-full h-full object-cover"
@@ -388,13 +422,13 @@ export default function BookingPhotosPage() {
                   {isVideoMedia(selectedPhoto) ? (
                     <SignedVideo
                       key={selectedPhoto.id}
-                      src={selectedPhoto.photo_url}
+                      src={displayPhotoPath(selectedPhoto)}
                       bucket="booking-photos"
                       className="w-full h-full object-contain"
                     />
                   ) : (
                     <GalleryZoom key={selectedPhoto.id} onStep={showDelta}><SignedImage
-                      src={selectedPhoto.photo_url}
+                      src={displayPhotoPath(selectedPhoto)}
                       bucket="booking-photos"
                       alt="Full size"
                       className="w-full h-full object-contain"
@@ -474,14 +508,27 @@ export default function BookingPhotosPage() {
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-3 shrink-0">
                   <div className="flex flex-wrap items-center gap-2">
+                    {!isVideoMedia(selectedPhoto) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                        disabled={downloading !== null}
+                        onClick={() => handleDownload(selectedPhoto, 'timestamp')}
+                      >
+                        {downloading === 'timestamp' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                        Download with timestamp
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
                       className="gap-2"
-                      onClick={() => handleDownload(selectedPhoto)}
+                      disabled={downloading !== null}
+                      onClick={() => handleDownload(selectedPhoto, 'original')}
                     >
-                      <Download className="w-4 h-4" />
-                      Download
+                      {downloading === 'original' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      {isVideoMedia(selectedPhoto) ? 'Download' : 'Download original'}
                     </Button>
                     {/* Only offered for before/after. An inspection photo has a
                         different meaning and must not be silently restaged. */}

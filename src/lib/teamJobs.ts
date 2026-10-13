@@ -80,6 +80,50 @@ export function teamCleanerPay(b: TeamFields, hoursWorked: number): number | nul
   return null;
 }
 
+/**
+ * Saving an open team job must not delete cleaners who already claimed it.
+ * The schedule-step picker (admin-assigned names and per-person pay) still
+ * rebuilds assignment rows, because that screen is the roster.
+ */
+export function shouldKeepClaimedCleaners(teamNeeded: boolean, adminAssignedTeam: boolean): boolean {
+  return teamNeeded && !adminAssignedTeam;
+}
+
+/**
+ * Wage stored on the booking. Team pay replaces the solo wage so server
+ * payroll, which reads cleaner_wage, pays each cleaner the team rate.
+ * An empty team amount leaves the solo wage alone.
+ */
+export function mirroredCleanerWage(
+  teamNeeded: boolean,
+  teamPay: string | number | null,
+  teamPayType: TeamPayType,
+  cleanerWage: string,
+  cleanerWageType: string,
+): { wage: string; wageType: string } {
+  if (teamNeeded && teamPay !== '' && teamPay != null) {
+    const amount = Number(teamPay);
+    if (Number.isFinite(amount) && amount >= 0) {
+      return { wage: String(amount), wageType: teamPayType };
+    }
+  }
+  return { wage: cleanerWage, wageType: cleanerWageType };
+}
+
+/**
+ * pay_share for a claimed team spot. Flat is the per-cleaner amount. Hourly
+ * stays null so payroll uses rate × that cleaner's hours instead of a frozen
+ * dollar snapshot.
+ */
+export function claimPayShare(
+  payType: string | null | undefined,
+  payPerCleaner: number | string | null | undefined,
+): number | null {
+  if (payType !== 'flat' || payPerCleaner == null || payPerCleaner === '') return null;
+  const amount = Number(payPerCleaner);
+  return Number.isFinite(amount) ? amount : null;
+}
+
 /** Fields to save from the admin form. Unchecked = solo, pay cleared. */
 export function teamFieldsForSave(
   teamNeeded: boolean,
