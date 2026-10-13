@@ -11,3 +11,7 @@
 - [ ] Update admin CRM timestamp displays.
 - [ ] Update staff and client portal timestamp displays.
 - [ ] Verify type checking, lint, preview rendering, and mobile layout.
+
+## Team jobs
+- [x] Admin form, staff badge, safe claim, admin detail, payroll, tests
+- [ ] Live phone check of staff card with a real team job (needs a test team booking)
