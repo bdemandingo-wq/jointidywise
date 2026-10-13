@@ -93,7 +93,7 @@ serve(async (req: Request): Promise<Response> => {
       results.push({
         organizationId: org.id,
         success: true,
-        skipped: true,
+        skipped: "opted_out",
         error: undefined,
       });
       continue;

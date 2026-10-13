@@ -32,7 +32,18 @@ export function useLoyaltyPricing() {
   const query = useOrgQuery<LoyaltyPricingRow>({
     key: ["org-subscription-loyalty"],
     query: async (organizationId) => {
-      const { data, error } = await supabase
+      // Cast only because the table is not in the generated types until its
+      // migration runs; drop it once types are regenerated.
+      const client = supabase as unknown as {
+        from: (table: "org_subscription_loyalty") => {
+          select: (cols: string) => {
+            eq: (col: string, val: string) => {
+              maybeSingle: () => Promise<{ data: LoyaltyPricingRow | null; error: Error | null }>;
+            };
+          };
+        };
+      };
+      const { data, error } = await client
         .from("org_subscription_loyalty")
         .select("organization_id, continuous_since, plan, billing_interval")
         .eq("organization_id", organizationId)

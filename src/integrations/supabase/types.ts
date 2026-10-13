@@ -7621,59 +7621,6 @@ export type Database = {
           },
         ]
       }
-      org_subscription_loyalty: {
-        Row: {
-          applied_coupon_id: string | null
-          applied_discount_cents: number
-          billing_interval: string | null
-          continuous_since: string | null
-          created_at: string
-          last_status: string | null
-          organization_id: string
-          plan: string | null
-          reset_at: string | null
-          reset_reason: string | null
-          stripe_subscription_id: string | null
-          updated_at: string
-        }
-        Insert: {
-          applied_coupon_id?: string | null
-          applied_discount_cents?: number
-          billing_interval?: string | null
-          continuous_since?: string | null
-          created_at?: string
-          last_status?: string | null
-          organization_id: string
-          plan?: string | null
-          reset_at?: string | null
-          reset_reason?: string | null
-          stripe_subscription_id?: string | null
-          updated_at?: string
-        }
-        Update: {
-          applied_coupon_id?: string | null
-          applied_discount_cents?: number
-          billing_interval?: string | null
-          continuous_since?: string | null
-          created_at?: string
-          last_status?: string | null
-          organization_id?: string
-          plan?: string | null
-          reset_at?: string | null
-          reset_reason?: string | null
-          stripe_subscription_id?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "org_subscription_loyalty_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: true
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       org_zapier_alert_settings: {
         Row: {
           cooldown_minutes: number
