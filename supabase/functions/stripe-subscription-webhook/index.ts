@@ -8,6 +8,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { subscriptionToPlanTier, updateOrgPlanTier, PlanTier } from "../_shared/plan-tier.ts";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
+import { syncLoyaltySubscription } from "../_shared/loyalty-pricing-sync.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -188,6 +189,18 @@ serve(async (req) => {
       }
     }
 
+
+    // Clock only. A failure here must not fail the plan_tier sync above.
+    // The daily apply-loyalty-pricing job repeats this and is what attaches
+    // the renewal coupon. proration_behavior is none inside the sync.
+    try {
+      await syncLoyaltySubscription(supabase, stripe, {
+        organizationId: membership.organization_id,
+        subscriptionId: sub.id,
+      });
+    } catch (loyaltyErr) {
+      log("Loyalty clock sync failed (non-fatal)", { message: (loyaltyErr as Error).message });
+    }
 
     return new Response(JSON.stringify({ ok: true, tier, ...result }), {
       status: 200,

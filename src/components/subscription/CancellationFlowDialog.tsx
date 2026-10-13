@@ -67,6 +67,8 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   periodEndDate: string | null;
+  /** Set once a lower loyalty rate has been earned. Null at the list price. */
+  loyaltyWarning?: string | null;
   onCancelled: () => void;
   onPaused: () => void;
   onSaved: () => void; // closed without canceling (kept plan / claimed offer)
@@ -76,6 +78,7 @@ export default function CancellationFlowDialog({
   open,
   onOpenChange,
   periodEndDate,
+  loyaltyWarning,
   onCancelled,
   onPaused,
   onSaved,
@@ -226,6 +229,11 @@ export default function CancellationFlowDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
+        {loyaltyWarning ? (
+          <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-foreground">
+            {loyaltyWarning}
+          </p>
+        ) : null}
         {step === "reason" && (
           <>
             <DialogHeader>

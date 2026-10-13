@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 
 import { LIFETIME_FEATURES, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
+import { pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
 
 type Interval = 'monthly' | 'yearly';
 type Tier = PublicTier;
@@ -520,6 +521,9 @@ export default function PricingPage() {
           <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-sm font-medium text-primary">
             <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
             Start with a 14-day free trial — no card. The dashboard locks when it ends.
+          </p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            {pricingPageLoyaltyLine()}
           </p>
 
           <div
