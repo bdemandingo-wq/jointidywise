@@ -1284,6 +1284,49 @@ const handler = async (req: Request): Promise<Response> => {
           tos = tosRow;
         }
 
+        // ── Post-charge usage evidence ("they used what they paid for") ──
+        // Resolve the account even when no payment_evidence row exists
+        // (older charges) by falling back to the profile email.
+        let usageUserId: string | null = disputedEvidence?.user_id ?? null;
+        const lookupEmail = (customerEmail || disputedEvidence?.email || "").toLowerCase();
+        if (!usageUserId && lookupEmail) {
+          const { data: prof } = await supabase
+            .from("profiles").select("id").ilike("email", lookupEmail).limit(1).maybeSingle();
+          usageUserId = prof?.id ?? null;
+        }
+        let usageSummary: string | null = null;
+        if (usageUserId && charge.created) {
+          try {
+            const sinceIso = new Date(charge.created * 1000).toISOString();
+            const { count: sessionCount, data: lastSessions } = await supabase
+              .from("user_sessions")
+              .select("session_start", { count: "exact" })
+              .eq("user_id", usageUserId)
+              .gt("session_start", sinceIso)
+              .order("session_start", { ascending: false })
+              .limit(1);
+            const { data: mem } = await supabase
+              .from("org_memberships").select("organization_id")
+              .eq("user_id", usageUserId).limit(1).maybeSingle();
+            let bookingCount = 0;
+            if (mem?.organization_id) {
+              const { count } = await supabase
+                .from("bookings").select("id", { count: "exact", head: true })
+                .eq("organization_id", mem.organization_id)
+                .gt("created_at", sinceIso);
+              bookingCount = count ?? 0;
+            }
+            if ((sessionCount ?? 0) > 0 || bookingCount > 0) {
+              usageSummary =
+                `After this charge (${fmt(sinceIso)}), the account holder signed in ${sessionCount ?? 0} time(s)` +
+                (lastSessions?.[0]?.session_start ? `, most recently on ${fmt(lastSessions[0].session_start)}` : "") +
+                ` and the business created ${bookingCount} booking(s) in the software — the service was actively used.`;
+            }
+          } catch (e) {
+            console.error("[stripe-invoice-webhook] usage evidence lookup failed", e);
+          }
+        }
+
         // Compose draft evidence mapped to Stripe dispute evidence fields
         const fmt = (ts?: string | null) =>
           ts ? new Date(ts).toISOString().slice(0, 10) : "unknown";
