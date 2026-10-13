@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   chooseStampGps,
   formatPropertyAddress,
+  isMissingColumn,
   isMissingProofColumn,
   mergeCaptureExif,
   parseImageExif,
@@ -220,6 +221,8 @@ test('existing photos overlay the stored timestamp; stamped photos do not', () =
 test('missing proof columns are recognizable so the upload can still land', () => {
   assert.equal(isMissingProofColumn({ code: '42703', message: 'column captured_at does not exist' }), true);
   assert.equal(isMissingProofColumn({ code: 'PGRST204', message: "Could not find the 'captured_at' column of 'booking_photos' in the schema cache" }), true);
+  assert.equal(isMissingColumn({ code: 'PGRST204', message: "Could not find the 'stamped_photo_url' column of 'booking_photos' in the schema cache" }, 'stamped_photo_url'), true);
+  assert.equal(isMissingColumn({ code: 'PGRST204', message: "Could not find the 'captured_at' column of 'booking_photos' in the schema cache" }, 'stamped_photo_url'), false);
   assert.equal(isMissingProofColumn({ code: '23502', message: 'null value' }), false);
   assert.equal(isMissingProofColumn(null), false);
 });

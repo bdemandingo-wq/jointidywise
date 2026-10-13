@@ -13,7 +13,8 @@ import { dismissQueuedPhoto, photoVisibleToOrg } from '@/lib/photoUploadQueue';
 import { usePhotoUploadQueue } from '@/hooks/usePhotoUploadQueue';
 import { PhotoUploadQueueList } from '@/components/staff/PhotoUploadQueueList';
 import { inBeforeAfterOrder, stepGalleryIndex } from '@/lib/photoGallery';
-import { isMissingProofColumn, proofOverlayLabel } from '@/lib/photoProofStamp';
+import { isMissingColumn, isMissingProofColumn, proofOverlayLabel } from '@/lib/photoProofStamp';
+import { displayPhotoPath } from '@/lib/photoDownload';
 import { useGalleryNavigation } from '@/hooks/useGalleryNavigation';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { toast } from 'sonner';
@@ -39,6 +40,7 @@ interface PhotoRecord {
   booking_id: string;
   organization_id?: string | null;
   photo_url: string;
+  stamped_photo_url?: string | null;
   photo_type: string | null;
   media_type: string;
   created_at: string | null;
@@ -151,13 +153,17 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
         'created_at,',
         'created_at, captured_at, timestamp_source, proof_stamped,',
       );
+      const withStamped = withProof.replace('photo_url,', 'photo_url, stamped_photo_url,');
       const load = (columns: string) => supabase
         .from('booking_photos')
         .select(columns)
         .eq('staff_id', staffId)
         .order('created_at', { ascending: false });
 
-      let result = await load(withProof);
+      let result = await load(withStamped);
+      if (result.error && isMissingColumn(result.error, 'stamped_photo_url')) {
+        result = await load(withProof);
+      }
       if (result.error && isMissingProofColumn(result.error)) {
         result = await load(photoColumns);
       }
@@ -503,7 +509,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
               ) : (
                 <SignedImage
                   key={previewItem.id}
-                  src={previewItem.photo_url}
+                  src={displayPhotoPath(previewItem)}
                   bucket="booking-photos"
                   alt="Preview"
                   className="w-full rounded-lg"
@@ -557,7 +563,7 @@ function MediaThumbnail({ item, onClick }: { item: PhotoRecord; onClick: () => v
         </div>
       ) : (
         <SignedImage
-          src={item.photo_url}
+          src={displayPhotoPath(item)}
           bucket="booking-photos"
           alt=""
           className="w-full h-full object-cover"
