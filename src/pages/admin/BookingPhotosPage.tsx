@@ -415,7 +415,7 @@ export default function BookingPhotosPage() {
                     type="button"
                     variant="secondary"
                     size="icon"
-                    className="hidden md:inline-flex absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90 shadow"
+                    className={`${isVideoMedia(selectedPhoto) ? 'inline-flex' : 'hidden md:inline-flex'} absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90 shadow`}
                     disabled={viewerIndex <= 0}
                     aria-label="Previous photo"
                     onClick={() => showDelta(-1)}
@@ -426,7 +426,7 @@ export default function BookingPhotosPage() {
                     type="button"
                     variant="secondary"
                     size="icon"
-                    className="hidden md:inline-flex absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90 shadow"
+                    className={`${isVideoMedia(selectedPhoto) ? 'inline-flex' : 'hidden md:inline-flex'} absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-background/90 shadow`}
                     disabled={viewerIndex < 0 || viewerIndex >= filtered.length - 1}
                     aria-label="Next photo"
                     onClick={() => showDelta(1)}

@@ -17,7 +17,8 @@
 - [ ] Live phone check of staff card with a real team job (needs a test team booking)
 
 ## Booking Media gallery
-- [ ] Approve the gallery performance plan.
-- [ ] Implement transformed thumbnails with unsupported-plan fallback, cached paginated metadata and virtualized grid.
-- [ ] Add full-screen swipe/pinch viewer and adjacent-image prefetch; preserve filters, stats and actions.
-- [ ] Test pagination/prefetch and verify authenticated desktop/mobile gallery; report native iOS verification limits.
+- [x] Approve the gallery performance plan.
+- [x] Implement transformed thumbnails with unsupported-plan fallback, cached paginated metadata and virtualized grid.
+- [x] Add full-screen swipe/pinch viewer and adjacent-image prefetch; preserve filters, stats and actions.
+- [x] Six pagination/order/prefetch/fallback tests passed; authenticated 320-photo desktop/mobile gallery verified, touch swipe and 2.55x pinch verified, cached return reused metadata, unsupported-plan original fallback verified, targeted lint and preview build clean.
+- [ ] Physical iOS/Capacitor verification needs the next native build and an installed device; browser gestures are verified, not native gestures.
