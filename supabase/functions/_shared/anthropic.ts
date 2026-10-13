@@ -202,6 +202,14 @@ interface AnthropicResponse {
   model: string;
 }
 
+function openAiFinishReason(stop: string | null | undefined): string {
+  if (stop === "tool_use") return "tool_calls";
+  // OpenAI uses "length" when the completion hit max_tokens. Callers need
+  // that distinct from a normal stop so a cut-off blog is not saved.
+  if (stop === "max_tokens") return "length";
+  return "stop";
+}
+
 function toOpenAiCompletion(a: AnthropicResponse) {
   const text = a.content.filter((c) => c.type === "text").map((c: any) => c.text).join("");
   const toolCalls = a.content
@@ -223,7 +231,7 @@ function toOpenAiCompletion(a: AnthropicResponse) {
         content: text || null,
         ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
       },
-      finish_reason: a.stop_reason === "tool_use" ? "tool_calls" : "stop",
+      finish_reason: openAiFinishReason(a.stop_reason),
     }],
     usage: {
       prompt_tokens: a.usage.input_tokens,
@@ -400,7 +408,7 @@ function translateStream(source: ReadableStream<Uint8Array>): ReadableStream<Uin
             } else if (eventType === "message_delta" || evt?.type === "message_delta") {
               const stop = evt?.delta?.stop_reason;
               if (stop) {
-                send(controller, {}, stop === "tool_use" ? "tool_calls" : "stop");
+                send(controller, {}, openAiFinishReason(stop));
               }
             } else if (eventType === "message_stop" || evt?.type === "message_stop") {
               controller.enqueue(encoder.encode(`data: [DONE]\n\n`));

@@ -5,6 +5,12 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { anthropicChat, MODEL_SONNET } from "../_shared/anthropic.ts";
+import {
+  assertGeneratedBlog,
+  blogOutputLooksTruncated,
+  parseModelJson,
+  type GeneratedBlog,
+} from "../_shared/blogJson.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,6 +18,10 @@ const corsHeaders = {
 };
 
 const MIN_WORD_COUNT = 1500;
+// A 1,500-word HTML post plus FAQ is several thousand tokens. 8,000 cut
+// responses off mid-JSON ("Expected ',' or '}' after property value").
+const GENERATION_MAX_TOKENS = 20000;
+const LOW_QUEUE_THRESHOLD = 7;
 const MODEL = "openai/gpt-5";
 const TITLE_SIMILARITY_THRESHOLD = 0.85;
 const COMPETITORS = ["Jobber", "Housecall Pro", "ZenMaid", "Launch27", "ServiceM8", "BookingKoala", "HubSpot"];
@@ -119,12 +129,6 @@ function calcQualityScore(o: { wordCount: number; hasFaq: boolean; competitorCou
   return { score: Math.min(100, score), notes };
 }
 
-interface GeneratedBlog {
-  title: string; slug: string; excerpt: string; content: string;
-  meta_title: string; meta_description: string; secondary_keywords: string[];
-  faq: Array<{ question: string; answer: string }>;
-}
-
 const VERIFIED_FACTS = `TidyWise Cleaning is a 4.9-star rated residential and commercial cleaning company (138+ reviews) operating in Broward and Palm Beach counties, South Florida. Services include residential, Airbnb turnover, commercial, post-construction, and carpet/upholstery cleaning. Founded and run by the author.`;
 
 const SYSTEM_PROMPT = `You are a senior SEO content strategist writing for cleaning business OWNERS on TidyWise (an all-in-one cleaning business platform).
@@ -163,7 +167,7 @@ Every post MUST:
 - meta_title under 60 chars, meta_description under 155 chars
 - Be unique — do not reuse phrasing
 
-CRITICAL: Return strict JSON only. No markdown fences. No commentary.`;
+CRITICAL: Submit the finished post by calling the submit_blog_post tool exactly once. Do not wrap it in markdown or add commentary. Every field must be complete — do not stop mid-sentence or mid-tag.`;
 
 function buildUserPrompt(targetKeyword: string, intent: string | null): string {
   const note = intent === "bottom_funnel" ? "High-commercial intent. Lean into product comparison and decision criteria."
@@ -172,27 +176,152 @@ function buildUserPrompt(targetKeyword: string, intent: string | null): string {
   return `Write a comprehensive SEO blog post targeting: "${targetKeyword}"
 Intent: ${intent || "general"}. ${note}
 
-Return JSON with this exact shape:
-{"title":"string max 70 chars","slug":"string lowercase-hyphenated","excerpt":"string max 200 chars","content":"HTML body ${MIN_WORD_COUNT}+ words","meta_title":"string max 60","meta_description":"string max 155","secondary_keywords":["string"],"faq":[{"question":"string","answer":"string"}]}`;
+Call submit_blog_post with:
+- title (max 70 chars), slug (lowercase-hyphenated), excerpt (max 200 chars)
+- content: HTML body of at least ${MIN_WORD_COUNT} words
+- meta_title (max 60), meta_description (max 155)
+- secondary_keywords: array of strings
+- faq: 3 to 6 objects with question and answer`;
 }
 
-async function callLovableAI(systemPrompt: string, userPrompt: string): Promise<GeneratedBlog> {
-  if (!Deno.env.get("ANTHROPIC_API_KEY")) throw new Error("ANTHROPIC_API_KEY not configured");
+type ChatTool = {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters: Record<string, unknown>;
+  };
+};
+
+const BLOG_TOOL: ChatTool = {
+  type: "function",
+  function: {
+    name: "submit_blog_post",
+    description: "Submit one finished blog post. HTML in content must be complete.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["title", "slug", "excerpt", "content", "meta_title", "meta_description", "secondary_keywords", "faq"],
+      properties: {
+        title: { type: "string" },
+        slug: { type: "string" },
+        excerpt: { type: "string" },
+        content: { type: "string" },
+        meta_title: { type: "string" },
+        meta_description: { type: "string" },
+        secondary_keywords: { type: "array", items: { type: "string" } },
+        faq: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["question", "answer"],
+            properties: {
+              question: { type: "string" },
+              answer: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
+interface ModelCompletion {
+  choices?: Array<{
+    finish_reason?: string;
+    message?: {
+      content?: string | null;
+      tool_calls?: Array<{ function?: { name?: string; arguments?: string } }>;
+    };
+  }>;
+}
+
+function clipError(message: string): string {
+  const max = 500;
+  return message.length <= max ? message : `${message.slice(0, max)}…`;
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function isRetryableBlogError(err: unknown): boolean {
+  const msg = errorText(err);
+  if (/ANTHROPIC_API_KEY not configured/i.test(msg)) return false;
+  if (/rate limit/i.test(msg)) return false;
+  if (/Anthropic (401|403|429)\b/.test(msg)) return false;
+  return true;
+}
+
+function blogFromCompletion(data: ModelCompletion): GeneratedBlog {
+  const choice = data.choices?.[0];
+  const finish = choice?.finish_reason ?? null;
+  const toolCall = choice?.message?.tool_calls?.find((call) => call.function?.name === "submit_blog_post")
+    ?? choice?.message?.tool_calls?.[0];
+  const args = toolCall?.function?.arguments;
+  const text = typeof choice?.message?.content === "string" ? choice.message.content : "";
+
+  let parsed: unknown;
+  if (typeof args === "string" && args.trim()) {
+    parsed = parseModelJson(args);
+    if (typeof parsed === "string") parsed = parseModelJson(parsed);
+  } else if (text.trim()) {
+    parsed = parseModelJson(text);
+  } else {
+    throw new Error(`Empty response from AI (finish_reason=${finish ?? "none"})`);
+  }
+
+  const blog = assertGeneratedBlog(parsed);
+  const truncated = blogOutputLooksTruncated(blog, finish, GENERATION_MAX_TOKENS);
+  if (truncated) throw new Error(truncated);
+  return blog;
+}
+
+async function requestBlog(systemPrompt: string, userPrompt: string): Promise<GeneratedBlog> {
   const res = await anthropicChat({
     model: MODEL_SONNET,
     messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-    response_format: { type: "json_object" },
-    max_tokens: 8000,
+    tools: [BLOG_TOOL],
+    tool_choice: { type: "function", function: { name: "submit_blog_post" } },
+    max_tokens: GENERATION_MAX_TOKENS,
   });
   if (!res.ok) {
     const text = await res.text();
     if (res.status === 429) throw new Error("AI is temporarily rate limited");
     throw new Error(`Anthropic ${res.status}: ${text.substring(0, 300)}`);
   }
-  const data = await res.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content) throw new Error("Empty response from AI");
-  return JSON.parse(content) as GeneratedBlog;
+  let data: ModelCompletion;
+  try {
+    data = await res.json() as ModelCompletion;
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      throw new Error(`Blog JSON parse failed reading the model response: ${err.message}`);
+    }
+    throw err;
+  }
+  return blogFromCompletion(data);
+}
+
+async function callLovableAI(systemPrompt: string, userPrompt: string): Promise<GeneratedBlog> {
+  if (!Deno.env.get("ANTHROPIC_API_KEY")) throw new Error("ANTHROPIC_API_KEY not configured");
+  try {
+    return await requestBlog(systemPrompt, userPrompt);
+  } catch (first) {
+    if (!isRetryableBlogError(first)) throw first;
+    const firstMsg = errorText(first);
+    console.warn(`[generate] blog JSON failed, retrying once: ${firstMsg}`);
+    try {
+      return await requestBlog(
+        systemPrompt,
+        `${userPrompt}\n\nThe previous attempt failed: ${firstMsg}\nCall submit_blog_post exactly once with a complete HTML body. Escape quotes inside strings. Do not stop mid-tag.`,
+      );
+    } catch (second) {
+      throw new Error(clipError(
+        `Blog generation failed after retry. ${errorText(second)} First attempt: ${firstMsg}`,
+      ));
+    }
+  }
 }
 
 // Second-pass "humanizer." Rewrites the HTML body to remove AI tells —
@@ -219,7 +348,21 @@ What to keep:
 - The overall word count (±10%).
 - The soft CTA mentioning TidyWise.
 
-Return JSON only: {"content":"the rewritten HTML"}. No markdown fences.`;
+Submit the rewrite by calling submit_rewritten_html once. The content string must be the full HTML, complete through the closing tag.`;
+
+const HUMANIZER_TOOL: ChatTool = {
+  type: "function",
+  function: {
+    name: "submit_rewritten_html",
+    description: "Submit the rewritten HTML body.",
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      required: ["content"],
+      properties: { content: { type: "string" } },
+    },
+  },
+};
 
 async function humanizePass(html: string): Promise<string> {
   if (!Deno.env.get("ANTHROPIC_API_KEY")) return html;
@@ -230,20 +373,34 @@ async function humanizePass(html: string): Promise<string> {
         { role: "system", content: HUMANIZER_SYSTEM },
         { role: "user", content: `Rewrite this HTML body:\n\n${html}` },
       ],
-      response_format: { type: "json_object" },
-      max_tokens: 8000,
+      tools: [HUMANIZER_TOOL],
+      tool_choice: { type: "function", function: { name: "submit_rewritten_html" } },
+      max_tokens: GENERATION_MAX_TOKENS,
     });
     if (!res.ok) {
       console.warn(`[humanizer] returned ${res.status} — keeping original draft`);
       return html;
     }
-    const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) return html;
-    const parsed = JSON.parse(content) as { content?: string };
-    return parsed.content?.trim() || html;
+    const data = await res.json() as ModelCompletion;
+    const choice = data.choices?.[0];
+    const args = choice?.message?.tool_calls?.[0]?.function?.arguments;
+    const text = typeof choice?.message?.content === "string" ? choice.message.content : "";
+    const raw = typeof args === "string" && args.trim() ? args : text;
+    if (!raw.trim()) return html;
+    const parsed = parseModelJson(raw);
+    const content = parsed && typeof parsed === "object" && typeof (parsed as { content?: unknown }).content === "string"
+      ? (parsed as { content: string }).content.trim()
+      : "";
+    const closed = /<\/(p|ul|ol|li|h2|h3)>\s*$/i.test(content);
+    if (!content || content.length < html.length * 0.5 || (choice?.finish_reason === "length" && !closed)) {
+      console.warn(
+        `[humanizer] rewrite unusable (${content.length} chars, finish=${choice?.finish_reason ?? "none"}) — keeping original draft`,
+      );
+      return html;
+    }
+    return content;
   } catch (e) {
-    console.warn("[humanizer] failed — keeping original draft:", e);
+    console.warn(`[humanizer] failed — keeping original draft: ${errorText(e)}`);
     return html;
   }
 }
@@ -294,9 +451,9 @@ serve(async (req) => {
   const limited = await enforceAiRateLimit(supabase, { orgId: GLOBAL_BLOG_SCOPE, corsHeaders });
   if (limited) return limited;
 
-  // Body opt-in: auto-publish? Cron passes nothing (defaults true so the
-  // 2x/week schedule actually publishes). Manual admin generate sends
-  // {auto_publish:false} to keep posts in draft for review.
+  // Body opt-in: auto-publish? Cron passes auto_publish true (the daily
+  // 10:00 UTC job). Manual admin generate sends {auto_publish:false} to
+  // keep posts in draft for review.
   let autoPublish = true;
   try {
     const body = await req.clone().json().catch(() => ({} as any));
@@ -311,13 +468,36 @@ serve(async (req) => {
       .update({ status: "queued", error_message: "auto-reset from stuck in_progress" })
       .eq("status", "in_progress").lt("last_attempted_at", staleCutoff);
 
+    const { count: queuedCount, error: countErr } = await supabase
+      .from("blog_keyword_queue")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "queued");
+    const queued = countErr ? null : (queuedCount ?? 0);
+    if (countErr) {
+      console.error(`[blog-queue] could not count queued keywords: ${countErr.message}`);
+    } else if (queued != null && queued < LOW_QUEUE_THRESHOLD) {
+      console.warn(
+        `[blog-queue] low keyword queue: ${queued} queued (threshold ${LOW_QUEUE_THRESHOLD}). Add keywords at /admin/blog/keywords before the daily publisher runs dry.`,
+      );
+    }
+
     const { data: nextKeywords, error: qErr } = await supabase
       .from("blog_keyword_queue").select("*").eq("status", "queued")
       .order("priority", { ascending: true }).order("created_at", { ascending: true }).limit(1);
     if (qErr) throw qErr;
     if (!nextKeywords || nextKeywords.length === 0) {
-      return new Response(JSON.stringify({ ok: true, skipped: true, reason: "Queue empty" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (queued == null) {
+        console.warn(
+          `[blog-queue] low keyword queue: 0 queued (threshold ${LOW_QUEUE_THRESHOLD}). Add keywords at /admin/blog/keywords before the daily publisher runs dry.`,
+        );
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        skipped: true,
+        reason: "Queue empty",
+        queued: 0,
+        low_queue: true,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const queueRow = nextKeywords[0];
 
@@ -398,7 +578,7 @@ serve(async (req) => {
           .eq("id", queueRow.id);
         console.log(`[bg] completed "${queueRow.keyword}" → ${inserted.slug} (score ${score})`);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = clipError(errorText(e));
         console.error(`[bg] failed "${queueRow.keyword}":`, msg);
         await supabase.from("blog_keyword_queue")
           .update({ status: "failed", error_message: msg, attempts: queueRow.attempts + 1 })
@@ -422,7 +602,13 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ accepted: true, keyword: queueRow.keyword, queue_id: queueRow.id }),
+      JSON.stringify({
+        accepted: true,
+        keyword: queueRow.keyword,
+        queue_id: queueRow.id,
+        queued: queued ?? null,
+        low_queue: queued != null && queued < LOW_QUEUE_THRESHOLD,
+      }),
       { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
