@@ -2149,6 +2149,7 @@ export type Database = {
           cleaner_pay_expected: number | null
           cleaner_wage: number | null
           cleaner_wage_type: string | null
+          cleaners_needed: number
           completed_at: string | null
           completed_at_source: string | null
           created_at: string
@@ -2180,6 +2181,8 @@ export type Database = {
           pay_last_saved_at: string | null
           pay_last_saved_by: string | null
           pay_locked: boolean | null
+          pay_per_cleaner: number | null
+          pay_type: string | null
           payment_intent_id: string | null
           payment_status: Database["public"]["Enums"]["payment_status"]
           payroll_date: string | null
@@ -2230,6 +2233,7 @@ export type Database = {
           cleaner_pay_expected?: number | null
           cleaner_wage?: number | null
           cleaner_wage_type?: string | null
+          cleaners_needed?: number
           completed_at?: string | null
           completed_at_source?: string | null
           created_at?: string
@@ -2261,6 +2265,8 @@ export type Database = {
           pay_last_saved_at?: string | null
           pay_last_saved_by?: string | null
           pay_locked?: boolean | null
+          pay_per_cleaner?: number | null
+          pay_type?: string | null
           payment_intent_id?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
           payroll_date?: string | null
@@ -2311,6 +2317,7 @@ export type Database = {
           cleaner_pay_expected?: number | null
           cleaner_wage?: number | null
           cleaner_wage_type?: string | null
+          cleaners_needed?: number
           completed_at?: string | null
           completed_at_source?: string | null
           created_at?: string
@@ -2342,6 +2349,8 @@ export type Database = {
           pay_last_saved_at?: string | null
           pay_last_saved_by?: string | null
           pay_locked?: boolean | null
+          pay_per_cleaner?: number | null
+          pay_type?: string | null
           payment_intent_id?: string | null
           payment_status?: Database["public"]["Enums"]["payment_status"]
           payroll_date?: string | null
