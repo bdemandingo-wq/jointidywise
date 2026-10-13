@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { formatDuration } from '@/lib/formatDuration';
 import { useNavigate } from "react-router-dom";
 import { formatInTimezone, getDateInTimezone } from "@/lib/timezoneUtils";
 import {
@@ -74,6 +75,7 @@ interface Booking {
   address: string | null;
   service: { name: string } | null;
   service_id: string | null;
+  duration?: number | null;
 }
 
 interface BookingRequest {
@@ -338,6 +340,8 @@ export default function PortalDashboardPage() {
         address: b.address,
         service: b.service_name ? { name: b.service_name } : null,
         service_id: b.service_id || null,
+        // Older portal responses omit duration; never invent an estimate.
+        duration: b.duration ?? null,
       }));
 
       setBookings(transformedBookings);
@@ -975,6 +979,7 @@ export default function PortalDashboardPage() {
                       <CardContent className="p-4 sm:p-5 flex items-start justify-between gap-4">
                         <div className="min-w-0 space-y-1.5">
                           <p className="text-[14.5px] font-medium text-[hsl(var(--pv-ink))]">{booking.service?.name || 'Service'}</p>
+                          {booking.duration != null && <p className="text-sm text-muted-foreground">{formatDuration(booking.duration)}</p>}
                           <p className="pv-meta inline-flex items-center gap-1.5">
                             <Calendar className="h-3.5 w-3.5" />
                             {formatInTimezone(booking.scheduled_at, orgTimezone, { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -1297,6 +1302,7 @@ function BookingRow({
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12.5px] text-[hsl(var(--pv-ink-3))]">
               <span className="inline-flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5" />{dateLabel}</span>
               <span className="inline-flex items-center gap-1.5"><Clock className="h-3.5 w-3.5" />{timeLabel}</span>
+              {booking.duration != null && <span>{formatDuration(booking.duration)}</span>}
               {booking.address && <span className="inline-flex items-center gap-1.5 min-w-0"><MapPin className="h-3.5 w-3.5" /><span className="truncate">{booking.address}</span></span>}
             </div>
           </div>

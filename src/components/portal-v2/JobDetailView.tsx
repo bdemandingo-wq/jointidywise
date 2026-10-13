@@ -191,8 +191,7 @@ export function JobDetailView({
   if (mode === 'loading') {
     return (
       <Shell title="Job" onBack={onBack}>
-        <p className="text-sm text-muted-foreground">Estimated duration: {formatDuration(job.duration)}</p>
-      <InverseCard>
+        <InverseCard>
           <Eyebrow onInverse>Your pay</Eyebrow>
           <Skeleton onInverse className="mt-1.5 h-[30px] w-[132px]" />
         </InverseCard>
