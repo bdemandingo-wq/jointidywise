@@ -17,6 +17,10 @@ import { confirmDialog } from "@/components/AppDialogs";
 
 type Status = "draft" | "review" | "published" | "archived" | "all";
 
+// Same threshold as generate-daily-blogs. Below this, the daily job
+// runs out of topics within a week.
+const LOW_QUEUE_THRESHOLD = 7;
+
 function qualityClass(score: number | null | undefined) {
   if (score == null) return "text-muted-foreground";
   if (score >= 80) return "text-emerald-600 font-semibold";
@@ -57,6 +61,19 @@ export default function BlogAdminListPage() {
     },
     refetchInterval: 30000,
   });
+
+  const { data: queuedKeywordCount, error: queuedKeywordsError } = useQuery({
+    queryKey: ["admin-blog-queued-keywords"],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("blog_keyword_queue")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "queued");
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
+  const keywordQueueLow = queuedKeywordCount != null && queuedKeywordCount < LOW_QUEUE_THRESHOLD;
 
   const { data: posts = [], isLoading, error: postsError } = useQuery({
     queryKey: ["admin-blog-posts", statusFilter],
@@ -141,6 +158,7 @@ export default function BlogAdminListPage() {
   });
 
   if (countsError || postsError) return <QueryError subject="blog posts" />;
+  if (queuedKeywordsError) return <QueryError subject="keyword queue" />;
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -149,10 +167,23 @@ export default function BlogAdminListPage() {
           <div>
             <h1 className="text-2xl font-bold text-foreground">Blog Admin</h1>
             <p className="text-sm text-muted-foreground">Manage TIDYWISE marketing blog posts</p>
+            {keywordQueueLow && (
+              <p className="text-sm text-destructive mt-1">
+                Keyword queue is low ({queuedKeywordCount} queued). Add topics before the daily post runs out.
+              </p>
+            )}
           </div>
           <div className="flex gap-2 flex-wrap">
             <Button asChild variant="outline">
-              <Link to="/admin/blog/keywords"><ListChecks className="h-4 w-4 mr-2" />Keywords Queue</Link>
+              <Link to="/admin/blog/keywords">
+                <ListChecks className="h-4 w-4 mr-2" />
+                Keywords Queue
+                {keywordQueueLow && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-destructive px-2 py-0.5 text-[10px] font-semibold text-destructive-foreground">
+                    {queuedKeywordCount} queued
+                  </span>
+                )}
+              </Link>
             </Button>
             <Button asChild variant="outline">
               <Link to="/admin/blog/generate"><Sparkles className="h-4 w-4 mr-2" />Bulk Generate</Link>
