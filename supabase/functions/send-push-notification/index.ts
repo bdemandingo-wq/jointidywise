@@ -112,13 +112,13 @@ async function sendApns(
   const jwt = await getApnsJwt();
 
   // aps is assigned after custom keys so a data field cannot replace it.
-  // sound must be the string "default" — a missing sound is a silent push,
-  // which is what iOS delivers when the key is absent.
+  // The sound name is the file in the app bundle. Omitting sound is a silent
+  // push. If this build does not contain the file yet, iOS plays the default.
   const payload = {
     ...(data ?? {}),
     aps: {
       alert: { title, body },
-      sound: "default",
+      sound: "tidywise_chime.caf",
       badge: 1,
     },
   };

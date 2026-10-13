@@ -166,6 +166,28 @@ test("register-push-token updates an existing row instead of only inserting", ()
   assert.equal(src.includes('onConflict: "user_id,token"'), false);
 });
 
+test("push alerts play the bundled chime, and the App target copies that file", () => {
+  const sender = readFileSync(new URL("../../supabase/functions/send-push-notification/index.ts", import.meta.url), "utf8");
+  assert.match(sender, /sound: "tidywise_chime\.caf"/);
+  assert.equal(sender.includes('sound: "default"'), false);
+
+  const project = readFileSync(new URL("../../ios/App/App.xcodeproj/project.pbxproj", import.meta.url), "utf8");
+  const resources = project.slice(project.indexOf("504EC3021FED79650016851F /* Resources */"));
+  assert.match(resources, /tidywise_chime\.caf in Resources/);
+
+  const caf = readFileSync(new URL("../../ios/App/App/tidywise_chime.caf", import.meta.url));
+  assert.equal(caf.subarray(0, 4).toString(), "caff");
+  // Linear PCM, little-endian 16-bit mono. flags bit 1 is little-endian.
+  const flags = caf.readUInt32BE(8 + 12 + 12);
+  const channels = caf.readUInt32BE(8 + 12 + 24);
+  const bits = caf.readUInt32BE(8 + 12 + 28);
+  assert.equal(caf.subarray(8 + 12 + 8, 8 + 12 + 12).toString(), "lpcm");
+  assert.equal(flags & 2, 2);
+  assert.equal(channels, 1);
+  assert.equal(bits, 16);
+  assert.ok(caf.length < 500_000);
+});
+
 test("send-push uses user_id for operators and dedupes the token", () => {
   const src = readFileSync(new URL("../../supabase/functions/send-push-notification/index.ts", import.meta.url), "utf8");
   assert.match(src, /tokensForPush/);
