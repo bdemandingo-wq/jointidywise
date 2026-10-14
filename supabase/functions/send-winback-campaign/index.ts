@@ -304,7 +304,7 @@ async function deliver(
   const oneClickUrl = oneClickUnsubscribeUrl(supabaseUrl, token);
   const message = buildWinbackEmail(recipient, step, pageUrl);
   const response = await sendResendEmail( {
-      organizationId: organizationId,
+    organizationId: recipient.organization_id,
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

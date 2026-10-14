@@ -1,5 +1,6 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
-import { isDemoSendBlocked } from "../_shared/demo-org.ts";
+import { demoQueueDeferUntil, excludeOrgFilter, isDemoSendBlocked } from "../_shared/demo-org.ts";
+import { listDemoModeOrgIds } from "../_shared/demo-guard.ts";
 import {
   resolveTemplate,
   withStopSentence,
@@ -33,17 +34,22 @@ const handler = async (req: Request): Promise<Response> => {
     const MAX_PER_RUN = 200;   // safety ceiling; remainder drains on the next cron run
     let sentCount = 0;
     let processedTotal = 0;
+    // Demo orgs stay out of the oldest-50 window. A catch below still defers
+    // a sample recipient on a real org, which this list does not include.
+    const demoOrgFilter = excludeOrgFilter(await listDemoModeOrgIds(supabase));
 
     // Drain the queue oldest-first. Deferred rows are excluded in SQL so they
     // don't consume the batch, and we page until nothing's ready (capped per run).
     while (processedTotal < MAX_PER_RUN) {
-      const { data: batch, error: fetchError } = await supabase
+      let due = supabase
         .from("rebooking_reminder_queue")
         .select("id, booking_id, customer_id, organization_id, defer_count, deferred_until")
         .eq("sent", false)
         .eq("cancelled", false)
         .lte("send_at", now)
-        .or(`deferred_until.is.null,deferred_until.lte.${now}`)
+        .or(`deferred_until.is.null,deferred_until.lte.${now}`);
+      if (demoOrgFilter) due = due.not("organization_id", "in", demoOrgFilter);
+      const { data: batch, error: fetchError } = await due
         .order("send_at", { ascending: true })
         .limit(BATCH);
 
@@ -283,6 +289,12 @@ const handler = async (req: Request): Promise<Response> => {
         console.log(`[process-rebooking-reminders] Sent rebooking reminder for booking ${item.booking_id} to ${formattedPhone}`);
       } catch (itemError: any) {
         if (isDemoSendBlocked(itemError)) {
+          const { error: deferErr } = await supabase.from("rebooking_reminder_queue")
+            .update({ deferred_until: demoQueueDeferUntil() })
+            .eq("id", item.id);
+          if (deferErr) {
+            console.error(`[process-rebooking-reminders] failed to defer demo-blocked item ${item.id}:`, deferErr);
+          }
           console.log(`[process-rebooking-reminders] skipped demo send for booking ${item.booking_id}`);
           continue;
         }

@@ -9,7 +9,8 @@ function insidePublicDemo(pathname: string, search: string) {
   if (pathname === '/demo' && isDemoScreen(new URLSearchParams(search).get('screen'))) return true;
   return pathname.startsWith('/dashboard')
     || pathname.startsWith('/admin')
-    || pathname.startsWith('/book/');
+    || pathname.startsWith('/book/')
+    || pathname === '/choose-plan';
 }
 
 /**

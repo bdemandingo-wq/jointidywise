@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react';
+import { ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminHeader } from './AdminHeader';
@@ -72,6 +72,7 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
   useBrandingColors();
   const isMobileView = useIsMobile();
   const demoOn = useSyncExternalStore(subscribeDemoMode, isSampleDemoOn, () => false);
+  const headerRef = useRef<HTMLDivElement>(null);
 
   // Insurance against a Radix modal stranding pointer-events:none on <body>,
   // which makes the whole app unclickable with nothing on screen to explain it.
@@ -170,6 +171,27 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
     location.pathname.includes('/calendar')
   ) || isInsideConversation;
 
+  const pinDemoChrome = demoOn && isMobileView;
+
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (!pinDemoChrome) {
+      root.style.removeProperty('--admin-header-h');
+      return;
+    }
+    const el = headerRef.current;
+    const apply = () => {
+      root.style.setProperty('--admin-header-h', `${hideHeader || !el ? 0 : el.offsetHeight}px`);
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    if (el && !hideHeader) observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--admin-header-h');
+    };
+  }, [pinDemoChrome, hideHeader]);
+
   // The Tidy co-pilot bubble + panel are NOT mounted here. They live in
   // App.tsx so the CopilotProvider survives route changes — otherwise every
   // navigation would remount the provider and clear the conversation.
@@ -177,16 +199,30 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
     <div className="min-h-screen w-full max-w-full overflow-x-clip bg-background">
       <AdminSidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} />
 
-      <div className={cn(
-        "transition-all duration-300 min-h-screen w-full max-w-full overflow-x-clip",
-        "pl-0 md:pl-16",
-        sidebarOpen && "md:pl-64"
-      )}>
-        <DemoModeBanner />
+      <div
+        className={cn(
+          "transition-all duration-300 min-h-screen w-full max-w-full overflow-x-clip",
+          "pl-0 md:pl-16",
+          sidebarOpen && "md:pl-64",
+          pinDemoChrome && "flex h-dvh flex-col overflow-hidden",
+        )}
+        style={pinDemoChrome ? {
+          paddingTop: hideHeader
+            ? 'var(--demo-banner-h, 0px)'
+            : 'calc(var(--demo-banner-h, 0px) + var(--admin-header-h, 0px))',
+        } : undefined}
+      >
+        <div className={cn(pinDemoChrome && "fixed inset-x-0 top-0 z-40")}>
+          <DemoModeBanner />
+        </div>
         {!hideHeader && (
           <div
+            ref={headerRef}
             className={cn(
-              'sticky z-30 top-[var(--demo-banner-h,0px)]',
+              'z-30',
+              pinDemoChrome
+                ? 'fixed inset-x-0 bg-background top-[var(--demo-banner-h,0px)]'
+                : 'sticky top-[var(--demo-banner-h,0px)]',
               !demoOn && 'pt-[env(safe-area-inset-top)]',
             )}
           >
@@ -197,7 +233,8 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
         <main
           className={cn(
             "animate-page-enter flex-1 w-full max-w-full min-w-0 overflow-x-auto",
-            "px-3 py-3 md:p-4 pb-[calc(11.25rem+env(safe-area-inset-bottom))] md:pb-24"
+            "px-3 py-3 md:p-4 pb-[calc(11.25rem+env(safe-area-inset-bottom))] md:pb-24",
+            pinDemoChrome && "min-h-0 overflow-y-auto",
           )}
           {...(listPull ? pullHandlers : {})}
         >

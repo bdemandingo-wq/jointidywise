@@ -20,6 +20,9 @@ import {
   shouldRecordDeliveryAsSent,
   stripeClientBlockReason,
   batchSendErrorPlan,
+  demoQueueDeferUntil,
+  excludeOrgFilter,
+  DEMO_QUEUE_DEFER_MS,
 } from './demo-org.ts';
 
 const functionsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -240,6 +243,29 @@ test('a demo send failure releases the claim and the batch continues', () => {
   const drip = fs.readFileSync(path.join(functionsRoot, 'run-winback-drip/index.ts'), 'utf8');
   const dripSend = drip.indexOf('await sendOrgEmail');
   assert.ok(drip.lastIndexOf('try {', dripSend) < dripSend);
+});
+
+test('a demo-blocked queue row leaves the oldest window', () => {
+  const deferred = Date.parse(demoQueueDeferUntil(0));
+  assert.equal(deferred, DEMO_QUEUE_DEFER_MS);
+  assert.equal(excludeOrgFilter([]), null);
+  assert.equal(excludeOrgFilter(['org-a', 'org-a', '']), '("org-a")');
+  const campaign = fs.readFileSync(path.join(functionsRoot, 'send-winback-campaign/index.ts'), 'utf8');
+  assert.match(campaign, /organizationId: recipient\.organization_id/);
+  assert.doesNotMatch(campaign, /organizationId:\s*organizationId\b/);
+  for (const rel of ['process-rebooking-reminders/index.ts', 'process-recurring-offers/index.ts']) {
+    const text = fs.readFileSync(path.join(functionsRoot, rel), 'utf8');
+    assert.match(text, /listDemoModeOrgIds/, rel);
+    assert.match(text, /excludeOrgFilter/, rel);
+    assert.match(text, /deferred_until: demoQueueDeferUntil\(\)/, rel);
+  }
+  const reviews = fs.readFileSync(path.join(functionsRoot, 'process-review-sms-queue/index.ts'), 'utf8');
+  assert.match(reviews, /listDemoModeOrgIds/);
+  assert.match(reviews, /send_at: demoQueueDeferUntil\(\)/);
+  assert.doesNotMatch(reviews, /status:\s*"pending"/);
+  const sendAt = reviews.indexOf('await sendOpenPhoneMessage');
+  const insertAt = reviews.indexOf('.from("review_requests")');
+  assert.ok(sendAt !== -1 && insertAt > sendAt);
 });
 
 test('Stripe still runs for a real org with demo mode on', () => {

@@ -1,5 +1,6 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
-import { isDemoSendBlocked } from "../_shared/demo-org.ts";
+import { demoQueueDeferUntil, excludeOrgFilter, isDemoSendBlocked } from "../_shared/demo-org.ts";
+import { listDemoModeOrgIds } from "../_shared/demo-guard.ts";
 import {
   resolveTemplate,
   withStopSentence,
@@ -34,15 +35,21 @@ const handler = async (req: Request): Promise<Response> => {
     const MAX_PER_RUN = 200;   // safety ceiling; remainder drains on the next cron run
     let successCount = 0;
     let processedTotal = 0;
+    // This queue has no deferred_until column. Demo orgs are filtered out so
+    // they cannot fill the oldest 50. A sample recipient on a real org has
+    // its send_at pushed forward in the catch below.
+    const demoOrgFilter = excludeOrgFilter(await listDemoModeOrgIds(supabase));
 
     // Drain the queue oldest-first, paging until nothing's ready (capped per run).
     while (processedTotal < MAX_PER_RUN) {
       const now = new Date().toISOString();
-      const { data: pendingItems, error: fetchError } = await supabase
+      let due = supabase
         .from("automated_review_sms_queue")
         .select("id, booking_id, organization_id, customer_id")
         .eq("sent", false)
-        .lte("send_at", now)
+        .lte("send_at", now);
+      if (demoOrgFilter) due = due.not("organization_id", "in", demoOrgFilter);
+      const { data: pendingItems, error: fetchError } = await due
         .order("send_at", { ascending: true })
         .limit(BATCH);
 
@@ -167,27 +174,6 @@ const handler = async (req: Request): Promise<Response> => {
         const projectUrl = (businessSettings?.app_url || Deno.env.get("APP_URL") || Deno.env.get("PROJECT_URL") || "https://jointidywise.com").replace(/\/+$/, '');
         const reviewPageUrl = `${projectUrl}/review/${token}`.replace(/^https?:\/\//, '');
 
-        // Create review request record
-        const { error: insertError } = await supabase
-          .from("review_requests")
-          .insert({
-            booking_id: item.booking_id,
-            customer_id: item.customer_id,
-            staff_id: booking?.staff_id || null,
-            status: "sent",
-            sent_at: new Date().toISOString(),
-            review_link_token: token,
-            google_review_url: businessSettings?.google_review_url || "",
-          });
-
-        if (insertError) {
-          console.error("Failed to create review request:", insertError);
-          await supabase.from("automated_review_sms_queue")
-            .update({ sent: true, sent_at: new Date().toISOString(), error: insertError.message })
-            .eq("id", item.id);
-          continue;
-        }
-
         // Build SMS message
         const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || "there";
         // The queued sender has no cleaner or service to hand, so those two
@@ -235,6 +221,28 @@ const handler = async (req: Request): Promise<Response> => {
           console.error(`OpenPhone error for booking ${item.booking_id}:`, errText);
           await supabase.from("automated_review_sms_queue")
             .update({ sent: true, sent_at: new Date().toISOString(), error: `OpenPhone ${openPhoneResponse.status}: ${errText}` })
+            .eq("id", item.id);
+          continue;
+        }
+
+        // The link is only stored after the text is accepted. A demo block
+        // throws before this, so it cannot leave a pending review_requests row.
+        const { error: insertError } = await supabase
+          .from("review_requests")
+          .insert({
+            booking_id: item.booking_id,
+            customer_id: item.customer_id,
+            staff_id: booking?.staff_id || null,
+            status: "sent",
+            sent_at: new Date().toISOString(),
+            review_link_token: token,
+            google_review_url: businessSettings?.google_review_url || "",
+          });
+
+        if (insertError) {
+          console.error("Failed to create review request:", insertError);
+          await supabase.from("automated_review_sms_queue")
+            .update({ sent: true, sent_at: new Date().toISOString(), error: insertError.message })
             .eq("id", item.id);
           continue;
         }
@@ -296,11 +304,12 @@ const handler = async (req: Request): Promise<Response> => {
         console.log(`Review SMS sent for booking ${item.booking_id} to ${formattedPhone}`);
       } catch (itemError: any) {
         if (isDemoSendBlocked(itemError)) {
-          await supabase.from("review_requests")
-            .update({ status: "pending", sent_at: null })
-            .eq("booking_id", item.booking_id)
-            .eq("customer_id", item.customer_id)
-            .eq("status", "sent");
+          const { error: deferErr } = await supabase.from("automated_review_sms_queue")
+            .update({ send_at: demoQueueDeferUntil() })
+            .eq("id", item.id);
+          if (deferErr) {
+            console.error(`[process-review-sms-queue] failed to defer demo-blocked item ${item.id}:`, deferErr);
+          }
           console.log(`[process-review-sms-queue] skipped demo send for booking ${item.booking_id}`);
           continue;
         }

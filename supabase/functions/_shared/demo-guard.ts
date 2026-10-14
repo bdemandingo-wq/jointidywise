@@ -7,6 +7,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import {
   DEMO_FLAG_TTL_MS,
+  DEMO_ORG_ID,
   demoFlagCacheFresh,
   demoSendBlockReason,
   isKnownDemoOrganization,
@@ -62,6 +63,38 @@ export async function demoModeEnabledForOrg(
   })();
   cache.set(organizationId, { at: Date.now(), value: pending });
   return pending;
+}
+
+type OrgIdQuery = {
+  from: (table: string) => {
+    select: (columns: string) => {
+      eq: (column: string, value: boolean) => Promise<{
+        data: { organization_id?: string | null }[] | null;
+        error: { message?: string } | null;
+      }>;
+    };
+  };
+};
+
+/** Orgs whose demo flag is on, plus the public preview id. */
+export async function listDemoModeOrgIds(supabase: OrgIdQuery): Promise<string[]> {
+  const ids = new Set<string>([DEMO_ORG_ID]);
+  try {
+    const { data, error } = await supabase
+      .from("organization_pricing_settings")
+      .select("organization_id")
+      .eq("demo_mode_enabled", true);
+    if (error) {
+      console.error("[demo-guard] demo org list failed", error.message ?? error);
+      return [...ids];
+    }
+    for (const row of data ?? []) {
+      if (row.organization_id) ids.add(row.organization_id);
+    }
+  } catch (err) {
+    console.error("[demo-guard] demo org list threw", err);
+  }
+  return [...ids];
 }
 
 export class DemoSendBlocked extends Error {

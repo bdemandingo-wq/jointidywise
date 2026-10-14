@@ -12,6 +12,20 @@ export const DEMO_ORG_ID = "d00000de-0000-4000-8000-000000000001";
 /** Per-org demo flag cache. A flipped switch is visible within a minute. */
 export const DEMO_FLAG_TTL_MS = 60_000;
 
+/** How long a demo-blocked queue row stays out of the oldest-50 window. */
+export const DEMO_QUEUE_DEFER_MS = 24 * 60 * 60 * 1000;
+
+export function demoQueueDeferUntil(now = Date.now()): string {
+  return new Date(now + DEMO_QUEUE_DEFER_MS).toISOString();
+}
+
+/** PostgREST `in` list. Null when there is nothing to exclude. */
+export function excludeOrgFilter(ids: string[]): string | null {
+  const unique = [...new Set(ids.filter((id) => id.length > 0))];
+  if (unique.length === 0) return null;
+  return `(${unique.map((id) => `"${id}"`).join(",")})`;
+}
+
 /**
  * Harbor & Pine fixture sizes. Keep these equal to STAFF, FIRST, and
  * leadStatuses in src/lib/demo/dataset.ts. The boundary test fails if a

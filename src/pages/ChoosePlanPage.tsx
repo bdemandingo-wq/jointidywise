@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/lib/supabase';
@@ -20,6 +20,9 @@ import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyL
 import { isCustomPriceMissing } from '@/lib/priceNotConfigured';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import { shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
+import { DemoModeBanner } from '@/components/admin/DemoModeBanner';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { isPublicDemoActive, isSampleDemoOn, subscribeDemoMode } from '@/lib/demo/session';
 import {
   hasAnswer,
   normalizeAnswers,
@@ -137,6 +140,30 @@ export default function ChoosePlanPage() {
   const painPitch = pain ? PAIN_PITCH[pain] : null;
   // One redirect per click — same duplicate-session guard as PricingPage.
   const isRedirectingRef = useRef(false);
+  const headerRef = useRef<HTMLElement>(null);
+  const isMobileView = useIsMobile();
+  const publicDemo = useSyncExternalStore(subscribeDemoMode, isPublicDemoActive, () => false);
+  const demoOn = useSyncExternalStore(subscribeDemoMode, isSampleDemoOn, () => false);
+  const pinDemoChrome = demoOn && isMobileView;
+
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    const el = headerRef.current;
+    if (!pinDemoChrome || !el) {
+      if (!pinDemoChrome) root.style.removeProperty('--admin-header-h');
+      return;
+    }
+    const apply = () => {
+      root.style.setProperty('--admin-header-h', `${el.offsetHeight}px`);
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--admin-header-h');
+    };
+  }, [pinDemoChrome]);
 
   useEffect(() => {
     const reset = () => {
@@ -153,7 +180,9 @@ export default function ChoosePlanPage() {
   }, [navigate]);
 
   // Not logged in → login. Already has access → dashboard.
+  // The public preview has no account; it still shows this paywall.
   useEffect(() => {
+    if (publicDemo) return;
     if (authLoading || subLoading) return;
     if (!user) {
       navigate('/login', { replace: true });
@@ -169,7 +198,7 @@ export default function ChoosePlanPage() {
     })) {
       navigate('/dashboard', { replace: true });
     }
-  }, [authLoading, subLoading, user, hasFullAccess, upgradeRequested, navigate]);
+  }, [authLoading, subLoading, user, hasFullAccess, upgradeRequested, navigate, publicDemo]);
 
   async function startCheckout(planId: PlanId) {
     if (isRedirectingRef.current || checkoutBusy) return;
@@ -277,7 +306,7 @@ export default function ChoosePlanPage() {
     }
   }
 
-  if (authLoading || subLoading) {
+  if ((authLoading || subLoading) && !publicDemo) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -286,10 +315,27 @@ export default function ChoosePlanPage() {
   }
 
   return (
-    <div className="portal-v2 portal-v2-scroll min-h-screen bg-background">
+    <div
+      className={cn(
+        "portal-v2 portal-v2-scroll min-h-screen bg-background",
+        pinDemoChrome && "flex h-dvh flex-col overflow-hidden",
+      )}
+      style={pinDemoChrome ? {
+        paddingTop: 'calc(var(--demo-banner-h, 0px) + var(--admin-header-h, 0px))',
+      } : undefined}
+    >
       <SEOHead title="Choose Your Plan | TidyWise" description="Pick a plan to activate your TidyWise account." noIndex />
 
-      <header className="flex items-center justify-between gap-3 px-6 py-4 border-b">
+      <div className={cn(pinDemoChrome && "fixed inset-x-0 top-0 z-40")}>
+        <DemoModeBanner />
+      </div>
+      <header
+        ref={headerRef}
+        className={cn(
+          "flex items-center justify-between gap-3 border-b bg-background px-6 py-4",
+          pinDemoChrome && "fixed inset-x-0 z-30 top-[var(--demo-banner-h,0px)]",
+        )}
+      >
         <span className="font-semibold text-lg">TidyWise</span>
         <StripeModeBadge />
         <div className="flex items-center gap-2">
@@ -313,7 +359,10 @@ export default function ChoosePlanPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-10 sm:py-14">
+      <main className={cn(
+        "mx-auto max-w-5xl px-4 py-10 sm:py-14",
+        pinDemoChrome && "min-h-0 w-full flex-1 overflow-y-auto",
+      )}>
         {/* Progress framing — onboarding just finished, this is the last step */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 text-primary px-3 py-1 text-sm font-medium mb-4">
