@@ -101,10 +101,10 @@ test("howHeard is one of the five qualifying keys", () => {
   assert.equal(QUALIFYING_KEYS.length, 5);
 });
 
-test("howHeard offers exactly the six agreed options", () => {
+test("howHeard offers the self-reported options, including instagram", () => {
   assert.deepEqual(
     [...HOW_HEARD_VALUES],
-    ["fb_ad", "fb_group", "tiktok", "google", "referral", "other"],
+    ["fb_ad", "fb_group", "instagram", "tiktok", "google", "referral", "other"],
   );
 });
 

@@ -12966,6 +12966,19 @@ export type Database = {
           target_url: string
         }[]
       }
+      save_signup_attribution: {
+        Args: {
+          p_utm_source?: string | null
+          p_utm_medium?: string | null
+          p_utm_campaign?: string | null
+          p_utm_term?: string | null
+          p_utm_content?: string | null
+          p_referrer?: string | null
+          p_landing_page?: string | null
+          p_captured_at?: string | null
+        }
+        Returns: undefined
+      }
       save_abandoned_booking: {
         Args: {
           _email?: string

@@ -32,7 +32,9 @@ import { detectBrowserCurrency } from '@/lib/currency';
 import { detectBrowserTimezone } from '@/lib/timezones';
 import {
   buildAnswersPayload,
+  HOW_HEARD_VALUES,
   normalizeAnswers,
+  OPTION_LABELS,
 } from '@/lib/onboardingAnswers';
 import {
   clearOnboardingDraft,
@@ -45,6 +47,7 @@ import {
   readCapturedReferral,
   clearCapturedReferral,
 } from '@/lib/referralAttribution';
+import { persistSignupAttribution } from '@/lib/persistSignupAttribution';
 
 function slugify(input: string) {
   return input
@@ -87,6 +90,7 @@ export default function OnboardingPage() {
   const [newServiceDescription, setNewServiceDescription] = useState('');
   const [currency, setCurrency] = useState<string>(() => detectBrowserCurrency());
   const [timezone, setTimezone] = useState<string>(() => detectBrowserTimezone());
+  const [howHeard, setHowHeard] = useState<string[]>([]);
   const baseSlug = useMemo(() => slugify(businessName), [businessName]);
   const requestedNewBusiness = new URLSearchParams(window.location.search).get('new') === 'true';
   const mayCreateAdditionalBusiness = Boolean(
@@ -110,6 +114,7 @@ export default function OnboardingPage() {
       if (draft.currency) setCurrency(draft.currency);
       if (draft.timezone) setTimezone(draft.timezone);
       setCustomServices(draft.customServices);
+      setHowHeard(draft.howHeard);
       setSelectedServices(new Set(
         draft.selectedServices.length > 0
           ? draft.selectedServices
@@ -145,8 +150,9 @@ export default function OnboardingPage() {
       timezone,
       selectedServices: [...selectedServices],
       customServices,
+      howHeard,
     });
-  }, [draftReady, user, building, step, businessName, phoneNumber, currency, timezone, selectedServices, customServices]);
+  }, [draftReady, user, building, step, businessName, phoneNumber, currency, timezone, selectedServices, customServices, howHeard]);
 
   // If the user already belongs to a completed business, redirect. Business
   // onboarding is only for a confirmed membership-free account or the actual
@@ -265,6 +271,9 @@ export default function OnboardingPage() {
 
     setLoading(true);
     try {
+      // First-touch UTM, saved before the org row exists so the org insert
+      // trigger can attach organization_id. A failure must not block setup.
+      await persistSignupAttribution();
       const name = businessName.trim();
       const initialSlug = slugify(name);
       
@@ -298,9 +307,13 @@ export default function OnboardingPage() {
       // (name, slug, logo_url, updated_at), so a later update of this column
       // would be silently denied. Built outside the retry loop — the payload
       // does not change between slug attempts.
-      // The marketing survey is gone. The column still gets the empty shape so
-      // older rows (NULL) stay distinguishable from "finished the short wizard".
-      const onboardingAnswersPayload = buildAnswersPayload(normalizeAnswers(null));
+      // The other qualifying questions are not asked. howHeard is the
+      // self-reported source and is stored beside automatic UTM capture.
+      // Empty arrays keep "skipped" distinct from a null column.
+      const onboardingAnswersPayload = buildAnswersPayload({
+        ...normalizeAnswers(null),
+        howHeard: HOW_HEARD_VALUES.filter((value) => howHeard.includes(value)),
+      });
 
       let orgData: any = null;
 
@@ -702,6 +715,7 @@ export default function OnboardingPage() {
               timezone,
               selectedServices: [...selectedServices],
               customServices,
+              howHeard,
             }}
             onRestore={(restored) => {
               setStep(restored.step);
@@ -710,6 +724,7 @@ export default function OnboardingPage() {
               if (restored.currency) setCurrency(restored.currency);
               if (restored.timezone) setTimezone(restored.timezone);
               setCustomServices(restored.customServices);
+              setHowHeard(restored.howHeard);
               if (restored.selectedServices.length > 0) {
                 setSelectedServices(new Set(restored.selectedServices));
               }
@@ -961,6 +976,36 @@ export default function OnboardingPage() {
               <p className="text-xs text-muted-foreground text-center">
                 You can always add, edit, or remove services later from the Services page.
               </p>
+
+              <div className="space-y-2">
+                <Label>How did you hear about us?</Label>
+                <p className="text-xs text-muted-foreground">Optional. Pick any that apply.</p>
+                <div className="flex flex-wrap gap-2">
+                  {HOW_HEARD_VALUES.map((value) => {
+                    const selected = howHeard.includes(value);
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => setHowHeard((current) =>
+                          current.includes(value)
+                            ? current.filter((item) => item !== value)
+                            : [...current, value],
+                        )}
+                        className={cn(
+                          "rounded-full border px-3 py-1 text-sm transition-colors",
+                          selected
+                            ? "border-primary bg-primary/10 text-foreground"
+                            : "border-border text-muted-foreground hover:border-primary/50",
+                        )}
+                      >
+                        {OPTION_LABELS.howHeard[value]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               
               <div className="flex gap-3">
                 <Button

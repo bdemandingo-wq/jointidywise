@@ -53,6 +53,7 @@ import {
   describeAnswers,
   summariseSource,
 } from '@/lib/onboardingAnswers';
+import { countWithAttribution, describeUtm, summariseUtm } from '@/lib/utmAttribution';
 import { useQuery } from '@tanstack/react-query';
 import { SEOHead } from '@/components/SEOHead';
 import { DemoCalendarTab } from '@/components/admin/DemoCalendarTab';
@@ -94,6 +95,9 @@ interface PlatformAnalytics {
        * failures in ChoosePlanPage started.
        */
       onboarding_answers?: unknown;
+      /** Automatic first-touch UTM from account_signup_attribution. Null when
+       * the signup predates capture or the migration has not been applied. */
+      attribution?: unknown;
     }[];
     last30Days: number;
   };
@@ -172,6 +176,82 @@ function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+}
+
+/** Self-reported "how did you hear about us?" next to automatic UTM. */
+function SignupAcquisition({
+  onboardingAnswers,
+  attribution,
+}: {
+  onboardingAnswers?: unknown;
+  attribution?: unknown;
+}) {
+  const heard = summariseSource(onboardingAnswers);
+  const utm = summariseUtm(attribution);
+  const answers = describeAnswers(onboardingAnswers);
+  const utmLines = describeUtm(attribution);
+
+  if (!heard && !utm) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="w-20 text-right text-xs text-muted-foreground/50">—</span>
+        </TooltipTrigger>
+        <TooltipContent>
+          No acquisition data yet. The self-reported question and automatic link capture
+          are not backfilled.
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className="flex shrink-0 flex-col items-end gap-1">
+          {heard ? (
+            <Badge variant="secondary" className="cursor-pointer text-xs font-medium">
+              {heard.primary}
+              {heard.extraCount > 0 && ` +${heard.extraCount}`}
+            </Badge>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">No survey answer</span>
+          )}
+          {utm ? (
+            <Badge variant="outline" className="cursor-pointer text-xs font-medium">
+              Link: {utm.primary}
+            </Badge>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">No link capture</span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 space-y-3 text-xs">
+        <div className="space-y-2">
+          <p className="font-medium">How they said they heard about us</p>
+          {answers.length > 0 ? answers.map((row) => (
+            <div key={row.key}>
+              <p className="text-muted-foreground">{row.question}</p>
+              <p className="font-medium">{row.labels.join(', ')}</p>
+            </div>
+          )) : (
+            <p className="text-muted-foreground">Not answered.</p>
+          )}
+        </div>
+        <div className="space-y-2">
+          <p className="font-medium">Automatic link capture</p>
+          {utmLines.length > 0 ? utmLines.map((line) => (
+            <div key={line.label}>
+              <p className="text-muted-foreground">{line.label}</p>
+              <p className="font-medium break-all">{line.value}</p>
+            </div>
+          )) : (
+            <p className="text-muted-foreground">Not captured for this signup.</p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 // Platform-level analytics — intentionally unscoped by org_id. Super admin only.
@@ -1021,8 +1101,11 @@ export default function PlatformAnalyticsPage() {
                 {analytics?.signups.recent && analytics.signups.recent.length > 0 && (
                   <p className="text-xs text-muted-foreground mb-2">
                     {countWithOnboardingData(analytics.signups.recent)} of{' '}
-                    {analytics.signups.recent.length} signups have acquisition data — captured at
-                    onboarding from 13 Aug 2026, not backfilled.
+                    {analytics.signups.recent.length} answered how they heard about TidyWise.
+                    {' '}
+                    {countWithAttribution(analytics.signups.recent)} of{' '}
+                    {analytics.signups.recent.length} have automatic link capture
+                    (normalized source direct when the visit had no UTM parameters). Neither figure is backfilled.
                   </p>
                 )}
                 <ScrollArea className="h-[400px] pr-4">
@@ -1065,49 +1148,10 @@ export default function PlatformAnalyticsPage() {
                               missing from; rendered conditionally it would just
                               look like the feature had not shipped.
                             */}
-                            {(() => {
-                              const source = summariseSource(signup.onboarding_answers);
-                              if (!source) {
-                                return (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="w-20 text-right text-xs text-muted-foreground/50">
-                                        —
-                                      </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      No acquisition data — this organisation signed up before the
-                                      question existed.
-                                    </TooltipContent>
-                                  </Tooltip>
-                                );
-                              }
-                              return (
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    {/* Popover, not HoverCard: hover-only disclosure is
-                                        unreachable on touch, and this page is opened on phones. */}
-                                    <button type="button" className="shrink-0">
-                                      <Badge
-                                        variant="secondary"
-                                        className="cursor-pointer text-xs font-medium"
-                                      >
-                                        {source.primary}
-                                        {source.extraCount > 0 && ` +${source.extraCount}`}
-                                      </Badge>
-                                    </button>
-                                  </PopoverTrigger>
-                                  <PopoverContent align="end" className="w-72 space-y-2 text-xs">
-                                    {describeAnswers(signup.onboarding_answers).map((row) => (
-                                      <div key={row.key}>
-                                        <p className="text-muted-foreground">{row.question}</p>
-                                        <p className="font-medium">{row.labels.join(', ')}</p>
-                                      </div>
-                                    ))}
-                                  </PopoverContent>
-                                </Popover>
-                              );
-                            })()}
+                            <SignupAcquisition
+                              onboardingAnswers={signup.onboarding_answers}
+                              attribution={signup.attribution}
+                            />
                             <Badge variant="outline" className="text-xs">
                               {format(new Date(signup.created_at), 'MMM d')}
                             </Badge>

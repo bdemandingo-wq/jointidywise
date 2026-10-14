@@ -179,6 +179,21 @@ serve(async (req) => {
           onboarding_answers: orgInfo?.onboarding_answers ?? null,
         });
       }
+
+      // Automatic UTM, stored beside the self-reported howHeard answer.
+      // A missing table (migration not applied yet) must not blank the page.
+      const { data: attributionRows, error: attributionError } = await supabaseClient
+        .from('account_signup_attribution')
+        .select('user_id, utm_source, utm_source_raw, utm_medium, utm_medium_raw, utm_campaign, utm_campaign_raw, utm_term, utm_term_raw, utm_content, utm_content_raw, referrer, landing_page')
+        .in('user_id', userIds);
+      if (attributionError) {
+        console.error('[PLATFORM-ANALYTICS] attribution lookup failed:', attributionError.message);
+      } else {
+        const byUser = new Map((attributionRows ?? []).map((row) => [row.user_id, row]));
+        for (const signup of enrichedSignups) {
+          (signup as { attribution?: unknown }).attribution = byUser.get(signup.id) ?? null;
+        }
+      }
     }
 
     // Get organizations count

@@ -24,6 +24,7 @@ import { z } from 'zod';
 import { validatePhone } from '@/lib/phoneValidation';
 import { PERSON_NAME_MAX } from '@/lib/displayName';
 import { ReferredSignupBanner } from '@/components/ReferredSignupBanner';
+import { persistSignupAttribution } from '@/lib/persistSignupAttribution';
 
 // Plan metadata for the "you're signing up to start X" banner. Kept
 // inline so the signup page doesn't have to import the full features.ts
@@ -176,6 +177,10 @@ export default function SignupPage() {
       }
       
       if (data?.user) {
+        // First-touch UTM. The account row is created here; the org insert
+        // later attaches organization_id. Failure must not block signup.
+        await persistSignupAttribution();
+
         // Create profile
         const { error: profileError } = await supabaseNoSession
           .from('profiles')

@@ -19,6 +19,8 @@ export interface OnboardingDraft {
   timezone: string;
   selectedServices: string[];
   customServices: OnboardingServiceDraft[];
+  /** Self-reported "How did you hear about us?" slugs. Not UTM. */
+  howHeard: string[];
 }
 
 const KEY_PREFIX = "tw_onboarding_draft:";
@@ -63,12 +65,14 @@ export function parseOnboardingDraft(raw: unknown): OnboardingDraft | null {
     timezone: typeof source.timezone === "string" && source.timezone ? source.timezone : "",
     selectedServices: stringList(source.selectedServices),
     customServices: serviceList(source.customServices),
+    howHeard: stringList(source.howHeard),
   };
   const empty =
     !draft.businessName &&
     !draft.phoneNumber &&
     draft.selectedServices.length === 0 &&
     draft.customServices.length === 0 &&
+    draft.howHeard.length === 0 &&
     draft.step === 1;
   return empty ? null : draft;
 }
@@ -92,6 +96,7 @@ export function writeOnboardingDraft(storage: Storage, userId: string, draft: On
     timezone: draft.timezone,
     selectedServices: [...draft.selectedServices],
     customServices: draft.customServices.map((s) => ({ name: s.name, description: s.description })),
+    howHeard: stringList(draft.howHeard),
   };
   storage.setItem(onboardingDraftKey(userId), JSON.stringify(payload));
 }

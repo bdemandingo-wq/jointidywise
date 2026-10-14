@@ -204,20 +204,27 @@ serve(async (req) => {
           const status = String(data.customer_status || "").toLowerCase();
           const customerStatus = status === "active" || status === "inactive" ? status : "lead";
 
-          const { data: created, error: insertErr } = await adminClient
-            .from("customers").insert({
-              organization_id: organizationId,
-              first_name: (data.first_name || "Unknown").substring(0, 100),
-              last_name: (data.last_name || "").substring(0, 100),
-              email: (emailIsReal ? emailRaw : `import-${row.row_number}-${importId.slice(0, 8)}@placeholder.local`).substring(0, 255),
-              phone: data.phone?.toString().substring(0, 30) || null,
-              address: data.address?.toString().substring(0, 255) || null,
-              city: data.city?.toString().substring(0, 100) || null,
-              state: data.state?.toString().substring(0, 50) || null,
-              zip_code: data.zip_code?.toString().substring(0, 20) || null,
-              notes: notes || null,
-              customer_status: customerStatus,
-            }).select("id").single();
+          const customerPayload = {
+            organization_id: organizationId,
+            first_name: (data.first_name || "Unknown").substring(0, 100),
+            last_name: (data.last_name || "").substring(0, 100),
+            email: (emailIsReal ? emailRaw : `import-${row.row_number}-${importId.slice(0, 8)}@placeholder.local`).substring(0, 255),
+            phone: data.phone?.toString().substring(0, 30) || null,
+            address: data.address?.toString().substring(0, 255) || null,
+            city: data.city?.toString().substring(0, 100) || null,
+            state: data.state?.toString().substring(0, 50) || null,
+            zip_code: data.zip_code?.toString().substring(0, 20) || null,
+            notes: notes || null,
+            customer_status: customerStatus,
+          };
+          let { data: created, error: insertErr } = await adminClient
+            .from("customers").insert({ ...customerPayload, created_via: "migration_import" }).select("id").single();
+          // Column lands with the activation migration. Import the customer
+          // anyway if that SQL has not been applied yet.
+          if (insertErr && /created_via/i.test(insertErr.message || "")) {
+            ({ data: created, error: insertErr } = await adminClient
+              .from("customers").insert(customerPayload).select("id").single());
+          }
           if (insertErr) throw insertErr;
           await adminClient.from("migration_import_rows")
             .update({ status: "imported", created_record_id: created.id }).eq("id", row.id);

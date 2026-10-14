@@ -33,6 +33,8 @@ import { Capacitor } from "@capacitor/core";
 import { AppDialogsProvider } from "@/components/AppDialogs";
 import { useAppStateHandler } from '@/hooks/useAppStateHandler';
 import { captureReferralFromLocation } from '@/lib/referralAttribution';
+import { captureUtmFromLocation, readCapturedUtm } from '@/lib/utmAttribution';
+import { persistSignupAttribution } from '@/lib/persistSignupAttribution';
 import { NativePushRegistrar } from '@/components/NativePushRegistrar';
 import { IosBackSwipe } from '@/components/mobile/IosBackSwipe';
 import {
@@ -267,6 +269,12 @@ const AppStateHandler = (): null => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     captureReferralFromLocation(window.location);
+    // First-party landing capture. localStorage and a cookie only — no ad SDK.
+    captureUtmFromLocation(window.location, document.referrer);
+    // Only when a landing was stored. Signup pages also save, including a
+    // visit that never produced a capture. This avoids a call on every
+    // dashboard load for accounts that predate the feature.
+    if (readCapturedUtm()) void persistSignupAttribution();
   }, []);
   useEffect(() => {
     markNativeIosDocument();
