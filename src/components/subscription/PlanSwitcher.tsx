@@ -25,7 +25,7 @@ import { usePlatform } from "@/hooks/usePlatform";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { readEdgeFunctionError, readEdgeFunctionErrorBody } from "@/lib/edgeFunctionError";
-import { hasChangeableStripeSubscription, isActiveOrgTrial } from "@/lib/stripeMode";
+import { hasChangeableStripeSubscription, isActiveOrgTrial, planSectionLabel } from "@/lib/stripeMode";
 import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from "@/lib/startSubscriptionCheckout";
 import { ALREADY_LIFETIME_MESSAGE } from "@/lib/alreadyLifetime";
 import { CustomPriceMissing } from "@/lib/priceNotConfigured";
@@ -222,7 +222,12 @@ export function PlanSwitcher() {
                 <Crown className="h-3.5 w-3.5 text-amber-500" /> Lifetime — locked in forever
               </span>
             ) : (
-              <>You're on the <span className="font-medium text-foreground capitalize">{currentPlanId}</span> plan.</>
+              <>You're on the <span className="font-medium text-foreground">{planSectionLabel({
+                rawPlanType: currentPlanId,
+                productId: subscription?.product_id,
+                subscribed: subscription?.subscribed,
+                trialActive: subscription?.trial_active,
+              })}</span> plan.</>
             )}
           </p>
         </div>

@@ -4,6 +4,7 @@ import {
   billingNextStep,
   hasChangeableStripeSubscription,
   isActiveOrgTrial,
+  planSectionLabel,
   readReportedStripeMode,
   shouldRedirectChoosePlanToDashboard,
   stripeKeyMode,
@@ -40,6 +41,33 @@ test("an unpaid org trial is checkout, not the billing portal", () => {
     hasChangeableStripeSubscription({ subscribed: true, product_id: "prod_abc" }),
     true,
   );
+});
+
+test("an active card-free trial is labeled Trial (Pro) even when the stored plan is free", () => {
+  assert.equal(
+    planSectionLabel({
+      rawPlanType: "free",
+      productId: "org_trial",
+      subscribed: true,
+      trialActive: true,
+    }),
+    "Trial (Pro)",
+  );
+  assert.equal(
+    planSectionLabel({ rawPlanType: "trial", trialActive: true }),
+    "Trial (Pro)",
+  );
+  assert.equal(planSectionLabel({ rawPlanType: "free" }), "Free");
+  assert.equal(
+    planSectionLabel({
+      rawPlanType: "pro",
+      productId: "prod_example",
+      subscribed: true,
+      trialActive: true,
+    }),
+    "Pro",
+  );
+  assert.equal(planSectionLabel({ rawPlanType: "basic" }), "Basic");
 });
 
 test("an active org trial leaves /choose-plan unless they asked to upgrade", () => {
