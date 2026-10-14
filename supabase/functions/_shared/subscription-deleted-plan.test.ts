@@ -11,7 +11,9 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { readFileSync } from "node:fs";
 import {
+  cascadeCancelAdSubscriptionsIfDowngraded,
   downgradeOrgOnSubscriptionDeleted,
+  type AdCascadeEffects,
   type PlanDowngradeClient,
   type PlanDowngradeResult,
   type PlanDowngradeUpdate,
@@ -188,6 +190,52 @@ describe("customer.subscription.deleted plan downgrade", { concurrency: 1 }, () 
     assert.equal(store.orgs[0].plan_type, "free");
   });
 
+  test("a Lifetime org's ad subscriptions stay active, and a normal org's are cancelled", async () => {
+    const orgs: Org[] = [
+      { id: "lifetime", plan_type: "lifetime", grandfathered_lifetime: false },
+      { id: "grandfathered", plan_type: "pro", grandfathered_lifetime: true },
+      { id: "standard", plan_type: "standard", grandfathered_lifetime: false },
+    ];
+    const ads: AdSub[] = [
+      ad("lifetime", "sub_life", "active"),
+      ad("grandfathered", "sub_gf", "active"),
+      ad("standard", "sub_std", "active"),
+      ad("standard", "sub_old", "cancelled"),
+    ];
+    const store = memoryBilling(orgs, ads);
+    const stripeCancels: string[] = [];
+    const notices: number[] = [];
+    const effects: AdCascadeEffects = {
+      cancelStripeSubscription: async (stripeSubscriptionId) => {
+        stripeCancels.push(stripeSubscriptionId);
+      },
+      notifyAdmin: async (activeCount) => {
+        notices.push(activeCount);
+      },
+    };
+
+    await offline(async () => {
+      for (const id of ["lifetime", "grandfathered", "standard"]) {
+        const result = await downgradeOrgOnSubscriptionDeleted(store, id);
+        await cascadeCancelAdSubscriptionsIfDowngraded(store, id, result.downgraded, effects);
+      }
+    });
+
+    assert.deepEqual(stripeCancels, ["sub_std"]);
+    assert.deepEqual(notices, [1]);
+    assert.equal(ads.find((row) => row.stripe_subscription_id === "sub_life")?.status, "active");
+    assert.equal(ads.find((row) => row.stripe_subscription_id === "sub_gf")?.status, "active");
+    assert.equal(ads.find((row) => row.stripe_subscription_id === "sub_gf")?.cancelled_at, null);
+    const standardAd = ads.find((row) => row.stripe_subscription_id === "sub_std");
+    assert.equal(standardAd?.status, "cancelled");
+    assert.equal(standardAd?.cancellation_reason, "tidywise_subscription_cancelled");
+    assert.equal(typeof standardAd?.cancelled_at, "string");
+    assert.equal(ads.find((row) => row.stripe_subscription_id === "sub_old")?.cancellation_reason, null);
+    assert.equal(orgs.find((row) => row.id === "lifetime")?.plan_type, "lifetime");
+    assert.equal(orgs.find((row) => row.id === "grandfathered")?.plan_type, "pro");
+    assert.equal(orgs.find((row) => row.id === "standard")?.plan_type, "free");
+  });
+
   test("subscription.deleted uses the guarded downgrade", () => {
     const source = readFileSync(
       new URL("../stripe-invoice-webhook/index.ts", import.meta.url),
@@ -199,5 +247,100 @@ describe("customer.subscription.deleted plan downgrade", { concurrency: 1 }, () 
     const branch = source.slice(start, end);
     assert.match(branch, /downgradeOrgOnSubscriptionDeleted\(/);
     assert.equal(branch.includes('.update({ plan_type: "free" })'), false);
+
+    const reverted = branch.indexOf("org reverted to free");
+    const unchanged = branch.indexOf("left plan unchanged");
+    const cascade = branch.indexOf("cascadeCancelAdSubscriptionsIfDowngraded");
+    const stripeCancel = branch.indexOf("stripe.subscriptions.cancel");
+    assert.ok(reverted >= 0 && unchanged > reverted, "downgrade logs missing");
+    assert.ok(
+      cascade > reverted && cascade < unchanged,
+      "ad cancel must run only when the org was downgraded",
+    );
+    assert.ok(stripeCancel > reverted && stripeCancel < unchanged);
+    assert.equal(branch.slice(unchanged).includes("cascadeCancelAdSubscriptionsIfDowngraded"), false);
+    assert.equal(branch.slice(unchanged).includes("stripe.subscriptions.cancel"), false);
   });
 });
+
+type AdSub = {
+  organization_id: string;
+  stripe_subscription_id: string;
+  platform: string;
+  status: string;
+  cancelled_at: string | null;
+  cancellation_reason: string | null;
+};
+
+function ad(organizationId: string, stripeSubscriptionId: string, status: string): AdSub {
+  return {
+    organization_id: organizationId,
+    stripe_subscription_id: stripeSubscriptionId,
+    platform: "google",
+    status,
+    cancelled_at: null,
+    cancellation_reason: null,
+  };
+}
+
+class AdQuery {
+  private readonly filters: { column: string; value: unknown }[] = [];
+  private readonly ads: AdSub[];
+  private readonly patch: Partial<AdSub> | null;
+
+  constructor(ads: AdSub[], patch: Partial<AdSub> | null) {
+    this.ads = ads;
+    this.patch = patch;
+  }
+
+  eq(column: string, value: unknown): this {
+    this.filters.push({ column, value });
+    return this;
+  }
+
+  then(
+    resolve: (value: { data: AdSub[] | null; error: null }) => unknown,
+    reject?: (reason: unknown) => unknown,
+  ): Promise<unknown> {
+    const matched = this.ads.filter((row) =>
+      this.filters.every((filter) => row[filter.column as keyof AdSub] === filter.value),
+    );
+    if (this.patch) {
+      for (const row of matched) Object.assign(row, this.patch);
+      return Promise.resolve({ data: null, error: null }).then(resolve, reject);
+    }
+    return Promise.resolve({
+      data: matched.map((row) => ({
+        stripe_subscription_id: row.stripe_subscription_id,
+        platform: row.platform,
+      })),
+      error: null,
+    }).then(resolve, reject);
+  }
+}
+
+function memoryBilling(orgs: Org[], ads: AdSub[]) {
+  return {
+    orgs,
+    from(table: string) {
+      if (table === "organizations") {
+        return {
+          update(values: { plan_type: "free" }) {
+            return new MemoryUpdate(orgs, values);
+          },
+        };
+      }
+      if (table === "ad_management_subscriptions") {
+        return {
+          select(_columns: string) {
+            return new AdQuery(ads, null);
+          },
+          update(values: Partial<AdSub>) {
+            return new AdQuery(ads, values);
+          },
+        };
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+  };
+}
