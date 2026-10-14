@@ -343,6 +343,7 @@ export default function OnboardingPage() {
               name,
               owner_id: user.id,
               slug,
+              plan_type: 'trial',
               onboarding_answers: onboardingAnswersPayload,
               needs_onboarding: false,
             })
