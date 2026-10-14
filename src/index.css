@@ -1879,6 +1879,11 @@ html.ios-native [contenteditable="true"] {
   .tw-cookie-notice .tw-cookie-notice__ok {
     width: 100%;
   }
+  /* The dot otherwise sits at the end of the Do Not Sell line when
+     Privacy Policy wraps onto the next line. */
+  .tw-cookie-notice__sep {
+    display: none;
+  }
 }
 html.tw-cookie-notice-open {
   scroll-padding-bottom: var(--tw-cookie-bar-height, 0px);
@@ -1920,12 +1925,10 @@ html.tw-cookie-notice-open .tw-above-cookie-notice {
   text-underline-offset: 2px;
 }
 
-/* The Do Not Sell heading is focused on load for assistive tech.
-   The ring is limited to :focus-visible. */
-.tw-dns-heading:focus {
-  outline: none;
-}
+/* Programmatic load focus matches :focus-visible in Chrome, so the
+   heading would paint a ring on arrival. Interactive controls keep
+   their own :focus-visible outlines. */
+.tw-dns-heading:focus,
 .tw-dns-heading:focus-visible {
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 3px;
+  outline: none;
 }

@@ -120,7 +120,7 @@ export function TidyWiseCookieNotice({
           >
             {DO_NOT_SELL_LABEL}
           </Link>
-          <span aria-hidden="true"> · </span>
+          <span className="tw-cookie-notice__sep" aria-hidden="true"> · </span>
           <Link to="/privacy-policy" className="tw-cookie-notice__link">
             Privacy Policy
           </Link>
