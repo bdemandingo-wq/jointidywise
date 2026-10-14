@@ -1720,6 +1720,11 @@ html.ios-native [contenteditable="true"] {
   background: hsl(var(--muted));
   font-family: inherit;
 }
+@media (pointer: coarse) {
+  .tracking-fleet-map .leaflet-container {
+    touch-action: pan-y;
+  }
+}
 .tracking-fleet-map.dark-tiles .leaflet-tile-pane {
   filter: invert(100%) hue-rotate(180deg) brightness(0.95) contrast(0.9);
 }
@@ -1731,7 +1736,7 @@ html.ios-native [contenteditable="true"] {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 120px;
+  width: 168px;
 }
 .tracking-fleet-dot {
   width: 14px;
@@ -1740,9 +1745,28 @@ html.ios-native [contenteditable="true"] {
   border: 2px solid white;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
+.tracking-fleet-dot-paused {
+  background: transparent;
+  border: 2px dashed #64748b;
+  box-shadow: none;
+}
+.tracking-fleet-cluster {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: white;
+  border: 2px solid white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
 .tracking-fleet-label {
   margin-top: 2px;
-  max-width: 116px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -1,9 +1,13 @@
 import { useEffect, useState, useRef } from 'react';
+import type { Map as LeafletMap, Marker } from 'leaflet';
 import { supabase } from '@/lib/supabase';
+import { useOrganization } from '@/contexts/OrganizationContext';
+import { loadDrivingEta } from '@/lib/drivingEta';
+import { finitePoint } from '@/components/admin/trackingFleetModel';
 import { Navigation, Clock, MapPin, Car, Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { calculateDistanceMiles, formatDistance } from '@/lib/distanceUtils';
+import { formatDistance } from '@/lib/distanceUtils';
 import { useDistanceUnit, useOrgCountryCode } from '@/hooks/useDistanceUnit';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { formatInTimezone } from '@/lib/timezoneUtils';
@@ -28,8 +32,8 @@ interface DrivingETA {
 
 function MiniMap({ lat, lng, destLat, destLng }: { lat: number; lng: number; destLat?: number; destLng?: number }) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markerRef = useRef<any>(null);
+  const mapInstanceRef = useRef<LeafletMap | null>(null);
+  const markerRef = useRef<Marker | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -39,8 +43,8 @@ function MiniMap({ lat, lng, destLat, destLng }: { lat: number; lng: number; des
       if (!mapRef.current || mapInstanceRef.current) return;
 
       const map = L.map(mapRef.current).setView([lat, lng], 13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OSM',
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
       }).addTo(map);
 
       const cleanerIcon = L.divIcon({
@@ -88,6 +92,7 @@ export function AdminLiveTracking({
   destLat?: number | null;
   destLng?: number | null;
 }) {
+  const { organization } = useOrganization();
   const distanceUnit = useDistanceUnit();
   const orgCountry = useOrgCountryCode();
   const [tracking, setTracking] = useState<TrackingInfo | null>(null);
@@ -117,7 +122,7 @@ export function AdminLiveTracking({
         .maybeSingle();
 
       if (trackingData) {
-        setTracking(trackingData as any);
+        setTracking(trackingData);
         return;
       }
 
@@ -144,8 +149,8 @@ export function AdminLiveTracking({
         table: 'cleaner_location_tracking',
         filter: `booking_id=eq.${bookingId}`,
       }, (payload) => {
-        const d = payload.new as any;
-        if (d.is_active) {
+        const d = payload.new as TrackingInfo;
+        if (d?.is_active) {
           setTracking(d);
         } else {
           setTracking(null);
@@ -179,42 +184,25 @@ export function AdminLiveTracking({
 
   // Fetch real driving ETA from Google Maps
   useEffect(() => {
-    if (!tracking || !destCoords) return;
+    if (!tracking || !destCoords || !organization?.id) return;
+    const origin = finitePoint(tracking.latitude, tracking.longitude);
+    if (!origin) return;
+    const stale = (Date.now() - new Date(tracking.recorded_at).getTime()) / 1000 > 90;
+    if (stale) {
+      setDrivingEta(null);
+      return;
+    }
 
     const fetchEta = async () => {
-      try {
-        const { data, error } = await supabase.functions.invoke('get-driving-eta', {
-          body: {
-            originLat: tracking.latitude,
-            originLng: tracking.longitude,
-            destLat: destCoords.lat,
-            destLng: destCoords.lng,
-          },
-        });
-
-        if (!error && data && !data.fallback) {
-          setDrivingEta(data);
-        } else {
-          // Fallback: Haversine × 1.4 road factor
-          const straightDist = calculateDistanceMiles(tracking.latitude, tracking.longitude, destCoords.lat, destCoords.lng);
-          const roadDist = straightDist * 1.4;
-          const avgSpeedMph = 25;
-          setDrivingEta({
-            durationMinutes: Math.round((roadDist / avgSpeedMph) * 60),
-            distanceMiles: Math.round(roadDist * 10) / 10,
-            source: 'estimate',
-          });
-        }
-      } catch {
-        // Fallback
-        const straightDist = calculateDistanceMiles(tracking.latitude, tracking.longitude, destCoords.lat, destCoords.lng);
-        const roadDist = straightDist * 1.4;
-        setDrivingEta({
-          durationMinutes: Math.round((roadDist / 25) * 60),
-          distanceMiles: Math.round(roadDist * 10) / 10,
-          source: 'estimate',
-        });
-      }
+      const eta = await loadDrivingEta({
+        cleanerId: bookingId,
+        organizationId: organization.id,
+        origin,
+        dest: destCoords,
+        stale: false,
+      });
+      if (!eta) return;
+      setDrivingEta({ ...eta, source: 'estimate' });
     };
 
     fetchEta();
@@ -222,7 +210,7 @@ export function AdminLiveTracking({
     const interval = setInterval(fetchEta, 60000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tracking object ref changes on every GPS update; we only care about lat/lng values
-  }, [tracking?.latitude, tracking?.longitude, destCoords]);
+  }, [tracking?.latitude, tracking?.longitude, tracking?.recorded_at, destCoords, organization?.id, bookingId]);
 
   // Don't render for completed bookings
   if (isCompleted) return null;

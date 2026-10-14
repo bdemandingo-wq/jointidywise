@@ -1,3 +1,5 @@
+export { finitePoint } from '@/lib/trackingVisibility';
+
 export type MapPoint = { lat: number; lng: number };
 
 export type EnRouteCleaner = {
@@ -9,6 +11,7 @@ export type EnRouteCleaner = {
   destLabel: string;
   etaMinutes: number | null;
   stale: boolean;
+  pausedLabel: string | null;
 };
 
 export type TodayJobPin = {
@@ -25,11 +28,3 @@ export type CompletedRoute = {
   last: MapPoint | null;
   dest: MapPoint | null;
 };
-
-export function finitePoint(lat: unknown, lng: unknown): MapPoint | null {
-  const la = typeof lat === 'number' ? lat : Number(lat);
-  const ln = typeof lng === 'number' ? lng : Number(lng);
-  if (!Number.isFinite(la) || !Number.isFinite(ln)) return null;
-  if (Math.abs(la) > 90 || Math.abs(ln) > 180) return null;
-  return { lat: la, lng: ln };
-}

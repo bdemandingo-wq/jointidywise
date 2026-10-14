@@ -19,16 +19,24 @@ import { Label } from '@/components/ui/label';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { calculateDistanceMiles, formatDistance } from '@/lib/distanceUtils';
+import { formatDistance } from '@/lib/distanceUtils';
 import { useDistanceUnit, useOrgCountryCode } from '@/hooks/useDistanceUnit';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
-import { formatTimestampWithZone } from '@/lib/timezoneUtils';
+import { formatInTimezone, formatTimestampWithZone } from '@/lib/timezoneUtils';
 import { orgEndOfDay, orgStartOfDay } from '@/lib/orgDateRange';
+import { forgetDrivingEta, loadDrivingEta } from '@/lib/drivingEta';
+import {
+  isLocationOffEnRoute,
+  pausedLastSeenLabel,
+  pickNextJob,
+  showsMapPin,
+  trackingPinState,
+} from '@/lib/trackingVisibility';
 
 interface ActiveTracking {
   id: string;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   is_active: boolean;
   recorded_at: string;
   created_at: string;
@@ -44,6 +52,8 @@ interface ActiveTracking {
     zip_code: string | null;
     latitude?: number | null;
     longitude?: number | null;
+    status?: string | null;
+    scheduled_at?: string | null;
     customer?: { first_name: string; last_name: string } | null;
     service?: { name: string } | null;
   } | null;
@@ -54,6 +64,7 @@ interface HistoricalTracking {
   created_at: string;
   recorded_at: string;
   booking_id: string;
+  is_active: boolean;
   latitude: number | null;
   longitude: number | null;
   staff?: { name: string } | null;
@@ -79,7 +90,28 @@ interface TodayBooking {
   longitude: number | null;
   status: string | null;
   is_draft: boolean | null;
+  scheduled_at: string | null;
   customer?: { first_name: string; last_name: string } | { first_name: string; last_name: string }[] | null;
+}
+
+interface LocationOffCleaner {
+  id: string;
+  bookingId: string;
+  name: string;
+  bookingNumber: number | null;
+  customerName: string;
+  address: string;
+  serviceName: string | null;
+}
+
+interface OnTheWayNotice {
+  bookingId: string;
+  staffName: string;
+  bookingNumber: number | null;
+  customerName: string;
+  address: string;
+  serviceName: string | null;
+  bookingStatus: string | null;
 }
 
 interface RouteMeta {
@@ -158,27 +190,30 @@ function ActiveJobCard({
   }, [addr, booking, orgCountry]);
 
   useEffect(() => {
-    if (!destCoords) return;
-    const fetchEta = async () => {
-      try {
-        const { data, error } = await supabase.functions.invoke('get-driving-eta', {
-          body: { originLat: tracking.latitude, originLng: tracking.longitude, destLat: destCoords.lat, destLng: destCoords.lng },
-        });
-        if (!error && data && !data.fallback) {
-          setEta(data);
-        } else {
-          const dist = calculateDistanceMiles(tracking.latitude, tracking.longitude, destCoords.lat, destCoords.lng) * 1.4;
-          setEta({ durationMinutes: Math.round((dist / 25) * 60), distanceMiles: Math.round(dist * 10) / 10 });
-        }
-      } catch {
-        const dist = calculateDistanceMiles(tracking.latitude, tracking.longitude, destCoords.lat, destCoords.lng) * 1.4;
-        setEta({ durationMinutes: Math.round((dist / 25) * 60), distanceMiles: Math.round(dist * 10) / 10 });
-      }
+    const origin = finitePoint(tracking.latitude, tracking.longitude);
+    if (!destCoords || !origin || isStale) {
+      if (isStale) setEta(null);
+      return;
+    }
+    let cancelled = false;
+    const run = () => {
+      void loadDrivingEta({
+        cleanerId: tracking.id,
+        organizationId: tracking.organization_id,
+        origin,
+        dest: destCoords,
+        stale: isStale,
+      }).then((next) => {
+        if (!cancelled) setEta(next);
+      });
     };
-    fetchEta();
-    const interval = setInterval(fetchEta, 60000);
-    return () => clearInterval(interval);
-  }, [tracking.latitude, tracking.longitude, destCoords]);
+    run();
+    const interval = window.setInterval(run, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [tracking.id, tracking.organization_id, tracking.latitude, tracking.longitude, destCoords, isStale]);
 
   const onRouteRef = useRef(onRoute);
   onRouteRef.current = onRoute;
@@ -277,6 +312,40 @@ function ActiveJobCard({
   );
 }
 
+function LocationOffCard({ cleaner }: { cleaner: LocationOffCleaner }) {
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground font-semibold text-sm">
+              {cleaner.name.charAt(0).toUpperCase() || '?'}
+            </div>
+            <div>
+              <p className="font-medium text-sm">{cleaner.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {cleaner.bookingNumber != null ? `#${cleaner.bookingNumber}` : 'Booking'}
+                {cleaner.customerName ? ` · ${cleaner.customerName}` : ''}
+              </p>
+            </div>
+          </div>
+          <Badge variant="outline" className="text-xs">On the way, location off</Badge>
+        </div>
+        {cleaner.serviceName && (
+          <p className="text-xs text-muted-foreground">{cleaner.serviceName}</p>
+        )}
+        {cleaner.address && (
+          <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            <MapPin className="h-3 w-3 mt-0.5 flex-shrink-0" />
+            <span>{cleaner.address}</span>
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">No pin and no ETA until location is on.</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function TrackingPage() {
   const navigate = useNavigate();
   const { organization } = useOrganization();
@@ -285,6 +354,7 @@ export default function TrackingPage() {
   const [activeJobs, setActiveJobs] = useState<ActiveTracking[]>([]);
   const [historicalJobs, setHistoricalJobs] = useState<HistoricalTracking[]>([]);
   const [todayBookings, setTodayBookings] = useState<TodayBooking[]>([]);
+  const [onTheWayNotices, setOnTheWayNotices] = useState<OnTheWayNotice[]>([]);
   const [office, setOffice] = useState<MapPoint | null>(null);
   const [routes, setRoutes] = useState<Record<string, RouteMeta>>({});
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -292,6 +362,13 @@ export default function TrackingPage() {
   const [activeError, setActiveError] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const historyOpenRef = useRef(false);
+  historyOpenRef.current = historyOpen;
+  const activeJobsRef = useRef(activeJobs);
+  activeJobsRef.current = activeJobs;
+  const refetchTimer = useRef<number | null>(null);
+  const historyTimer = useRef<number | null>(null);
+  const onTheWayErrorRef = useRef(false);
   const [now, setNow] = useState(() => Date.now());
   const [smsSettings, setSmsSettings] = useState<SmsSettings>({ notify_admin_on_the_way: true, notify_client_on_the_way: true, notify_client_distance_eta: true, notify_admin_arrived: true, notify_client_arrived: true });
   const [savingToggle, setSavingToggle] = useState(false);
@@ -303,7 +380,7 @@ export default function TrackingPage() {
       .select(`
         id, latitude, longitude, is_active, recorded_at, created_at, booking_id, staff_id, organization_id,
         staff:staff_id(name),
-        booking:booking_id(booking_number, address, city, state, zip_code, latitude, longitude,
+        booking:booking_id(booking_number, address, city, state, zip_code, latitude, longitude, status, scheduled_at,
           customer:customer_id(first_name, last_name),
           service:service_id(name)
         )
@@ -350,19 +427,15 @@ export default function TrackingPage() {
     }
     setHistoryError(null);
     if (data) {
-      const activeIds = new Set(activeJobs.map((j) => j.id));
       const completed: HistoricalTracking[] = data.flatMap((row) => {
-        if (activeIds.has(row.id)) return [];
         const staff = one(row.staff);
         const booking = one(row.booking);
-        const bookingStatus = booking?.status;
-        // Treat as completed if tracking marked inactive OR the booking itself is completed/cancelled.
-        if (!(row.is_active === false || bookingStatus === 'completed' || bookingStatus === 'cancelled')) return [];
         return [{
           id: row.id,
           created_at: row.created_at,
           recorded_at: row.recorded_at,
           booking_id: row.booking_id,
+          is_active: row.is_active,
           latitude: row.latitude,
           longitude: row.longitude,
           staff: staff ? { name: staff.name } : null,
@@ -379,7 +452,23 @@ export default function TrackingPage() {
       });
       setHistoricalJobs(completed);
     }
-  }, [orgId, activeJobs, orgTz]);
+  }, [orgId, orgTz]);
+
+  const scheduleActiveRefetch = useCallback(() => {
+    if (refetchTimer.current != null) return;
+    refetchTimer.current = window.setTimeout(() => {
+      refetchTimer.current = null;
+      void fetchActive();
+    }, 1500);
+  }, [fetchActive]);
+
+  const scheduleHistoryRefetch = useCallback(() => {
+    if (historyTimer.current != null) return;
+    historyTimer.current = window.setTimeout(() => {
+      historyTimer.current = null;
+      void fetchHistory();
+    }, 1500);
+  }, [fetchHistory]);
 
   const fetchToday = useCallback(async () => {
     if (!orgId) return;
@@ -387,7 +476,7 @@ export default function TrackingPage() {
     const todayEnd = orgEndOfDay(new Date(), orgTz);
     const { data, error } = await supabase
       .from('bookings')
-      .select('id, booking_number, address, city, state, zip_code, latitude, longitude, status, is_draft, customer:customer_id(first_name, last_name)')
+      .select('id, booking_number, address, city, state, zip_code, latitude, longitude, status, is_draft, scheduled_at, customer:customer_id(first_name, last_name)')
       .eq('organization_id', orgId)
       .gte('scheduled_at', todayStart.toISOString())
       .lte('scheduled_at', todayEnd.toISOString())
@@ -398,6 +487,69 @@ export default function TrackingPage() {
       return;
     }
     setTodayBookings((data ?? []) as TodayBooking[]);
+  }, [orgId, orgTz]);
+
+  const fetchOnTheWay = useCallback(async () => {
+    if (!orgId) return;
+    const todayStart = orgStartOfDay(new Date(), orgTz);
+    const { data, error } = await supabase
+      .from('booking_reminder_log')
+      .select(`
+        id, booking_id, reminder_type, sent_at,
+        booking:booking_id(booking_number, status, address, city, state, service:service_id(name), customer:customer_id(first_name, last_name))
+      `)
+      .eq('organization_id', orgId)
+      .gte('sent_at', todayStart.toISOString())
+      .like('reminder_type', 'on_the_way:%')
+      .order('sent_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(100);
+    if (error) {
+      if (!onTheWayErrorRef.current) {
+        onTheWayErrorRef.current = true;
+        toast.error('Could not load on-the-way cleaners');
+      }
+      return;
+    }
+    const rows = data ?? [];
+    const staffIds = [...new Set(rows.map((row) => row.reminder_type.replace(/^on_the_way:/, '')).filter(Boolean))];
+    const names = new Map<string, string>();
+    if (staffIds.length > 0) {
+      const { data: staffRows, error: staffError } = await supabase
+        .from('staff')
+        .select('id, name')
+        .eq('organization_id', orgId)
+        .in('id', staffIds);
+      if (staffError) {
+        if (!onTheWayErrorRef.current) {
+          onTheWayErrorRef.current = true;
+          toast.error('Could not load on-the-way cleaners');
+        }
+        return;
+      }
+      for (const staff of staffRows ?? []) names.set(staff.id, staff.name);
+    }
+    const seen = new Set<string>();
+    const notices: OnTheWayNotice[] = [];
+    for (const row of rows) {
+      if (seen.has(row.booking_id)) continue;
+      seen.add(row.booking_id);
+      const booking = one(row.booking);
+      const customer = one(booking?.customer);
+      const service = one(booking?.service);
+      const staffId = row.reminder_type.replace(/^on_the_way:/, '');
+      notices.push({
+        bookingId: row.booking_id,
+        staffName: names.get(staffId) || 'Cleaner',
+        bookingNumber: booking?.booking_number ?? null,
+        customerName: customer ? `${customer.first_name} ${customer.last_name}` : '',
+        address: [booking?.address, booking?.city, booking?.state].filter(Boolean).join(', '),
+        serviceName: service?.name ?? null,
+        bookingStatus: booking?.status ?? null,
+      });
+    }
+    onTheWayErrorRef.current = false;
+    setOnTheWayNotices(notices);
   }, [orgId, orgTz]);
 
   const fetchOffice = useCallback(async () => {
@@ -444,9 +596,10 @@ export default function TrackingPage() {
   useEffect(() => {
     fetchActive();
     fetchToday();
+    fetchOnTheWay();
     fetchOffice();
     fetchSettings();
-  }, [fetchActive, fetchToday, fetchOffice, fetchSettings]);
+  }, [fetchActive, fetchToday, fetchOnTheWay, fetchOffice, fetchSettings]);
 
   useEffect(() => {
     fetchHistory();
@@ -458,17 +611,45 @@ export default function TrackingPage() {
   }, []);
 
   useEffect(() => {
-    if (focusId && !activeJobs.some((job) => job.id === focusId)) {
-      setFocusId(null);
-    }
-  }, [activeJobs, focusId]);
+    if (!focusId) return;
+    const job = activeJobs.find((row) => row.id === focusId);
+    const booking = job ? one(job.booking) : null;
+    const state = job ? trackingPinState({
+      isActive: job.is_active,
+      latitude: job.latitude,
+      longitude: job.longitude,
+      recordedAt: job.recorded_at,
+      scheduledAt: booking?.scheduled_at ?? null,
+      bookingStatus: booking?.status,
+      now,
+    }) : 'hidden';
+    if (!showsMapPin(state)) setFocusId(null);
+  }, [activeJobs, focusId, now]);
+
+  useEffect(() => {
+    const liveIds = new Set(activeJobs.map((job) => job.id));
+    setRoutes((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const id of Object.keys(next)) {
+        if (liveIds.has(id)) continue;
+        delete next[id];
+        forgetDrivingEta(id);
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [activeJobs]);
 
   // Poll every 30s
   useEffect(() => {
     if (!orgId) return;
-    const interval = setInterval(fetchActive, 30000);
+    const interval = setInterval(() => {
+      void fetchActive();
+      void fetchOnTheWay();
+    }, 30000);
     return () => clearInterval(interval);
-  }, [fetchActive, orgId]);
+  }, [fetchActive, fetchOnTheWay, orgId]);
 
   // Realtime
   useEffect(() => {
@@ -480,10 +661,37 @@ export default function TrackingPage() {
         schema: 'public',
         table: 'cleaner_location_tracking',
         filter: `organization_id=eq.${orgId}`,
-      }, () => { fetchActive(); })
+      }, (payload) => {
+        const next = payload.new as Partial<ActiveTracking> | null;
+        const previous = payload.old as Partial<ActiveTracking> | null;
+        const id = next?.id ?? previous?.id;
+        if (!id || payload.eventType === 'DELETE' || next?.is_active === false) {
+          if (id) {
+            setActiveJobs((rows) => rows.filter((row) => row.id !== id));
+            forgetDrivingEta(id);
+          }
+          if (historyOpenRef.current) scheduleHistoryRefetch();
+          return;
+        }
+        const known = activeJobsRef.current.some((row) => row.id === id);
+        if (!known) {
+          scheduleActiveRefetch();
+          return;
+        }
+        setActiveJobs((rows) => rows.map((row) => {
+          if (row.id !== id) return row;
+          return {
+            ...row,
+            latitude: typeof next?.latitude === 'number' || next?.latitude === null ? next.latitude : row.latitude,
+            longitude: typeof next?.longitude === 'number' || next?.longitude === null ? next.longitude : row.longitude,
+            recorded_at: typeof next?.recorded_at === 'string' ? next.recorded_at : row.recorded_at,
+            is_active: next?.is_active !== false,
+          };
+        }));
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [orgId, fetchActive]);
+  }, [orgId, scheduleActiveRefetch, scheduleHistoryRefetch]);
 
   const handleRoute = useCallback((id: string, meta: RouteMeta) => {
     setRoutes((prev) => {
@@ -503,26 +711,85 @@ export default function TrackingPage() {
     setFocusId((current) => (current === id ? null : id));
   }, []);
 
-  const cleaners: EnRouteCleaner[] = useMemo(() => activeJobs.flatMap((job) => {
-    const here = finitePoint(job.latitude, job.longitude);
-    if (!here) return [];
-    const staff = one(job.staff);
-    const meta = routes[job.id];
-    const ageSec = (now - new Date(job.recorded_at).getTime()) / 1000;
-    return [{
-      id: job.id,
-      name: staff?.name || 'Cleaner',
-      lat: here.lat,
-      lng: here.lng,
-      dest: meta?.dest ?? null,
-      destLabel: meta?.destLabel ?? '',
-      etaMinutes: meta?.etaMinutes ?? null,
-      stale: ageSec > 90,
-    }];
-  }), [activeJobs, routes, now]);
+  const classified = useMemo(() => {
+    const pins: EnRouteCleaner[] = [];
+    const off: LocationOffCleaner[] = [];
+    for (const job of activeJobs) {
+      const booking = one(job.booking);
+      const staff = one(job.staff);
+      const state = trackingPinState({
+        isActive: job.is_active,
+        latitude: job.latitude,
+        longitude: job.longitude,
+        recordedAt: job.recorded_at,
+        scheduledAt: booking?.scheduled_at ?? null,
+        bookingStatus: booking?.status,
+        now,
+      });
+      if (state === 'hidden') continue;
+      const customer = one(booking?.customer);
+      const service = one(booking?.service);
+      if (state === 'location_off') {
+        off.push({
+          id: job.id,
+          bookingId: job.booking_id,
+          name: staff?.name || 'Cleaner',
+          bookingNumber: booking?.booking_number ?? null,
+          customerName: customer ? `${customer.first_name} ${customer.last_name}` : '',
+          address: [booking?.address, booking?.city, booking?.state].filter(Boolean).join(', '),
+          serviceName: service?.name ?? null,
+        });
+        continue;
+      }
+      const here = finitePoint(job.latitude, job.longitude);
+      if (!here) continue;
+      const meta = routes[job.id];
+      pins.push({
+        id: job.id,
+        name: staff?.name || 'Cleaner',
+        lat: here.lat,
+        lng: here.lng,
+        dest: meta?.dest ?? null,
+        destLabel: meta?.destLabel ?? '',
+        etaMinutes: state === 'paused' ? null : (meta?.etaMinutes ?? null),
+        stale: state === 'paused',
+        pausedLabel: state === 'paused' ? pausedLastSeenLabel(job.recorded_at, now) : null,
+      });
+    }
+    return { pins, off };
+  }, [activeJobs, routes, now]);
+
+  const cleaners = classified.pins;
+
+  const locationOff: LocationOffCleaner[] = useMemo(() => {
+    const trackedBookings = new Set(activeJobs.map((job) => job.booking_id));
+    const fromNotices = onTheWayNotices.flatMap((notice) => {
+      if (trackedBookings.has(notice.bookingId)) return [];
+      if (!isLocationOffEnRoute({ bookingStatus: notice.bookingStatus, hasUsableFix: false })) return [];
+      return [{
+        id: `otw-${notice.bookingId}`,
+        bookingId: notice.bookingId,
+        name: notice.staffName,
+        bookingNumber: notice.bookingNumber,
+        customerName: notice.customerName,
+        address: notice.address,
+        serviceName: notice.serviceName,
+      }];
+    });
+    return [...classified.off, ...fromNotices];
+  }, [classified.off, onTheWayNotices, activeJobs]);
+
+  const visibleHistory = useMemo(() => {
+    const activeIds = new Set(activeJobs.map((job) => job.id));
+    return historicalJobs.filter((row) => {
+      if (activeIds.has(row.id)) return false;
+      const status = one(row.booking)?.status;
+      return row.is_active === false || status === 'completed' || status === 'cancelled' || status === 'no_show';
+    });
+  }, [historicalJobs, activeJobs]);
 
   const todayPins: TodayJobPin[] = useMemo(() => todayBookings.flatMap((booking) => {
-    if (booking.is_draft || booking.status === 'cancelled') return [];
+    if (booking.is_draft || booking.status === 'cancelled' || booking.status === 'no_show') return [];
     const point = finitePoint(booking.latitude, booking.longitude);
     if (!point) return [];
     const customer = one(booking.customer);
@@ -536,7 +803,21 @@ export default function TrackingPage() {
     }];
   }), [todayBookings]);
 
-  const completedRoutes: CompletedRoute[] = useMemo(() => historicalJobs.flatMap((job) => {
+  const nextJobLabel = useMemo(() => {
+    const next = pickNextJob(todayBookings.map((booking) => ({
+      scheduledAt: booking.scheduled_at ?? '',
+      status: booking.status,
+      isDraft: booking.is_draft,
+      booking,
+    })), now);
+    if (!next?.scheduledAt) return null;
+    const customer = one(next.booking.customer);
+    const name = customer?.first_name || 'Customer';
+    const when = formatInTimezone(next.scheduledAt, orgTz, { hour: 'numeric', minute: '2-digit', hour12: true });
+    return `Next job ${when}, ${name}`;
+  }, [todayBookings, now, orgTz]);
+
+  const completedRoutes: CompletedRoute[] = useMemo(() => visibleHistory.flatMap((job) => {
     const staff = one(job.staff);
     const booking = one(job.booking);
     const last = finitePoint(job.latitude, job.longitude);
@@ -550,7 +831,7 @@ export default function TrackingPage() {
       last,
       dest,
     }];
-  }), [historicalJobs]);
+  }), [visibleHistory]);
 
   const handleToggle = async (field: keyof SmsSettings, value: boolean) => {
     setSavingToggle(true);
@@ -661,6 +942,8 @@ export default function TrackingPage() {
         office={office}
         focusId={focusId}
         onClearFocus={() => setFocusId(null)}
+        showEmpty={!loading && !activeError && cleaners.length === 0 && locationOff.length === 0}
+        nextJobLabel={nextJobLabel}
       />
 
       {activeError && (
@@ -671,16 +954,32 @@ export default function TrackingPage() {
         <div className="flex items-center justify-center py-6">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
-      ) : activeJobs.length > 0 ? (
+      ) : (cleaners.length > 0 || locationOff.length > 0) ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {activeJobs.map(job => (
-            <ActiveJobCard
-              key={job.id}
-              tracking={job}
-              selected={focusId === job.id}
-              onSelect={handleSelect}
-              onRoute={handleRoute}
-            />
+          {activeJobs.map(job => {
+            const booking = one(job.booking);
+            const state = trackingPinState({
+              isActive: job.is_active,
+              latitude: job.latitude,
+              longitude: job.longitude,
+              recordedAt: job.recorded_at,
+              scheduledAt: booking?.scheduled_at ?? null,
+              bookingStatus: booking?.status,
+              now,
+            });
+            if (!showsMapPin(state)) return null;
+            return (
+              <ActiveJobCard
+                key={job.id}
+                tracking={job}
+                selected={focusId === job.id}
+                onSelect={handleSelect}
+                onRoute={handleRoute}
+              />
+            );
+          })}
+          {locationOff.map((cleaner) => (
+            <LocationOffCard key={cleaner.id} cleaner={cleaner} />
           ))}
         </div>
       ) : null}
@@ -698,11 +997,11 @@ export default function TrackingPage() {
           </p>
           {historyError ? (
             <p className="text-sm text-destructive py-4">{historyError}</p>
-          ) : historicalJobs.length === 0 ? (
+          ) : visibleHistory.length === 0 ? (
             <p className="text-sm text-muted-foreground py-4">No completed routes today.</p>
           ) : (
             <div className="space-y-2">
-              {historicalJobs.map(job => {
+              {visibleHistory.map(job => {
                 const staff = one(job.staff);
                 const booking = one(job.booking);
                 return (
