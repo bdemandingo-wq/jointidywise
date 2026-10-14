@@ -1,3 +1,5 @@
+import { requireOrgAdmin } from '../_shared/requireOrgAdmin.ts'
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -9,9 +11,39 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { originLat, originLng, destLat, destLng } = await req.json()
+    let body: {
+      organizationId?: string
+      originLat?: unknown
+      originLng?: unknown
+      destLat?: unknown
+      destLng?: unknown
+    }
+    try {
+      body = await req.json()
+    } catch {
+      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
 
-    if (!originLat || !originLng || !destLat || !destLng) {
+    // Signed-in owner, admin, or manager of this org. Customers and other
+    // cleaners cannot spend the Maps key, and a valid session for a
+    // different organization is rejected.
+    const auth = await requireOrgAdmin(req, body.organizationId)
+    if (auth instanceof Response) return auth
+
+    if (body.originLat == null || body.originLng == null || body.destLat == null || body.destLng == null) {
+      return new Response(JSON.stringify({ error: 'Missing coordinates' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+    const originLat = Number(body.originLat)
+    const originLng = Number(body.originLng)
+    const destLat = Number(body.destLat)
+    const destLng = Number(body.destLng)
+    if (![originLat, originLng, destLat, destLng].every(Number.isFinite)) {
       return new Response(JSON.stringify({ error: 'Missing coordinates' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
