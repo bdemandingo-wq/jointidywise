@@ -25,6 +25,10 @@ const LIST_PULL_PREFIXES = [
   '/dashboard/recurring',
 ];
 
+// Prefix of the list query on that page: useCustomers ['customers', org],
+// LeadsPage ['leads', org], InvoicesPage ['invoices', org],
+// TasksPage ['tasks-and-notes', org], EstimatesPage ['estimates', org],
+// RecurringBookingsPage ['recurring-bookings', org].
 function listQueryKey(pathname: string): string {
   if (pathname.includes('/customers')) return 'customers';
   if (pathname.includes('/leads')) return 'leads';

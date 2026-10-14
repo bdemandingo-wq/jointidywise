@@ -33,6 +33,11 @@ class TidyWiseBridgeViewController: CAPBridgeViewController {
     /// Interactive pop goes back through WKWebView history (hash routes use
     /// pushState, so they are on that list). Bounces stay off so the fixed
     /// shell does not rubber-band; list scrolling still happens inside the page.
+    ///
+    /// limitsNavigationsToAppBoundDomains stays false in capacitor.config.json.
+    /// Embedded Stripe Checkout navigates this web view to Stripe
+    /// (js.stripe.com and the other hosts in allowNavigation). App-bound
+    /// domains would block that checkout.
     private func configureShellWebView() {
         webView?.allowsBackForwardNavigationGestures = true
         webView?.scrollView.bounces = false
