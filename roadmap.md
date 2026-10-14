@@ -25,3 +25,4 @@
 
 - [x] Deploy 16 functions from main
 - [x] Seed Broward, Miami-Dade, Palm Beach FL (45 inserted)
+- [x] Deploy create-subscription, admin-send-resubscribe-email, platform-analytics from main 8e831bf (all live; not invoked)
