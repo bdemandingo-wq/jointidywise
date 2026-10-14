@@ -2,7 +2,8 @@ import { Button } from "@/components/ui/button";
 
 /**
  * Local-only mock of the inbox thread. Not linked from navigation.
- * Used to screenshot the CANCEL tag and the resubscribe line with no live data.
+ * Used to screenshot the CANCEL tag, the resubscribe line, and a START
+ * that stays opted out, with no live data.
  */
 export default function SmsCompliancePreview() {
   return (
@@ -39,6 +40,20 @@ export default function SmsCompliancePreview() {
               <div className="max-w-[75%] rounded-2xl bg-muted px-3.5 py-2 text-foreground">
                 <p className="text-[15px] leading-snug whitespace-pre-wrap break-words">START</p>
                 <p className="mt-0.5 text-[10px] text-muted-foreground">2:20 PM</p>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section id="manual-start-thread" className="space-y-2">
+          <p className="text-center text-[11px] font-medium text-muted-foreground">START while opted out manually</p>
+          <div className="flex flex-col items-start">
+            <p className="mb-1 max-w-[75%] rounded-md bg-amber-500/15 px-2 py-1 text-[11px] font-medium leading-snug text-amber-800 dark:text-amber-300">
+              Asked to resubscribe. Review before texting
+            </p>
+            <div className="flex w-full justify-start">
+              <div className="max-w-[75%] rounded-2xl bg-muted px-3.5 py-2 text-foreground">
+                <p className="text-[15px] leading-snug whitespace-pre-wrap break-words">START</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">2:22 PM</p>
               </div>
             </div>
           </div>
