@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { CopyrightYear } from '@/components/CopyrightYear';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 const benefits = [
   { icon: Receipt, title: "Instant Professional Invoices", description: "Send professional invoices instantly after each job. No more manual billing." },
@@ -148,6 +149,7 @@ export default function PaymentProcessing() {
             <Link to="/blog" className="text-muted-foreground hover:text-foreground">Blog</Link>
           </div>
         </div>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

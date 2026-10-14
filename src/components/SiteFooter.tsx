@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TermsOfServiceDialog } from "@/components/legal/TermsOfServiceDialog";
 import { CopyrightYear } from '@/components/CopyrightYear';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 import { SUPPORT_EMAIL } from '@/lib/supportEmail';
 
 // FooterAccordionSection — collapses on mobile, permanently expanded on md+.
@@ -167,7 +168,10 @@ export function SiteFooter() {
 
           {/* ── 2. Bottom bar — copyright, always visible ─────────────── */}
           <div className="border-t border-border pt-8 text-center text-sm text-muted-foreground">
-            © <CopyrightYear /> TIDYWISE. All rights reserved.
+            <p>© <CopyrightYear /> TIDYWISE. All rights reserved.</p>
+            <p className="mt-3">
+              <DoNotSellShareLink />
+            </p>
           </div>
         </div>
       </div>

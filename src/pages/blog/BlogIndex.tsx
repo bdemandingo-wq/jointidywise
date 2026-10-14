@@ -8,6 +8,7 @@ import { format } from "date-fns";
 import { blogSortTime } from "@/lib/blogDates";
 import { CopyrightYear } from '@/components/CopyrightYear';
 import { QueryError } from '@/components/QueryError';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 // Static cornerstone posts that have dedicated pages
 const staticPosts = [
@@ -373,6 +374,7 @@ export default function BlogIndex() {
         <div className="max-w-7xl mx-auto text-center text-sm text-muted-foreground">
           © <CopyrightYear /> TIDYWISE. All rights reserved.
         </div>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

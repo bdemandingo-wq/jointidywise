@@ -3,6 +3,7 @@ import { SEOHead } from "@/components/SEOHead";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { REFERRAL_OFFER } from "@/lib/referralProgram";
+import { DoNotSellShareLink } from "@/components/DoNotSellShareLink";
 
 export function ReferralAlias() {
   const { user, loading } = useAuth();
@@ -31,6 +32,9 @@ export function ReferralAlias() {
           <Link to="/signup">Create your referral link</Link>
         </Button>
       </section>
+      <footer className="border-t border-border py-8 px-4 text-center">
+        <DoNotSellShareLink />
+      </footer>
     </main>
   );
 }
@@ -39,5 +43,30 @@ export function FeedbackAlias() {
   const { user, loading } = useAuth();
   if (loading) return <div className="min-h-screen bg-background" />;
   if (user) return <Navigate to="/dashboard/settings?tab=feedback" replace />;
-  return <Navigate to="/contact" replace />;
+  return (
+    <main className="min-h-screen bg-background">
+      <SEOHead
+        title="Feedback | TidyWise"
+        description="Tell TidyWise what would help your cleaning business."
+        canonical="/feedback"
+      />
+      <header className="border-b border-border/60">
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          <Link to="/" className="font-semibold tracking-tight">TIDYWISE</Link>
+        </div>
+      </header>
+      <section className="max-w-3xl mx-auto px-4 py-16">
+        <h1 className="text-4xl font-semibold tracking-tight mb-4">Feedback</h1>
+        <p className="text-muted-foreground mb-8">
+          Questions and ideas go to the TidyWise team.
+        </p>
+        <Button asChild size="lg">
+          <Link to="/contact">Contact us</Link>
+        </Button>
+      </section>
+      <footer className="border-t border-border py-8 px-4 text-center">
+        <DoNotSellShareLink />
+      </footer>
+    </main>
+  );
 }

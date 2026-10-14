@@ -10,6 +10,7 @@ import { useLocation } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useOrgId } from '@/hooks/useOrgId';
+import { setProductTourActive } from '@/lib/productTourGate';
 
 // Short tour on the dashboard only. It used to navigate Help → Settings tabs
 // on every Next, and the Joyride overlay kept capturing clicks when the
@@ -356,6 +357,11 @@ export function ProductTour() {
     const soon = window.setTimeout(releaseTourLock, 50);
     return () => window.clearTimeout(soon);
   }, [eligible]);
+
+  useEffect(() => {
+    setProductTourActive(run);
+    return () => setProductTourActive(false);
+  }, [run]);
 
   useEffect(() => () => releaseTourLock(), []);
 

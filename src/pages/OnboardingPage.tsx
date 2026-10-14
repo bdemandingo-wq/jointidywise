@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
+import { useTidyWiseTrialStarted } from '@/hooks/useTidyWiseTrialStarted';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
@@ -74,6 +75,7 @@ export default function OnboardingPage() {
   const isNative = Capacitor.isNativePlatform();
   const { user, signOut } = useAuth();
   const { organization, loading: orgLoading, resolution: orgResolution, refetch, setOrganizationDirect } = useOrganization();
+  useTidyWiseTrialStarted(organization);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [draftReady, setDraftReady] = useState(false);

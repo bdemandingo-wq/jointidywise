@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import emmanuelPhoto from "@/assets/emmanuel-headshot.webp";
 import { CopyrightYear } from '@/components/CopyrightYear';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 const testimonials = [
   {
@@ -199,7 +200,7 @@ export default function DemoPage() {
       </section>
 
       {/* Mobile Sticky CTA */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-background border-t border-border p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+      <div className="tw-above-cookie-notice fixed bottom-0 left-0 right-0 z-40 md:hidden bg-background border-t border-border p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
         <Button
           size="lg"
           className="w-full h-12 text-base font-semibold"
@@ -211,6 +212,7 @@ export default function DemoPage() {
 
       <footer className="border-t border-border py-8 px-4 text-center text-sm text-muted-foreground pb-20 md:pb-8">
         <p>© <CopyrightYear /> TidyWise. All rights reserved.</p>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

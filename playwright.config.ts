@@ -40,7 +40,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run dev",
+    command: "VITE_TIDYWISE_TAG_TEST_HOSTS=localhost npm run dev",
     url: "http://localhost:8080",
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,

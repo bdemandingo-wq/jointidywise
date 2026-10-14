@@ -4,6 +4,7 @@ import { BreadcrumbJsonLd } from '@/components/seo/BreadcrumbJsonLd';
 import { Button } from "@/components/ui/button";
 import { RelatedArticles, allArticles } from "@/components/blog/RelatedArticles";
 import { CopyrightYear } from '@/components/CopyrightYear';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 import { 
   ArrowLeft, 
   Calendar, 
@@ -411,6 +412,7 @@ export default function HowToStartCleaningBusiness() {
         <div className="max-w-4xl mx-auto text-center text-sm text-muted-foreground">
           © <CopyrightYear /> TIDYWISE. All rights reserved.
         </div>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

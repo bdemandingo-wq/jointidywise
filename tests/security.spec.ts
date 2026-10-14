@@ -228,7 +228,10 @@ test.describe("13.5 — Secrets never exposed to client bundle", () => {
     const EXPECTED = new Set([
       "VITE_APP_URL", "VITE_APP_VERSION", "VITE_PRICING_ENABLED",
       "VITE_SENTRY_DSN", "VITE_SENTRY_ENVIRONMENT",
-      "VITE_SUPABASE_PUBLISHABLE_KEY", "VITE_SUPABASE_URL", "DEV", "PROD",
+      "VITE_SUPABASE_PUBLISHABLE_KEY", "VITE_SUPABASE_URL",
+      "VITE_TIDYWISE_META_PIXEL_ID", "VITE_TIDYWISE_GA4_ID",
+      "VITE_TIDYWISE_GOOGLE_ADS_ID", "VITE_TIDYWISE_TAG_TEST_HOSTS",
+      "DEV", "PROD",
     ]);
     const unexpected = [...found].filter((v) => !EXPECTED.has(v));
     expect(unexpected, `unexpected env var(s) referenced in src/: ${unexpected.join(", ")} — verify these are meant to be public before allowing`).toEqual([]);

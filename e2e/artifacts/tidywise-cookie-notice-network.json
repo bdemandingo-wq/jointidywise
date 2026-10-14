@@ -1,0 +1,98 @@
+[
+  {
+    "test": "opt-out",
+    "url": "https://connect.facebook.net/en_US/fbevents.js",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "opt-out",
+    "url": "https://www.googletagmanager.com/gtag/js?id=G-TEST1234",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "opt-out",
+    "url": "https://connect.facebook.net/en_US/fbevents.js",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "opt-out",
+    "url": "https://www.googletagmanager.com/gtag/js?id=G-TEST1234",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "gpc-control",
+    "url": "https://connect.facebook.net/en_US/fbevents.js",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "gpc-control",
+    "url": "https://www.googletagmanager.com/gtag/js?id=G-TEST1234",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "excluded-control",
+    "url": "https://connect.facebook.net/en_US/fbevents.js",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "excluded-control",
+    "url": "https://www.googletagmanager.com/gtag/js?id=G-TEST1234",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "storage",
+    "url": "https://connect.facebook.net/en_US/fbevents.js",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "storage",
+    "url": "https://www.googletagmanager.com/gtag/js?id=G-TEST1234",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "signup",
+    "url": "https://connect.facebook.net/en_US/fbevents.js",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "signup",
+    "url": "https://www.googletagmanager.com/gtag/js?id=G-TEST1234",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "signup",
+    "url": "https://connect.facebook.net/en_US/fbevents.js",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "signup",
+    "url": "https://www.googletagmanager.com/gtag/js?id=G-TEST1234",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "trial",
+    "url": "https://connect.facebook.net/en_US/fbevents.js",
+    "method": "GET",
+    "postData": null
+  },
+  {
+    "test": "trial",
+    "url": "https://www.googletagmanager.com/gtag/js?id=G-TEST1234",
+    "method": "GET",
+    "postData": null
+  }
+]

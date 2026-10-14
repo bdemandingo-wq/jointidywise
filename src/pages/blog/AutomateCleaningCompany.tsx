@@ -6,6 +6,7 @@ import { RelatedArticles, allArticles } from "@/components/blog/RelatedArticles"
 import { ArrowRight, ArrowLeft, Menu, X } from "lucide-react";
 import { useState } from "react";
 import { CopyrightYear } from '@/components/CopyrightYear';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 export default function AutomateCleaningCompany() {
   const navigate = useNavigate();
@@ -103,6 +104,7 @@ export default function AutomateCleaningCompany() {
 
       <footer className="border-t border-border py-8 px-4 text-center text-sm text-muted-foreground">
         <p>© <CopyrightYear /> TidyWise. All rights reserved.</p>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

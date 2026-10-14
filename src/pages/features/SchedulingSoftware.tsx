@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { CopyrightYear } from '@/components/CopyrightYear';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 const benefits = [
   { icon: MousePointer, title: "Drag-and-Drop Scheduling", description: "See your entire week at a glance. Drag jobs to reschedule. Assign cleaners with a click." },
@@ -161,6 +162,7 @@ export default function SchedulingSoftware() {
             <Link to="/blog" className="text-muted-foreground hover:text-foreground">Blog</Link>
           </div>
         </div>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

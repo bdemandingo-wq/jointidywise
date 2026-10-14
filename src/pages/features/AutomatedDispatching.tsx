@@ -19,6 +19,7 @@ import {
   X
 } from "lucide-react";
 import { useState } from "react";
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 const benefits = [
   {
@@ -239,6 +240,7 @@ export default function AutomatedDispatching() {
             <Link to="/blog" className="text-muted-foreground hover:text-foreground">Blog</Link>
           </div>
         </div>
+              <DoNotSellShareLink />
       </footer>
 
       {/* Schema */}

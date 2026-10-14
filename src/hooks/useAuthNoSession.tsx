@@ -20,6 +20,7 @@ import { Capacitor } from '@capacitor/core';
 import { signInWithOAuthNative } from '@/lib/nativeOAuth';
 import { appendReferralParam, readCapturedReferral } from '@/lib/referralAttribution';
 import { touchLastLogin } from '@/lib/touchLastLogin';
+import { readMockedGoogleSignupUserId, trackTidyWiseConversion } from '@/lib/tidywiseTags';
 import { Sentry } from '@/lib/sentry';
 import { clearStartupCache, readStartupSection } from '@/lib/startupCache';
 
@@ -37,7 +38,7 @@ interface AuthContextType {
   provisioning: ProvisioningState;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string, metadata?: { full_name?: string; phone?: string }) => Promise<{ data: { user: User | null } | null; error: Error | null }>;
-  signInWithGoogle: () => Promise<{ error: Error | null }>;
+  signInWithGoogle: () => Promise<{ error: Error | null; mockedUserId?: string }>;
   signInWithApple: () => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   checkExistingProfile: (userId: string) => Promise<boolean>;
@@ -237,6 +238,9 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
             setProvisioning('failed');
             return;
           }
+          // trial_started fires from /onboarding or /dashboard, where the
+          // trial actually exists. Provisioning often finishes before that
+          // navigation, so firing here dropped the event.
         }
         if (!cancelled) setProvisioning('done');
       } catch (err) {
@@ -258,6 +262,28 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
       Sentry.setUser({ id: user.id, email: user.email ?? undefined });
     } else {
       Sentry.setUser(null);
+    }
+  }, [user]);
+
+  // Google signup leaves the page for the OAuth broker. The signup button
+  // records the intent; this fires signup_completed once the session exists.
+  useEffect(() => {
+    if (!user?.id) return;
+    let pending: string | null = null;
+    try {
+      pending = sessionStorage.getItem('tw-oauth-signup');
+    } catch {
+      return;
+    }
+    if (pending !== 'google') return;
+    const provider = user.app_metadata?.provider;
+    const google = provider === 'google' || user.identities?.some((identity) => identity.provider === 'google');
+    if (!google) return;
+    trackTidyWiseConversion('signup_completed', user.id);
+    try {
+      sessionStorage.removeItem('tw-oauth-signup');
+    } catch {
+      // The conversion helper already deduped this user id.
     }
   }, [user]);
 
@@ -303,6 +329,8 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
    */
   const signInWithGoogle = useCallback(async () => {
     try {
+      const mockedUserId = readMockedGoogleSignupUserId();
+      if (mockedUserId) return { error: null, mockedUserId };
       if (Capacitor.isNativePlatform()) {
         return await signInWithOAuthNative('google');
       }

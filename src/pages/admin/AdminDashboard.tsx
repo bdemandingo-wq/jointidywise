@@ -21,6 +21,7 @@ import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import { BookingCardSkeleton } from '@/components/ui/page-skeleton';
 import { useOrganization } from '@/contexts/OrganizationContext';
+import { useTidyWiseTrialStarted } from '@/hooks/useTidyWiseTrialStarted';
 import { SEOHead } from '@/components/SEOHead';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { PullToRefreshIndicator } from '@/components/admin/PullToRefreshIndicator';
@@ -104,6 +105,7 @@ function getGreeting() {
 export default function AdminDashboard() {
   const { organization } = useOrganization();
   const orgId = organization?.id;
+  useTidyWiseTrialStarted(organization);
   const upcoming = useDashboardUpcoming();
   // isPlaceholderData is the previous query. Keep it only when its org id
   // matches. A switch to another org clears the rows and shows the skeleton.

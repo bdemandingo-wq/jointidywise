@@ -9,6 +9,8 @@ export interface Organization {
   owner_id: string;
   /** Set by provision-trial-org, cleared by onboarding submit. */
   needs_onboarding?: boolean;
+  created_at?: string | null;
+  plan_type?: string | null;
 }
 
 export type OrgRole = 'owner' | 'admin' | 'manager' | 'member';
