@@ -329,3 +329,61 @@ export function conversionPayload(event: TidyWiseConversion): { meta: string; ga
   if (event === 'signup_completed') return { meta: 'CompleteRegistration', ga: 'sign_up' };
   return { meta: 'StartTrial', ga: 'trial_started' };
 }
+
+/** One trial_started pixel per org, and only while the org is still new. */
+export const TRIAL_STARTED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+export function orgCreatedWithinTrialPixelWindow(
+  createdAt: string | null | undefined,
+  now = Date.now(),
+): boolean {
+  if (!createdAt) return false;
+  const created = Date.parse(createdAt);
+  if (!Number.isFinite(created)) return false;
+  const age = now - created;
+  return age >= 0 && age <= TRIAL_STARTED_MAX_AGE_MS;
+}
+
+/** Read again at send time. Opt-out, GPC, or a disallowed host blocks the pixel. */
+export function trialStartedConsentAllows(input: {
+  choice: PrivacyChoice | null;
+  gpc: boolean;
+  hostnameAllowed: boolean;
+  native?: boolean;
+}): boolean {
+  if (input.native) return false;
+  if (input.choice === 'opted_out') return false;
+  if (input.gpc) return false;
+  if (!input.hostnameAllowed) return false;
+  return true;
+}
+
+/**
+ * The pixel goes out only when the org is still in trial, was created in
+ * the last 24 hours, consent still allows it, and the server claim returned
+ * true. A second claim is false and sends nothing.
+ */
+export function shouldSendTrialStartedPixel(input: {
+  createdAt: string | null | undefined;
+  inTrial: boolean;
+  claimGranted: boolean;
+  choice: PrivacyChoice | null;
+  gpc: boolean;
+  hostnameAllowed: boolean;
+  native?: boolean;
+  now?: number;
+}): boolean {
+  if (!input.inTrial) return false;
+  if (!input.claimGranted) return false;
+  if (!orgCreatedWithinTrialPixelWindow(input.createdAt, input.now)) return false;
+  return trialStartedConsentAllows(input);
+}
+
+/** Event name only. send_to routes the hit to our tag and is not a user field. */
+export function trialStartedGoogleArgs(googleId: string): readonly ['event', 'trial_started', { send_to: string }] {
+  return ['event', 'trial_started', { send_to: googleId }];
+}
+
+export function trialStartedMetaArgs(pixelId: string): readonly ['trackSingle', string, 'StartTrial'] {
+  return ['trackSingle', pixelId, 'StartTrial'];
+}

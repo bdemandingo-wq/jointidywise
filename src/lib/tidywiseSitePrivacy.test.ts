@@ -7,6 +7,12 @@ import {
   DO_NOT_SELL_LABEL,
   PRIVACY_CHOICE_KEY,
   conversionPayload,
+  orgCreatedWithinTrialPixelWindow,
+  shouldSendTrialStartedPixel,
+  trialStartedConsentAllows,
+  trialStartedGoogleArgs,
+  trialStartedMetaArgs,
+  TRIAL_STARTED_MAX_AGE_MS,
   isTagHostnameAllowed,
   isTidyWiseMarketingOrSignupPath,
   isTidyWiseTagSurface,
@@ -365,4 +371,89 @@ test('the banner has no close X and the footer keeps the opt-out link', () => {
   assert.match(tags, /trackSingle/);
   assert.equal(site.includes('createPortal'), false);
   assert.equal(site.includes('MutationObserver'), false);
+});
+
+const NOW = Date.parse('2026-10-14T12:00:00.000Z');
+const YOUNG = new Date(NOW - 60 * 60 * 1000).toISOString();
+const OLD = new Date(NOW - 48 * 60 * 60 * 1000).toISOString();
+
+function trialPixel(overrides: Partial<Parameters<typeof shouldSendTrialStartedPixel>[0]> = {}) {
+  return {
+    createdAt: YOUNG,
+    inTrial: true,
+    claimGranted: true,
+    choice: 'acknowledged' as const,
+    gpc: false,
+    hostnameAllowed: true,
+    native: false,
+    now: NOW,
+    ...overrides,
+  };
+}
+
+test('trial_started is one event name, with send_to only as the tag route', () => {
+  const google = trialStartedGoogleArgs('G-TEST1234');
+  assert.deepEqual(google, ['event', 'trial_started', { send_to: 'G-TEST1234' }]);
+  assert.deepEqual(Object.keys(google[2]), ['send_to']);
+  assert.deepEqual(trialStartedMetaArgs('1234567890123'), ['trackSingle', '1234567890123', 'StartTrial']);
+});
+
+test('an org older than 24 hours does not send trial_started', () => {
+  assert.equal(orgCreatedWithinTrialPixelWindow(OLD, NOW), false);
+  assert.equal(orgCreatedWithinTrialPixelWindow(null, NOW), false);
+  assert.equal(orgCreatedWithinTrialPixelWindow('not-a-date', NOW), false);
+  assert.equal(
+    orgCreatedWithinTrialPixelWindow(new Date(NOW - TRIAL_STARTED_MAX_AGE_MS).toISOString(), NOW),
+    true,
+  );
+  assert.equal(
+    orgCreatedWithinTrialPixelWindow(new Date(NOW - TRIAL_STARTED_MAX_AGE_MS - 1).toISOString(), NOW),
+    false,
+  );
+  assert.equal(shouldSendTrialStartedPixel(trialPixel({ createdAt: OLD })), false);
+});
+
+test('a second claim returns no trial_started pixel', () => {
+  assert.equal(shouldSendTrialStartedPixel(trialPixel({ claimGranted: false })), false);
+  assert.equal(shouldSendTrialStartedPixel(trialPixel({ inTrial: false })), false);
+});
+
+test('opt-out, GPC, a disallowed host, or the native app sends no trial_started', () => {
+  assert.equal(trialStartedConsentAllows({ choice: 'opted_out', gpc: false, hostnameAllowed: true }), false);
+  assert.equal(trialStartedConsentAllows({ choice: null, gpc: true, hostnameAllowed: true }), false);
+  assert.equal(trialStartedConsentAllows({ choice: 'acknowledged', gpc: false, hostnameAllowed: false }), false);
+  assert.equal(shouldSendTrialStartedPixel(trialPixel({ choice: 'opted_out' })), false);
+  assert.equal(shouldSendTrialStartedPixel(trialPixel({ gpc: true })), false);
+  assert.equal(shouldSendTrialStartedPixel(trialPixel({ hostnameAllowed: false })), false);
+  assert.equal(shouldSendTrialStartedPixel(trialPixel({ native: true })), false);
+  assert.equal(shouldSendTrialStartedPixel(trialPixel()), true);
+});
+
+test('the trial pixel claim is one owner-or-admin stamp, re-checked at send time', () => {
+  const sql = readFileSync(
+    new URL('../../supabase/migrations/20261015030100_claim_trial_started_pixel.sql', import.meta.url),
+    'utf8',
+  );
+  assert.match(sql, /\nBEGIN;\n/);
+  assert.match(sql, /COMMIT;\s*$/);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS trial_started_pixel_at timestamptz/);
+  assert.match(sql, /SECURITY DEFINER/);
+  assert.match(sql, /auth\.uid\(\)/);
+  assert.match(sql, /m\.role IN \('owner', 'admin'\)/);
+  assert.match(sql, /interval '24 hours'/);
+  assert.match(sql, /trial_ends_at > now\(\)/);
+  assert.match(sql, /trial_started_pixel_at IS NULL/);
+  assert.match(sql, /lower\(btrim\(COALESCE\(v_plan, ''\)\)\) <> 'trial'/);
+  assert.match(sql, /REVOKE ALL ON FUNCTION public\.claim_trial_started_pixel\(uuid\) FROM PUBLIC, anon/);
+  assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.claim_trial_started_pixel\(uuid\) TO authenticated/);
+  assert.match(sql, /REVOKE UPDATE \(trial_started_pixel_at\)/);
+  assert.equal(/net\.http|http_post|pg_net|facebook\.com|googletagmanager/i.test(sql), false);
+
+  const hook = readFileSync(new URL('../hooks/useTidyWiseTrialStarted.ts', import.meta.url), 'utf8');
+  const claimAt = hook.indexOf("supabase.rpc('claim_trial_started_pixel'");
+  const recheckAt = hook.lastIndexOf('shouldSendTrialStartedPixel({');
+  assert.ok(claimAt > 0 && recheckAt > claimAt);
+  assert.match(hook, /trackTidyWiseConversion\('trial_started'\)/);
+  assert.equal(hook.includes("trackTidyWiseConversion('trial_started',"), false);
+  assert.equal(hook.includes('cancelled'), false);
 });

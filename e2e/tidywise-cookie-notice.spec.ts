@@ -59,6 +59,144 @@ async function arm(page: Page, testName: string): Promise<void> {
   await interceptTags(page, testName);
 }
 
+const TRIAL_USER_ID = '44444444-4444-4444-8444-444444444444';
+const TRIAL_EMAIL = 'bdemandingo+cookie-trial@gmail.com';
+const TRIAL_ORG_ID = '55555555-5555-4555-8555-555555555555';
+
+interface TrialEventDump {
+  google: Array<Record<string, unknown>>;
+  meta: unknown[][];
+}
+
+async function readTrialEvents(page: Page): Promise<TrialEventDump> {
+  return page.evaluate(() => {
+    const layer = (window as unknown as { dataLayer?: unknown[] }).dataLayer ?? [];
+    const google: Array<Record<string, unknown>> = [];
+    for (const entry of layer) {
+      const args = Array.from(entry as ArrayLike<unknown>);
+      if (args[0] === 'event' && args[1] === 'trial_started' && args[2] && typeof args[2] === 'object') {
+        google.push(args[2] as Record<string, unknown>);
+      }
+    }
+    const fbq = (window as unknown as { fbq?: { queue?: unknown[] } }).fbq;
+    const meta: unknown[][] = [];
+    for (const entry of fbq?.queue ?? []) {
+      const args = Array.from(entry as ArrayLike<unknown>);
+      if (args[0] === 'trackSingle' && args[2] === 'StartTrial') meta.push(args);
+    }
+    return { google, meta };
+  });
+}
+
+async function openTrialOnboarding(
+  page: Page,
+  options: { label: string; createdAt: string; claim: 'first-true'; choice?: 'opted_out'; gpc?: boolean },
+): Promise<{ claimCalls: () => number }> {
+  let claims = 0;
+  const user = {
+    id: TRIAL_USER_ID,
+    aud: 'authenticated',
+    role: 'authenticated',
+    email: TRIAL_EMAIL,
+    app_metadata: { provider: 'email', providers: ['email'] },
+    user_metadata: {},
+    identities: [{
+      provider: 'email',
+      identity_id: 'id-1',
+      id: TRIAL_USER_ID,
+      identity_data: {},
+      created_at: new Date().toISOString(),
+      last_sign_in_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }],
+    created_at: new Date().toISOString(),
+  };
+  const org = {
+    id: TRIAL_ORG_ID,
+    name: 'Cookie Trial',
+    slug: 'cookie-trial',
+    logo_url: null,
+    owner_id: TRIAL_USER_ID,
+    needs_onboarding: true,
+    created_at: options.createdAt,
+    plan_type: 'trial',
+  };
+  const session = {
+    access_token: 'test-access-token',
+    refresh_token: 'test-refresh-token',
+    token_type: 'bearer',
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    user,
+  };
+
+  await page.addInitScript((stored) => {
+    const bag = stored as { session: unknown; choice?: string; gpc?: boolean };
+    localStorage.setItem('sb-slwfkaqczvwvvvavkgpr-auth-token', JSON.stringify(bag.session));
+    if (bag.choice) localStorage.setItem('tw-site-privacy-choice', bag.choice);
+    if (bag.gpc) {
+      Object.defineProperty(Navigator.prototype, 'globalPrivacyControl', {
+        configurable: true,
+        get: () => true,
+      });
+    }
+  }, { session, choice: options.choice, gpc: options.gpc === true });
+
+  await arm(page, options.label);
+  await page.route('**/*supabase.co/**', async (route) => {
+    const url = route.request().url();
+    if (url.includes('claim_trial_started_pixel')) {
+      claims += 1;
+      const granted = options.claim === 'first-true' && claims === 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: granted ? 'true' : 'false',
+      });
+      return;
+    }
+    if (url.includes('/auth/v1/user') || url.includes('/auth/v1/token')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(url.includes('/token') ? session : user),
+      });
+      return;
+    }
+    if (url.includes('org_memberships')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ organization_id: TRIAL_ORG_ID, role: 'owner', organizations: org }]),
+      });
+      return;
+    }
+    if (url.includes('/organizations')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(org) });
+      return;
+    }
+    if (url.includes('check-subscription')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ subscribed: false, trial_active: true, trial_end: null }),
+      });
+      return;
+    }
+    if (url.includes('/profiles')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ id: TRIAL_USER_ID, phone: null }]),
+      });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  });
+
+  return { claimCalls: () => claims };
+}
+
 /** Proves this host can load tags before an opt-out, GPC, or exclusion assertion. */
 async function assertControlLoaded(page: Page, testName: string): Promise<void> {
   const before = tagHits(testName).length;
@@ -294,87 +432,88 @@ test.describe('TidyWise cookie notice', () => {
     expect(googleEvents).toBe(true);
   });
 
-  test('trial_started fires once on onboarding', async ({ page }) => {
-    const userId = '44444444-4444-4444-8444-444444444444';
-    const orgId = '55555555-5555-4555-8555-555555555555';
-    const user = {
-      id: userId,
-      aud: 'authenticated',
-      role: 'authenticated',
-      email: 'bdemandingo+cookie-trial@gmail.com',
-      app_metadata: { provider: 'email', providers: ['email'] },
-      user_metadata: {},
-      identities: [{ provider: 'email', identity_id: 'id-1', id: userId, identity_data: {}, created_at: new Date().toISOString(), last_sign_in_at: new Date().toISOString(), updated_at: new Date().toISOString() }],
-      created_at: new Date().toISOString(),
-    };
-    const org = {
-      id: orgId,
-      name: 'Cookie Trial',
-      slug: 'cookie-trial',
-      logo_url: null,
-      owner_id: userId,
-      needs_onboarding: true,
-    };
-    const session = {
-      access_token: 'test-access-token',
-      refresh_token: 'test-refresh-token',
-      token_type: 'bearer',
-      expires_in: 3600,
-      expires_at: Math.floor(Date.now() / 1000) + 3600,
-      user,
-    };
-
-    await page.addInitScript((stored) => {
-      localStorage.setItem('sb-slwfkaqczvwvvvavkgpr-auth-token', JSON.stringify(stored));
-    }, session);
-    await arm(page, 'trial');
-    await page.route('**/*supabase.co/**', async (route) => {
-      const url = route.request().url();
-      if (url.includes('/auth/v1/user') || url.includes('/auth/v1/token')) {
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(url.includes('/token') ? session : user) });
-        return;
-      }
-      if (url.includes('org_memberships')) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([{ organization_id: orgId, role: 'owner', organizations: org }]),
-        });
-        return;
-      }
-      if (url.includes('/organizations')) {
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(org) });
-        return;
-      }
-      if (url.includes('check-subscription')) {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ subscribed: false, trial_active: true, trial_end: null }),
-        });
-        return;
-      }
-      if (url.includes('/profiles')) {
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: userId, phone: null }]) });
-        return;
-      }
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  test('trial_started fires once for a new trial when the claim succeeds', async ({ page }) => {
+    const trial = await openTrialOnboarding(page, {
+      label: 'trial',
+      createdAt: new Date().toISOString(),
+      claim: 'first-true',
     });
-
     await page.goto('/onboarding');
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.twConversion), { timeout: 20_000 }).toBe('trial_started');
-    const first = await page.evaluate(() => {
-      const layer = (window as unknown as { dataLayer?: unknown[] }).dataLayer ?? [];
-      return layer.filter((entry) => JSON.stringify(entry).includes('trial_started')).length;
-    });
-    expect(first).toBeGreaterThan(0);
+    const sent = await readTrialEvents(page);
+    expect(sent.google.length).toBeGreaterThan(0);
+    expect(sent.meta.length).toBeGreaterThan(0);
+    for (const params of sent.google) {
+      expect(Object.keys(params).sort()).toEqual(['send_to']);
+    }
+    for (const args of sent.meta) {
+      expect(args).toHaveLength(3);
+      expect(args[0]).toBe('trackSingle');
+      expect(args[2]).toBe('StartTrial');
+    }
+    const dumped = JSON.stringify(sent);
+    expect(dumped).not.toContain(TRIAL_USER_ID);
+    expect(dumped).not.toContain(TRIAL_EMAIL);
+    expect(dumped).not.toContain('Cookie Trial');
+
+    await page.evaluate(() => sessionStorage.removeItem('tw-tidywise-conversion-fired'));
+    const claimsBeforeReload = trial.claimCalls();
     await page.reload();
-    await page.waitForTimeout(1500);
-    const second = await page.evaluate(() => {
-      const layer = (window as unknown as { dataLayer?: unknown[] }).dataLayer ?? [];
-      return layer.filter((entry) => JSON.stringify(entry).includes('trial_started')).length;
+    await expect(page.getByRole('heading', { name: 'Set Up Your Cleaning Business', exact: true })).toBeVisible();
+    await expect.poll(() => trial.claimCalls(), { timeout: 20_000 }).toBeGreaterThan(claimsBeforeReload);
+    await page.waitForTimeout(500);
+    const second = await readTrialEvents(page);
+    expect(second.google).toEqual([]);
+    expect(second.meta).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.dataset.twConversion ?? '')).not.toBe('trial_started');
+  });
+
+  test('an older org in a fresh browser sends no trial_started', async ({ page }) => {
+    const trial = await openTrialOnboarding(page, {
+      label: 'trial-old',
+      createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
+      claim: 'first-true',
     });
-    expect(second).toBe(0);
+    await page.goto('/onboarding');
+    await expect(page.getByRole('heading', { name: 'Set Up Your Cleaning Business', exact: true })).toBeVisible();
+    await page.waitForTimeout(1500);
+    expect(trial.claimCalls()).toBe(0);
+    const sent = await readTrialEvents(page);
+    expect(sent.google).toEqual([]);
+    expect(sent.meta).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.dataset.twConversion ?? '')).not.toBe('trial_started');
+  });
+
+  test('opt-out sends no trial_started and does not claim', async ({ page }) => {
+    const trial = await openTrialOnboarding(page, {
+      label: 'trial-opt-out',
+      createdAt: new Date().toISOString(),
+      claim: 'first-true',
+      choice: 'opted_out',
+    });
+    await page.goto('/onboarding');
+    await expect(page.getByRole('heading', { name: 'Set Up Your Cleaning Business', exact: true })).toBeVisible();
+    await page.waitForTimeout(1500);
+    expect(trial.claimCalls()).toBe(0);
+    const sent = await readTrialEvents(page);
+    expect(sent.google).toEqual([]);
+    expect(sent.meta).toEqual([]);
+  });
+
+  test('GPC on sends no trial_started and does not claim', async ({ page }) => {
+    const trial = await openTrialOnboarding(page, {
+      label: 'trial-gpc',
+      createdAt: new Date().toISOString(),
+      claim: 'first-true',
+      gpc: true,
+    });
+    await page.goto('/onboarding');
+    await expect(page.getByRole('heading', { name: 'Set Up Your Cleaning Business', exact: true })).toBeVisible();
+    await page.waitForTimeout(1500);
+    expect(trial.claimCalls()).toBe(0);
+    const sent = await readTrialEvents(page);
+    expect(sent.google).toEqual([]);
+    expect(sent.meta).toEqual([]);
   });
 });
 
@@ -392,10 +531,11 @@ test.describe('cookie notice screenshots', () => {
       await page.goto('/signup');
       const banner = page.getByRole('region', { name: 'Cookie notice' });
       await expect(banner).toBeVisible();
-      const submit = page.locator('[data-signup-submit]');
-      await submit.scrollIntoViewIfNeeded();
-      await expect(submit).toBeVisible();
-      await page.screenshot({ path: join(ARTIFACT_DIR, `cookie-notice-${shot.name}.png`), fullPage: true });
+      const box = await banner.boundingBox();
+      expect(box).toBeTruthy();
+      expect(box!.y + box!.height).toBeGreaterThan(shot.height - 2);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(shot.height + 1);
+      await page.screenshot({ path: join(ARTIFACT_DIR, `cookie-notice-${shot.name}.png`) });
     });
   }
 

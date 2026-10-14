@@ -75,7 +75,7 @@ export default function OnboardingPage() {
   const isNative = Capacitor.isNativePlatform();
   const { user, signOut } = useAuth();
   const { organization, loading: orgLoading, resolution: orgResolution, refetch, setOrganizationDirect } = useOrganization();
-  useTidyWiseTrialStarted(user?.id, organization?.id);
+  useTidyWiseTrialStarted(organization);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [draftReady, setDraftReady] = useState(false);

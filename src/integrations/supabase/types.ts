@@ -8486,6 +8486,7 @@ export type Database = {
           referred_by: string | null
           slug: string | null
           stripe_schedule_id: string | null
+          trial_started_pixel_at: string | null
           updated_at: string
         }
         Insert: {
@@ -8507,6 +8508,7 @@ export type Database = {
           referred_by?: string | null
           slug?: string | null
           stripe_schedule_id?: string | null
+          trial_started_pixel_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -8528,6 +8530,7 @@ export type Database = {
           referred_by?: string | null
           slug?: string | null
           stripe_schedule_id?: string | null
+          trial_started_pixel_at?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -12586,6 +12589,7 @@ export type Database = {
         }[]
       }
       claim_booking: { Args: { p_booking_id: string }; Returns: Json }
+      claim_trial_started_pixel: { Args: { p_org: string }; Returns: boolean }
       classify_service_bucket: { Args: { p_name: string }; Returns: string }
       cleanup_ai_rate_limits: { Args: never; Returns: number }
       client_cancel_booking: {
