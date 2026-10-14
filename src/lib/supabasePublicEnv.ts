@@ -29,14 +29,29 @@ function pick(fromMeta: string | undefined, name: string, fallback: string): str
   return nodeEnv(name) || fallback;
 }
 
+/**
+ * Vite inlines a static `import.meta.env.VITE_*` access. Node (tsx sitemap
+ * and prerender) has no `import.meta.env`, and reading `.VITE_*` off
+ * undefined throws before the fallback can run. The member expression stays
+ * static so the production bundle still inlines the build-time value.
+ */
+function viteEnv(read: () => unknown): string | undefined {
+  try {
+    const value = read();
+    return typeof value === "string" && value.trim() ? value.trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export const SUPABASE_PUBLIC_URL = pick(
-  import.meta.env.VITE_SUPABASE_URL,
+  viteEnv(() => import.meta.env.VITE_SUPABASE_URL),
   "VITE_SUPABASE_URL",
   FALLBACK_URL,
 );
 
 export const SUPABASE_PUBLIC_ANON_KEY = pick(
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+  viteEnv(() => import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY),
   "VITE_SUPABASE_PUBLISHABLE_KEY",
   FALLBACK_ANON_KEY,
 );

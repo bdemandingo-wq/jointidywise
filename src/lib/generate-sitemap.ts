@@ -74,7 +74,9 @@ const EXCLUDED_PATHS = new Set<string>([
 // inside an authorization handshake — it only functions with a live
 // authorization_id in the query string — so a crawler reaching it finds a
 // broken page at best, and listing it invites exactly that.
-const EXCLUDED_PREFIXES = ["/dashboard", "/staff", "/portal", "/admin", "/auth", "/checkout", "/billing", "/.lovable"];
+// `/dev` is a local preview (import.meta.env.DEV). The route is still in
+// App.tsx, so the sitemap AST sees it, but it is not a public page.
+const EXCLUDED_PREFIXES = ["/dashboard", "/staff", "/portal", "/admin", "/auth", "/checkout", "/billing", "/.lovable", "/dev"];
 
 function shouldExclude(path: string): boolean {
   if (EXCLUDED_PATHS.has(path)) return true;
