@@ -79,6 +79,31 @@ export function isActiveOrgTrial(subscription: {
 }
 
 /**
+ * Settings → Plan heading. An active card-free trial is Pro access with
+ * no card, including when organizations.plan_type is still "free".
+ * A paid plan name is unchanged. CSS capitalize is not used: "Trial (Pro)"
+ * must keep the capital P.
+ */
+export function planSectionLabel(opts: {
+  rawPlanType?: string | null;
+  productId?: string | null;
+  subscribed?: boolean;
+  trialActive?: boolean;
+}): string {
+  const raw = (opts.rawPlanType ?? "").trim().toLowerCase();
+  const onOrgTrial = isActiveOrgTrial({
+    product_id: opts.productId,
+    subscribed: opts.subscribed,
+    trial_active: opts.trialActive,
+  });
+  if (onOrgTrial || (raw === "trial" && opts.trialActive === true)) {
+    return "Trial (Pro)";
+  }
+  const word = raw || "free";
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+/**
  * /choose-plan is the paywall for accounts without dashboard access.
  * An active org trial has that access, so it returns to the dashboard
  * unless the admin opened this page to upgrade.

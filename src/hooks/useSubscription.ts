@@ -14,6 +14,7 @@
 import { useAuth } from './useAuth';
 import { usePlanState } from './usePlanFeature';
 import { hasPaidDashboardAccess } from '@/lib/dashboardAccess';
+import { isActiveOrgTrial } from '@/lib/stripeMode';
 
 // Login allowlist. The first address is the owner's account, not the public
 // support inbox (SUPPORT_EMAIL). Do not replace it.
@@ -80,7 +81,12 @@ export function useSubscription(): SubscriptionAccess {
   // Demo accounts bypass tier gating entirely. Native trial users get
   // all features during the trial (plan_type='trial' is treated as pro).
   const bypassTier = isFreeAccount || planState.grandfathered;
+  // product_id org_trial is the card-free Pro trial. plan_type can still
+  // say "free" until the signup row is corrected, and that must not hide
+  // Pro modules. A Stripe trial of Basic keeps its own product id.
+  const onCardFreeProTrial = isActiveOrgTrial(subscription);
   const proOrAbove = bypassTier || (hasFullAccess && (
+    onCardFreeProTrial ||
     planState.planType === 'pro' ||
     planState.planType === 'custom' ||
     planState.planType === 'lifetime' ||

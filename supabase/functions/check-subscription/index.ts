@@ -3,7 +3,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { stripeKeyMode } from "../_shared/stripe-key-mode.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
-import { resolveCardFreeTrial } from "../_shared/trial-end.ts";
+import { extendShortCardFreeTrial, resolveCardFreeTrial } from "../_shared/trial-end.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -404,19 +404,44 @@ serve(async (req) => {
     const futureStoredTrial = Number.isFinite(storedTrialMs) && Date.now() < storedTrialMs;
 
     if (mayStampTrial || futureStoredTrial) {
-      const resolved = resolveCardFreeTrial({
+      const trialClockStart = orgData?.created_at ?? trialProfile?.created_at ?? null;
+      let resolved = resolveCardFreeTrial({
         trialEndsAt: trialProfile?.trial_ends_at,
-        createdAt: trialProfile?.created_at ?? orgData?.created_at ?? null,
+        createdAt: trialClockStart,
       });
 
-      if (resolved.stampMissing && resolved.active && resolved.trialEndIso && mayStampTrial) {
-        const { error: stampError } = await supabaseClient
-          .from("profiles")
-          .update({ trial_ends_at: resolved.trialEndIso })
-          .eq("id", user.id)
-          .is("trial_ends_at", null);
-        if (stampError) {
-          logStep("ERROR stamping profile trial_ends_at", { message: stampError.message });
+      // A stored end from the old 14-day trigger is kept by resolveCardFreeTrial.
+      // Trial-eligible orgs (not a paid plan that merely has a future stamp)
+      // are lengthened to created_at + 30 days. The .lt filter cannot move
+      // an end sooner.
+      if (mayStampTrial) {
+        const extended = extendShortCardFreeTrial({
+          trialEndsAt: trialProfile?.trial_ends_at,
+          createdAt: trialClockStart,
+        });
+        if (extended.extended && extended.trialEndIso) {
+          const { error: extendError } = await supabaseClient
+            .from("profiles")
+            .update({ trial_ends_at: extended.trialEndIso })
+            .eq("id", user.id)
+            .lt("trial_ends_at", extended.trialEndIso);
+          if (extendError) {
+            logStep("ERROR extending profile trial_ends_at", { message: extendError.message });
+          }
+          resolved = {
+            trialEndIso: extended.trialEndIso,
+            active: extended.active,
+            stampMissing: false,
+          };
+        } else if (resolved.stampMissing && resolved.active && resolved.trialEndIso) {
+          const { error: stampError } = await supabaseClient
+            .from("profiles")
+            .update({ trial_ends_at: resolved.trialEndIso })
+            .eq("id", user.id)
+            .is("trial_ends_at", null);
+          if (stampError) {
+            logStep("ERROR stamping profile trial_ends_at", { message: stampError.message });
+          }
         }
       }
 
@@ -428,11 +453,15 @@ serve(async (req) => {
       });
 
       if (resolved.active && resolved.trialEndIso) {
+        // The embed can omit plan_type, so a read of null used to update
+        // only rows that were actually null and leave a stored "free" in place.
+        // Match either stored value. Never touch basic/pro/custom/lifetime.
         if (orgId && (planType == null || planType === "" || planType === "free")) {
-          const planQuery = planType === "free"
-            ? supabaseClient.from("organizations").update({ plan_type: "trial" }).eq("id", orgId).eq("plan_type", "free")
-            : supabaseClient.from("organizations").update({ plan_type: "trial" }).eq("id", orgId).is("plan_type", null);
-          const { error: planError } = await planQuery;
+          const { error: planError } = await supabaseClient
+            .from("organizations")
+            .update({ plan_type: "trial" })
+            .eq("id", orgId)
+            .or("plan_type.is.null,plan_type.eq.free");
           if (planError) logStep("ERROR setting plan_type trial", { message: planError.message });
         }
         return new Response(JSON.stringify({

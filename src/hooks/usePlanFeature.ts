@@ -22,6 +22,7 @@ import {
   PlanType,
   FeatureKey,
 } from '@/lib/features';
+import { isActiveOrgTrial } from '@/lib/stripeMode';
 
 export interface PlanState extends PlanContext {
   loading: boolean;
@@ -224,12 +225,16 @@ export interface FeatureAccess {
 
 export function usePlanFeature(featureKey: FeatureKey): FeatureAccess {
   const state = usePlanState();
-  const allowed = !state.loading && !state.error && canAccess(featureKey, state);
+  const { subscription } = useAuth();
+  // Card-free trial is Pro even when organizations.plan_type is still free.
+  const planType: PlanType = isActiveOrgTrial(subscription) ? 'trial' : state.planType;
+  const ctx: PlanContext = { ...state, planType };
+  const allowed = !state.loading && !state.error && canAccess(featureKey, ctx);
   return {
     allowed,
     loading: state.loading,
     error: state.error,
-    planType: state.planType,
+    planType,
     grandfathered: state.grandfathered,
     upgradeTo: allowed ? null : minimumPlanFor(featureKey),
   };

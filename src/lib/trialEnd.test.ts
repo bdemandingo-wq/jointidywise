@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { trialDaysLeft } from "./trialClock.ts";
 import {
+  extendShortCardFreeTrial,
   resolveCardFreeTrial,
   stripeCheckoutTrialDays,
   stripeTrialEndUnix,
@@ -47,6 +48,26 @@ test("a missing trial stamp is 30 days from created_at and a stored date is kept
   assert.equal(stored.stampMissing, false);
   assert.equal(stored.active, false);
   assert.equal(stored.trialEndIso, new Date(past).toISOString());
+});
+
+test("a 14-day stamp is lengthened to created_at + 30 days and a longer stamp is kept", () => {
+  const createdAt = new Date(NOW - 2 * DAY_MS).toISOString();
+  const shortEnd = new Date(Date.parse(createdAt) + 14 * DAY_MS).toISOString();
+  const extended = extendShortCardFreeTrial({ trialEndsAt: shortEnd, createdAt, nowMs: NOW });
+  assert.equal(extended.extended, true);
+  assert.equal(extended.active, true);
+  assert.equal(extended.trialEndIso, new Date(Date.parse(createdAt) + 30 * DAY_MS).toISOString());
+
+  const longerEnd = new Date(Date.parse(createdAt) + 45 * DAY_MS).toISOString();
+  const kept = extendShortCardFreeTrial({ trialEndsAt: longerEnd, createdAt, nowMs: NOW });
+  assert.equal(kept.extended, false);
+  assert.equal(kept.trialEndIso, new Date(longerEnd).toISOString());
+
+  const expiredStart = new Date(NOW - 40 * DAY_MS).toISOString();
+  const expiredEnd = new Date(Date.parse(expiredStart) + 14 * DAY_MS).toISOString();
+  const tooOld = extendShortCardFreeTrial({ trialEndsAt: expiredEnd, createdAt: expiredStart, nowMs: NOW });
+  assert.equal(tooOld.extended, false);
+  assert.equal(tooOld.trialEndIso, new Date(expiredEnd).toISOString());
 });
 
 test("under 48 hours does not send a trial_end", () => {

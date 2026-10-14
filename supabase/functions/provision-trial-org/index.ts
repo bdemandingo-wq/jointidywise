@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { corsHeaders } from "../_shared/cors.ts";
 import { claimSaasReferral } from "../_shared/saas-referral-db.ts";
+import { extendShortCardFreeTrial } from "../_shared/trial-end.ts";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -109,7 +110,7 @@ serve(async (req) => {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("full_name, trial_ends_at")
+      .select("full_name, trial_ends_at, created_at")
       .eq("id", user.id)
       .maybeSingle();
     if (profileError) throw profileError;
@@ -117,11 +118,32 @@ serve(async (req) => {
     const fullName = profile?.full_name?.trim();
     const orgName = fullName ? `${fullName}'s Business` : "My Cleaning Business";
 
-    // New orgs only (the already-provisioned branch returned above). If the
-    // signup trigger did not stamp a trial end, give this new profile 30 days.
-    // Never overwrite a date that is already set.
+    // New orgs only (the already-provisioned branch returned above).
+    // A missing stamp is signup + 30 days. A shorter stamp (the live
+    // 14-day trigger) is lengthened to the same instant. A longer stamp
+    // is left alone.
     let trialEndsAt = profile?.trial_ends_at ?? null;
-    if (!trialEndsAt) {
+    const extended = extendShortCardFreeTrial({
+      trialEndsAt: profile?.trial_ends_at,
+      createdAt: profile?.created_at ?? null,
+    });
+    if (extended.extended && extended.trialEndIso) {
+      trialEndsAt = extended.trialEndIso;
+      const { error: trialError } = await supabase
+        .from("profiles")
+        .update({ trial_ends_at: trialEndsAt })
+        .eq("id", user.id)
+        .lt("trial_ends_at", trialEndsAt);
+      if (trialError) throw trialError;
+    } else if (!trialEndsAt && extended.trialEndIso) {
+      trialEndsAt = extended.trialEndIso;
+      const { error: trialError } = await supabase
+        .from("profiles")
+        .update({ trial_ends_at: trialEndsAt })
+        .eq("id", user.id)
+        .is("trial_ends_at", null);
+      if (trialError) throw trialError;
+    } else if (!trialEndsAt) {
       trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       const { error: trialError } = await supabase
         .from("profiles")
