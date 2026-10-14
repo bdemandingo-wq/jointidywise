@@ -38,7 +38,7 @@ export const MIN_IOS_LOCATION_BUILD = 1019;
 export const LOCATION_TRACKING_SWITCH_KEY = 'cleaner_location_tracking_enabled';
 
 export interface LocationSharingAvailability {
-  /** On My Way may share a location. Requires the remote switch and a new enough native build. */
+  /** On My Way may share a location. Requires the remote switch and, on iOS, a new enough build. */
   trackingEnabled: boolean;
   showConsentSheet: boolean;
   showSettingsToggle: boolean;
@@ -64,28 +64,34 @@ export function remoteTrackingEnabled(value: unknown): boolean {
   return value === true;
 }
 
+const LOCATION_SHARING_OPEN: LocationSharingAvailability = {
+  trackingEnabled: true,
+  showConsentSheet: true,
+  showSettingsToggle: true,
+  logConsent: true,
+};
+
 /**
- * Tracking needs both gates. The remote switch defaults to off.
- * On iOS, the installed build must also be at least MIN_IOS_LOCATION_BUILD.
+ * Tracking needs the remote switch, which defaults to off.
+ * Only iOS at or above MIN_IOS_LOCATION_BUILD may share on a device.
  * Web has no usage-string build, so only the switch applies.
- * An unreadable native build stays off.
+ * An unreadable iOS build stays off.
+ *
+ * TODO: Android is always off. Before any MIN_ANDROID_LOCATION_BUILD is
+ * added, show the consent sheet before the OS prompt and update the Play
+ * Data safety form.
  */
 export function locationSharingAvailability(input: {
-  native: boolean;
+  platform: string;
   build: string | number | null | undefined;
   remoteEnabled: boolean;
 }): LocationSharingAvailability {
   if (!input.remoteEnabled) return LOCATION_SHARING_CLOSED;
-  if (input.native) {
-    const build = parseNativeBuild(input.build);
-    if (build == null || build < MIN_IOS_LOCATION_BUILD) return LOCATION_SHARING_CLOSED;
-  }
-  return {
-    trackingEnabled: true,
-    showConsentSheet: true,
-    showSettingsToggle: true,
-    logConsent: true,
-  };
+  if (input.platform === 'web') return LOCATION_SHARING_OPEN;
+  if (input.platform !== 'ios') return LOCATION_SHARING_CLOSED;
+  const build = parseNativeBuild(input.build);
+  if (build == null || build < MIN_IOS_LOCATION_BUILD) return LOCATION_SHARING_CLOSED;
+  return LOCATION_SHARING_OPEN;
 }
 
 /** When the gate is closed, an On My Way action writes no consent rows. */

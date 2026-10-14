@@ -23,9 +23,9 @@ export async function readLocationSharingAvailability(): Promise<LocationSharing
     remoteEnabled = false;
   }
 
-  const native = Capacitor.isNativePlatform();
+  const platform = Capacitor.getPlatform();
   let build: string | null = null;
-  if (native) {
+  if (platform === 'ios') {
     try {
       const { App } = await import('@capacitor/app');
       build = (await App.getInfo()).build;
@@ -35,5 +35,5 @@ export async function readLocationSharingAvailability(): Promise<LocationSharing
     }
   }
 
-  return locationSharingAvailability({ native, build, remoteEnabled });
+  return locationSharingAvailability({ platform, build, remoteEnabled });
 }

@@ -192,47 +192,64 @@ test('an OS denial is logged once, from a current yes, and the row is append-onl
   );
 });
 
-test('build 1018 shows nothing and writes no consent decision', () => {
+const CONTINUE_SHEET = { type: 'sheet' as const, choice: 'continue' as const, osDenied: false };
+
+function assertSharingClosed(gate: ReturnType<typeof locationSharingAvailability>) {
+  assert.equal(gate.trackingEnabled, false);
+  assert.equal(gate.showConsentSheet, false);
+  assert.equal(gate.showSettingsToggle, false);
+  assert.equal(gate.logConsent, false);
+  assert.deepEqual(consentLogsIfSharingOpen(gate, CONTINUE_SHEET, null), []);
+}
+
+test('ios-old shows nothing and writes no consent decision', () => {
   assert.ok(MIN_IOS_LOCATION_BUILD > 1018);
-  const action = { type: 'sheet' as const, choice: 'continue' as const, osDenied: false };
-  for (const build of ['1018', 1018]) {
-    for (const remoteEnabled of [true, false]) {
-      const gate = locationSharingAvailability({ native: true, build, remoteEnabled });
-      assert.equal(gate.trackingEnabled, false);
-      assert.equal(gate.showConsentSheet, false);
-      assert.equal(gate.showSettingsToggle, false);
-      assert.equal(gate.logConsent, false);
-      assert.deepEqual(consentLogsIfSharingOpen(gate, action, null), []);
-    }
+  for (const build of ['1018', 1018, 'not-a-build', null]) {
+    assertSharingClosed(locationSharingAvailability({ platform: 'ios', build, remoteEnabled: true }));
+    assertSharingClosed(locationSharingAvailability({ platform: 'ios', build, remoteEnabled: false }));
   }
 });
 
-test('tracking needs the remote switch and, on iOS, a new enough build', () => {
+test('ios-new may share only when the remote switch is on', () => {
   assert.equal(remoteTrackingEnabled(undefined), false);
   assert.equal(remoteTrackingEnabled(false), false);
   assert.equal(remoteTrackingEnabled('true'), false);
   assert.equal(remoteTrackingEnabled(true), true);
 
-  assert.equal(
-    locationSharingAvailability({ native: true, build: '1019', remoteEnabled: false }).trackingEnabled,
-    false,
-  );
-  assert.equal(
-    locationSharingAvailability({ native: true, build: MIN_IOS_LOCATION_BUILD, remoteEnabled: true }).logConsent,
-    true,
-  );
-  assert.equal(
-    locationSharingAvailability({ native: true, build: 'not-a-build', remoteEnabled: true }).showConsentSheet,
-    false,
-  );
-  assert.equal(
-    locationSharingAvailability({ native: false, build: '1018', remoteEnabled: true }).showSettingsToggle,
-    true,
-  );
-  assert.equal(
-    locationSharingAvailability({ native: false, build: null, remoteEnabled: false }).trackingEnabled,
-    false,
-  );
+  assertSharingClosed(locationSharingAvailability({
+    platform: 'ios',
+    build: String(MIN_IOS_LOCATION_BUILD),
+    remoteEnabled: false,
+  }));
+  const open = locationSharingAvailability({
+    platform: 'ios',
+    build: MIN_IOS_LOCATION_BUILD,
+    remoteEnabled: true,
+  });
+  assert.equal(open.trackingEnabled, true);
+  assert.equal(open.showConsentSheet, true);
+  assert.equal(open.showSettingsToggle, true);
+  assert.equal(open.logConsent, true);
+  assert.equal(consentLogsIfSharingOpen(open, CONTINUE_SHEET, null).length, 1);
+});
+
+test('android is always off', () => {
+  for (const build of ['1018', '1019', 2000, null]) {
+    assertSharingClosed(locationSharingAvailability({ platform: 'android', build, remoteEnabled: true }));
+  }
+});
+
+test('unknown platform is off', () => {
+  assertSharingClosed(locationSharingAvailability({ platform: 'electron', build: '2000', remoteEnabled: true }));
+  assertSharingClosed(locationSharingAvailability({ platform: '', build: MIN_IOS_LOCATION_BUILD, remoteEnabled: true }));
+});
+
+test('web still follows only the remote switch', () => {
+  const open = locationSharingAvailability({ platform: 'web', build: '1018', remoteEnabled: true });
+  assert.equal(open.showSettingsToggle, true);
+  assert.equal(open.showConsentSheet, true);
+  assert.equal(open.logConsent, true);
+  assertSharingClosed(locationSharingAvailability({ platform: 'web', build: null, remoteEnabled: false }));
 });
 
 test('the latest decision is the newest created_at, with id as the tiebreak', () => {
