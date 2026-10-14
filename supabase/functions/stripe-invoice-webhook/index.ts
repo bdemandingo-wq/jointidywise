@@ -6,6 +6,7 @@ import { rejectReason, isVested } from "../_shared/referral-eligibility.ts";
 import { recordReferralInvoicePaid, recordReferralReversal, type BalanceClient } from "../_shared/saas-referral-db.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
 import { verifyStripeWebhook } from "../_shared/billing-stripe.ts";
+import { downgradeOrgOnSubscriptionDeleted } from "../_shared/subscription-deleted-plan.ts";
 
 /**
  * Count a redeemed referral month.
@@ -1557,6 +1558,8 @@ const handler = async (req: Request): Promise<Response> => {
     // plan access on the org. Without this branch the org's plan_type
     // stayed "standard" forever after cancellation — users kept full
     // access to the paid product for free until something else updated it.
+    // Lifetime and grandfathered orgs are excluded: deleting the old
+    // recurring subscription must not wipe plan_type lifetime.
     if (event.type === "customer.subscription.deleted") {
       try {
         const sub = event.data.object as Stripe.Subscription;
@@ -1622,14 +1625,29 @@ const handler = async (req: Request): Promise<Response> => {
                 })
                 .eq("stripe_subscription_id", sub.id);
 
-              await supabase
-                .from("organizations")
-                .update({ plan_type: "free" })
-                .eq("id", membership.organization_id);
-              console.log(
-                "[stripe-invoice-webhook] Subscription deleted, org reverted to free:",
+              // Guard is on the UPDATE: .neq(plan_type, lifetime) and a
+              // null-safe exclusion of grandfathered_lifetime true. A normal
+              // cancel, including grandfathered_lifetime null, still matches.
+              const { error: planErr, downgraded } = await downgradeOrgOnSubscriptionDeleted(
+                supabase,
                 membership.organization_id,
               );
+              if (planErr) {
+                console.error(
+                  "[stripe-invoice-webhook] failed to revert org plan after subscription delete:",
+                  { organizationId: membership.organization_id, error: planErr },
+                );
+              } else if (downgraded) {
+                console.log(
+                  "[stripe-invoice-webhook] Subscription deleted, org reverted to free:",
+                  membership.organization_id,
+                );
+              } else {
+                console.log(
+                  "[stripe-invoice-webhook] Subscription deleted, left plan unchanged (lifetime or grandfathered):",
+                  membership.organization_id,
+                );
+              }
 
               // Cascade: cancel any active ad-management subs for this
               // org in Stripe (which will fire their own
