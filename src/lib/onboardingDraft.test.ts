@@ -38,6 +38,7 @@ test("parseOnboardingDraft drops junk and clamps the step", () => {
     timezone: "",
     selectedServices: ["Standard Clean"],
     customServices: [{ name: "Windows", description: "Glass" }],
+    howHeard: [],
   });
 });
 
@@ -51,6 +52,7 @@ test("a refresh round-trip keeps step 2 and the typed name", () => {
     timezone: "America/Chicago",
     selectedServices: ["Deep Clean"],
     customServices: [],
+    howHeard: ["instagram"],
   });
   assert.deepEqual(readOnboardingDraft(storage, "user-1"), {
     step: 2,
@@ -60,6 +62,7 @@ test("a refresh round-trip keeps step 2 and the typed name", () => {
     timezone: "America/Chicago",
     selectedServices: ["Deep Clean"],
     customServices: [],
+    howHeard: ["instagram"],
   });
   assert.equal(readOnboardingDraft(storage, "someone-else"), null);
   clearOnboardingDraft(storage, "user-1");

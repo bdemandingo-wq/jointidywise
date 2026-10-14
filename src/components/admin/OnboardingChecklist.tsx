@@ -84,9 +84,15 @@ export function OnboardingChecklist() {
               )}>
                 {item.label}
               </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {item.description}
-              </p>
+              {item.state === 'needs_attention' ? (
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  {item.attention}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground truncate">
+                  {item.description}
+                </p>
+              )}
             </div>
             {item.completed ? (
               <Check className="w-5 h-5 text-primary flex-shrink-0" />

@@ -230,6 +230,101 @@ export type Database = {
         }
         Relationships: []
       }
+      account_signup_attribution: {
+        Row: {
+          captured_at: string
+          created_at: string
+          landing_page: string | null
+          organization_id: string | null
+          referrer: string | null
+          updated_at: string
+          user_id: string
+          utm_campaign: string | null
+          utm_campaign_raw: string | null
+          utm_content: string | null
+          utm_content_raw: string | null
+          utm_medium: string | null
+          utm_medium_raw: string | null
+          utm_source: string
+          utm_source_raw: string | null
+          utm_term: string | null
+          utm_term_raw: string | null
+        }
+        Insert: {
+          captured_at?: string
+          created_at?: string
+          landing_page?: string | null
+          organization_id?: string | null
+          referrer?: string | null
+          updated_at?: string
+          user_id: string
+          utm_campaign?: string | null
+          utm_campaign_raw?: string | null
+          utm_content?: string | null
+          utm_content_raw?: string | null
+          utm_medium?: string | null
+          utm_medium_raw?: string | null
+          utm_source?: string
+          utm_source_raw?: string | null
+          utm_term?: string | null
+          utm_term_raw?: string | null
+        }
+        Update: {
+          captured_at?: string
+          created_at?: string
+          landing_page?: string | null
+          organization_id?: string | null
+          referrer?: string | null
+          updated_at?: string
+          user_id?: string
+          utm_campaign?: string | null
+          utm_campaign_raw?: string | null
+          utm_content?: string | null
+          utm_content_raw?: string | null
+          utm_medium?: string | null
+          utm_medium_raw?: string | null
+          utm_source?: string
+          utm_source_raw?: string | null
+          utm_term?: string | null
+          utm_term_raw?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_signup_attribution_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      activation_trigger_log: {
+        Row: {
+          created_at: string
+          id: number
+          message: string
+          milestone: string | null
+          organization_id: string | null
+          source: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          message: string
+          milestone?: string | null
+          organization_id?: string | null
+          source?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          message?: string
+          milestone?: string | null
+          organization_id?: string | null
+          source?: string | null
+        }
+        Relationships: []
+      }
       ad_management_requests: {
         Row: {
           business_name: string | null
@@ -2156,6 +2251,7 @@ export type Database = {
           completed_at: string | null
           completed_at_source: string | null
           created_at: string
+          created_via: string | null
           custom_frequency_days: number | null
           customer_id: string | null
           customer_notes: string | null
@@ -2240,6 +2336,7 @@ export type Database = {
           completed_at?: string | null
           completed_at_source?: string | null
           created_at?: string
+          created_via?: string | null
           custom_frequency_days?: number | null
           customer_id?: string | null
           customer_notes?: string | null
@@ -2324,6 +2421,7 @@ export type Database = {
           completed_at?: string | null
           completed_at_source?: string | null
           created_at?: string
+          created_via?: string | null
           custom_frequency_days?: number | null
           customer_id?: string | null
           customer_notes?: string | null
@@ -4483,6 +4581,7 @@ export type Database = {
           address: string | null
           city: string | null
           created_at: string
+          created_via: string | null
           credits: number | null
           customer_status: string
           email: string | null
@@ -4514,6 +4613,7 @@ export type Database = {
           address?: string | null
           city?: string | null
           created_at?: string
+          created_via?: string | null
           credits?: number | null
           customer_status?: string
           email?: string | null
@@ -4545,6 +4645,7 @@ export type Database = {
           address?: string | null
           city?: string | null
           created_at?: string
+          created_via?: string | null
           credits?: number | null
           customer_status?: string
           email?: string | null
@@ -5943,6 +6044,7 @@ export type Database = {
           cc_emails: string[]
           created_at: string
           created_by: string | null
+          created_via: string | null
           customer_id: string | null
           discount_amount: number | null
           discount_percent: number | null
@@ -5974,6 +6076,7 @@ export type Database = {
           cc_emails?: string[]
           created_at?: string
           created_by?: string | null
+          created_via?: string | null
           customer_id?: string | null
           discount_amount?: number | null
           discount_percent?: number | null
@@ -6005,6 +6108,7 @@ export type Database = {
           cc_emails?: string[]
           created_at?: string
           created_by?: string | null
+          created_via?: string | null
           customer_id?: string | null
           discount_amount?: number | null
           discount_percent?: number | null
@@ -6555,6 +6659,7 @@ export type Database = {
           amount: number
           created_at: string
           created_by: string | null
+          created_via: string | null
           customer_name: string
           description: string | null
           id: string
@@ -6565,6 +6670,7 @@ export type Database = {
           amount: number
           created_at?: string
           created_by?: string | null
+          created_via?: string | null
           customer_name: string
           description?: string | null
           id?: string
@@ -6575,6 +6681,7 @@ export type Database = {
           amount?: number
           created_at?: string
           created_by?: string | null
+          created_via?: string | null
           customer_name?: string
           description?: string | null
           id?: string
@@ -7786,6 +7893,41 @@ export type Database = {
           },
         ]
       }
+      organization_activation_events: {
+        Row: {
+          created_at: string
+          id: string
+          milestone: string
+          occurred_at: string
+          organization_id: string
+          source: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          milestone: string
+          occurred_at?: string
+          organization_id: string
+          source?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          milestone?: string
+          occurred_at?: string
+          organization_id?: string
+          source?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_activation_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organization_automations: {
         Row: {
           automation_type: string
@@ -8276,6 +8418,7 @@ export type Database = {
           grandfathered_at: string | null
           grandfathered_lifetime: boolean
           id: string
+          last_login_at: string | null
           logo_url: string | null
           name: string
           needs_onboarding: boolean
@@ -8296,6 +8439,7 @@ export type Database = {
           grandfathered_at?: string | null
           grandfathered_lifetime?: boolean
           id?: string
+          last_login_at?: string | null
           logo_url?: string | null
           name: string
           needs_onboarding?: boolean
@@ -8316,6 +8460,7 @@ export type Database = {
           grandfathered_at?: string | null
           grandfathered_lifetime?: boolean
           id?: string
+          last_login_at?: string | null
           logo_url?: string | null
           name?: string
           needs_onboarding?: boolean
@@ -8996,6 +9141,7 @@ export type Database = {
           email_unsubscribed_at: string | null
           full_name: string | null
           id: string
+          last_login_at: string | null
           phone: string | null
           subscription_status: string
           subscription_tier: string
@@ -9011,6 +9157,7 @@ export type Database = {
           email_unsubscribed_at?: string | null
           full_name?: string | null
           id: string
+          last_login_at?: string | null
           phone?: string | null
           subscription_status?: string
           subscription_tier?: string
@@ -9026,6 +9173,7 @@ export type Database = {
           email_unsubscribed_at?: string | null
           full_name?: string | null
           id?: string
+          last_login_at?: string | null
           phone?: string | null
           subscription_status?: string
           subscription_tier?: string
@@ -10566,6 +10714,7 @@ export type Database = {
           bio: string | null
           calendar_color: string | null
           created_at: string
+          created_via: string | null
           default_hours: number | null
           ein: string | null
           email: string
@@ -10593,6 +10742,7 @@ export type Database = {
           bio?: string | null
           calendar_color?: string | null
           created_at?: string
+          created_via?: string | null
           default_hours?: number | null
           ein?: string | null
           email: string
@@ -10620,6 +10770,7 @@ export type Database = {
           bio?: string | null
           calendar_color?: string | null
           created_at?: string
+          created_via?: string | null
           default_hours?: number | null
           ein?: string | null
           email?: string
@@ -12220,6 +12371,25 @@ export type Database = {
           },
         ]
       }
+      organization_activation_events_live: {
+        Row: {
+          created_at: string | null
+          id: string | null
+          milestone: string | null
+          occurred_at: string | null
+          organization_id: string | null
+          source: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_activation_events_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       staff_safe: {
         Row: {
           avatar_url: string | null
@@ -12925,6 +13095,7 @@ export type Database = {
           raw_plan_type: string
         }[]
       }
+      org_has_native_booking: { Args: { _org_id: string }; Returns: boolean }
       org_has_no_memberships: { Args: { _org_id: string }; Returns: boolean }
       org_has_resend_api_key: { Args: { p_org_id: string }; Returns: boolean }
       org_stripe_has_secrets: {
@@ -12965,6 +13136,19 @@ export type Database = {
           expires_at: string
           target_url: string
         }[]
+      }
+      save_signup_attribution: {
+        Args: {
+          p_utm_source?: string | null
+          p_utm_medium?: string | null
+          p_utm_campaign?: string | null
+          p_utm_term?: string | null
+          p_utm_content?: string | null
+          p_referrer?: string | null
+          p_landing_page?: string | null
+          p_captured_at?: string | null
+        }
+        Returns: undefined
       }
       save_abandoned_booking: {
         Args: {
@@ -13055,6 +13239,7 @@ export type Database = {
         Args: { p_rating: number; p_review_text?: string; p_token: string }
         Returns: boolean
       }
+      touch_my_last_login: { Args: never; Returns: undefined }
       unmerge_customers: {
         Args: { primary_id: string; secondary_id: string; snapshot: Json }
         Returns: Json

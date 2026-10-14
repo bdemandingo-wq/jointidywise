@@ -393,7 +393,16 @@ export default function CustomersPage() {
       notes: record.notes || null,
       organization_id: organization.id,
     }));
-    const { error } = await supabase.from('customers').insert(customersToInsert);
+    const importedCustomers = customersToInsert.map((row) => ({
+      ...row,
+      created_via: 'csv_import' as const,
+    }));
+    let { error } = await supabase.from('customers').insert(importedCustomers);
+    // The column arrives with the activation migration. If that SQL has not
+    // been applied yet, retry without it so the import itself still lands.
+    if (error && /created_via/i.test(error.message)) {
+      ({ error } = await supabase.from('customers').insert(customersToInsert));
+    }
     if (error) throw error;
     queryClient.invalidateQueries({ queryKey: ['customers'] });
   };

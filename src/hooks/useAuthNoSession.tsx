@@ -19,6 +19,7 @@ import { lovable } from '@/integrations/lovable/index';
 import { Capacitor } from '@capacitor/core';
 import { signInWithOAuthNative } from '@/lib/nativeOAuth';
 import { appendReferralParam, readCapturedReferral } from '@/lib/referralAttribution';
+import { touchLastLogin } from '@/lib/touchLastLogin';
 import { Sentry } from '@/lib/sentry';
 import { clearStartupCache, readStartupSection } from '@/lib/startupCache';
 
@@ -136,6 +137,14 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- queryClient is stable from QueryClientProvider; re-subscribing on initialCleanupDone is the only trigger needed
   }, [initialCleanupDone]);
+
+  // Outside onAuthStateChange. That callback holds the auth lock, and this
+  // RPC takes a session. Runs once per signed-in user per provider mount,
+  // which is a page load or a fresh sign-in.
+  useEffect(() => {
+    if (!user?.id) return;
+    void touchLastLogin();
+  }, [user?.id]);
 
   // ── OAuth provisioning effect ────────────────────────────────────────
   // Runs when a new user identity appears (user.id changes). Checks for

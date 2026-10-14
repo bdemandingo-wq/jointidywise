@@ -34,6 +34,7 @@ import { Eye, EyeOff, Loader2, Mail, Lock, User } from 'lucide-react';
 import { z } from 'zod';
 import { PERSON_NAME_MAX } from '@/lib/displayName';
 import { readCapturedReferral } from '@/lib/referralAttribution';
+import { persistSignupAttribution } from '@/lib/persistSignupAttribution';
 import { ReferredSignupBanner } from '@/components/ReferredSignupBanner';
 
 // ── Validation ──────────────────────────────────────────────────────
@@ -160,6 +161,10 @@ export default function NativeSignupPage() {
       }
 
       if (data?.user) {
+        // Save first-touch UTM before the trial org is created so the insert
+        // trigger can attach organization_id. Failure must not block signup.
+        await persistSignupAttribution();
+
         // Create profile (the handle_new_user trigger may have already
         // done this, so ignore duplicate-key errors)
         const { error: profileError } = await supabaseNoSession

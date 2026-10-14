@@ -38,6 +38,7 @@ export type OnboardingAnswers = Record<QualifyingKey, string[]>;
 export const HOW_HEARD_VALUES = [
   "fb_ad",
   "fb_group",
+  "instagram",
   "tiktok",
   "google",
   "referral",
@@ -189,6 +190,7 @@ export const OPTION_LABELS: Record<QualifyingKey, Record<string, string>> = {
   howHeard: {
     fb_ad: "Facebook ad",
     fb_group: "Facebook group",
+    instagram: "Instagram",
     tiktok: "TikTok",
     google: "Google search",
     referral: "Friend or referral",
