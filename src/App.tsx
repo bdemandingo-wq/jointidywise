@@ -332,6 +332,9 @@ const App = () => (
             // been removed from, rendering data they can no longer write to.
             !JSON.stringify(q.queryKey).includes('org-memberships') &&
             !JSON.stringify(q.queryKey).includes('my-staff-orgs') &&
+            // A cached "no consent row" would show the first-run location
+            // sheet again after the cleaner already answered it.
+            !JSON.stringify(q.queryKey).includes('cleaner-location-consent') &&
             // The archive is the long tail of booking history. It fills in
             // after the recent window and must not be parsed back into the
             // first paint.

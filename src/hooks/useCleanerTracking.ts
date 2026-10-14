@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { useOrgCountryCode } from '@/hooks/useDistanceUnit';
 import { calculateDistanceMiles, estimateDriveMinutes } from '@/lib/distanceUtils';
 import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
+import { consentAllowsTracking, parseConsentDecision } from '@/lib/locationConsent';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,28 @@ async function requestLocationPermission(): Promise<boolean> {
 const ARRIVAL_THRESHOLD_METERS = 100;
 const MIN_WRITE_INTERVAL_MS = 8_000; // throttle DB writes to ≤ 1 per 8 s
 
+export type TrackingStartResult =
+  | {
+      ok: true;
+      trackingToken: string | null;
+      etaMinutes: number | null;
+      latitude: number;
+      longitude: number;
+    }
+  | { ok: false; reason: 'consent' | 'os_denied' | 'unavailable' };
+
+async function latestConsentAllowsTracking(staffId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('cleaner_location_consents')
+    .select('decision')
+    .eq('staff_id', staffId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return consentAllowsTracking(parseConsentDecision(data?.[0]?.decision));
+}
+
 // ─── types ───────────────────────────────────────────────────────────────────
 
 interface UseCleanerTrackingOptions {
@@ -77,6 +100,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   const lastWriteRef     = useRef<number>(0);
   const watchIdRef       = useRef<string | null>(null);   // Capacitor watchId (string)
   const browserWatchRef  = useRef<number | null>(null);   // browser watchId (number)
+  const stopTrackingRef  = useRef<() => Promise<void>>(async () => {});
   const [isTracking, setIsTracking] = useState(false);
   const [hasArrived, setHasArrived] = useState(false);
 
@@ -149,10 +173,16 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     if (now - lastWriteRef.current < MIN_WRITE_INTERVAL_MS) return;
     lastWriteRef.current = now;
 
-    await supabase
+    const { error } = await supabase
       .from('cleaner_location_tracking')
       .update({ latitude, longitude, recorded_at: new Date().toISOString() } as any)
       .eq('id', trackingIdRef.current);
+    if (error) {
+      console.error('[GPS] position write failed', error);
+      // Consent was revoked. Stop the watch so it does not keep writing.
+      if (error.code === '42501') void stopTrackingRef.current();
+      return;
+    }
 
     void checkArrival(latitude, longitude);
   }, [checkArrival]);
@@ -191,6 +221,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     setIsTracking(false);
     console.log('[GPS] Tracking stopped');
   }, []);
+
+  stopTrackingRef.current = stopTracking;
 
   // ── resume check ──────────────────────────────────────────────────────────
   // Without background location (removed for App Store 2.5.4), tracking
@@ -268,19 +300,23 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
   // ── start tracking ────────────────────────────────────────────────────────
 
-  const startTracking = useCallback(async (onStatus?: (message: string) => void): Promise<{
-    trackingToken: string | null;
-    etaMinutes: number | null;
-    latitude: number;
-    longitude: number;
-  } | null> => {
+  const startTracking = useCallback(async (onStatus?: (message: string) => void): Promise<TrackingStartResult> => {
     console.log('[GPS] startTracking called for booking:', bookingId);
 
-    onStatus?.('Waiting for location access…');
-    const permitted = await requestLocationPermission();
-    if (!permitted) return null;
+    let allowed = false;
+    try {
+      allowed = await latestConsentAllowsTracking(staffId);
+    } catch (err) {
+      console.error('[GPS] consent check failed', err);
+      return { ok: false, reason: 'unavailable' };
+    }
+    if (!allowed) return { ok: false, reason: 'consent' };
 
     try {
+      onStatus?.('Waiting for location access…');
+      const permitted = await requestLocationPermission();
+      if (!permitted) return { ok: false, reason: 'os_denied' };
+
       onStatus?.('Getting your location…');
       const { latitude, longitude } = await getPositionWithFallback();
       console.log('[GPS] Initial position:', latitude, longitude);
@@ -303,16 +339,22 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
           .eq('booking_id', bookingId)
           .eq('is_active', true)
           .single();
-        if (!existing) return null;
+        if (!existing) return { ok: false, reason: 'unavailable' };
         recordId = existing.id;
         trackingToken = (existing as any).tracking_token;
-        await supabase
+        const { error: resumeError } = await supabase
           .from('cleaner_location_tracking')
           .update({ latitude, longitude, recorded_at: new Date().toISOString() } as any)
           .eq('id', recordId);
+        if (resumeError) {
+          console.error('[GPS] Resume update error:', resumeError);
+          if (resumeError.code === '42501') return { ok: false, reason: 'consent' };
+          return { ok: false, reason: 'unavailable' };
+        }
       } else if (error) {
         console.error('[GPS] Insert error:', error);
-        return null;
+        if (error.code === '42501') return { ok: false, reason: 'consent' };
+        return { ok: false, reason: 'unavailable' };
       } else {
         recordId = data.id;
         trackingToken = (data as any).tracking_token;
@@ -347,19 +389,21 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       void acquireWakeLock();
       setIsTracking(true);
 
-      return { trackingToken, etaMinutes, latitude, longitude };
+      return { ok: true, trackingToken, etaMinutes, latitude, longitude };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '';
       console.error('[GPS] startTracking failed:', message, err);
       const code = geoFailureCode(err);
       if (code === 'denied') {
         toast.error('Location access denied. Go to Settings → TidyWise → Location → While Using the App.');
-      } else if (code === 'timeout') {
+        return { ok: false, reason: 'os_denied' };
+      }
+      if (code === 'timeout') {
         toast.error('Location timed out. The on-the-way notice will still send.');
       } else {
         toast.error('Unable to get your location. The on-the-way notice will still send.');
       }
-      return null;
+      return { ok: false, reason: 'unavailable' };
     }
   }, [bookingId, staffId, organizationId, destinationAddress, destinationLat, destinationLng, orgCountry, checkArrival, startWatch, acquireWakeLock]);
 

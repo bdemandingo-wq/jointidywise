@@ -1,5 +1,5 @@
 import { formatDuration } from '@/lib/formatDuration';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +28,16 @@ import { GpsCheckin } from './GpsCheckin';
 import { PropertyInspectionUpload } from './PropertyInspectionUpload';
 import { useMapsNavigation } from '@/hooks/useMapsNavigation';
 import { useCleanerTracking } from '@/hooks/useCleanerTracking';
+import { useLocationConsent } from '@/hooks/useLocationConsent';
+import { useLocationPermission } from '@/hooks/useLocationPermission';
+import { LocationConsentSheet, LocationSharingOffNote } from '@/components/staff/LocationConsentSheet';
+import {
+  consentLogsForAction,
+  onMyWayLocationPlan,
+  type LocationConsentSource,
+} from '@/lib/locationConsent';
+import { osStateFromKind, readOsLocationState } from '@/lib/osLocationState';
+import { staffLocationSearch } from '@/lib/locationPermission';
 import { supabase } from '@/lib/supabase';
 import { resolveCleanerPay, describeCleanerPay, type WageBooking, type WageStaff } from '@/lib/wageCalculation';
 import { useHourCaps } from '@/hooks/useHourCaps';
@@ -90,11 +100,13 @@ interface Props {
   photoCount: number;
   propertyNote: PropertyNote | null;
   onTheWaySent: boolean;
+  /** Organization name shown in the location consent copy. */
+  businessName?: string | null;
   onUpdateStatus?: (bookingId: string, status: 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'no_show') => void;
   isUpdating?: boolean;
 }
 
-export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photoReqs, propertyNote, photoCount: initialPhotoCount, onTheWaySent: initialOnTheWaySent, onUpdateStatus, isUpdating }: Props) {
+export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photoReqs, propertyNote, photoCount: initialPhotoCount, onTheWaySent: initialOnTheWaySent, businessName = null, onUpdateStatus, isUpdating }: Props) {
   const navigate = useNavigate();
   const { timezone: orgTimezone } = useOrgTimezone(organizationId);
   const extraLabels = extrasToLabels(booking.extras, orgExtras);
@@ -134,10 +146,16 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
     destinationLat: (booking as { latitude?: number | null }).latitude,
     destinationLng: (booking as { longitude?: number | null }).longitude,
   });
+  const consent = useLocationConsent(staffInfo.id);
+  const loc = useLocationPermission(staffInfo.id);
+  const [consentSheetOpen, setConsentSheetOpen] = useState(false);
+  const [savingConsent, setSavingConsent] = useState(false);
+  const consentSourceRef = useRef<LocationConsentSource>('settings');
+  const consentOrgId = booking.organization_id || organizationId;
 
-  // Stop tracking when booking moves to in_progress or completed
+  // Stop tracking when the job starts, is finished, or is cancelled.
   useEffect(() => {
-    if (isTracking && (booking.status === 'in_progress' || booking.status === 'completed')) {
+    if (isTracking && (booking.status === 'in_progress' || booking.status === 'completed' || booking.status === 'cancelled')) {
       stopTracking();
     }
   }, [booking.status, isTracking, stopTracking]);
@@ -160,7 +178,21 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
     }
   };
 
-  const handleOnTheWayClick = async () => {
+  const logConsentRows = async (
+    rows: { decision: 'granted' | 'declined' | 'toggled_on' | 'toggled_off' | 'os_denied'; source: LocationConsentSource }[],
+  ) => {
+    if (!staffInfo.id || !consentOrgId) throw new Error('Staff profile is still loading');
+    for (const row of rows) {
+      await consent.logDecision({
+        staffId: staffInfo.id,
+        organizationId: consentOrgId,
+        decision: row.decision,
+        source: row.source,
+      });
+    }
+  };
+
+  const sendOnTheWay = async (shareLocation: boolean) => {
     /* Was `|| !booking.customer?.phone` — a customer with no number on file
        stopped the cleaner dead AND meant the owner never got the alert. The
        missing-phone case is handled further down, where it skips only the
@@ -171,34 +203,30 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
     }
 
     setIsSendingOnTheWay(true);
-    setLocationWait('Waiting for location access…');
-    const locationToast = toast.loading('Waiting for location access…');
+    setLocationWait(shareLocation ? 'Waiting for location access…' : 'Notifying the office…');
+    const locationToast = toast.loading(shareLocation ? 'Waiting for location access…' : 'Notifying the office…');
     try {
-      // Check GPS permission state before attempting tracking
-      let trackingResult: Awaited<ReturnType<typeof startTracking>> = null;
-      let gpsPermissionDenied = false;
+      let trackingResult: { etaMinutes: number | null; trackingToken: string | null } | null = null;
 
-      try {
-        if (navigator.permissions) {
-          const permStatus = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
-          if (permStatus.state === 'denied') {
-            gpsPermissionDenied = true;
-            toast('Please enable location access in your phone settings to share your location with the client.', {
-              duration: 6000,
-            });
-          }
-        }
-      } catch {
-        // permissions API not supported, continue anyway
-      }
-
-      // Only attempt GPS if not denied
-      if (!gpsPermissionDenied) {
+      if (shareLocation) {
         try {
-          trackingResult = await startTracking((message) => {
+          const started = await startTracking((message) => {
             setLocationWait(message);
             toast.loading(message, { id: locationToast });
           });
+          if (started.ok) {
+            trackingResult = started;
+          } else if (started.reason === 'os_denied') {
+            const followUp = consentLogsForAction({
+              latest: 'granted',
+              action: { type: 'os_turned_off' },
+            }).map((row) => ({ ...row, source: consentSourceRef.current }));
+            try {
+              await logConsentRows(followUp);
+            } catch (logError) {
+              console.error('[location-consent] could not record OS denial', logError);
+            }
+          }
         } catch (gpsError) {
           console.warn('GPS tracking failed, proceeding with SMS only:', gpsError);
         }
@@ -262,6 +290,105 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
       setIsSendingOnTheWay(false);
       setLocationWait(null);
     }
+  };
+
+  const handleOnTheWayClick = async () => {
+    if (!staffInfo.id) {
+      toast.error('Your staff profile is still loading — try again in a moment.');
+      return;
+    }
+    let snapshot;
+    try {
+      snapshot = await consent.loadLatest();
+    } catch (err) {
+      console.error('[location-consent] could not read the decision log', err);
+      toast.error('Could not check location sharing. The on-the-way notice will still send.');
+      await sendOnTheWay(false);
+      return;
+    }
+    if (!snapshot.hasDecision) {
+      setConsentSheetOpen(true);
+      return;
+    }
+    const osState = await readOsLocationState();
+    const plan = onMyWayLocationPlan({
+      hasDecision: true,
+      decision: snapshot.decision,
+      osState,
+    });
+    consentSourceRef.current = 'settings';
+    if (plan.startTracking) {
+      await sendOnTheWay(true);
+      return;
+    }
+    const followUp = consentLogsForAction({
+      latest: snapshot.decision,
+      action: { type: 'os_turned_off' },
+    });
+    if (osState === 'denied' && followUp.length > 0) {
+      try {
+        await logConsentRows(followUp);
+      } catch (err) {
+        console.error('[location-consent] could not record OS denial', err);
+      }
+    }
+    await sendOnTheWay(false);
+  };
+
+  const handleConsentContinue = async () => {
+    if (!staffInfo.id) return;
+    setSavingConsent(true);
+    consentSourceRef.current = 'first_run_sheet';
+    try {
+      const rows = consentLogsForAction({
+        latest: null,
+        action: { type: 'sheet', choice: 'continue', osDenied: false },
+      });
+      await logConsentRows(rows);
+    } catch (err) {
+      console.error('[location-consent] could not save continue', err);
+      toast.error('Could not save your choice. The on-the-way notice will still send without location.');
+      setConsentSheetOpen(false);
+      await sendOnTheWay(false);
+      return;
+    } finally {
+      setSavingConsent(false);
+    }
+    setConsentSheetOpen(false);
+    const osState = await readOsLocationState();
+    if (osState === 'denied') {
+      const followUp = consentLogsForAction({
+        latest: 'granted',
+        action: { type: 'os_turned_off' },
+      }).map((row) => ({ ...row, source: 'first_run_sheet' as const }));
+      try {
+        await logConsentRows(followUp);
+      } catch (err) {
+        console.error('[location-consent] could not record OS denial', err);
+      }
+      await sendOnTheWay(false);
+      return;
+    }
+    await sendOnTheWay(true);
+  };
+
+  const handleConsentNotNow = async () => {
+    if (!staffInfo.id) return;
+    setSavingConsent(true);
+    try {
+      const rows = consentLogsForAction({
+        latest: null,
+        action: { type: 'sheet', choice: 'not_now', osDenied: false },
+      });
+      await logConsentRows(rows);
+    } catch (err) {
+      console.error('[location-consent] could not save not now', err);
+      toast.error('Could not save your choice. The on-the-way notice will still send without location.');
+    } finally {
+      setSavingConsent(false);
+      setConsentSheetOpen(false);
+    }
+    await sendOnTheWay(false);
   };
   
   // Pay shown here is resolved by the one shared resolver, so this card, the
@@ -331,6 +458,16 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
   const START_NEEDS_ARRIVAL =
     "Tap \"On The Way\" then \"I've Arrived\" first. If you can't, ask your admin to start this job for you.";
 
+  const locationPlan = loc.kind === 'checking'
+    ? null
+    : onMyWayLocationPlan({
+        hasDecision: consent.hasDecision,
+        decision: consent.decision,
+        osState: osStateFromKind(loc.kind),
+      });
+  const showLocationOffNote =
+    !isTracking && !consent.isLoading && !consent.isError && locationPlan?.showOffNote === true;
+
   const handleDirectionsClick = () => {
     openDirections({
       address: booking.address,
@@ -342,6 +479,13 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
   return (
     <Card className="hover:shadow-md transition-shadow">
+      <LocationConsentSheet
+        open={consentSheetOpen}
+        businessName={businessName}
+        busy={savingConsent}
+        onContinue={() => { void handleConsentContinue(); }}
+        onNotNow={() => { void handleConsentNotNow(); }}
+      />
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between">
           <div>
@@ -489,13 +633,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
         {isTracking && (
           <div className="p-2.5 rounded-lg bg-info/10 border border-info/20 text-xs text-info">
-            📍 Sharing your live location. Keep this screen open so the client can follow you. If you switch apps, tracking catches up when you come back.
-          </div>
-        )}
-
-        {booking.status === 'in_progress' && (
-          <div className="p-2.5 rounded-lg bg-warning/10 border border-warning/20 text-xs text-warning">
-            ⚠️ Heads up: your location will stop recording once you mark this job complete.
+            Sharing your location with your company admins while this screen is open. Sharing pauses if you leave the app.
           </div>
         )}
 
@@ -533,6 +671,14 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
               </Button>
               {isSendingOnTheWay && locationWait && (
                 <p className="text-[11px] text-muted-foreground">{locationWait}</p>
+              )}
+              {showLocationOffNote && (
+                <LocationSharingOffNote
+                  onOpenSettings={() => {
+                    const next = staffLocationSearch(new URLSearchParams());
+                    navigate({ pathname: '/staff', search: next.toString() });
+                  }}
+                />
               )}
               {!isScheduledToday && (
                 <p className="text-[11px] text-muted-foreground">{NOT_TODAY_TOOLTIP}</p>
