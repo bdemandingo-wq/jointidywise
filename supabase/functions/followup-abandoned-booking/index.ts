@@ -14,9 +14,31 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// TCPA kill switch. Sending is off unless this secret is exactly "true".
+// Unset, empty, "1", "TRUE", and "yes" all stay paused. The pause returns
+// before any read or write, so abandoned_bookings rows are left as they are.
+function abandonedBookingSmsEnabled(): boolean {
+  return Deno.env.get("ABANDONED_BOOKING_SMS_ENABLED") === "true";
+}
+
 const handler = async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
+  }
+
+  if (!abandonedBookingSmsEnabled()) {
+    console.warn(
+      "[followup-abandoned-booking] PAUSED: ABANDONED_BOOKING_SMS_ENABLED is not 'true'. No SMS sent; abandoned_bookings rows left untouched.",
+    );
+    return new Response(
+      JSON.stringify({
+        success: true,
+        paused: true,
+        sentCount: 0,
+        reason: "Abandoned-booking SMS is paused. Set ABANDONED_BOOKING_SMS_ENABLED=true to send.",
+      }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 
   try {
