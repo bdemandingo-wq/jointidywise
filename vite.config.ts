@@ -95,9 +95,13 @@ function prerenderPlugin(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  // esbuild minify honors this drop list, so production bundles (web and the
-  // Capacitor iOS build, which ships the same dist/) do not include console.*.
-  esbuild: mode === 'production' ? { drop: ['console', 'debugger'] } : undefined,
+  // Production bundles (web and the Capacitor iOS build, which ships the
+  // same dist/) drop debugger and the noisy console calls. console.error
+  // and console.warn stay. Sentry.captureException is a different call and
+  // is not removed by this list.
+  esbuild: mode === 'production'
+    ? { drop: ['debugger'], pure: ['console.log', 'console.debug', 'console.info'] }
+    : undefined,
   server: {
     host: "::",
     port: 8080,

@@ -14,6 +14,11 @@ import {
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
 import { hasInternalBrandLink } from "../_shared/blogLinks.ts";
+import {
+  MAX_KEYWORD_ATTEMPTS,
+  attemptsAfterClaim,
+  canRetryKeyword,
+} from "../_shared/keywordAttempts.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -460,17 +465,26 @@ serve(async (req) => {
   } catch { /* no body — keep default */ }
 
   try {
-    // Safety: reset any row stuck in_progress for >30min back to queued so
-    // a prior timeout/crash doesn't wedge the queue forever.
+    // Safety: a row stuck in_progress for >30min was a timeout or crash.
+    // Requeue it only while it still has attempts left. At the cap, leave
+    // it failed so a keyword that never finishes does not retry forever.
     const staleCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
     await supabase.from("blog_keyword_queue")
+      .update({ status: "failed", error_message: "stopped after 5 attempts" })
+      .eq("status", "in_progress")
+      .lt("last_attempted_at", staleCutoff)
+      .gte("attempts", MAX_KEYWORD_ATTEMPTS);
+    await supabase.from("blog_keyword_queue")
       .update({ status: "queued", error_message: "auto-reset from stuck in_progress" })
-      .eq("status", "in_progress").lt("last_attempted_at", staleCutoff);
+      .eq("status", "in_progress")
+      .lt("last_attempted_at", staleCutoff)
+      .lt("attempts", MAX_KEYWORD_ATTEMPTS);
 
     const { count: queuedCount, error: countErr } = await supabase
       .from("blog_keyword_queue")
       .select("id", { count: "exact", head: true })
-      .eq("status", "queued");
+      .eq("status", "queued")
+      .lt("attempts", MAX_KEYWORD_ATTEMPTS);
     const queued = countErr ? null : (queuedCount ?? 0);
     if (countErr) {
       console.error(`[blog-queue] could not count queued keywords: ${countErr.message}`);
@@ -482,6 +496,7 @@ serve(async (req) => {
 
     const { data: nextKeywords, error: qErr } = await supabase
       .from("blog_keyword_queue").select("*").eq("status", "queued")
+      .lt("attempts", MAX_KEYWORD_ATTEMPTS)
       .order("priority", { ascending: true }).order("created_at", { ascending: true }).limit(1);
     if (qErr) throw qErr;
     if (!nextKeywords || nextKeywords.length === 0) {
@@ -499,9 +514,27 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const queueRow = nextKeywords[0];
+    if (!canRetryKeyword(queueRow.attempts)) {
+      await supabase.from("blog_keyword_queue")
+        .update({ status: "failed", error_message: "stopped after 5 attempts" })
+        .eq("id", queueRow.id);
+      return new Response(JSON.stringify({
+        ok: true,
+        skipped: true,
+        reason: "Keyword exhausted its attempts",
+        queued: queued ?? 0,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // Count this try at claim time. A crash before the catch used to leave
+    // attempts unchanged, and the 30-minute reset queued the same row forever.
+    const attemptsNow = attemptsAfterClaim(queueRow.attempts);
 
     await supabase.from("blog_keyword_queue")
-      .update({ status: "in_progress", last_attempted_at: new Date().toISOString() })
+      .update({
+        status: "in_progress",
+        last_attempted_at: new Date().toISOString(),
+        attempts: attemptsNow,
+      })
       .eq("id", queueRow.id);
 
     // Background task: generation can take 60-120s (AI + humanizer). Return 202
@@ -580,7 +613,7 @@ serve(async (req) => {
         const msg = clipError(errorText(e));
         console.error(`[bg] failed "${queueRow.keyword}":`, msg);
         await supabase.from("blog_keyword_queue")
-          .update({ status: "failed", error_message: msg, attempts: queueRow.attempts + 1 })
+          .update({ status: "failed", error_message: msg, attempts: attemptsNow })
           .eq("id", queueRow.id);
         const { data: recentFailures } = await supabase.from("blog_keyword_queue")
           .select("error_message").eq("status", "failed")

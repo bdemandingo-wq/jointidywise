@@ -72,6 +72,8 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           error: `Stripe price for ${plan} ${interval} is not configured.`,
+          code: "price_not_configured",
+          plan,
         }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );

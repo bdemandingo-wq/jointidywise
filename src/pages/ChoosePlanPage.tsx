@@ -16,6 +16,7 @@ import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { lifetimeSpotsLabel } from '@/lib/publicActivity';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
+import { isCustomPriceMissing } from '@/lib/priceNotConfigured';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import { shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
 import {
@@ -214,6 +215,14 @@ export default function ChoosePlanPage() {
           setCheckoutBusy(null);
           toast.success(ALREADY_LIFETIME_MESSAGE);
           navigate('/dashboard');
+          return;
+        }
+        if (planId === 'custom' && await isCustomPriceMissing(error)) {
+          window.clearTimeout(timeoutId);
+          isRedirectingRef.current = false;
+          setCheckoutBusy(null);
+          try { sessionStorage.removeItem('tw_pending_plan'); } catch { /* no-op */ }
+          navigate('/contact');
           return;
         }
         throw new Error(await readEdgeFunctionError(error, 'Failed to start checkout'));

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +26,7 @@ import {
   startSubscriptionCheckout,
   type CheckoutPlanId,
 } from "@/lib/startSubscriptionCheckout";
+import { CustomPriceMissing, isCustomPriceMissing } from "@/lib/priceNotConfigured";
 
 /**
  * Someone on a trial has no Stripe subscription to modify, so the plan-change
@@ -90,6 +92,7 @@ export function UpgradePlanDialog({
   const [confirming, setConfirming] = useState(false);
   const [needsCheckout, setNeedsCheckout] = useState(false);
   const { organizationId } = useOrgId();
+  const navigate = useNavigate();
 
 
   useEffect(() => {
@@ -115,6 +118,10 @@ export function UpgradePlanDialog({
         if (body?.code === "no_subscription") {
           setNeedsCheckout(true);
           setPreview(null);
+          return;
+        }
+        if (targetPlan.id === "custom" && await isCustomPriceMissing(error)) {
+          navigate("/contact");
           return;
         }
         throw new Error(await readEdgeFunctionError(error, "Could not load the upgrade price"));
@@ -160,6 +167,10 @@ export function UpgradePlanDialog({
           if (started) return;
           throw new Error("Could not start checkout. Nothing was charged.");
         }
+        if (targetPlan.id === "custom" && await isCustomPriceMissing(error)) {
+          navigate("/contact");
+          return;
+        }
         throw new Error(await readEdgeFunctionError(error, "Could not upgrade plan"));
       }
       if ((data as any)?.error) throw new Error((data as any).error);
@@ -169,6 +180,10 @@ export function UpgradePlanDialog({
       onOpenChange(false);
       onCompleted();
     } catch (err: any) {
+      if (err instanceof CustomPriceMissing) {
+        navigate("/contact");
+        return;
+      }
       toast.error(err?.message || "Could not upgrade plan");
     } finally {
       setConfirming(false);

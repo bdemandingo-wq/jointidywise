@@ -5,10 +5,12 @@
 -- 2026-10-13 publisher job used.
 --
 -- This does not delete blog_posts and does not touch completed keywords.
--- Failed rows are queued again so a draft-gate or JSON failure can run
--- after generate-daily-blogs is redeployed. The keyword insert is repeated
--- with ON CONFLICT DO NOTHING so a queue that never received the
--- 2026-10-13 seed still has work. Completed rows and blog_posts are left alone.
+-- Failed rows with fewer than 5 attempts are queued again so a draft-gate
+-- or JSON failure can run after generate-daily-blogs is redeployed.
+-- attempts is left as-is. A keyword at 5 or more stays failed and is not
+-- retried forever. The keyword insert is repeated with ON CONFLICT DO
+-- NOTHING so a queue that never received the 2026-10-13 seed still has
+-- work. Completed rows and blog_posts are left alone.
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_blog_keyword_queue_keyword_lower
   ON public.blog_keyword_queue (lower(keyword));
@@ -117,6 +119,6 @@ SELECT cron.schedule(
 UPDATE public.blog_keyword_queue
 SET status = 'queued',
     error_message = NULL,
-    attempts = 0,
     last_attempted_at = NULL
-WHERE status = 'failed';
+WHERE status = 'failed'
+  AND attempts < 5;

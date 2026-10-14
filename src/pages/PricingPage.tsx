@@ -22,6 +22,7 @@ import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
+import { isCustomPriceMissing } from '@/lib/priceNotConfigured';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import {
   Check,
@@ -314,6 +315,13 @@ export default function PricingPage() {
           setCheckoutBusy(null);
           toast.success(ALREADY_LIFETIME_MESSAGE);
           navigate('/dashboard');
+          return;
+        }
+        if (planId === 'custom' && await isCustomPriceMissing(error)) {
+          isRedirectingRef.current = false;
+          setCheckoutBusy(null);
+          try { sessionStorage.removeItem('tw_pending_plan'); } catch { /* no-op */ }
+          navigate('/contact');
           return;
         }
         throw new Error(await readEdgeFunctionError(error, 'Could not start checkout. Try again.'));

@@ -94,6 +94,8 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           error: `Stripe price for ${requestedPlan} ${requestedInterval} is not configured on the server yet. The operator needs to set STRIPE_${requestedPlan.toUpperCase()}_${requestedInterval.toUpperCase()}_PRICE_ID in Supabase secrets.`,
+          code: "price_not_configured",
+          plan: requestedPlan,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
       );
