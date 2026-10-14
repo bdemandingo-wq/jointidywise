@@ -236,8 +236,9 @@ export function ReportsOverview({ bookings, customers }: ReportsOverviewProps) {
         <h3 className="text-lg font-semibold text-foreground">Reports overview</h3>
       </div>
       
-      {/* Time period tabs */}
-      <div className="no-scrollbar -mx-1 mb-4 flex max-w-full items-center gap-1 overflow-x-auto px-1 pb-2">
+      {/* Time period tabs. The right inset keeps the last chip clear of the Tidy button. */}
+      <div className="mb-4 pr-[72px]">
+      <div className="no-scrollbar -mx-1 flex max-w-full items-center gap-1 overflow-x-auto px-1 pb-2">
         {periods.map((p) => (
           <button
             key={p}
@@ -251,6 +252,7 @@ export function ReportsOverview({ bookings, customers }: ReportsOverviewProps) {
             {p}
           </button>
         ))}
+      </div>
       </div>
 
       {/* Metric charts */}
