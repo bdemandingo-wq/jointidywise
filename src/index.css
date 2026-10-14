@@ -1789,20 +1789,23 @@ html.ios-native [contenteditable="true"] {
   color: #f8fafc;
 }
 
-/* TidyWise marketing cookie notice. White bar in both themes so the
-   approved copy stays on the light brand blue. Org booking pages do not
-   mount this. Toasts use z-100 (and Sonner sits higher), so they stay
-   above this bar. The product tour holds the bar until it ends. */
+/* TidyWise marketing cookie notice. Opaque page surface so scrolling
+   content cannot show through on a phone. The component copies the
+   painted page color when the route uses a different surface. Org
+   booking pages do not mount this. Toasts use z-100 (and Sonner sits
+   higher), so they stay above this bar. The product tour holds the bar
+   until it ends. */
 .tw-cookie-notice {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
   z-index: 80;
-  background: #fff;
-  color: #141414;
-  border-top: 1px solid #e5e5e5;
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+  background-color: hsl(var(--background));
+  background-image: none;
+  color: hsl(var(--foreground));
+  border-top: 1px solid hsl(var(--border));
+  box-shadow: none;
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
   font-size: 14px;
   line-height: 1.35;
@@ -1836,7 +1839,7 @@ html.ios-native [contenteditable="true"] {
   line-height: 1.35;
 }
 .tw-cookie-notice__link {
-  color: #141414;
+  color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
   display: inline-flex;
@@ -1915,4 +1918,14 @@ html.tw-cookie-notice-open .tw-above-cookie-notice {
   font-size: 14px;
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* The Do Not Sell heading is focused on load for assistive tech.
+   The ring is limited to :focus-visible. */
+.tw-dns-heading:focus {
+  outline: none;
+}
+.tw-dns-heading:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 3px;
 }

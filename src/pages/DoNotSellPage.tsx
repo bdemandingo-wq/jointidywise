@@ -17,7 +17,9 @@ function browserGpc(): boolean {
 function focusHeading(heading: HTMLElement | null): void {
   if (!heading) return;
   if (!heading.hasAttribute('tabindex')) heading.tabIndex = -1;
-  heading.focus({ preventScroll: true });
+  // Assistive tech lands here on load. focusVisible false keeps that
+  // focus off :focus-visible, so the ring stays a keyboard style.
+  heading.focus({ preventScroll: true, focusVisible: false } as FocusOptions);
 }
 
 /**
@@ -69,7 +71,7 @@ export default function DoNotSellPage() {
 
       <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
         <article className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-10">
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">
+          <h1 className="tw-dns-heading text-3xl font-bold tracking-tight text-foreground">
             Do Not Sell or Share My Personal Information.
           </h1>
           <p className="mt-4 text-sm leading-relaxed text-muted-foreground">

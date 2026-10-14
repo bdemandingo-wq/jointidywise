@@ -15,6 +15,21 @@ function isModifiedClick(event: { metaKey: boolean; ctrlKey: boolean; shiftKey: 
   return event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0;
 }
 
+/** rgb()/rgba() with alpha 1. Translucent surfaces are not copied onto the bar. */
+function opaqueBackground(node: Element | null): string | null {
+  if (!node) return null;
+  const value = getComputedStyle(node).backgroundColor;
+  const match = value.match(/^rgba?\(\s*[\d.]+[\s,]+[\d.]+[\s,]+[\d.]+(?:[\s,/]+([\d.]+))?\s*\)$/);
+  if (!match) return null;
+  const alpha = match[1] === undefined ? 1 : Number(match[1]);
+  return alpha >= 1 ? value : null;
+}
+
+function pageSurfaceColor(): string | null {
+  return opaqueBackground(document.querySelector('.portal-v2'))
+    ?? opaqueBackground(document.body);
+}
+
 /**
  * Notice bar for TidyWise's own marketing and signup pages.
  * OK stores acknowledged. The Do Not Sell link stores opted_out immediately,
@@ -40,14 +55,22 @@ export function TidyWiseCookieNotice({
     const el = barRef.current;
     if (!el) return;
     const apply = () => {
+      const surface = pageSurfaceColor();
+      if (surface) el.style.backgroundColor = surface;
       document.documentElement.style.setProperty('--tw-cookie-bar-height', `${el.offsetHeight}px`);
       document.documentElement.classList.add('tw-cookie-notice-open');
     };
     apply();
-    const observer = new ResizeObserver(apply);
-    observer.observe(el);
+    const resize = new ResizeObserver(apply);
+    resize.observe(el);
+    // The bar mounts before a lazy route paints its surface. Re-sample when
+    // that page arrives so the fill matches the surface on screen.
+    const root = document.getElementById('root');
+    const mutations = new MutationObserver(apply);
+    if (root) mutations.observe(root, { childList: true, subtree: true });
     return () => {
-      observer.disconnect();
+      resize.disconnect();
+      mutations.disconnect();
       document.documentElement.style.removeProperty('--tw-cookie-bar-height');
       document.documentElement.classList.remove('tw-cookie-notice-open');
     };

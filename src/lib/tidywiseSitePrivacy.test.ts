@@ -297,8 +297,11 @@ test('conversion names stay on the TidyWise tags', () => {
 test('the notice layout rules keep a 44px target, safe area, and page clearance', () => {
   const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
   assert.match(css, /\.tw-cookie-notice\s*\{[^}]*position:\s*fixed/s);
-  assert.match(css, /\.tw-cookie-notice\s*\{[^}]*background:\s*#fff/s);
-  assert.match(css, /\.tw-cookie-notice\s*\{[^}]*border-top:\s*1px solid/s);
+  assert.match(css, /\.tw-cookie-notice\s*\{[^}]*background-color:\s*hsl\(var\(--background\)\)/s);
+  assert.match(css, /\.tw-cookie-notice\s*\{[^}]*background-image:\s*none/s);
+  assert.match(css, /\.tw-cookie-notice\s*\{[^}]*border-top:\s*1px solid hsl\(var\(--border\)\)/s);
+  assert.match(css, /\.tw-dns-heading:focus\s*\{[^}]*outline:\s*none/s);
+  assert.match(css, /\.tw-dns-heading:focus-visible\s*\{[^}]*outline:\s*2px solid/s);
   assert.match(css, /env\(safe-area-inset-bottom,\s*0px\)/);
   assert.match(css, /\.tw-cookie-notice__copy\s*\{[^}]*font-size:\s*14px/s);
   assert.match(css, /\.tw-cookie-notice__link\s*\{[^}]*text-decoration:\s*underline/s);

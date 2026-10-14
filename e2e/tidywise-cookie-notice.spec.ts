@@ -239,9 +239,33 @@ test.describe('TidyWise cookie notice', () => {
     expect(submitBox && barBox).toBeTruthy();
     expect(submitBox!.y + submitBox!.height).toBeLessThanOrEqual(barBox!.y + 1);
 
-    const background = await banner.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(background).toBe('rgb(255, 255, 255)');
+    await expect.poll(async () => banner.evaluate((el) => {
+      const bar = getComputedStyle(el);
+      const page = document.querySelector('.portal-v2') ?? document.body;
+      const pageBg = getComputedStyle(page).backgroundColor;
+      const parts = bar.backgroundColor.match(/^rgba?\(\s*[\d.]+,\s*[\d.]+,\s*[\d.]+(?:,\s*([\d.]+))?\s*\)$/);
+      const opaque = Boolean(parts) && (parts?.[1] === undefined || Number(parts[1]) >= 1);
+      return opaque && bar.backgroundColor === pageBg && bar.borderTopWidth === '1px' && bar.borderTopStyle === 'solid';
+    })).toBe(true);
     await expect(banner.getByRole('button', { name: 'Close' })).toHaveCount(0);
+  });
+
+  test('375px banner height matches #root padding-bottom', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/signup');
+    const banner = page.getByRole('region', { name: 'Cookie notice' });
+    await expect(banner).toBeVisible();
+    await expect.poll(async () => page.evaluate(() => {
+      const bar = document.querySelector('.tw-cookie-notice');
+      const root = document.querySelector('#root');
+      if (!(bar instanceof HTMLElement) || !(root instanceof HTMLElement)) return false;
+      const height = bar.getBoundingClientRect().height;
+      const pad = parseFloat(getComputedStyle(root).paddingBottom);
+      return window.innerWidth === 375
+        && bar.offsetHeight > 44
+        && pad === bar.offsetHeight
+        && Math.abs(height - pad) < 1;
+    })).toBe(true);
   });
 
   test('desktop keeps OK on the right of the copy', async ({ page }) => {
