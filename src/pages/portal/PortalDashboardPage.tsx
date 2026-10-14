@@ -1186,7 +1186,7 @@ export default function PortalDashboardPage() {
                 {customer?.email && user?.organization_id ? (
                   <PortalPaymentMethodCard
                     email={customer.email}
-                    customerName={`${customer.first_name ?? ''} ${customer.last_name ?? ''}`.trim()}
+                    customerName={sanitizeDisplayName(`${customer.first_name ?? ''} ${customer.last_name ?? ''}`)}
                     organizationId={user.organization_id}
                   />
                 ) : null}

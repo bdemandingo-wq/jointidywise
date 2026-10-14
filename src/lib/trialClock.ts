@@ -7,6 +7,11 @@
  * only turns those timestamps into "days left" and "which reminder is due".
  * It never moves a trial end. A profile that already has an end date keeps it,
  * so a 14-day trial does not become 30 days and is not emailed on day 25.
+ *
+ * "Days left" floors whole 24-hour periods, the same count Stripe Checkout
+ * prints for trial_end. Twelve days and ten hours is 12. The last partial
+ * day, under 24 hours, still reads as 1 so the banner stays up until the
+ * timestamp. Reminder days are counted from signup and are unchanged.
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -21,7 +26,7 @@ export function trialDaysLeft(
   if (!trialEndIso) return null;
   const end = Date.parse(trialEndIso);
   if (!Number.isFinite(end) || end <= now) return null;
-  return Math.max(1, Math.ceil((end - now) / DAY_MS));
+  return Math.max(1, Math.floor((end - now) / DAY_MS));
 }
 
 /**

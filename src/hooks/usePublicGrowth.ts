@@ -57,10 +57,11 @@ async function fetchPublicGrowth(): Promise<PublicGrowthState> {
   }
 }
 
-export function usePublicGrowth(): PublicGrowthState {
+export function usePublicGrowth(enabled = true): PublicGrowthState {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['public-growth'],
     queryFn: fetchPublicGrowth,
+    enabled,
     staleTime: 45_000,
     gcTime: 5 * 60_000,
     retry: 1,

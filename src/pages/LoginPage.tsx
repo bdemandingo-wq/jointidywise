@@ -149,11 +149,10 @@ export default function LoginPage() {
 
   // Handle splash screen completion - navigate based on context.
   //
-  // Resume-after-auth: a visitor who came from /pricing → /signup →
-  // (email confirmation required) lands here with either
-  // ?plan=...&interval=... in the URL, or with a stored tw_pending_plan
-  // in sessionStorage. After successful login we open Stripe Checkout
-  // for the requested plan so the broken-flow loop actually closes.
+  // Lifetime can resume into checkout after email confirmation, via
+  // ?plan=lifetime or a stored tw_pending_plan. Basic, Pro, and Custom
+  // do not: those signups are the card-free 30-day Pro trial, and a
+  // stored plan must not open Stripe from this page.
   const handleSplashComplete = async () => {
     if (claimSlug) {
       navigate(`/score/c/${encodeURIComponent(claimSlug)}?claim=1`, { replace: true });
@@ -167,15 +166,14 @@ export default function LoginPage() {
     }
 
     // Pull pending-plan intent from either the URL or sessionStorage.
+    // Only lifetime resumes into checkout. Interval is ignored here.
     let pendingPlan = searchParams.get('plan');
-    let pendingInterval = searchParams.get('interval');
     if (!pendingPlan) {
       try {
         const raw = sessionStorage.getItem('tw_pending_plan');
         if (raw) {
-          const parsed = JSON.parse(raw) as { plan?: string; interval?: string };
+          const parsed = JSON.parse(raw) as { plan?: string };
           pendingPlan = parsed?.plan ?? null;
-          pendingInterval = parsed?.interval ?? null;
         }
       } catch {
         // ignore parse / storage errors
@@ -206,35 +204,6 @@ export default function LoginPage() {
           err instanceof Error
             ? `Couldn't open lifetime checkout: ${err.message}`
             : "Couldn't open lifetime checkout — try again from /pricing.",
-        );
-        navigate('/dashboard');
-        return;
-      }
-    }
-
-    if (pendingPlan === 'basic' || pendingPlan === 'pro' || pendingPlan === 'custom') {
-      const interval = pendingInterval === 'yearly' ? 'yearly' : 'monthly';
-      try {
-        const { data, error } = await supabaseNoSession.functions.invoke('create-subscription', {
-          body: { plan: pendingPlan, interval },
-        });
-        // The catch below prefixes this with "Couldn't open checkout:", so the
-        // function's own reason — sold out, already subscribed, price not
-        // configured — completes the sentence instead of "non-2xx status code".
-        if (error) throw new Error(await readEdgeFunctionError(error, 'please try again'));
-        const session = readCheckoutSession(data);
-        openEmbeddedCheckout({
-          ...session,
-          plan: pendingPlan,
-          interval,
-          cancelPath: `/pricing?plan=${encodeURIComponent(pendingPlan)}&interval=${encodeURIComponent(interval)}&canceled=1`,
-        });
-        return;
-      } catch (err) {
-        toast.error(
-          err instanceof Error
-            ? `Couldn't open checkout: ${err.message}`
-            : "Couldn't open checkout — try again from /dashboard/subscription.",
         );
         navigate('/dashboard');
         return;

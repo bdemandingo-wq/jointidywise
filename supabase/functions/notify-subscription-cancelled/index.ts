@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { Resend } from "https://esm.sh/resend@2.0.0";
 import { getOrgEmailSettings, formatEmailFrom } from "../_shared/get-org-email-settings.ts";
 import { isServiceRoleRequest } from "../_shared/require-caller-org.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 // Platform-level Resend API key (shared email service)
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
@@ -88,15 +89,15 @@ const handler = async (req: Request): Promise<Response> => {
       subject: `Subscription Cancelled: ${customerName}`,
       html: `
         <h2>Subscription Cancellation Notice</h2>
-        <p>A customer has cancelled their ${companyName} Pro subscription:</p>
+        <p>A customer has cancelled their ${escapeHtml(companyName)} Pro subscription:</p>
         <table style="border-collapse: collapse; margin: 20px 0;">
           <tr>
             <td style="padding: 8px; font-weight: bold;">Customer Name:</td>
-            <td style="padding: 8px;">${customerName}</td>
+            <td style="padding: 8px;">${escapeHtml(customerName)}</td>
           </tr>
           <tr>
             <td style="padding: 8px; font-weight: bold;">Email:</td>
-            <td style="padding: 8px;">${customerEmail}</td>
+            <td style="padding: 8px;">${escapeHtml(customerEmail)}</td>
           </tr>
           <tr>
             <td style="padding: 8px; font-weight: bold;">Cancellation Date:</td>
@@ -105,7 +106,7 @@ const handler = async (req: Request): Promise<Response> => {
           ${reason ? `
           <tr>
             <td style="padding: 8px; font-weight: bold;">Reason:</td>
-            <td style="padding: 8px;">${reason}</td>
+            <td style="padding: 8px;">${escapeHtml(reason)}</td>
           </tr>
           ` : ''}
         </table>

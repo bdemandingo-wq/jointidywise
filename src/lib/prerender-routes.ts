@@ -31,6 +31,7 @@ import {
 import { locationData, type LocationData } from "../data/locationData";
 import { COMPETITORS, NICHES, TIDYWISE_FEATURE_MAP } from "../data/compareNicheData";
 import { SUPABASE_PUBLIC_ANON_KEY, SUPABASE_PUBLIC_URL } from "./supabasePublicEnv";
+import { safeJsonLd } from "./safeJsonLd";
 
 const SUPABASE_URL = SUPABASE_PUBLIC_URL;
 const SUPABASE_ANON_KEY = SUPABASE_PUBLIC_ANON_KEY;
@@ -435,8 +436,7 @@ function patchHead(html: string, route: string, meta: RouteMeta): string {
     const payload = Array.isArray(meta.jsonLd)
       ? { "@context": "https://schema.org", "@graph": meta.jsonLd }
       : { "@context": "https://schema.org", ...meta.jsonLd };
-    // Escape </script> sequences to avoid breaking out of the script tag.
-    const json = JSON.stringify(payload).replace(/<\/script/gi, "<\\/script");
+    const json = safeJsonLd(payload);
     const tag = `<script type="application/ld+json">${json}</script>`;
     out = out.replace(/<\/head>/i, `${tag}</head>`);
   }

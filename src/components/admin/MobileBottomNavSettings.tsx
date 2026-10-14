@@ -19,6 +19,7 @@ import {
   ICON_MAP,
   type MobileNavItem,
 } from "@/components/mobile/MobileBottomNav";
+import { writeCachedMobileNav } from "@/lib/mobileNavSlots";
 
 export function MobileBottomNavSettings() {
   const { organizationId } = useOrgId();
@@ -70,6 +71,10 @@ export function MobileBottomNavSettings() {
           { onConflict: "organization_id,role" }
         );
       if (error) throw error;
+      writeCachedMobileNav(organizationId, slots);
+      window.dispatchEvent(new CustomEvent("tw:mobile-nav-saved", {
+        detail: { organizationId, items: slots },
+      }));
       toast.success("Navigation saved");
     } catch {
       toast.error("Failed to save");

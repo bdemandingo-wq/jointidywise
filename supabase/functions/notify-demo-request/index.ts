@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { PLATFORM_SENDER_EMAIL } from "../_shared/email-sender-resolution.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -89,6 +90,13 @@ serve(async (req: Request) => {
 
     if (emailSettings?.resend_api_key) {
       const firstName = fullName.split(" ")[0];
+      const safeName = escapeHtml(fullName);
+      const safeFirst = escapeHtml(firstName);
+      const safeBusiness = escapeHtml(businessName);
+      const safePhone = escapeHtml(phone);
+      const safeEmail = escapeHtml(email);
+      const safeTeam = escapeHtml(String(teamSize || "N/A"));
+      const safeChallenge = escapeHtml(String(biggestChallenge || "N/A"));
 
       // Admin alert email — replaces the previous admin SMS. Sent BEFORE
       // the prospect confirmation so a Resend hiccup hits the lower-
@@ -97,18 +105,18 @@ serve(async (req: Request) => {
         const adminAlertHtml = bookedDate && bookedTime
           ? `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
               <h2>📅 New demo BOOKED</h2>
-              <p><strong>${fullName}</strong> — ${businessName}</p>
+              <p><strong>${safeName}</strong> — ${safeBusiness}</p>
               <p>📆 ${dateDisplay} at ${timeDisplay} EST</p>
-              <p>📞 ${phone} • ✉️ <a href="mailto:${email}">${email}</a></p>
-              <p>Team: ${teamSize || "N/A"} • Challenge: ${biggestChallenge || "N/A"}</p>
+              <p>📞 ${safePhone} • ✉️ <a href="mailto:${safeEmail}">${safeEmail}</a></p>
+              <p>Team: ${safeTeam} • Challenge: ${safeChallenge}</p>
               <p style="color:#888;font-size:12px;">Total demos booked: ${totalDemos || 1}</p>
             </div>`
           : `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
               <h2>📅 New demo REQUEST</h2>
-              <p><strong>${fullName}</strong> — ${businessName}</p>
-              <p>📞 ${phone} • ✉️ <a href="mailto:${email}">${email}</a></p>
-              <p>Team: ${teamSize || "N/A"} • Challenge: ${biggestChallenge || "N/A"}</p>
-              <p>Prefers: ${preferredDays?.join(", ") || "Any"} ${preferredTime || ""}</p>
+              <p><strong>${safeName}</strong> — ${safeBusiness}</p>
+              <p>📞 ${safePhone} • ✉️ <a href="mailto:${safeEmail}">${safeEmail}</a></p>
+              <p>Team: ${safeTeam} • Challenge: ${safeChallenge}</p>
+              <p>Prefers: ${escapeHtml(preferredDays?.join(", ") || "Any")} ${escapeHtml(preferredTime || "")}</p>
               <p style="color:#b91c1c;">Reach out to confirm a time.</p>
             </div>`;
         await fetch("https://api.resend.com/emails", {
@@ -138,11 +146,11 @@ serve(async (req: Request) => {
 
       // "How" line + prominent join button flip to video when a link exists.
       const howLine = meetingLink
-        ? `<strong>💻 How:</strong> <a href="${meetingLink}" style="color:#2563eb;">Join the video call</a> at your booked time`
-        : `<strong>📞 How:</strong> Emmanuel will call you at ${phone}`;
+        ? `<strong>💻 How:</strong> <a href="${escapeHtml(meetingLink)}" style="color:#2563eb;">Join the video call</a> at your booked time`
+        : `<strong>📞 How:</strong> Emmanuel will call you at ${safePhone}`;
       const joinButton = meetingLink
         ? `<div style="text-align:center;margin:24px 0;">
-             <a href="${meetingLink}" style="display:inline-block;background:#2563eb;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;">Join Video Call</a>
+             <a href="${escapeHtml(meetingLink)}" style="display:inline-block;background:#2563eb;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:16px;">Join Video Call</a>
            </div>`
         : "";
 
@@ -150,7 +158,7 @@ serve(async (req: Request) => {
         ? `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px;">
           <h1 style="color: #1a1a1a; font-size: 24px;">Your Demo is Locked In! ✅</h1>
-          <p style="color: #555; font-size: 16px; line-height: 1.6;">Hi ${firstName}!</p>
+          <p style="color: #555; font-size: 16px; line-height: 1.6;">Hi ${safeFirst}!</p>
           <div style="background: #f5f5f5; border-radius: 12px; padding: 20px; margin: 20px 0;">
             <p style="margin: 5px 0; font-size: 16px;"><strong>📆 Date:</strong> ${dateDisplay}</p>
             <p style="margin: 5px 0; font-size: 16px;"><strong>⏰ Time:</strong> ${timeDisplay} EST</p>
@@ -181,9 +189,9 @@ serve(async (req: Request) => {
         : `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px;">
           <h1 style="color: #1a1a1a; font-size: 24px;">Your TidyWise Demo Request is Confirmed! 🎉</h1>
-          <p style="color: #555; font-size: 16px; line-height: 1.6;">Hi ${firstName}!</p>
+          <p style="color: #555; font-size: 16px; line-height: 1.6;">Hi ${safeFirst}!</p>
           <p style="color: #555; font-size: 16px; line-height: 1.6;">
-            Thanks for your interest in TidyWise! We received your demo request and Emmanuel will reach out to you at <strong>${phone}</strong> or <strong>${email}</strong> within 2 hours to confirm your demo time.
+            Thanks for your interest in TidyWise! We received your demo request and Emmanuel will reach out to you at <strong>${safePhone}</strong> or <strong>${safeEmail}</strong> within 2 hours to confirm your demo time.
           </p>
           <h3 style="color: #1a1a1a; font-size: 18px;">Here's what to expect:</h3>
           <ul style="color: #555; font-size: 16px; line-height: 2;">

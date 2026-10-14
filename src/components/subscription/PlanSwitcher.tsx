@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,7 @@ import { readEdgeFunctionError, readEdgeFunctionErrorBody } from "@/lib/edgeFunc
 import { hasChangeableStripeSubscription, isActiveOrgTrial } from "@/lib/stripeMode";
 import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from "@/lib/startSubscriptionCheckout";
 import { ALREADY_LIFETIME_MESSAGE } from "@/lib/alreadyLifetime";
+import { CustomPriceMissing } from "@/lib/priceNotConfigured";
 
 const PLANS: PlanInfo[] = [
   {
@@ -87,6 +89,7 @@ interface DowngradeState {
 }
 
 export function PlanSwitcher() {
+  const navigate = useNavigate();
   const planState = usePlanState();
   const { subscription, checkSubscription } = useAuth();
   const { organizationId } = useOrgId();
@@ -172,10 +175,12 @@ export function PlanSwitcher() {
     }
     setCheckoutBusy(plan.id);
     try {
-      await startSubscriptionCheckout(plan.id, "monthly");
+      await startSubscriptionCheckout(plan.id, "monthly", organizationId);
     } catch (err) {
       if (err instanceof AlreadyLifetimeCheckout) {
         toast.success(ALREADY_LIFETIME_MESSAGE);
+      } else if (err instanceof CustomPriceMissing) {
+        navigate("/contact");
       } else {
         toast.error(err instanceof Error ? err.message : "Could not start checkout. Nothing was charged.");
       }

@@ -22,6 +22,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { usePlatform } from "@/hooks/usePlatform";
+import { useOrgId } from "@/hooks/useOrgId";
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from '@/lib/startSubscriptionCheckout';
@@ -108,6 +109,8 @@ export function SubscriptionDialog({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- checkSubscription is recreated each render; runs when dialog opens
   }, [open]);
 
+  const { organizationId } = useOrgId();
+
   const handleStandard = async () => {
     // The simple dialog used to call create-subscription with no plan, which
     // 400s ("Invalid plan"). /choose-plan is the checkout that sends a plan.
@@ -118,7 +121,7 @@ export function SubscriptionDialog({
     setCheckingOut("standard");
     try {
       // This card is $97/mo, which is the Pro price.
-      await startSubscriptionCheckout("pro", "monthly");
+      await startSubscriptionCheckout("pro", "monthly", organizationId);
     } catch (error: unknown) {
       if (error instanceof AlreadyLifetimeCheckout) {
         toast.success(ALREADY_LIFETIME_MESSAGE);

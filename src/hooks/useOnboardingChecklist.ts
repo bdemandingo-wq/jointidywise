@@ -35,7 +35,7 @@ async function hasActiveService(organizationId: string): Promise<boolean> {
   return (data?.length ?? 0) > 0;
 }
 
-export function useOnboardingChecklist() {
+export function useOnboardingChecklist(enabled = true) {
   const { organizationId } = useOrgId();
 
   return useQuery({
@@ -105,7 +105,7 @@ export function useOnboardingChecklist() {
 
       return items;
     },
-    enabled: !!organizationId,
+    enabled: !!organizationId && enabled,
     // The checklist is the first thing a new owner sees. A persisted
     // "0 services" from the second before the insert committed must not
     // stick for the default 5 minute stale time.

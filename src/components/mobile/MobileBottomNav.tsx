@@ -1,4 +1,4 @@
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   Home, Users, Target, MessageSquare, Settings, Calendar, BarChart3,
   ClipboardList, Bell, Plus, Brain, CalendarDays, Repeat, UserCircle,
@@ -7,18 +7,21 @@ import {
   Receipt, PieChart, CreditCard, Zap, Briefcase, Image,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useOrgId } from '@/hooks/useOrgId';
 import { AddBookingDialog } from '@/components/admin/AddBookingDialog';
 import { useCopilot } from '@/hooks/useCopilot';
+import {
+  readCachedMobileNav,
+  readLaunchMobileNav,
+  sameMobileNav,
+  sanitizeMobileNavSlots,
+  writeCachedMobileNav,
+  type MobileNavSlot,
+} from '@/lib/mobileNavSlots';
 
-export type MobileNavItem = {
-  id: string;
-  label: string;
-  to: string;
-  iconKey: string;
-};
+export type MobileNavItem = MobileNavSlot;
 
 export const DEFAULT_SLOTS: MobileNavItem[] = [
   { id: 'dashboard', label: 'Dashboard', to: '/dashboard', iconKey: 'Home' },
@@ -73,11 +76,13 @@ function isDashboardRoute(pathname: string) {
 
 export function MobileBottomNav() {
   const location = useLocation();
-  const navigate = useNavigate();
   const { organizationId } = useOrgId();
   const { isOpen: copilotOpen } = useCopilot();
-  const [slots, setSlots] = useState<MobileNavItem[]>(DEFAULT_SLOTS);
+  // null means "not known yet" — a neutral placeholder, never the default
+  // Reports tab that would then flip to the org's saved Payroll tab.
+  const [slots, setSlots] = useState<MobileNavItem[] | null>(() => readLaunchMobileNav());
   const [showAddBooking, setShowAddBooking] = useState(false);
+  const fetchGen = useRef(0);
 
   const isDashboard = isDashboardRoute(location.pathname);
 
@@ -87,11 +92,29 @@ export function MobileBottomNav() {
       if (!Capacitor.isNativePlatform()) return;
       const { Haptics, ImpactStyle } = await import('@capacitor/haptics');
       await Haptics.impact({ style: ImpactStyle.Light });
-    } catch {}
+    } catch {
+      /* haptics are optional */
+    }
+  }, []);
+
+  useEffect(() => {
+    const onSaved = (event: Event) => {
+      const detail = (event as CustomEvent<{ organizationId?: string; items?: unknown }>).detail;
+      const next = sanitizeMobileNavSlots(detail?.items);
+      if (!next) return;
+      fetchGen.current += 1;
+      if (detail?.organizationId) writeCachedMobileNav(detail.organizationId, next);
+      setSlots((current) => (sameMobileNav(current, next) ? current : next));
+    };
+    window.addEventListener('tw:mobile-nav-saved', onSaved);
+    return () => window.removeEventListener('tw:mobile-nav-saved', onSaved);
   }, []);
 
   useEffect(() => {
     if (!isDashboard || !organizationId) return;
+    const cached = readCachedMobileNav(organizationId);
+    setSlots((current) => (sameMobileNav(current, cached) ? current : cached));
+    const gen = ++fetchGen.current;
     let cancelled = false;
 
     const load = async () => {
@@ -104,23 +127,15 @@ export function MobileBottomNav() {
           .maybeSingle();
 
         if (error) throw error;
-        const items = Array.isArray((data as any)?.items) ? ((data as any).items as any[]) : [];
-        const sanitized: MobileNavItem[] = items
-          .map((raw) => {
-            const label = typeof raw?.label === 'string' ? raw.label.trim() : '';
-            const to = typeof raw?.to === 'string' ? raw.to.trim() : '';
-            const iconKey = typeof raw?.iconKey === 'string' ? raw.iconKey : 'Home';
-            const id = typeof raw?.id === 'string' ? raw.id : `${label}_${to}`;
-            if (!label || !to || !to.startsWith('/dashboard')) return null;
-            return { id, label, to, iconKey };
-          })
-          .filter(Boolean) as MobileNavItem[];
-
-        if (!cancelled && sanitized.length === 4) {
-          setSlots(sanitized);
-        }
+        if (cancelled || gen !== fetchGen.current) return;
+        // No saved row means the built-in default. A saved row wins, including Payroll.
+        const sanitized = sanitizeMobileNavSlots((data as { items?: unknown } | null)?.items) ?? DEFAULT_SLOTS;
+        writeCachedMobileNav(organizationId, sanitized);
+        setSlots((current) => (sameMobileNav(current, sanitized) ? current : sanitized));
       } catch {
-        if (!cancelled) setSlots(DEFAULT_SLOTS);
+        if (!cancelled && gen === fetchGen.current) {
+          setSlots((current) => current ?? DEFAULT_SLOTS);
+        }
       }
     };
 
@@ -130,8 +145,8 @@ export function MobileBottomNav() {
 
   if (!isDashboard || copilotOpen) return null;
 
-  const leftSlots = slots.slice(0, 2);
-  const rightSlots = slots.slice(2, 4);
+  const leftSlots = slots?.slice(0, 2) ?? null;
+  const rightSlots = slots?.slice(2, 4) ?? null;
 
 
   const handleAdd = () => {
@@ -148,10 +163,12 @@ export function MobileBottomNav() {
       aria-label="Primary"
     >
       <div className="relative grid grid-cols-5 items-end pb-[env(safe-area-inset-bottom)]">
-        {/* Left 2 slots */}
-        {leftSlots.map((item) => (
-          <NavItem key={item.id} item={item} onTap={triggerHaptic} currentPath={location.pathname} />
-        ))}
+        {/* Left 2 slots. Placeholder until the saved row (or the default) is known. */}
+        {leftSlots
+          ? leftSlots.map((item) => (
+            <NavItem key={item.id} item={item} onTap={triggerHaptic} currentPath={location.pathname} />
+          ))
+          : [0, 1].map((key) => <NavPlaceholder key={key} />)}
 
         {/* Center + FAB */}
         <div className="flex items-center justify-center relative">
@@ -175,12 +192,23 @@ export function MobileBottomNav() {
         </div>
 
         {/* Right 2 slots */}
-        {rightSlots.map((item) => (
-          <NavItem key={item.id} item={item} onTap={triggerHaptic} currentPath={location.pathname} />
-        ))}
+        {rightSlots
+          ? rightSlots.map((item) => (
+            <NavItem key={item.id} item={item} onTap={triggerHaptic} currentPath={location.pathname} />
+          ))
+          : [2, 3].map((key) => <NavPlaceholder key={key} />)}
       </div>
       <AddBookingDialog open={showAddBooking} onOpenChange={setShowAddBooking} />
     </nav>
+  );
+}
+
+function NavPlaceholder() {
+  return (
+    <div className="flex h-12 flex-col items-center justify-center gap-1" aria-hidden="true">
+      <div className="h-[18px] w-[18px] rounded bg-muted" />
+      <div className="h-2 w-8 rounded bg-muted" />
+    </div>
   );
 }
 

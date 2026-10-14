@@ -58,6 +58,8 @@ const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage"));
 const AuthCallbackPage = lazy(() => import("./pages/AuthCallbackPage"));
 const SetPasswordPage = lazy(() => import("./pages/SetPasswordPage"));
 const ContactPage = lazy(() => import("./pages/ContactPage"));
+const ReferralAlias = lazy(() => import("./pages/marketingAliases").then((m) => ({ default: m.ReferralAlias })));
+const FeedbackAlias = lazy(() => import("./pages/marketingAliases").then((m) => ({ default: m.FeedbackAlias })));
 const OAuthConsentPage = lazy(() => import("./pages/OAuthConsentPage"));
 
 // Lazy-loaded page skeleton for loading states
@@ -375,6 +377,10 @@ const App = () => (
                          <Route path="/set-password" element={<SetPasswordPage />} />
                          <Route path="/accept-invite" element={<AcceptInvitePage />} />
                          <Route path="/contact" element={<ContactPage />} />
+                         <Route path="/referral" element={<ReferralAlias />} />
+                         <Route path="/refer" element={<ReferralAlias />} />
+                         <Route path="/affiliate" element={<ReferralAlias />} />
+                         <Route path="/feedback" element={<FeedbackAlias />} />
                     <Route path="/.lovable/oauth/consent" element={<OAuthConsentPage />} />
                          <Route path="/logout" element={<LogoutPage />} />
                         
@@ -522,6 +528,10 @@ const App = () => (
                     <Route path="/forgot-password" element={<ForgotPasswordPage />} />
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/contact" element={<ContactPage />} />
+                    <Route path="/referral" element={<ReferralAlias />} />
+                    <Route path="/refer" element={<ReferralAlias />} />
+                    <Route path="/affiliate" element={<ReferralAlias />} />
+                    <Route path="/feedback" element={<FeedbackAlias />} />
                     <Route path="/.lovable/oauth/consent" element={<OAuthConsentPage />} />
                     <Route path="/accept-invite" element={<AcceptInvitePage />} />
 

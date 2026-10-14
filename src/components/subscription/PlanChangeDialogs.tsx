@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +26,7 @@ import {
   startSubscriptionCheckout,
   type CheckoutPlanId,
 } from "@/lib/startSubscriptionCheckout";
+import { CustomPriceMissing, isCustomPriceMissing } from "@/lib/priceNotConfigured";
 
 /**
  * Someone on a trial has no Stripe subscription to modify, so the plan-change
@@ -32,9 +34,9 @@ import {
  * picked. The card form is on Stripe. Returns true when that handoff started
  * or when they already have lifetime access.
  */
-async function startCheckout(planId: CheckoutPlanId): Promise<boolean> {
+async function startCheckout(planId: CheckoutPlanId, organizationId: string | null): Promise<boolean> {
   try {
-    await startSubscriptionCheckout(planId, "monthly");
+    await startSubscriptionCheckout(planId, "monthly", organizationId);
     return true;
   } catch (err) {
     if (err instanceof AlreadyLifetimeCheckout) {
@@ -90,6 +92,7 @@ export function UpgradePlanDialog({
   const [confirming, setConfirming] = useState(false);
   const [needsCheckout, setNeedsCheckout] = useState(false);
   const { organizationId } = useOrgId();
+  const navigate = useNavigate();
 
 
   useEffect(() => {
@@ -117,6 +120,10 @@ export function UpgradePlanDialog({
           setPreview(null);
           return;
         }
+        if (targetPlan.id === "custom" && await isCustomPriceMissing(error)) {
+          navigate("/contact");
+          return;
+        }
         throw new Error(await readEdgeFunctionError(error, "Could not load the upgrade price"));
       }
       if ((data as any)?.error) throw new Error((data as any).error);
@@ -140,7 +147,7 @@ export function UpgradePlanDialog({
     setConfirming(true);
     try {
       if (needsCheckout) {
-        const started = await startCheckout(targetPlan.id);
+        const started = await startCheckout(targetPlan.id, organizationId);
         if (started) return;
         throw new Error("Could not start checkout. Nothing was charged.");
       }
@@ -156,9 +163,13 @@ export function UpgradePlanDialog({
       if (error) {
         const body = await readEdgeFunctionErrorBody(error);
         if (body?.code === "no_subscription") {
-          const started = await startCheckout(targetPlan.id);
+          const started = await startCheckout(targetPlan.id, organizationId);
           if (started) return;
           throw new Error("Could not start checkout. Nothing was charged.");
+        }
+        if (targetPlan.id === "custom" && await isCustomPriceMissing(error)) {
+          navigate("/contact");
+          return;
         }
         throw new Error(await readEdgeFunctionError(error, "Could not upgrade plan"));
       }
@@ -169,6 +180,10 @@ export function UpgradePlanDialog({
       onOpenChange(false);
       onCompleted();
     } catch (err: any) {
+      if (err instanceof CustomPriceMissing) {
+        navigate("/contact");
+        return;
+      }
       toast.error(err?.message || "Could not upgrade plan");
     } finally {
       setConfirming(false);

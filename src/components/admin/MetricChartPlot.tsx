@@ -28,7 +28,7 @@ export function MetricChartPlot({
   title: string;
 }) {
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer width="100%" height="100%" initialDimension={{ width: 320, height: 144 }}>
       <LineChart data={data} margin={{ top: 26, right: 14, left: 14, bottom: 10 }}>
         <XAxis dataKey="date" hide />
         <YAxis hide domain={[0, maxValue * 1.2]} />

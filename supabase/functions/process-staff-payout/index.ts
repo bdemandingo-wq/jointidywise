@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { sendStaffSms, sendStaffEmail, PORTAL_URL, FORGOT_URL } from "../_shared/staff-notify.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -192,7 +193,7 @@ serve(async (req) => {
       while (added < 2) { est.setUTCDate(est.getUTCDate() + 1); const d = est.getUTCDay(); if (d !== 0 && d !== 6) added++; }
       const estStr = est.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
       const sms = `${biz}: Hi ${first}, you've been paid ${amt}. Estimated deposit: ${estStr}. It goes to your bank automatically. Nothing to accept. Track it in the staff portal: ${PORTAL_URL} (Forgot password? ${FORGOT_URL})`;
-      const html = `<p>Hi ${first},</p><p><strong>${biz}</strong> just paid you <strong>${amt}</strong> for the period starting ${week_start}.</p><p><strong>Estimated deposit: ${estStr}</strong>. You don't need to accept anything. The money goes to your bank account automatically.</p><p><a href="${PORTAL_URL}">Open the staff portal</a> to track your payout status. <a href="${FORGOT_URL}">Forgot your password?</a></p>`;
+      const html = `<p>Hi ${escapeHtml(first)},</p><p><strong>${escapeHtml(biz)}</strong> just paid you <strong>${escapeHtml(amt)}</strong> for the period starting ${escapeHtml(String(week_start))}.</p><p><strong>Estimated deposit: ${escapeHtml(estStr)}</strong>. You don't need to accept anything. The money goes to your bank account automatically.</p><p><a href="${PORTAL_URL}">Open the staff portal</a> to track your payout status. <a href="${FORGOT_URL}">Forgot your password?</a></p>`;
       const [smsSent, emailSent] = await Promise.all([
         sendStaffSms(supabaseAdmin, organization_id, s?.phone ?? null, sms, 'process-staff-payout'),
         sendStaffEmail(organization_id, s?.email ?? null, `You've been paid ${amt}`, html, 'process-staff-payout'),

@@ -89,9 +89,21 @@ export function useSidebarBadgesFull(): SidebarBadgeData {
       setBadgesReady(false);
       return;
     }
+    const cacheKey = ['sb-staff', orgId, payoutRequired] as const;
+    if (queryClient.getQueryData(cacheKey) != null) {
+      setBadgesReady(true);
+      return;
+    }
     const timer = window.setTimeout(() => setBadgesReady(true), 2000);
-    return () => window.clearTimeout(timer);
-  }, [orgId]);
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (event.type !== 'added' && event.type !== 'updated') return;
+      if (queryClient.getQueryData(cacheKey) != null) setBadgesReady(true);
+    });
+    return () => {
+      window.clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [orgId, payoutRequired, queryClient]);
   const enabled = !!orgId && badgesReady;
   /*
     Badge polling used to be a flat 60s across all 12 queries — 12 requests a

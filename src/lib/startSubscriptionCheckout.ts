@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import { readEdgeFunctionError } from "@/lib/edgeFunctionError";
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from "@/lib/alreadyLifetime";
 import { openEmbeddedCheckout, readCheckoutSession } from "@/lib/embeddedCheckout";
+import { CustomPriceMissing, isCustomPriceMissing } from "@/lib/priceNotConfigured";
 
 export type CheckoutPlanId = "basic" | "pro" | "custom";
 export type CheckoutInterval = "monthly" | "yearly";
@@ -23,14 +24,22 @@ export class AlreadyLifetimeCheckout extends Error {
 export async function startSubscriptionCheckout(
   planId: CheckoutPlanId,
   interval: CheckoutInterval = "monthly",
+  organizationId?: string | null,
 ): Promise<void> {
   const { data, error } = await supabase.functions.invoke("create-subscription", {
-    body: { plan: planId, interval },
+    body: {
+      plan: planId,
+      interval,
+      ...(organizationId ? { organization_id: organizationId } : {}),
+    },
   });
 
   if (error) {
     if (await isAlreadyLifetimeError(error)) {
       throw new AlreadyLifetimeCheckout();
+    }
+    if (planId === "custom" && (await isCustomPriceMissing(error))) {
+      throw new CustomPriceMissing();
     }
     throw new Error(
       await readEdgeFunctionError(

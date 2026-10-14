@@ -12,6 +12,13 @@ import {
   type GeneratedBlog,
 } from "../_shared/blogJson.ts";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { hasInternalBrandLink } from "../_shared/blogLinks.ts";
+import {
+  MAX_KEYWORD_ATTEMPTS,
+  attemptsAfterClaim,
+  canRetryKeyword,
+} from "../_shared/keywordAttempts.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -62,10 +69,6 @@ function countCompetitorOccurrences(html: string): number {
     n += (text.match(new RegExp(escaped, "g")) || []).length;
   }
   return n;
-}
-function hasInternalBrandLink(html: string): boolean {
-  // A real conversion path, not a name-drop.
-  return /<a[^>]+href=["']\/(pricing|features|compare|blog)(\/[^"']*)?["']/i.test(html);
 }
 function brandInClosing(html: string): boolean {
   const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
@@ -430,7 +433,7 @@ async function sendFailureAlert(errors: string[]) {
         from: "TidyWise Blog Bot <noreply@jointidywise.com>",
         to: [FAILURE_ALERT_EMAIL],
         subject: "🚨 Blog generation — 3 consecutive failures",
-        html: `<h2>Blog generation needs attention</h2><p>3 consecutive failures detected.</p><h3>Recent errors:</h3><ul>${errors.map((e) => `<li><code>${e}</code></li>`).join("")}</ul><p>Review at <a href="https://jointidywise.com/admin/blog/keywords">/admin/blog/keywords</a>.</p>`,
+        html: `<h2>Blog generation needs attention</h2><p>3 consecutive failures detected.</p><h3>Recent errors:</h3><ul>${errors.map((e) => `<li><code>${escapeHtml(e)}</code></li>`).join("")}</ul><p>Review at <a href="https://jointidywise.com/admin/blog/keywords">/admin/blog/keywords</a>.</p>`,
       }),
     });
   } catch (e) { console.error("Alert failed:", e); }
@@ -462,17 +465,26 @@ serve(async (req) => {
   } catch { /* no body — keep default */ }
 
   try {
-    // Safety: reset any row stuck in_progress for >30min back to queued so
-    // a prior timeout/crash doesn't wedge the queue forever.
+    // Safety: a row stuck in_progress for >30min was a timeout or crash.
+    // Requeue it only while it still has attempts left. At the cap, leave
+    // it failed so a keyword that never finishes does not retry forever.
     const staleCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString();
     await supabase.from("blog_keyword_queue")
+      .update({ status: "failed", error_message: "stopped after 5 attempts" })
+      .eq("status", "in_progress")
+      .lt("last_attempted_at", staleCutoff)
+      .gte("attempts", MAX_KEYWORD_ATTEMPTS);
+    await supabase.from("blog_keyword_queue")
       .update({ status: "queued", error_message: "auto-reset from stuck in_progress" })
-      .eq("status", "in_progress").lt("last_attempted_at", staleCutoff);
+      .eq("status", "in_progress")
+      .lt("last_attempted_at", staleCutoff)
+      .lt("attempts", MAX_KEYWORD_ATTEMPTS);
 
     const { count: queuedCount, error: countErr } = await supabase
       .from("blog_keyword_queue")
       .select("id", { count: "exact", head: true })
-      .eq("status", "queued");
+      .eq("status", "queued")
+      .lt("attempts", MAX_KEYWORD_ATTEMPTS);
     const queued = countErr ? null : (queuedCount ?? 0);
     if (countErr) {
       console.error(`[blog-queue] could not count queued keywords: ${countErr.message}`);
@@ -484,6 +496,7 @@ serve(async (req) => {
 
     const { data: nextKeywords, error: qErr } = await supabase
       .from("blog_keyword_queue").select("*").eq("status", "queued")
+      .lt("attempts", MAX_KEYWORD_ATTEMPTS)
       .order("priority", { ascending: true }).order("created_at", { ascending: true }).limit(1);
     if (qErr) throw qErr;
     if (!nextKeywords || nextKeywords.length === 0) {
@@ -501,9 +514,27 @@ serve(async (req) => {
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const queueRow = nextKeywords[0];
+    if (!canRetryKeyword(queueRow.attempts)) {
+      await supabase.from("blog_keyword_queue")
+        .update({ status: "failed", error_message: "stopped after 5 attempts" })
+        .eq("id", queueRow.id);
+      return new Response(JSON.stringify({
+        ok: true,
+        skipped: true,
+        reason: "Keyword exhausted its attempts",
+        queued: queued ?? 0,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // Count this try at claim time. A crash before the catch used to leave
+    // attempts unchanged, and the 30-minute reset queued the same row forever.
+    const attemptsNow = attemptsAfterClaim(queueRow.attempts);
 
     await supabase.from("blog_keyword_queue")
-      .update({ status: "in_progress", last_attempted_at: new Date().toISOString() })
+      .update({
+        status: "in_progress",
+        last_attempted_at: new Date().toISOString(),
+        attempts: attemptsNow,
+      })
       .eq("id", queueRow.id);
 
     // Background task: generation can take 60-120s (AI + humanizer). Return 202
@@ -549,7 +580,7 @@ serve(async (req) => {
               acceptedAnswer: { "@type": "Answer", text: q.answer },
             })),
           };
-          finalContent += `\n<script type="application/ld+json">${JSON.stringify(faqJsonLd)}</script>`;
+          finalContent += `\n<script type="application/ld+json">${JSON.stringify(faqJsonLd).replace(/</g, "\\u003c")}</script>`;
         }
 
         const tooLowQuality = score < 60;
@@ -582,7 +613,7 @@ serve(async (req) => {
         const msg = clipError(errorText(e));
         console.error(`[bg] failed "${queueRow.keyword}":`, msg);
         await supabase.from("blog_keyword_queue")
-          .update({ status: "failed", error_message: msg, attempts: queueRow.attempts + 1 })
+          .update({ status: "failed", error_message: msg, attempts: attemptsNow })
           .eq("id", queueRow.id);
         const { data: recentFailures } = await supabase.from("blog_keyword_queue")
           .select("error_message").eq("status", "failed")
@@ -593,25 +624,29 @@ serve(async (req) => {
       }
     })();
 
-    // @ts-ignore — EdgeRuntime is provided by Supabase's Deno runtime
-    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
-      // @ts-ignore
-      EdgeRuntime.waitUntil(work);
-    } else {
-      // Local/dev fallback: don't await, just let it run.
-      work.catch((e) => console.error("[bg] unhandled:", e));
+    const acceptedBody = {
+      accepted: true,
+      keyword: queueRow.keyword,
+      queue_id: queueRow.id,
+      queued: queued ?? null,
+      low_queue: queued != null && queued < LOW_QUEUE_THRESHOLD,
+    };
+    // Supabase keeps the isolate alive for waitUntil. Without it, returning
+    // 202 drops the generation when the request ends, and the keyword stays
+    // in_progress until the 30-minute reset.
+    const edgeWaitUntil = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime?.waitUntil;
+    if (edgeWaitUntil) {
+      edgeWaitUntil(work);
+      return new Response(JSON.stringify(acceptedBody), {
+        status: 202,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
-
-    return new Response(
-      JSON.stringify({
-        accepted: true,
-        keyword: queueRow.keyword,
-        queue_id: queueRow.id,
-        queued: queued ?? null,
-        low_queue: queued != null && queued < LOW_QUEUE_THRESHOLD,
-      }),
-      { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    await work;
+    return new Response(JSON.stringify({ ...acceptedBody, completed: true }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (e) {
     console.error("generate-daily-blogs error:", e);
     return new Response(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }),

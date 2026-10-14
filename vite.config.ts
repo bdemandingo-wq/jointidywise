@@ -6,6 +6,29 @@ import { componentTagger } from "lovable-tagger";
 import { ViteImageOptimizer } from "vite-plugin-image-optimizer";
 import { mcpPlugin } from "@lovable.dev/mcp-js/stacks/supabase/vite";
 import { VitePWA } from "vite-plugin-pwa";
+import { resolveAppBuildId } from "./scripts/appBuildId";
+
+const APP_BUILD_ID = resolveAppBuildId();
+
+function appVersionPlugin(buildId: string): Plugin {
+  return {
+    name: "tidywise-app-version",
+    config() {
+      return {
+        define: {
+          "import.meta.env.VITE_APP_BUILD_ID": JSON.stringify(buildId),
+        },
+      };
+    },
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "version.json",
+        source: JSON.stringify({ buildId }),
+      });
+    },
+  };
+}
 
 // Runs the sitemap generator after the production build completes so
 // public/sitemap.xml stays in sync with the routes declared in src/App.tsx.
@@ -58,9 +81,13 @@ function prerenderPlugin(): Plugin {
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
-  // esbuild minify honors this drop list, so production bundles (web and the
-  // Capacitor iOS build, which ships the same dist/) do not include console.*.
-  esbuild: mode === 'production' ? { drop: ['console', 'debugger'] } : undefined,
+  // Production bundles (web and the Capacitor iOS build, which ships the
+  // same dist/) drop debugger and the noisy console calls. console.error
+  // and console.warn stay. Sentry.captureException is a different call and
+  // is not removed by this list.
+  esbuild: mode === 'production'
+    ? { drop: ['debugger'], pure: ['console.log', 'console.debug', 'console.info'] }
+    : undefined,
   server: {
     host: "::",
     port: 8080,
@@ -128,6 +155,7 @@ export default defineConfig(({ mode }) => ({
       skipWaiting, which swaps assets underneath a live tab mid-session — that
       is the CAUSE of chunk-load errors, not a fix for them.
     */
+    appVersionPlugin(APP_BUILD_ID),
     VitePWA({
       registerType: "prompt",
       // Registration is done by hand in src/lib/registerPwa.ts so it can be
@@ -183,7 +211,7 @@ export default defineConfig(({ mode }) => ({
         // made the service worker install compete with first paint. Route
         // chunks are cached on use via runtimeCaching below.
         globPatterns: ["assets/index-*.js", "assets/index-*.css", "assets/vendor-*.js"],
-        globIgnores: ["**/images/**", "**/blog/**", "**/locations/**"],
+        globIgnores: ["**/images/**", "**/blog/**", "**/locations/**", "**/version.json"],
         navigateFallback: null,
         runtimeCaching: [
           {

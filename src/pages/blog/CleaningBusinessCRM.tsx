@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { safeJsonLd } from "@/lib/safeJsonLd";
 import { SEOHead } from '@/components/SEOHead';
 import { InPageLink } from '@/components/InPageLink';
 import { BreadcrumbJsonLd } from '@/components/seo/BreadcrumbJsonLd';
@@ -590,7 +591,7 @@ export default function CleaningBusinessCRM() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
+          __html: safeJsonLd({
             "@context": "https://schema.org",
             "@graph": [
               {

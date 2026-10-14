@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { z } from "npm:zod@3.25.76";
 import { getOrgEmailSettings, formatEmailFrom, getReplyTo } from "../_shared/get-org-email-settings.ts";
 import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -90,13 +91,13 @@ const handler = async (req: Request): Promise<Response> => {
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h1 style="color: #333; border-bottom: 2px solid #4f46e5; padding-bottom: 10px;">${heading}</h1>
             <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0;">
-              <p style="margin: 0 0 10px 0;"><strong>From:</strong> ${name}</p>
-              <p style="margin: 0 0 10px 0;"><strong>Email:</strong> <a href="mailto:${email}">${email}</a></p>
+              <p style="margin: 0 0 10px 0;"><strong>From:</strong> ${escapeHtml(name)}</p>
+              <p style="margin: 0 0 10px 0;"><strong>Email:</strong> <a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a></p>
               <p style="margin: 0;"><strong>Type:</strong> ${isIdea ? "Feature Idea" : "Support Request"}</p>
             </div>
             <h2 style="color: #333; margin-top: 30px;">Message:</h2>
             <div style="background: #fff; padding: 20px; border: 1px solid #e5e7eb; border-radius: 8px;">
-              <p style="white-space: pre-wrap; margin: 0;">${message}</p>
+              <p style="white-space: pre-wrap; margin: 0;">${escapeHtml(message)}</p>
             </div>
             <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;" />
             <p style="color: #6b7280; font-size: 12px;">This email was sent from your Help Center.</p>

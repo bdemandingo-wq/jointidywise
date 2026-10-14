@@ -64,10 +64,11 @@ async function fetchLifetimeState(): Promise<LifetimeState> {
   };
 }
 
-export function useLifetimeCounter(): LifetimeState {
+export function useLifetimeCounter(enabled = true): LifetimeState {
   const { data, isLoading } = useQuery({
     queryKey: ['lifetime-spots-remaining'],
     queryFn: fetchLifetimeState,
+    enabled,
     staleTime: 30_000,
     placeholderData: DEFAULT,
   });

@@ -5,6 +5,7 @@ import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { loadOrgBrand, renderBrandedEmail } from "../_shared/org-email-renderer.ts";
 import { isServiceRoleRequest, rejectUnauthenticated, resolveCallerOrg } from "../_shared/require-caller-org.ts";
 import { formatFullAddress } from "../_shared/format-address.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -294,15 +295,15 @@ const handler = async (req: Request): Promise<Response> => {
     // Send notification to admin
     const adminNotificationHtml = `
       <h2>New Booking Received</h2>
-      <p><strong>Customer:</strong> ${customerName || "N/A"}</p>
-      <p><strong>Email:</strong> ${customerEmail}</p>
-      <p><strong>Phone:</strong> ${booking.customerPhone || "N/A"}</p>
-      <p><strong>Service:</strong> ${booking.serviceName || "N/A"}</p>
-      <p><strong>Date:</strong> ${booking.appointmentDate || "N/A"}</p>
-      <p><strong>Time:</strong> ${booking.appointmentTime || "N/A"}</p>
-      <p><strong>Address:</strong> ${fullAddress || "N/A"}</p>
-      <p><strong>Total:</strong> $${booking.totalPrice ?? "N/A"}</p>
-      <p><strong>Extras:</strong> ${extrasText}</p>
+      <p><strong>Customer:</strong> ${escapeHtml(customerName || "N/A")}</p>
+      <p><strong>Email:</strong> ${escapeHtml(customerEmail)}</p>
+      <p><strong>Phone:</strong> ${escapeHtml(booking.customerPhone || "N/A")}</p>
+      <p><strong>Service:</strong> ${escapeHtml(booking.serviceName || "N/A")}</p>
+      <p><strong>Date:</strong> ${escapeHtml(booking.appointmentDate || "N/A")}</p>
+      <p><strong>Time:</strong> ${escapeHtml(booking.appointmentTime || "N/A")}</p>
+      <p><strong>Address:</strong> ${escapeHtml(fullAddress || "N/A")}</p>
+      <p><strong>Total:</strong> $${escapeHtml(String(booking.totalPrice ?? "N/A"))}</p>
+      <p><strong>Extras:</strong> ${escapeHtml(extrasText)}</p>
     `;
 
     try {

@@ -1,6 +1,7 @@
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { verifyAdminAuth, createUnauthorizedResponse, createForbiddenResponse } from '../_shared/verify-admin-auth.ts';
+import { escapeHtml } from '../_shared/escapeHtml.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -100,7 +101,7 @@ async function checkAndFireAlert(
           body: {
             to: s.recipient_email,
             subject: `[Alert] ${title}`,
-            html: `<p>${message}</p>`,
+            html: `<p>${escapeHtml(message)}</p>`,
             purpose: 'transactional',
             template_name: 'zapier_failure_alert',
           },

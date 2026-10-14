@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getOrgEmailSettings, formatEmailFrom } from "../_shared/get-org-email-settings.ts";
 import { isServiceRoleRequest } from "../_shared/require-caller-org.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -165,7 +166,7 @@ const handler = async (req: Request): Promise<Response> => {
                 <tr>
                   <td style="padding: 32px; text-align: center;">
                     <p style="margin: 0 0 8px 0; color: #71717a; font-size: 14px;">
-                      Thanks for booking with us, ${customerName}!
+                      Thanks for booking with us, ${escapeHtml(customerName)}!
                     </p>
                     <p style="margin: 0 0 24px 0; color: #71717a; font-size: 14px;">
                       Booking #${bookingNumber}

@@ -9,8 +9,13 @@ test("days left is null once the trial has ended", () => {
   assert.equal(trialDaysLeft("2026-10-31T00:00:00.000Z", start + 30 * DAY), null);
 });
 
-test("a partial day still counts as a day left", () => {
-  assert.equal(trialDaysLeft(new Date(start + 30 * DAY).toISOString(), start + 25 * DAY + 1000), 5);
+test("whole days match Stripe Checkout's floor", () => {
+  // 4 days and almost 24 hours left is 4, the same floor Checkout prints.
+  assert.equal(trialDaysLeft(new Date(start + 30 * DAY).toISOString(), start + 25 * DAY + 1000), 4);
+});
+
+test("less than 24 hours left still shows one day", () => {
+  assert.equal(trialDaysLeft(new Date(start + 30 * DAY).toISOString(), start + 29 * DAY + 1000), 1);
 });
 
 test("day 25 of a 30-day trial is due once", () => {

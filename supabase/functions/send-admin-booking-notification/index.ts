@@ -5,6 +5,7 @@ import { ownerNewBookingEmailAllowed } from "../_shared/owner-notify-gates.ts";
 import { readOwnerChannels, type OwnerChannelReader } from "../_shared/read-owner-channels.ts";
 import { sendOrgEmail } from "../_shared/send-org-email.ts";
 import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -170,15 +171,15 @@ const handler = async (req: Request): Promise<Response> => {
               <div class="details-grid">
                 <div class="detail-row">
                   <span class="detail-label">Customer</span>
-                  <span class="detail-value">${customerName}</span>
+                  <span class="detail-value">${escapeHtml(customerName)}</span>
                 </div>
                 <div class="detail-row">
                   <span class="detail-label">Email</span>
-                  <span class="detail-value">${customerEmail}</span>
+                  <span class="detail-value">${escapeHtml(customerEmail)}</span>
                 </div>
                 <div class="detail-row">
                   <span class="detail-label">Service</span>
-                  <span class="detail-value">${serviceName}</span>
+                  <span class="detail-value">${escapeHtml(serviceName)}</span>
                 </div>
                 <div class="detail-row">
                   <span class="detail-label">Date</span>
@@ -191,7 +192,7 @@ const handler = async (req: Request): Promise<Response> => {
                 ${address ? `
                 <div class="detail-row">
                   <span class="detail-label">Address</span>
-                  <span class="detail-value">${address}</span>
+                  <span class="detail-value">${escapeHtml(address)}</span>
                 </div>
                 ` : ''}
               </div>
@@ -201,7 +202,7 @@ const handler = async (req: Request): Promise<Response> => {
                 <div class="amount-value">$${totalAmount.toFixed(2)}</div>
               </div>
               
-              ${emailSettings.email_footer ? `<hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;"><p style="font-size: 12px; color: #9ca3af;">${emailSettings.email_footer}</p>` : ''}
+              ${emailSettings.email_footer ? `<hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;"><p style="font-size: 12px; color: #9ca3af;">${escapeHtml(emailSettings.email_footer)}</p>` : ''}
             </div>
             <div class="footer">
               <p>This is an automated notification from your booking system.</p>

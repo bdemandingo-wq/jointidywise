@@ -4,6 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveCallerOrg, isServiceRoleRequest } from "../_shared/require-caller-org.ts";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { PLATFORM_SENDER_EMAIL } from "../_shared/email-sender-resolution.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -273,7 +274,7 @@ serve(async (req: Request) => {
                     subject: "You have a pending action in your TidyWise Cleaner Portal",
                     html: `
                       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-                        <h2 style="color:#1a1a2e;">Hi ${firstName},</h2>
+                        <h2 style="color:#1a1a2e;">Hi ${escapeHtml(firstName)},</h2>
                         <p style="color:#333;font-size:15px;line-height:1.6;">
                           You have a pending action in your TidyWise Cleaner Portal that needs your attention to keep receiving payouts.
                         </p>

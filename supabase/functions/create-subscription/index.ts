@@ -25,6 +25,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { ensureOnboardingCoupon, type OnboardingCouponOffer } from "../_shared/onboarding-coupons.ts";
 import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
+import { stripeTrialEndUnix } from "../_shared/trial-end.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -93,6 +94,8 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           error: `Stripe price for ${requestedPlan} ${requestedInterval} is not configured on the server yet. The operator needs to set STRIPE_${requestedPlan.toUpperCase()}_${requestedInterval.toUpperCase()}_PRICE_ID in Supabase secrets.`,
+          code: "price_not_configured",
+          plan: requestedPlan,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
       );
@@ -148,13 +151,38 @@ serve(async (req) => {
       { auth: { persistSession: false } },
     );
     if (user) {
-      const { data: existingOrg } = await accessAdmin
+      // limit(1) with no order picked an arbitrary membership. An owner of a
+      // trial org and another org could miss plan_type trial and get a
+      // different Stripe trial than the dashboard clock.
+      const { data: membershipRows } = await accessAdmin
         .from("org_memberships")
-        .select("organizations(id, plan_type, grandfathered_lifetime)")
-        .eq("user_id", user.id)
-        .limit(1)
-        .maybeSingle();
-      const org = (existingOrg as { organizations?: { id?: string; plan_type?: string; grandfathered_lifetime?: boolean } } | null)?.organizations;
+        .select("role, organizations(id, plan_type, grandfathered_lifetime)")
+        .eq("user_id", user.id);
+      type MembershipOrg = { id?: string; plan_type?: string; grandfathered_lifetime?: boolean };
+      const memberships = (membershipRows ?? []) as Array<{
+        role?: string;
+        organizations?: MembershipOrg | MembershipOrg[] | null;
+      }>;
+      const orgFrom = (row: (typeof memberships)[number]): MembershipOrg | null => {
+        const value = row.organizations;
+        if (!value) return null;
+        return Array.isArray(value) ? (value[0] ?? null) : value;
+      };
+      const requestedOrgId = typeof bodyData.organization_id === "string"
+        ? bodyData.organization_id.trim()
+        : typeof bodyData.organizationId === "string"
+          ? bodyData.organizationId.trim()
+          : "";
+      // The active org the client is looking at wins when this user is a
+      // member of it. Otherwise keep the previous fallback: a trial org,
+      // then an owner/admin membership, then the first row.
+      const requestedMembership = requestedOrgId
+        ? memberships.find((row) => orgFrom(row)?.id === requestedOrgId)
+        : undefined;
+      const trialMembership = memberships.find((row) => orgFrom(row)?.plan_type === "trial");
+      const ownerMembership = memberships.find((row) => row.role === "owner" || row.role === "admin");
+      const chosen = requestedMembership ?? trialMembership ?? ownerMembership ?? memberships[0];
+      const org = chosen ? orgFrom(chosen) : null;
       referredOrgId = org?.id ?? null;
       orgPlanType = org?.plan_type ?? null;
       if (org?.grandfathered_lifetime || org?.plan_type === "lifetime") {
@@ -233,20 +261,20 @@ serve(async (req) => {
       "https://jointidywise.com";
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
 
-    // Card-free trial lives on the org (plan_type trial + trial_ends_at),
-    // not on a Checkout session. This function is only the paid conversion.
+    // Card-free trial lives on the org (plan_type trial + trial_ends_at).
+    // Signup does not call this function for Basic, Pro, or Custom.
     //
-    // - Active org trial, more than 48h left: optional card, and the Stripe
-    //   trial ends on the SAME timestamp. No second trial, and Stripe
-    //   cancels at that time if they never add a card.
-    // - Org trial already over: card required, billed from today. The
-    //   paywall is not another free period.
-    // - Any other existing plan: keep the previous checkout (card required,
-    //   14-day Stripe trial). Those subscriptions are not rewritten.
+    // - Active org trial with at least 48h left: card required. trial_end
+    //   is the exact unix second of profiles.trial_ends_at. No
+    //   trial_period_days, so Stripe does not start a second trial or add
+    //   days. The card is charged when that existing trial ends.
+    // - Org trial under 48h or already over: card required, no trial_end
+    //   and no trial_period_days. Billing starts now. Stripe rejects
+    //   trial_end inside 48 hours.
+    // - Any other existing plan: card required, 14-day Stripe trial.
+    //   Those subscriptions are not rewritten.
     // - Anonymous first checkout: card optional, 30-day Stripe trial,
     //   cancel if no card when it ends.
-    // Stripe rejects trial_end inside 48 hours, so a last-day upgrade
-    // collects a card and starts billing instead of erroring.
 
     // The referred org's half of the programme: 50% off their first month.
     // Only orgs that arrived through someone's referral link, and only on
@@ -316,7 +344,6 @@ serve(async (req) => {
       }
     }
 
-    const MIN_TRIAL_END_LEAD_MS = 48 * 60 * 60 * 1000;
     let paymentMethodCollection: "always" | "if_required" = "if_required";
     const subscriptionData: {
       metadata: Record<string, string>;
@@ -329,17 +356,15 @@ serve(async (req) => {
     };
 
     if (user && orgPlanType === "trial") {
+      paymentMethodCollection = "always";
       const { data: trialProfile } = await accessAdmin
         .from("profiles")
         .select("trial_ends_at")
         .eq("id", user.id)
         .maybeSingle();
-      const endsMs = trialProfile?.trial_ends_at ? Date.parse(trialProfile.trial_ends_at) : NaN;
-      if (Number.isFinite(endsMs) && endsMs - Date.now() >= MIN_TRIAL_END_LEAD_MS) {
-        subscriptionData.trial_end = Math.floor(endsMs / 1000);
-        paymentMethodCollection = "if_required";
-      } else {
-        paymentMethodCollection = "always";
+      const trialEnd = stripeTrialEndUnix(trialProfile?.trial_ends_at);
+      if (trialEnd != null) {
+        subscriptionData.trial_end = trialEnd;
       }
     } else if (user && orgPlanType && orgPlanType !== "trial") {
       paymentMethodCollection = "always";

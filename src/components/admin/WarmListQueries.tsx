@@ -6,7 +6,9 @@ import { supabase } from '@/lib/supabase';
 import {
   fetchRecentOrgBookings,
   fetchOrgCustomers,
+  fetchDashboardUpcoming,
   bookingsRecentKey,
+  dashboardUpcomingKey,
 } from '@/hooks/useBookings';
 import {
   readStartupSection,
@@ -48,10 +50,26 @@ export function WarmListQueries() {
 
   useEffect(() => {
     if (!orgId) return;
-    // Leave the first second to the dashboard's own small read. These two
-    // lists are what Bookings and Customers render, so they are in flight
-    // before those routes mount.
-    const timer = window.setTimeout(() => {
+    // The dashboard skeleton waits on this small window. Start it as soon as
+    // the org id exists so it overlaps the subscription check.
+    void queryClient.prefetchQuery({
+      queryKey: dashboardUpcomingKey(orgId),
+      queryFn: () => fetchDashboardUpcoming(orgId),
+      staleTime: 60_000,
+    });
+  }, [orgId, queryClient]);
+
+  useEffect(() => {
+    if (!orgId) return;
+    // The full booking and customer lists are what those pages render. They
+    // wait until the upcoming window has landed so they do not compete with
+    // the query the first paint is blocked on.
+    const upcomingKey = dashboardUpcomingKey(orgId);
+    let started = false;
+    let timer = 0;
+    const startHeavy = () => {
+      if (started) return;
+      started = true;
       void queryClient.prefetchQuery({
         queryKey: bookingsRecentKey(orgId),
         queryFn: () => fetchRecentOrgBookings(orgId),
@@ -62,8 +80,24 @@ export function WarmListQueries() {
         queryFn: () => fetchOrgCustomers(orgId),
         staleTime: 1000 * 60 * 5,
       });
-    }, 1000);
-    return () => window.clearTimeout(timer);
+    };
+    const upcoming = queryClient.getQueryState(upcomingKey);
+    if (upcoming?.status === 'success') {
+      timer = window.setTimeout(startHeavy, 1500);
+    }
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      const key = event?.query?.queryKey;
+      if (!key || key[0] !== upcomingKey[0] || key[1] !== upcomingKey[1] || key[2] !== upcomingKey[2]) return;
+      if (event.query.state.status === 'success') {
+        timer = window.setTimeout(startHeavy, 1500);
+      }
+    });
+    const fallback = window.setTimeout(startHeavy, 12_000);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(fallback);
+      unsubscribe();
+    };
   }, [orgId, queryClient]);
 
   return null;

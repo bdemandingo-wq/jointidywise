@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { placeholderForSameOrg } from '@/lib/sameOrgPlaceholder';
 import { sendPushBestEffort } from '@/lib/pushNotify';
 import { supabase } from '@/lib/supabase';
 import { syncWidgetData } from '@/lib/syncWidgetData';
@@ -21,6 +22,7 @@ export interface TeamAssignment {
 
 export interface BookingWithDetails {
   id: string;
+  organization_id?: string | null;
   booking_number: number;
   scheduled_at: string;
   duration: number;
@@ -243,7 +245,7 @@ export async function fetchArchiveOrgBookings(organizationId: string): Promise<B
 export const bookingsRecentKey = (organizationId: string) => ['bookings', organizationId, 'recent'] as const;
 
 const DASHBOARD_UPCOMING_SELECT = `
-  id, booking_number, scheduled_at, duration, total_amount, status, payment_status,
+  id, organization_id, booking_number, scheduled_at, duration, total_amount, status, payment_status,
   address, city, state, zip_code, apt_suite,
   customer:customers(id, first_name, last_name, email, phone),
   service:services(id, name),
@@ -251,7 +253,7 @@ const DASHBOARD_UPCOMING_SELECT = `
 `;
 
 const DASHBOARD_CHART_SELECT = `
-  id, scheduled_at, total_amount, status, payment_status,
+  id, organization_id, scheduled_at, total_amount, status, payment_status,
   customer:customers(id)
 `;
 
@@ -295,7 +297,7 @@ export async function fetchDashboardCustomers(organizationId: string) {
   const start = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from('customers')
-    .select('id, created_at')
+    .select('id, created_at, organization_id')
     .eq('organization_id', organizationId)
     .is('merged_into', null)
     .gte('created_at', start)
@@ -397,6 +399,7 @@ export function useDashboardUpcoming() {
     enabled: !!organizationId,
     staleTime: 60_000,
     gcTime: 1000 * 60 * 60 * 24,
+    placeholderData: placeholderForSameOrg(organizationId),
   });
 }
 
@@ -411,18 +414,20 @@ export function useDashboardChart(ready = true) {
     enabled: !!organizationId && ready,
     staleTime: 5 * 60 * 1000,
     gcTime: 1000 * 60 * 60 * 24,
+    placeholderData: placeholderForSameOrg(organizationId),
   });
 }
 
-export function useDashboardCustomers() {
+export function useDashboardCustomers(ready = true) {
   const { organization } = useOrganization();
   const organizationId = organization?.id;
   return useQuery({
     queryKey: ['customers', 'dashboard', organizationId],
     queryFn: () => fetchDashboardCustomers(organizationId as string),
-    enabled: !!organizationId,
+    enabled: !!organizationId && ready,
     staleTime: 5 * 60 * 1000,
     gcTime: 1000 * 60 * 60 * 24,
+    placeholderData: placeholderForSameOrg(organizationId),
   });
 }
 
