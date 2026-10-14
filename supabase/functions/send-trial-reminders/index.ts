@@ -1,4 +1,5 @@
 import { sendResendEmail } from "../_shared/send-resend.ts";
+import { batchSendErrorPlan } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
@@ -167,26 +168,42 @@ serve(async (req) => {
 
     let emailed = false;
     if (RESEND_API_KEY && profile.email) {
-      const response = await sendResendEmail( { organizationId: org.id,
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${RESEND_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: "TidyWise <billing@jointidywise.com>",
-          to: [profile.email],
-          subject: title,
-          html: `<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a">
-            <h1 style="font-size:22px;margin:0 0 12px">${title}</h1>
-            <p style="color:#475569">${message}</p>
-            <p style="margin:24px 0"><a href="${APP_URL}/choose-plan?upgrade=1" style="background:#4f46e5;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Pick a plan</a></p>
-          </div>`,
-        }),
-      });
-      emailed = response.ok;
-      if (!response.ok) {
-        console.error("[trial-reminder] resend error", response.status, await response.text());
+      try {
+        const response = await sendResendEmail( { organizationId: org.id,
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${RESEND_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            from: "TidyWise <billing@jointidywise.com>",
+            to: [profile.email],
+            subject: title,
+            html: `<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a">
+              <h1 style="font-size:22px;margin:0 0 12px">${title}</h1>
+              <p style="color:#475569">${message}</p>
+              <p style="margin:24px 0"><a href="${APP_URL}/choose-plan?upgrade=1" style="background:#4f46e5;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Pick a plan</a></p>
+            </div>`,
+          }),
+        });
+        emailed = response.ok;
+        if (!response.ok) {
+          console.error("[trial-reminder] resend error", response.status, await response.text());
+        }
+      } catch (error) {
+        const plan = batchSendErrorPlan(error);
+        if (plan.demoSkip) {
+          console.log("[trial-reminder] skipped demo send", org.id);
+        } else {
+          console.error("[trial-reminder] send failed", org.id, error);
+        }
+        if (plan.releaseClaim) {
+          await supabase.from("trial_reminder_log").delete()
+            .eq("profile_id", profile.id)
+            .eq("reminder_day", reminderDay);
+        }
+        skipped++;
+        continue;
       }
     }
 

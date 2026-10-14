@@ -79,6 +79,23 @@ export function isDemoSendBlocked(error: unknown): boolean {
 }
 
 /**
+ * One recipient in a batch failed. Release any claim taken before the send
+ * and keep going. A demo skip and a real provider error are both contained
+ * to that recipient.
+ */
+export function batchSendErrorPlan(error: unknown): {
+  releaseClaim: true;
+  continueBatch: true;
+  demoSkip: boolean;
+} {
+  return {
+    releaseClaim: true,
+    continueBatch: true,
+    demoSkip: isDemoSendBlocked(error),
+  };
+}
+
+/**
  * A skipped demo send is not a delivery. Callers use this before writing
  * status "sent". A DemoSendBlocked error and a skip body both return false.
  */

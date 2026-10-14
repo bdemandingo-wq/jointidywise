@@ -6,6 +6,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendResendSdkEmail } from "../_shared/send-resend.ts";
+import { batchSendErrorPlan } from "../_shared/demo-org.ts";
 import { getOrgEmailSettings, formatEmailFrom } from "../_shared/get-org-email-settings.ts";
 import {
   resolveSender,
@@ -362,16 +363,23 @@ Give practical advice for a cleaning business owner.`;
         let fellBackTo: string | null = resolved.sender.usedFallback ? "platform" : null;
 
         const attempt = async () => {
-          const { data, error } = await sendResendSdkEmail(apiKey, {
-            from: fromHeader,
-            to: [adminEmail],
-            subject: wsSubject,
-            html: reportHtml,
-          }, { organizationId: org.id });
-          return { data, error };
+          try {
+            const { data, error } = await sendResendSdkEmail(apiKey, {
+              from: fromHeader,
+              to: [adminEmail],
+              subject: wsSubject,
+              html: reportHtml,
+            }, { organizationId: org.id });
+            return { data, error, demoSkip: false };
+          } catch (err) {
+            const plan = batchSendErrorPlan(err);
+            if (plan.demoSkip) return { data: null, error: null, demoSkip: true };
+            const message = err instanceof Error ? err.message : String(err);
+            return { data: null, error: { message }, demoSkip: false };
+          }
         };
 
-        let { data: sendData, error: sendError } = await attempt();
+        let { data: sendData, error: sendError, demoSkip } = await attempt();
 
         // Escalation. Without this Regal Rest still fails: its settings are
         // complete, so the first resolve returns the ORG identity, and only a
@@ -400,11 +408,13 @@ Give practical advice for a cleaning business owner.`;
             apiKey = platformKey as string;
             fromHeader = escalated.sender.from;
             fellBackTo = "platform";
-            ({ data: sendData, error: sendError } = await attempt());
+            ({ data: sendData, error: sendError, demoSkip } = await attempt());
           }
         }
 
-        if (sendError) {
+        if (demoSkip) {
+          console.log(`[weekly-business-report] skipped demo send for org ${org.id}`);
+        } else if (sendError) {
           const detail =
             typeof sendError === "string"
               ? sendError

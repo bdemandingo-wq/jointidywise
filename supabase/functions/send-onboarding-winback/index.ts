@@ -1,5 +1,6 @@
 import { createStripeClient } from "../_shared/stripe-client.ts";
 import { sendResendEmail } from "../_shared/send-resend.ts";
+import { batchSendErrorPlan } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -160,7 +161,9 @@ serve(async (req) => {
 
     let emailed = false;
     if (RESEND_API_KEY) {
+      try {
       const response = await sendResendEmail( {
+        organizationId: row.organization_id,
         method: "POST",
         headers: {
           Authorization: `Bearer ${RESEND_API_KEY}`,
@@ -180,6 +183,15 @@ serve(async (req) => {
       });
       emailed = response.ok;
       if (!response.ok) console.error("[onboarding-winback] resend error", response.status, await response.text());
+      } catch (error) {
+        const plan = batchSendErrorPlan(error);
+        if (plan.demoSkip) {
+          console.log("[onboarding-winback] skipped demo send", row.id);
+        } else {
+          console.error("[onboarding-winback] send failed", row.id, error);
+        }
+        emailed = false;
+      }
     }
 
     if (!emailed) {

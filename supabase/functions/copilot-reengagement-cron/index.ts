@@ -15,6 +15,7 @@ import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendResendSdkEmail } from "../_shared/send-resend.ts";
+import { batchSendErrorPlan } from "../_shared/demo-org.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import {
   formatEmailFrom,
@@ -102,6 +103,7 @@ serve(async (req: Request): Promise<Response> => {
         }
 
         const result = await dispatch(supabase, nudge);
+        if (result.demoSkipped) continue;
         if (result.success) {
           summary.nudges_sent++;
           summary.by_reason[nudge.reason] =
@@ -310,13 +312,14 @@ async function throttleOrPauseCheck(
 async function dispatch(
   supabase: SupabaseClient,
   nudge: PlannedNudge,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; demoSkipped?: boolean }> {
   if (nudge.channel === "in_app") {
     return await logAndReturn(supabase, nudge, true);
   }
 
   if (nudge.channel === "email") {
     const result = await sendEmail(nudge);
+    if (result.demoSkipped) return { success: false, demoSkipped: true };
     return await logAndReturn(supabase, nudge, result.success, {
       error: result.error,
       provider_message_id: result.providerMessageId,
@@ -325,6 +328,7 @@ async function dispatch(
 
   if (nudge.channel === "sms") {
     const result = await sendSms(nudge);
+    if (result.demoSkipped) return { success: false, demoSkipped: true };
     return await logAndReturn(supabase, nudge, result.success, {
       error: result.error,
       provider_message_id: result.providerMessageId,
@@ -336,7 +340,7 @@ async function dispatch(
 
 async function sendEmail(
   nudge: PlannedNudge,
-): Promise<{ success: boolean; providerMessageId?: string; error?: string }> {
+): Promise<{ success: boolean; providerMessageId?: string; error?: string; demoSkipped?: boolean }> {
   if (!nudge.recipient) return { success: false, error: "no recipient" };
 
   // The 7-day "from Emmanuel" nudge bypasses per-org Resend — it's literally
@@ -359,6 +363,8 @@ async function sendEmail(
       }
       return { success: true, providerMessageId: (r as { data?: { id: string } })?.data?.id };
     } catch (err) {
+      const plan = batchSendErrorPlan(err);
+      if (plan.demoSkip) return { success: false, demoSkipped: true };
       return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
@@ -385,13 +391,15 @@ async function sendEmail(
     }
     return { success: true, providerMessageId: (r as { data?: { id: string } })?.data?.id };
   } catch (err) {
+    const plan = batchSendErrorPlan(err);
+    if (plan.demoSkip) return { success: false, demoSkipped: true };
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
 async function sendSms(
   nudge: PlannedNudge,
-): Promise<{ success: boolean; providerMessageId?: string; error?: string }> {
+): Promise<{ success: boolean; providerMessageId?: string; error?: string; demoSkipped?: boolean }> {
   if (!nudge.recipient) return { success: false, error: "no recipient" };
   const apiKey = Deno.env.get("OPENPHONE_API_KEY");
   const fromNumber = Deno.env.get("OPENPHONE_FROM_NUMBER");
@@ -418,6 +426,8 @@ async function sendSms(
     const data = await res.json() as { data?: { id?: string } };
     return { success: true, providerMessageId: data?.data?.id };
   } catch (err) {
+    const plan = batchSendErrorPlan(err);
+    if (plan.demoSkip) return { success: false, demoSkipped: true };
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

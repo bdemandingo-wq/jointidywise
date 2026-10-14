@@ -19,6 +19,7 @@ import {
   isSampleSendTarget,
   shouldRecordDeliveryAsSent,
   stripeClientBlockReason,
+  batchSendErrorPlan,
 } from './demo-org.ts';
 
 const functionsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -199,6 +200,46 @@ test('a phone suppression is written only for a real opt-out', () => {
   const beforeOptOut = webhook.slice(0, optOutAt);
   assert.match(beforeOptOut, /optOutClassification\.needsReview/);
   assert.doesNotMatch(beforeOptOut, /sms_suppressions/);
+});
+
+test('a demo send failure releases the claim and the batch continues', () => {
+  const blocked = new Error('Disabled in demo mode');
+  blocked.name = 'DemoSendBlocked';
+  assert.deepEqual(batchSendErrorPlan(blocked), {
+    releaseClaim: true,
+    continueBatch: true,
+    demoSkip: true,
+  });
+  assert.deepEqual(batchSendErrorPlan(new Error('network')), {
+    releaseClaim: true,
+    continueBatch: true,
+    demoSkip: false,
+  });
+  const batchFiles = [
+    'send-trial-reminders/index.ts',
+    'send-onboarding-winback/index.ts',
+    'weekly-business-report/index.ts',
+    'run-winback-drip/index.ts',
+    'copilot-reengagement-cron/index.ts',
+  ];
+  for (const rel of batchFiles) {
+    const text = fs.readFileSync(path.join(functionsRoot, rel), 'utf8');
+    assert.match(text, /batchSendErrorPlan/, rel);
+    assert.match(text, /demoSkip/, rel);
+  }
+  const trial = fs.readFileSync(path.join(functionsRoot, 'send-trial-reminders/index.ts'), 'utf8');
+  const sendAt = trial.indexOf('await sendResendEmail');
+  const tryAt = trial.lastIndexOf('try {', sendAt);
+  assert.ok(tryAt !== -1 && tryAt < sendAt);
+  assert.match(trial, /from\("trial_reminder_log"\)\.delete\(\)/);
+  const winback = fs.readFileSync(path.join(functionsRoot, 'send-onboarding-winback/index.ts'), 'utf8');
+  assert.match(winback, /organizationId: row\.organization_id/);
+  assert.match(winback, /\[stampColumn\]: null/);
+  const copilot = fs.readFileSync(path.join(functionsRoot, 'copilot-reengagement-cron/index.ts'), 'utf8');
+  assert.match(copilot, /if \(result\.demoSkipped\) return \{ success: false, demoSkipped: true \}/);
+  const drip = fs.readFileSync(path.join(functionsRoot, 'run-winback-drip/index.ts'), 'utf8');
+  const dripSend = drip.indexOf('await sendOrgEmail');
+  assert.ok(drip.lastIndexOf('try {', dripSend) < dripSend);
 });
 
 test('Stripe still runs for a real org with demo mode on', () => {

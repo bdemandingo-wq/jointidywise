@@ -9,6 +9,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { batchSendErrorPlan } from "../_shared/demo-org.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -173,14 +174,26 @@ serve(async (req) => {
           });
 
           const { sendOrgEmail } = await import("../_shared/send-org-email.ts");
-          const sendResult = await sendOrgEmail({
-            templateName: "winback_drip",
-            marketing: true,
-            organizationId: org.id,
-            to: customer.email,
-            subject: resolvedSubject,
-            html,
-          });
+          let sendResult: { success?: boolean };
+          try {
+            sendResult = await sendOrgEmail({
+              templateName: "winback_drip",
+              marketing: true,
+              organizationId: org.id,
+              to: customer.email,
+              subject: resolvedSubject,
+              html,
+            });
+          } catch (error) {
+            const plan = batchSendErrorPlan(error);
+            if (plan.demoSkip) {
+              console.log(`[run-winback-drip] skipped demo send org=${org.id} customer=${customer.id}`);
+            } else {
+              console.error(`[run-winback-drip] send failed org=${org.id} customer=${customer.id}`, error);
+            }
+            results.skipped++;
+            continue;
+          }
 
           if (sendResult.success) {
             const { error: logErr } = await supabase.from("winback_drip_log").insert({

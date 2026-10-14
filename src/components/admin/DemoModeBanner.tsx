@@ -5,7 +5,7 @@ import { useOrgDemoToggle } from '@/lib/demo/useOrgDemoToggle';
 import { endPublicDemo, isPublicDemoActive, isSampleDemoOn, subscribeDemoMode } from '@/lib/demo/session';
 
 const BANNER_COPY =
-  'Demo mode is on. Real texts and emails to your customers and team are paused, including booking confirmations.';
+  'Demo mode is on. Real texts, emails and app notifications to your customers and team are paused, including booking confirmations.';
 
 export function DemoModeBanner() {
   const on = useSyncExternalStore(subscribeDemoMode, isSampleDemoOn, () => false);
