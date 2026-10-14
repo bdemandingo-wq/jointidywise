@@ -6,6 +6,11 @@ import { rejectReason, isVested } from "../_shared/referral-eligibility.ts";
 import { recordReferralInvoicePaid, recordReferralReversal, type BalanceClient } from "../_shared/saas-referral-db.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
 import { verifyStripeWebhook } from "../_shared/billing-stripe.ts";
+import {
+  cascadeCancelAdSubscriptionsIfDowngraded,
+  downgradeOrgOnSubscriptionDeleted,
+  subscriptionDeletedPlanFailure,
+} from "../_shared/subscription-deleted-plan.ts";
 
 /**
  * Count a redeemed referral month.
@@ -1557,6 +1562,8 @@ const handler = async (req: Request): Promise<Response> => {
     // plan access on the org. Without this branch the org's plan_type
     // stayed "standard" forever after cancellation — users kept full
     // access to the paid product for free until something else updated it.
+    // Lifetime and grandfathered orgs are excluded: deleting the old
+    // recurring subscription must not wipe plan_type lifetime.
     if (event.type === "customer.subscription.deleted") {
       try {
         const sub = event.data.object as Stripe.Subscription;
@@ -1590,8 +1597,9 @@ const handler = async (req: Request): Promise<Response> => {
         }
 
         // Branch 2: main TidyWise subscription cancelled — revoke paid
-        // plan access AND cascade-cancel any ad-management retainers
-        // for the same org (per spec: ads can't outlive TidyWise).
+        // plan access and, only when that downgrade writes a row,
+        // cascade-cancel ad-management retainers. Lifetime and
+        // grandfathered orgs keep their ad subscriptions.
         const customer = await stripe.customers.retrieve(sub.customer as string);
         const email = (customer as Stripe.Customer).email;
 
@@ -1622,77 +1630,53 @@ const handler = async (req: Request): Promise<Response> => {
                 })
                 .eq("stripe_subscription_id", sub.id);
 
-              await supabase
-                .from("organizations")
-                .update({ plan_type: "free" })
-                .eq("id", membership.organization_id);
-              console.log(
-                "[stripe-invoice-webhook] Subscription deleted, org reverted to free:",
+              // Guard is on the UPDATE: .neq(plan_type, lifetime) and a
+              // null-safe exclusion of grandfathered_lifetime true. A normal
+              // cancel, including grandfathered_lifetime null, still matches.
+              const { error: planErr, downgraded } = await downgradeOrgOnSubscriptionDeleted(
+                supabase,
                 membership.organization_id,
               );
-
-              // Cascade: cancel any active ad-management subs for this
-              // org in Stripe (which will fire their own
-              // customer.subscription.deleted events; the branch above
-              // marks them cancelled in our table) then mark them
-              // cancelled locally as a defensive write in case the
-              // Stripe-side cancel webhook is delayed.
-              const { data: adSubs, error: adSubsErr } = await supabase
-                .from("ad_management_subscriptions")
-                .select("stripe_subscription_id, platform")
-                .eq("organization_id", membership.organization_id)
-                .eq("status", "active");
-
-              if (adSubsErr) {
-                // If this lookup silently returns nothing, the cascade
-                // below runs zero iterations and any active ad-management
-                // subs keep billing after the parent plan is cancelled —
-                // exactly the safety net this cascade exists to prevent.
+              if (planErr) {
                 console.error(
-                  "[stripe-invoice-webhook] CRITICAL: could not look up ad-management subs to cascade-cancel — any active ones will keep billing:",
-                  { organizationId: membership.organization_id, error: adSubsErr },
+                  "[stripe-invoice-webhook] failed to revert org plan after subscription delete:",
+                  { organizationId: membership.organization_id, error: planErr },
                 );
-              }
-
-              for (const ad of adSubs ?? []) {
-                try {
-                  await stripe.subscriptions.cancel(ad.stripe_subscription_id);
-                  console.log(
-                    "[stripe-invoice-webhook] Cascade-cancelled ad sub:",
-                    ad.platform,
-                    ad.stripe_subscription_id,
-                  );
-                } catch (cancelErr) {
-                  console.error(
-                    "[stripe-invoice-webhook] cascade cancel failed:",
-                    cancelErr,
-                  );
-                }
-              }
-              if (adSubs && adSubs.length > 0) {
-                const { error: markCancelledErr } = await supabase
-                  .from("ad_management_subscriptions")
-                  .update({
-                    status: "cancelled",
-                    cancelled_at: new Date().toISOString(),
-                    cancellation_reason: "tidywise_subscription_cancelled",
-                  })
-                  .eq("organization_id", membership.organization_id)
-                  .eq("status", "active");
-                if (markCancelledErr) {
-                  console.error(
-                    "[stripe-invoice-webhook] cascade-cancelled in Stripe but failed to mark cancelled locally:",
-                    { organizationId: membership.organization_id, error: markCancelledErr },
-                  );
-                }
-
-                await sendAdminNotification(supabaseUrl, supabaseServiceKey, {
-                  organizationName: "Ad Mgmt Cascade-Cancelled",
-                  ownerEmail: email,
-                  subscriptionType: `${adSubs.length} ad-mgmt sub(s) cancelled along with TidyWise sub`,
-                }).catch((notifyErr) => {
-                  console.error("[stripe-invoice-webhook] cascade-cancel admin notification failed to send:", notifyErr);
-                });
+                // Same release as a failed refund write: drop this event's
+                // stripe_webhook_events row and return 500 so Stripe retries
+                // the downgrade and the ad cancel.
+                const failure = await subscriptionDeletedPlanFailure(supabase, event.id);
+                return new Response(
+                  JSON.stringify({ error: failure.error }),
+                  { status: failure.status, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+                );
+              } else if (downgraded) {
+                console.log(
+                  "[stripe-invoice-webhook] Subscription deleted, org reverted to free:",
+                  membership.organization_id,
+                );
+                // Same gate as the plan write: ads are cancelled only when
+                // the free-plan update affected a row.
+                await cascadeCancelAdSubscriptionsIfDowngraded(
+                  supabase,
+                  membership.organization_id,
+                  downgraded,
+                  {
+                    cancelStripeSubscription: (stripeSubscriptionId) =>
+                      stripe.subscriptions.cancel(stripeSubscriptionId),
+                    notifyAdmin: (activeCount) =>
+                      sendAdminNotification(supabaseUrl, supabaseServiceKey, {
+                        organizationName: "Ad Mgmt Cascade-Cancelled",
+                        ownerEmail: email,
+                        subscriptionType: `${activeCount} ad-mgmt sub(s) cancelled along with TidyWise sub`,
+                      }),
+                  },
+                );
+              } else {
+                console.log(
+                  "[stripe-invoice-webhook] Subscription deleted, left plan unchanged (lifetime or grandfathered):",
+                  membership.organization_id,
+                );
               }
             }
           }
