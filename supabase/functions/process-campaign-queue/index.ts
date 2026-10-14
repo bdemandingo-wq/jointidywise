@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 // process-campaign-queue
 //
 // PGMQ worker for campaign SMS. Modelled on process-email-queue: same
@@ -917,7 +918,7 @@ Deno.serve(async (req) => {
       let sendError = ''
 
       try {
-        const response = await fetch('https://api.openphone.com/v1/messages', {
+        const response = await sendOpenPhoneMessage( { organizationId: run.organization_id,
           method: 'POST',
           headers: {
             Authorization: smsSettings.openphone_api_key as string,

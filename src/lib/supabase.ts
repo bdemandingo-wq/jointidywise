@@ -11,6 +11,7 @@ import type { Database } from '@/integrations/supabase/types';
 import { Capacitor } from '@capacitor/core';
 import { getStorageAdapter } from '@/lib/capacitorStorage';
 import { SUPABASE_PUBLIC_ANON_KEY, SUPABASE_PUBLIC_URL } from '@/lib/supabasePublicEnv';
+import { installDemoGate } from '@/lib/demo/gate';
 
 // Supabase anon key is intentionally public — security enforced via RLS policies.
 const SUPABASE_URL = SUPABASE_PUBLIC_URL;
@@ -32,3 +33,7 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     detectSessionInUrl: !isNative,
   }
 });
+
+// Sample demo swaps business reads for in-memory rows and refuses writes.
+// Auth stays on this same client. The gate is a no-op until demo is on.
+installDemoGate(supabase as never);

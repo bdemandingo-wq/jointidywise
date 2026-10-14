@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import Joyride, {
   ACTIONS,
   CallBackProps,
@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { useOrgId } from '@/hooks/useOrgId';
 import { setProductTourActive } from '@/lib/productTourGate';
+import { isSampleDemoOn, subscribeDemoMode } from '@/lib/demo/session';
 
 // Short tour on the dashboard only. It used to navigate Help → Settings tabs
 // on every Next, and the Joyride overlay kept capturing clicks when the
@@ -103,6 +104,7 @@ function useNarrowViewport() {
 }
 
 export function ProductTour() {
+  const sampleDemo = useSyncExternalStore(subscribeDemoMode, isSampleDemoOn, () => false);
   const { user } = useAuth();
   const { organizationId } = useOrgId();
   const location = useLocation();
@@ -130,8 +132,9 @@ export function ProductTour() {
   const tourStartedLogged = useRef(false);
 
   // ── Eligibility check ──────────────────────────────────────────────────
+  // Sample demo must not read or write onboarding_progress / product_tour_events.
   useEffect(() => {
-    if (!user?.id || !organizationId) return;
+    if (sampleDemo || !user?.id || !organizationId) return;
     const key = `${user.id}:${organizationId}`;
     if (eligibilityCheckedFor.current === key) return;
     eligibilityCheckedFor.current = key;
@@ -167,13 +170,13 @@ export function ProductTour() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, organizationId, steps.length]);
+  }, [sampleDemo, user?.id, organizationId, steps.length]);
 
   // ── Step navigator ─────────────────────────────────────────────────────
   // Only on the dashboard itself. Never calls navigate — a missing target
   // skips that step instead of covering the page with an overlay.
   useEffect(() => {
-    if (!eligible) return;
+    if (sampleDemo || !eligible) return;
     if (location.pathname !== '/dashboard') {
       setRun(false);
       return;
@@ -212,12 +215,12 @@ export function ProductTour() {
     // markSkipped and logEvent are stable callbacks defined below; the effect
     // only needs to restart when the step or the route changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eligible, stepIndex, location.pathname, steps]);
+  }, [sampleDemo, eligible, stepIndex, location.pathname, steps]);
 
   // ── Persistence helpers ────────────────────────────────────────────────
   const saveStep = useCallback(
     async (next: number) => {
-      if (!organizationId) return;
+      if (sampleDemo || !organizationId) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db = supabase as any;
       await db
@@ -231,7 +234,7 @@ export function ProductTour() {
   );
 
   const markCompleted = useCallback(async () => {
-    if (!organizationId) return;
+    if (sampleDemo || !organizationId) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any;
     await db
@@ -246,7 +249,7 @@ export function ProductTour() {
   }, [organizationId]);
 
   const markSkipped = useCallback(async () => {
-    if (!organizationId) return;
+    if (sampleDemo || !organizationId) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any;
     await db
@@ -266,7 +269,7 @@ export function ProductTour() {
       step: number | null,
       metadata: Record<string, unknown> = {},
     ) => {
-      if (!user?.id || !organizationId) return;
+      if (sampleDemo || !user?.id || !organizationId) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const db = supabase as any;
       try {
@@ -365,7 +368,7 @@ export function ProductTour() {
 
   useEffect(() => () => releaseTourLock(), []);
 
-  if (!eligible) return null;
+  if (sampleDemo || !eligible) return null;
 
   return (
     <Joyride

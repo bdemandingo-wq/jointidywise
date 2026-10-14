@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // Creates a Stripe Checkout session for a $10 / 500-credit AI-credit top-up.
 // Charges the PLATFORM Stripe account (TidyWise), not the per-org Connect
 // account — orgs are buying a TidyWise product.
@@ -65,7 +66,7 @@ serve(async (req) => {
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { organizationId: organizationId, apiVersion: "2025-08-27.basil" });
 
     // Reuse an existing platform Stripe customer for this email, if any.
     const customers = await stripe.customers.list({ email: user.email, limit: 1 });

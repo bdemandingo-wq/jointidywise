@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@18.5.0";
@@ -116,7 +117,7 @@ serve(async (req) => {
         return jsonResponse({ error: "Authorization code is required" }, 400);
       }
 
-      const stripe = new Stripe(stripeSecretKey, { apiVersion: STRIPE_API_VERSION });
+      const stripe = await createStripeClient(stripeSecretKey, { organizationId: organization_id, apiVersion: STRIPE_API_VERSION });
       const response = await stripe.oauth.token({
         grant_type: "authorization_code",
         code,
@@ -214,7 +215,7 @@ serve(async (req) => {
         try {
           const apiKey = orgSecret?.stripe_access_token || orgSecret?.stripe_secret_key || null;
           if (apiKey) {
-            const stripe = new Stripe(apiKey, { apiVersion: STRIPE_API_VERSION });
+            const stripe = await createStripeClient(apiKey, { organizationId: organization_id, apiVersion: STRIPE_API_VERSION });
             const account = await stripe.accounts.retrieve(data.stripe_account_id);
             const liveDisplayName = account.business_profile?.name || account.settings?.dashboard?.display_name;
 
@@ -270,7 +271,7 @@ serve(async (req) => {
 
       if (settings?.stripe_account_id) {
         try {
-          const stripe = new Stripe(stripeSecretKey, { apiVersion: STRIPE_API_VERSION });
+          const stripe = await createStripeClient(stripeSecretKey, { organizationId: organization_id, apiVersion: STRIPE_API_VERSION });
           await stripe.oauth.deauthorize({
             client_id: stripeClientId,
             stripe_user_id: settings.stripe_account_id,
@@ -333,7 +334,7 @@ serve(async (req) => {
       }
 
       try {
-        const testStripe = new Stripe(secret_key, { apiVersion: STRIPE_API_VERSION });
+        const testStripe = await createStripeClient(secret_key, { organizationId: organization_id, apiVersion: STRIPE_API_VERSION });
 
         let accountEmail: string | null = null;
         let displayName: string | null = null;

@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -151,7 +152,7 @@ serve(async (req: Request) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const stripe = new Stripe(platformStripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(platformStripeKey, { organizationId: organizationId, apiVersion: "2025-08-27.basil" });
     console.log("[create-staff-connect-account] Using platform Stripe key for Connect account creation");
 
     // Check if account already exists

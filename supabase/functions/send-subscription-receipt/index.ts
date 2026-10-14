@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // SECURITY (2026-07-14): previously had zero caller check — anyone could
 // send an officially-branded "TidyWise receipt" email to any address with
 // any dollar amount/invoice text (phishing vector), and hosted_invoice_url
@@ -107,7 +108,7 @@ serve(async (req) => {
   </p>
 </div>`;
 
-    const res = await fetch("https://api.resend.com/emails", {
+    const res = await sendResendEmail( {
       method: "POST",
       headers: {
         Authorization: `Bearer ${RESEND_API_KEY}`,

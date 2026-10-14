@@ -228,7 +228,7 @@ export default function SchedulerPage() {
         </div>
       }
     >
-      <div className="portal-v2 portal-v2-scroll pv-compact">
+      <div id="demo-staff-scheduling" data-tour-id="demo-staff-scheduling" className="portal-v2 portal-v2-scroll pv-compact">
         <SchedulerCalendar statusFilter={statusFilter} staffFilter={staffFilter} />
       </div>
     </AdminLayout>

@@ -1,3 +1,5 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 // Synchronously reconcile a Stripe Checkout session.
 //
 // Why this exists:
@@ -47,7 +49,7 @@ async function alertAdmin(reason: string, details: Record<string, unknown>): Pro
       `⚠️ CHECKOUT RECONCILE FAILED\n\n${reason}\n\n` +
       Object.entries(details).map(([k, v]) => `${k}: ${v}`).join("\n") +
       `\n\nCustomer may be paid but not provisioned — needs manual check.`;
-    const res = await fetch("https://api.openphone.com/v1/messages", {
+    const res = await sendOpenPhoneMessage( {
       method: "POST",
       headers: {
         Authorization: apiKey.startsWith("Bearer ") ? apiKey : `Bearer ${apiKey}`,
@@ -80,7 +82,7 @@ serve(async (req) => {
     const stripeKey = billingSecretKey();
     if (!stripeKey) throw new Error("STRIPE_BILLING_SECRET_KEY is not set");
 
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",

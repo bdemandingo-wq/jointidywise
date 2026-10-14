@@ -634,6 +634,9 @@ export default function SignupPage() {
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {planMeta ? planMeta.ctaLabel : 'Create Account'}
               </Button>
+              <Button type="button" variant="outline" className="w-full" onClick={() => navigate('/demo?screen=dashboard')}>
+                Try the demo
+              </Button>
             </form>
 
             {/* Login link */}

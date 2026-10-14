@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
@@ -250,7 +251,7 @@ serve(async (req) => {
 
 
     // ── Step 1: Check Stripe for an active/trialing subscription first ──
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
     const customers = await stripe.customers.list({ email: user.email, limit: 1 });
 
     if (customers.data.length > 0) {

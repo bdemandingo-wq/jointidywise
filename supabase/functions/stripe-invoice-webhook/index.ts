@@ -1,3 +1,5 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
+import { postMakeSubscriptionWebhook } from "../_shared/make-subscription-webhook.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
@@ -288,18 +290,20 @@ const handler = async (req: Request): Promise<Response> => {
           .maybeSingle();
           
         let orgName = "New Business";
+        let makeOrgId: string | null = subMeta.organization_id || null;
         if (profile?.id) {
           const { data: membership } = await supabase
             .from('org_memberships')
-            .select('organization:organizations(name)')
+            .select('organization:organizations(id, name)')
             .eq('user_id', profile.id)
             .maybeSingle();
             
           if (membership?.organization) {
-            const org = membership.organization as unknown as { name: string };
+            const org = membership.organization as unknown as { id?: string; name: string };
             if (org?.name) {
               orgName = org.name;
             }
+            if (org?.id) makeOrgId = org.id;
           }
         }
         
@@ -312,24 +316,19 @@ const handler = async (req: Request): Promise<Response> => {
 
         // Trigger Make subscription confirmation email
         try {
-          const makeSubWebhookUrl = "https://hook.us2.make.com/1dcdsn08refadbtlbj1v1j8uxel4dwil";
           const profileData = await supabase
             .from('profiles')
             .select('full_name')
             .eq('email', email)
             .maybeSingle();
 
-          await fetch(makeSubWebhookUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email,
-              full_name: profileData?.data?.full_name || orgName,
-              organization_name: orgName,
-              subscription_status: subscription.status === 'trialing' ? 'Trial Started' : 'Active',
-              subscribed_at: new Date().toISOString(),
-            }),
-          });
+          await postMakeSubscriptionWebhook({
+            email,
+            full_name: profileData?.data?.full_name || orgName,
+            organization_name: orgName,
+            subscription_status: subscription.status === 'trialing' ? 'Trial Started' : 'Active',
+            subscribed_at: new Date().toISOString(),
+          }, { organizationId: makeOrgId });
           console.log("[stripe-invoice-webhook] Make subscription confirmation webhook triggered");
         } catch (makeErr) {
           console.error("[stripe-invoice-webhook] Make webhook failed (non-critical):", makeErr);
@@ -412,18 +411,20 @@ const handler = async (req: Request): Promise<Response> => {
             .maybeSingle();
             
           let orgName = "New Business";
+          let makeOrgId: string | null = organizationId;
           if (profile?.id) {
             const { data: membership } = await supabase
               .from('org_memberships')
-              .select('organization:organizations(name)')
+              .select('organization:organizations(id, name)')
               .eq('user_id', profile.id)
               .maybeSingle();
               
             if (membership?.organization) {
-              const org = membership.organization as unknown as { name: string };
+              const org = membership.organization as unknown as { id?: string; name: string };
               if (org?.name) {
                 orgName = org.name;
               }
+              if (org?.id) makeOrgId = org.id;
             }
           }
           
@@ -436,24 +437,19 @@ const handler = async (req: Request): Promise<Response> => {
 
           // Trigger Make subscription confirmation email
           try {
-            const makeSubWebhookUrl = "https://hook.us2.make.com/1dcdsn08refadbtlbj1v1j8uxel4dwil";
             const profileData = await supabase
               .from('profiles')
               .select('full_name')
               .eq('email', customerEmail)
               .maybeSingle();
 
-            await fetch(makeSubWebhookUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                email: customerEmail,
-                full_name: profileData?.data?.full_name || orgName,
-                organization_name: orgName,
-                subscription_status: 'New Subscription',
-                subscribed_at: new Date().toISOString(),
-              }),
-            });
+            await postMakeSubscriptionWebhook({
+              email: customerEmail,
+              full_name: profileData?.data?.full_name || orgName,
+              organization_name: orgName,
+              subscription_status: 'New Subscription',
+              subscribed_at: new Date().toISOString(),
+            }, { organizationId: makeOrgId });
             console.log("[stripe-invoice-webhook] Make subscription confirmation webhook triggered (checkout)");
           } catch (makeErr) {
             console.error("[stripe-invoice-webhook] Make webhook failed (non-critical):", makeErr);
@@ -1771,7 +1767,8 @@ async function sendAdminNotification(
 
   console.log(`[stripe-invoice-webhook] Sending admin notification to ${PLATFORM_ADMIN_PHONE}`);
 
-  const response = await fetch("https://api.openphone.com/v1/messages", {
+  const response = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
     method: "POST",
     headers: {
       "Authorization": openphoneApiKey,

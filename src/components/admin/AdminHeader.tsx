@@ -1,4 +1,4 @@
-import { ReactNode, Suspense, lazy, useState } from 'react';
+import { ReactNode, Suspense, lazy, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus } from 'lucide-react';
 import { AdminHeaderSearch } from '@/components/admin/AdminHeaderSearch';
@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/admin/ThemeToggle';
 import { useTestMode } from '@/contexts/TestModeContext';
 import { AdminNotificationBell } from '@/components/admin/AdminNotificationBell';
+import { isSampleDemoEnabled, subscribeDemoMode } from '@/lib/demo/session';
+import { useOrgDemoToggle } from '@/lib/demo/useOrgDemoToggle';
 
 
 // Performance: the booking dialog is a heavy multi-step flow; only load it when opened.
@@ -19,9 +21,28 @@ interface AdminHeaderProps {
   actions?: ReactNode;
 }
 
+function DemoHeaderToggle() {
+  const { on, publicDemo, toggle } = useOrgDemoToggle();
+
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant={on ? 'default' : 'outline'}
+      className="h-8 px-2.5 text-xs font-semibold"
+      aria-pressed={on}
+      disabled={publicDemo}
+      onClick={() => { void toggle(); }}
+    >
+      Demo
+    </Button>
+  );
+}
+
 export function AdminHeader({ title, actions }: AdminHeaderProps) {
   const [bookingDialogOpen, setBookingDialogOpen] = useState(false);
   const { isTestMode } = useTestMode();
+  const sampleOn = useSyncExternalStore(subscribeDemoMode, isSampleDemoEnabled, () => false);
 
   return (
     <>
@@ -35,12 +56,12 @@ export function AdminHeader({ title, actions }: AdminHeaderProps) {
               <div className="min-w-0 flex-1">
                 <h1 className="text-sm md:text-xl font-semibold text-foreground leading-tight truncate">{title}</h1>
               </div>
-              {isTestMode && (
+              {isTestMode && !sampleOn && (
                 <Link
                   to="/dashboard/settings?tab=general"
                   className="hidden md:inline text-xs font-medium text-warning underline-offset-2 hover:underline whitespace-nowrap"
                 >
-                  Demo mode on
+                  Names hidden
                 </Link>
               )}
             </div>
@@ -49,6 +70,7 @@ export function AdminHeader({ title, actions }: AdminHeaderProps) {
             <div className="hidden md:flex items-center gap-4 shrink-0">
               <AdminHeaderSearch />
               {actions}
+              <DemoHeaderToggle />
               <AdminNotificationBell />
               <ThemeToggle />
               <Button className="h-9 w-auto px-3 gap-2" onClick={() => setBookingDialogOpen(true)}>
@@ -59,14 +81,7 @@ export function AdminHeader({ title, actions }: AdminHeaderProps) {
 
             {/* Mobile: compact icon cluster only */}
             <div className="flex md:hidden items-center gap-1 shrink-0">
-              {isTestMode && (
-                <Link
-                  to="/dashboard/settings?tab=general"
-                  className="text-[11px] font-medium text-warning leading-tight max-w-[4.5rem]"
-                >
-                  Demo on
-                </Link>
-              )}
+              <DemoHeaderToggle />
               <AdminNotificationBell />
               <ThemeToggle />
             </div>

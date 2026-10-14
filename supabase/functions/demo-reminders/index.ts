@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
@@ -130,7 +131,7 @@ serve(async (req: Request) => {
       // 24-hour reminder to client (send between 23-25 hours before)
       if (hoursUntilDemo >= 23 && hoursUntilDemo <= 25 && !sentSet.has(`${demo.id}:24h_client`)) {
         try {
-          await fetch("https://api.openphone.com/v1/messages", {
+          await sendOpenPhoneMessage( {
             method: "POST",
             headers: {
               Authorization: smsSettings.openphone_api_key,
@@ -165,7 +166,7 @@ serve(async (req: Request) => {
 
         try {
           for (const adminPhone of ADMIN_PHONES) {
-            await fetch("https://api.openphone.com/v1/messages", {
+            await sendOpenPhoneMessage( {
               method: "POST",
               headers: {
                 Authorization: smsSettings.openphone_api_key,
@@ -200,7 +201,7 @@ serve(async (req: Request) => {
           ? `Join here: ${demo.meeting_link}`
           : `Emmanuel will call you at ${demo.phone}.`;
         try {
-          await fetch("https://api.openphone.com/v1/messages", {
+          await sendOpenPhoneMessage( {
             method: "POST",
             headers: {
               Authorization: smsSettings.openphone_api_key,

@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // Sends a "your password was changed" confirmation email after a successful
 // password reset. SECURITY: recipient is derived from the authenticated user's
 // own auth record — a body-supplied email is IGNORED so an attacker can't use
@@ -83,7 +84,7 @@ serve(async (req) => {
       </div>`;
 
     try {
-      await fetch("https://api.resend.com/emails", {
+      await sendResendEmail( {
         method: "POST",
         headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({

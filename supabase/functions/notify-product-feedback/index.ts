@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 
@@ -158,7 +159,7 @@ Deno.serve(async (req: Request) => {
     if (apiKey && phoneNumberId) {
       for (const phone of ADMIN_PHONES) {
         try {
-          const res = await fetch("https://api.openphone.com/v1/messages", {
+          const res = await sendOpenPhoneMessage( {
             method: "POST",
             headers: {
               Authorization: apiKey.trim().replace(/^Bearer\s+/i, ""),

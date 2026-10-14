@@ -1,6 +1,7 @@
 // Pulls recent OpenPhone messages into the app using only the org API key
 // and OpenPhone phone number ID. This is the inbound path when webhooks are
 // intentionally not used.
+import { OPENPHONE_MESSAGES_URL } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
@@ -257,7 +258,7 @@ async function syncOrganization(
     if (participants.length === 0) continue;
 
     try {
-      const msgUrl = new URL("https://api.openphone.com/v1/messages");
+      const msgUrl = new URL(OPENPHONE_MESSAGES_URL);
       msgUrl.searchParams.set("phoneNumberId", phoneNumberId);
       for (const participant of participants) msgUrl.searchParams.append("participants", participant);
       msgUrl.searchParams.set("createdAfter", createdAfter);

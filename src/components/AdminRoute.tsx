@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useSubscription } from '@/hooks/useSubscription';
 import { subscriptionRenderGate } from '@/lib/dashboardAccess';
+import { isPublicDemoActive } from '@/lib/demo/session';
 import { Loader2 } from 'lucide-react';
 
 interface AdminRouteProps {
@@ -181,8 +182,9 @@ export function AdminRoute({ children }: AdminRouteProps) {
     return <RouteSkeleton />;
   }
 
-  // Not logged in - redirect to login
+  // The public sample preview has no account. It never reaches billing or onboarding.
   if (!user) {
+    if (isPublicDemoActive()) return <>{children}</>;
     return <Navigate to="/login" replace />;
   }
 

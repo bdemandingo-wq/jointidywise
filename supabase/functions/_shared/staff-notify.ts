@@ -2,6 +2,7 @@
 // OpenPhone line and email identity. Never throws — a failed notice must not
 // undo a payment that already went through.
 import { sendOrgEmail } from "./send-org-email.ts";
+import { sendOpenPhoneMessage } from "./send-openphone.ts";
 
 export const PORTAL_URL = "https://www.jointidywise.com/staff";
 export const FORGOT_URL = "https://www.jointidywise.com/staff/login";
@@ -31,10 +32,11 @@ export async function sendStaffSms(supabase: any, organizationId: string, phone:
     let from = s.openphone_phone_number_id as string;
     const m = from.match(/phone-numbers\/([A-Za-z0-9]+)/);
     if (m) from = m[1];
-    const r = await fetch("https://api.openphone.com/v1/messages", {
+    const r = await sendOpenPhoneMessage({
       method: "POST",
       headers: { Authorization: s.openphone_api_key.trim().replace(/^Bearer\s+/i, ""), "Content-Type": "application/json" },
       body: JSON.stringify({ from, to: [to], content }),
+      organizationId,
     });
     if (!r.ok) console.error(`[${tag}] staff SMS failed`, r.status, await r.text());
     return r.ok;

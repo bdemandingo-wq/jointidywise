@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 
@@ -98,7 +99,7 @@ Complete your setup to start managing your cleaning business like a pro. Questio
 
     console.log(`[send-signup-welcome-sms] Sending to user ${userId} at ${formattedPhone}`);
 
-    const response = await fetch("https://api.openphone.com/v1/messages", {
+    const response = await sendOpenPhoneMessage( {
       method: "POST",
       headers: {
         "Authorization": apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`,

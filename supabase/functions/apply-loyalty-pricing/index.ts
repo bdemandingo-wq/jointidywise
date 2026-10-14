@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // Daily loyalty-price sync, also the invoice.upcoming endpoint.
 //
 // Attaches or replaces a forever amount-off coupon at the renewal boundary.
@@ -41,7 +42,7 @@ serve(async (req) => {
     });
   }
 
-  const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+  const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",

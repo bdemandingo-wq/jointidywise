@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // Grants the REFERRER their earned month(s) and reconciles them into a single
 // Stripe coupon on the referrer's subscription.
 //
@@ -193,7 +194,7 @@ serve(async (req) => {
 
     const stripeKey = billingSecretKey();
     if (!stripeKey) throw new Error("STRIPE_BILLING_SECRET_KEY is not set");
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
 
     const { data: referrerSub } = await admin
       .from("stripe_subscriptions")

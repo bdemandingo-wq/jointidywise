@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -110,7 +111,7 @@ serve(async (req) => {
       if (!platformStripeKey) {
         throw new Error("Platform Stripe key is not configured. Cannot process Stripe transfer.");
       }
-      const platformStripeClient = new Stripe(platformStripeKey, { apiVersion: "2025-08-27.basil" });
+      const platformStripeClient = await createStripeClient(platformStripeKey, { organizationId: organization_id, apiVersion: "2025-08-27.basil" });
 
       // Live check with Stripe right before moving money — the saved status can
       // be stale (Stripe may have asked for ID/bank info since it was synced).

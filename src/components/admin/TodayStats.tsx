@@ -43,7 +43,7 @@ export function TodayStats({ grossVolume, payments, customers }: TodayStatsProps
         )}
       >
         <div className="grid min-w-0 grid-cols-3 divide-x divide-border">
-          <div className="min-w-0 text-center px-2 md:px-4">
+          <div id="demo-revenue" data-tour-id="demo-revenue" className="min-w-0 text-center px-2 md:px-4">
             <p className="truncate text-xs text-muted-foreground mb-1 md:text-sm">Gross Volume</p>
             <p className={cn(
               "truncate text-base md:text-2xl font-bold transition-colors duration-300",

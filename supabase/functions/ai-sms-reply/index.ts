@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { anthropicChat, MODEL_HAIKU } from "../_shared/anthropic.ts";
@@ -302,7 +303,8 @@ ${historyText}`;
 
     const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
-    const smsResp = await fetch('https://api.openphone.com/v1/messages', {
+    const smsResp = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
       method: 'POST',
       headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from: phoneNumberId, to: [formattedPhone], content: generatedReply }),

@@ -284,10 +284,12 @@ async function sendViaResend(
       content_type: a.content_type,
     }));
   }
-  const res = await fetch("https://api.resend.com/emails", {
+  const { sendResendEmail } = await import("./send-resend.ts");
+  const res = await sendResendEmail({
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    organizationId: opts.organizationId,
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -300,6 +302,15 @@ async function sendViaResend(
  * High-level org sender. Handles Gmail SMTP → Resend fallback, daily limits, and failure logging.
  */
 export async function sendOrgEmail(opts: SendOrgEmailOptions): Promise<SendOrgEmailResult> {
+  const { demoSendShouldSkip } = await import("./demo-guard.ts");
+  const demoReason = await demoSendShouldSkip({
+    channel: "email",
+    organizationId: opts.organizationId,
+    recipients: toArr(opts.to),
+  });
+  if (demoReason) {
+    return { success: true, id: "demo-skipped", method: "none" };
+  }
   const settingsResult = await getOrgEmailSettings(opts.organizationId);
   if (!settingsResult.success || !settingsResult.settings) {
     // Settings-missing failures were previously unlogged — the customer email

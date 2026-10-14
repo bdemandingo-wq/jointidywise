@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // Platform admin notification on a new TidyWise signup.
 //
 // Previously sent SMS via OpenPhone to two platform admin phone numbers.
@@ -119,7 +120,7 @@ serve(async (req) => {
         <p style="color: #555; line-height: 1.6; margin-top: 16px;">Reply directly to this email to reach ${safeName} at ${safeEmail}.</p>
       </div>`;
 
-    const res = await fetch("https://api.resend.com/emails", {
+    const res = await sendResendEmail( {
       method: "POST",
       headers: {
         Authorization: `Bearer ${resendKey}`,

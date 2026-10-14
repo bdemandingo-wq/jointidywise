@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
@@ -119,7 +120,7 @@ serve(async (req: Request) => {
               <p>Prefers: ${escapeHtml(preferredDays?.join(", ") || "Any")} ${escapeHtml(preferredTime || "")}</p>
               <p style="color:#b91c1c;">Reach out to confirm a time.</p>
             </div>`;
-        await fetch("https://api.resend.com/emails", {
+        await sendResendEmail( {
           method: "POST",
           headers: {
             Authorization: `Bearer ${emailSettings.resend_api_key}`,
@@ -210,7 +211,7 @@ serve(async (req: Request) => {
         </div>`;
 
       try {
-        await fetch("https://api.resend.com/emails", {
+        await sendResendEmail( {
           method: "POST",
           headers: {
             Authorization: `Bearer ${emailSettings.resend_api_key}`,

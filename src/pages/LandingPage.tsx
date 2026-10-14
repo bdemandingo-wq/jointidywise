@@ -229,6 +229,9 @@ export default function LandingPage() {
               <Button variant="ghost" asChild className="text-sm font-medium text-primary"><Link to="/demo">Schedule Demo</Link></Button>
               <Button variant="ghost" asChild className="text-sm"><Link to="/login">Log In</Link></Button>
               <Button variant="ghost" asChild className="text-sm"><Link to="/signup">Sign Up</Link></Button>
+              <Button variant="outline" asChild className="text-sm">
+                <Link to="/demo?screen=dashboard">Try the demo</Link>
+              </Button>
               <Button variant="premium" asChild className="text-sm">
                 <Link to="/signup">
                   Start free
@@ -310,6 +313,9 @@ export default function LandingPage() {
                         <Button variant="ghost" asChild className="justify-start" onClick={closeMobileMenu}>
                           <Link to="/signup">Sign Up</Link>
                         </Button>
+                        <Button variant="outline" asChild className="justify-start" onClick={closeMobileMenu}>
+                          <Link to="/demo?screen=dashboard">Try the demo</Link>
+                        </Button>
                        <Button variant="premium" asChild className="mt-1" onClick={closeMobileMenu}>
                          <Link to="/signup">
                            Start free
@@ -351,7 +357,7 @@ export default function LandingPage() {
           </p>
 
           {/* CTA */}
-          <div className="flex flex-col sm:flex-row gap-3 max-w-xl mx-auto justify-center">
+          <div className="flex flex-col sm:flex-row flex-wrap gap-3 max-w-3xl mx-auto justify-center">
             <Button
               size="xl"
               variant="premium"
@@ -368,6 +374,13 @@ export default function LandingPage() {
               className="gap-2"
             >
               See plans
+            </Button>
+            <Button
+              size="xl"
+              variant="outline"
+              onClick={() => navigate("/demo?screen=dashboard")}
+            >
+              Try the demo
             </Button>
           </div>
           <div className="mt-4">

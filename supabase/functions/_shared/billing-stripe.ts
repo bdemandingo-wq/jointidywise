@@ -1,4 +1,5 @@
 import Stripe from "https://esm.sh/stripe@18.5.0";
+import { createStripeClientUnchecked, STRIPE_API_VERSION } from "./stripe-client.ts";
 
 /**
  * TidyWise's own Stripe account: subscriptions, lifetime, plan changes,
@@ -37,10 +38,10 @@ export function billingPaymentMethodConfiguration(): string | null {
   return id || null;
 }
 
-export const STRIPE_API_VERSION = "2025-08-27.basil" as const;
+export { STRIPE_API_VERSION };
 
 export function billingStripe(): Stripe {
-  return new Stripe(billingSecretKey(), { apiVersion: STRIPE_API_VERSION });
+  return createStripeClientUnchecked(billingSecretKey(), { apiVersion: STRIPE_API_VERSION });
 }
 
 export type StripeWebhookAccount = "connect" | "billing";
@@ -70,7 +71,7 @@ export async function verifyStripeWebhook(
 
   let lastMessage = "Webhook signature verification failed";
   for (const attempt of attempts) {
-    const stripe = new Stripe(attempt.key || "sk_placeholder", { apiVersion: STRIPE_API_VERSION });
+    const stripe = createStripeClientUnchecked(attempt.key || "sk_placeholder", { apiVersion: STRIPE_API_VERSION });
     try {
       const event = await stripe.webhooks.constructEventAsync(body, signature, attempt.secret);
       return { event, stripe, account: attempt.account };

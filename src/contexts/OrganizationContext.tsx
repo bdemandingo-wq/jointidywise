@@ -1,4 +1,5 @@
-import { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, useRef, ReactNode } from 'react';
+import { useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
@@ -17,6 +18,12 @@ import {
   startupOrgKey,
   writeStartupSection,
 } from '@/lib/startupCache';
+import {
+  demoOrganization,
+  isPublicDemoActive,
+  publicDemoMembership,
+  subscribeDemoMode,
+} from '@/lib/demo/session';
 
 export type { Organization, OrganizationMembership, OrgRole, OrgWithRole };
 
@@ -50,9 +57,24 @@ const ORG_CHOSEN_KEY = 'tidywise_org_chosen';
 
 const OrganizationContext = createContext<OrganizationContextType | undefined>(undefined);
 
+const publicDemoOrgValue: OrganizationContextType = {
+  organization: demoOrganization,
+  membership: publicDemoMembership,
+  loading: false,
+  resolution: 'ready',
+  switching: false,
+  isOwner: true,
+  isAdmin: true,
+  allOrganizations: [{ organization: demoOrganization, role: 'owner' }],
+  switchOrganization: () => {},
+  setOrganizationDirect: () => {},
+  refetch: async () => {},
+};
+
 export function OrganizationProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { user, loading: authLoading } = useAuth();
+  const publicDemo = useSyncExternalStore(subscribeDemoMode, isPublicDemoActive, () => false);
   const userId = user?.id ?? null;
   const cached = userId ? readStartupSection<OrgBundle>(userId, 'org') : null;
 
@@ -143,22 +165,34 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     membership?.role === 'admin' ||
     membership?.role === 'manager';
 
+  const liveValue = useMemo(() => ({
+    organization,
+    membership,
+    loading,
+    resolution,
+    switching,
+    isOwner,
+    isAdmin,
+    allOrganizations,
+    switchOrganization,
+    setOrganizationDirect,
+    refetch,
+  }), [
+    organization,
+    membership,
+    loading,
+    resolution,
+    switching,
+    isOwner,
+    isAdmin,
+    allOrganizations,
+    switchOrganization,
+    setOrganizationDirect,
+    refetch,
+  ]);
+
   return (
-    <OrganizationContext.Provider
-      value={{
-        organization,
-        membership,
-        loading,
-        resolution,
-        switching,
-        isOwner,
-        isAdmin,
-        allOrganizations,
-        switchOrganization,
-        setOrganizationDirect,
-        refetch,
-      }}
-    >
+    <OrganizationContext.Provider value={publicDemo && !userId ? publicDemoOrgValue : liveValue}>
       {children}
     </OrganizationContext.Provider>
   );

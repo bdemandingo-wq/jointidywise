@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { verifyAdminAuth, createUnauthorizedResponse, createForbiddenResponse } from "../_shared/verify-admin-auth.ts";
@@ -188,7 +189,7 @@ serve(async (req) => {
     // Do not restore the column grant without also revisiting this function.
     const sendEmail = async (subject: string) => {
       if (!resendKey) return false;
-      const res = await fetch("https://api.resend.com/emails", {
+      const res = await sendResendEmail( {
         method: "POST",
         headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({

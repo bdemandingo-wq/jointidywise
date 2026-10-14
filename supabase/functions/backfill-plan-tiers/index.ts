@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // One-shot backfill: reconciles organizations.plan_tier with Stripe.
 // Auth: requires the caller to pass BACKFILL_SECRET (matches PLAN_TIER_BACKFILL_SECRET env var).
 // - Lifetime/grandfathered orgs are locked to 'custom' (updated if not already).
@@ -27,7 +28,7 @@ serve(async (req) => {
     });
   }
 
-  const stripe = new Stripe(billingSecretKey() ?? "", { apiVersion: "2025-08-27.basil" });
+  const stripe = await createStripeClient(billingSecretKey() ?? "", { apiVersion: "2025-08-27.basil" });
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",

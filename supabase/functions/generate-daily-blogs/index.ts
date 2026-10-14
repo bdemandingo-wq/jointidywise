@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // generate-daily-blogs
 // Phase 3: queue-driven, single-post-per-invocation, draft-only with quality scoring.
 
@@ -426,7 +427,7 @@ async function sendFailureAlert(errors: string[]) {
   const resendKey = Deno.env.get("RESEND_API_KEY");
   if (!resendKey) { console.warn("RESEND_API_KEY not set — cannot send alert"); return; }
   try {
-    await fetch("https://api.resend.com/emails", {
+    await sendResendEmail( {
       method: "POST",
       headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({

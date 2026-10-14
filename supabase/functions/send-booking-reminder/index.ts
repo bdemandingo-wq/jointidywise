@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
@@ -310,7 +311,8 @@ const handler = async (req: Request): Promise<Response> => {
       // Send via OpenPhone
       let response: Response;
       try {
-        response = await fetch("https://api.openphone.com/v1/messages", {
+        response = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
           method: "POST",
           headers: { Authorization: authHeader, "Content-Type": "application/json" },
           body: JSON.stringify({ from: phoneNumberId, to: [formattedPhone], content: message }),

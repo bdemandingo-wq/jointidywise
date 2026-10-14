@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, ReactNode } from 'react';
 import { fmt } from '@/lib/activeCurrency';
-import { useOrganizationSettings } from '@/hooks/useOrganizationSettings';
 
 interface TestModeContextType {
   isTestMode: boolean;
@@ -28,22 +27,31 @@ function hashString(str: string): number {
   return Math.abs(hash);
 }
 
+const MASK_KEY = 'tw-mask-names';
+
 export function TestModeProvider({ children }: { children: ReactNode }) {
-  // Demo Mode (persisted org-level toggle) drives the same data masking as the
-  // local Test Mode flag. Either being on enables masking everywhere.
-  const { settings, toggleDemoMode } = useOrganizationSettings();
-  const demoModeEnabled = settings?.demo_mode_enabled ?? false;
-  const [localTestMode, setLocalTestMode] = useState(false);
-  const isTestMode = localTestMode || demoModeEnabled;
+  // Masking is its own switch, stored on this device. Demo mode (sample data
+  // plus the org flag the server uses to skip sends) does not hide names or amounts.
+  const [localTestMode, setLocalTestMode] = useState(() => {
+    try {
+      return localStorage.getItem(MASK_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const isTestMode = localTestMode;
 
   const toggleTestMode = () => {
-    // If demo mode is on, turn it off via the persisted toggle. Otherwise flip
-    // the local in-memory test mode flag.
-    if (demoModeEnabled) {
-      void toggleDemoMode();
-    } else {
-      setLocalTestMode((v) => !v);
-    }
+    setLocalTestMode((current) => {
+      const next = !current;
+      try {
+        if (next) localStorage.setItem(MASK_KEY, '1');
+        else localStorage.removeItem(MASK_KEY);
+      } catch {
+        /* private mode */
+      }
+      return next;
+    });
   };
 
   const maskName = (name: string): string => {

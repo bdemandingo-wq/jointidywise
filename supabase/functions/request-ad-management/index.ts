@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // Ad management intake — saves request and notifies platform admin via SMS.
 // Does NOT charge or create a Stripe subscription.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
@@ -173,7 +174,7 @@ serve(async (req) => {
               <tr><td style="padding: 4px 12px 4px 0; color: #888;">Contact:</td><td>${body.contact_name || ""} ${body.contact_email || user.email} ${body.contact_phone || ""}</td></tr>
             </table>
           </div>`;
-        await fetch("https://api.resend.com/emails", {
+        await sendResendEmail( { organizationId: orgId,
           method: "POST",
           headers: {
             "Authorization": `Bearer ${resendKey}`,

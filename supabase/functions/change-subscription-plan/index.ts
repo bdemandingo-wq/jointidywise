@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // Switch an existing Stripe subscription to a different tier.
 //
 //   mode = "upgrade"   → apply immediately with proration, charge now,
@@ -97,7 +98,7 @@ serve(async (req) => {
       );
     }
 
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
 
     // Trialing / past_due subscriptions are still upgradable. Filtering on
     // status:"active" only meant trial users got a bare 400 on upgrade.

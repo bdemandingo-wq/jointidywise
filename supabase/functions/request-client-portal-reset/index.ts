@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { PLATFORM_SENDER_FROM } from "../_shared/email-sender-resolution.ts";
@@ -81,7 +82,7 @@ serve(async (req) => {
       }
 
       const link = `${origin}/portal/reset-password?token=${encodeURIComponent(token)}`;
-      const response = await fetch("https://api.resend.com/emails", {
+      const response = await sendResendEmail( {
         method: "POST",
         headers: {
           Authorization: `Bearer ${resendKey}`,

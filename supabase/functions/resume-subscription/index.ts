@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // Resume a paused TidyWise CRM (platform) subscription early.
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
@@ -26,7 +27,7 @@ serve(async (req) => {
 
     const stripeKey = billingSecretKey();
     if (!stripeKey) throw new Error("STRIPE_BILLING_SECRET_KEY is not set");
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
 
     const customers = await stripe.customers.list({ email: userEmail, limit: 1 });
     if (customers.data.length === 0) {

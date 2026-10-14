@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // Preview proration for an upcoming subscription plan change.
 // Returns prorated amount due today, next billing amount, and next billing date.
 // Used by the in-app Upgrade modal.
@@ -80,7 +81,7 @@ serve(async (req) => {
       );
     }
 
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
 
     // A person on a trial (or whose latest invoice is retrying) still has a
     // real Stripe subscription — it just isn't "active". Filtering on

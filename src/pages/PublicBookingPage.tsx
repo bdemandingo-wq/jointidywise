@@ -63,6 +63,7 @@ import { StripeCardForm } from '@/components/stripe/StripeCardForm';
 import { selectedDateTimeToUTCISO } from '@/lib/timezoneUtils';
 import { orgDateKey, calendarDayKey } from '@/lib/orgDateRange';
 import { SEOHead } from '@/components/SEOHead';
+import { DemoModeBanner } from '@/components/admin/DemoModeBanner';
 import { TrackingPixels, trackConversion } from '@/components/TrackingPixels';
 import { fireAndForget } from '@/lib/mustAffectRows';
 
@@ -861,9 +862,12 @@ export default function PublicBookingPage() {
 
   return (
     <div
+      id="demo-booking-form"
+      data-tour-id="demo-booking-form"
       className={cn("min-h-screen", isLight ? "bg-white text-gray-900" : "bg-background")}
       style={{ ...baseThemeStyles, ...customColorStyles }}
     >
+      <DemoModeBanner />
       <TrackingPixels metaPixelId={trackingIds.meta_pixel_id} googleAnalyticsId={trackingIds.google_analytics_id} />
       {/* Header */}
       <header className={cn(isLight ? "bg-secondary border-b border-border" : "bg-sidebar text-sidebar-foreground")}>

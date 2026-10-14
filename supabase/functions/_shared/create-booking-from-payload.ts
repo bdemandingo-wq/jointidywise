@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "./send-openphone.ts";
 // Shared booking-creation logic.
 //
 // PURE MOVE: this file contains the validation schema plus the customer upsert,
@@ -466,7 +467,8 @@ async function runBookingNotifications(opts: {
           `Total: $${payload.total_amount?.toFixed(2) || '0.00'}`;
 
         const sendOpenPhone = (authHeader: string) =>
-          fetch('https://api.openphone.com/v1/messages', {
+          sendOpenPhoneMessage( {
+      organizationId: organizationId,
             method: 'POST',
             headers: {
               'Authorization': authHeader,

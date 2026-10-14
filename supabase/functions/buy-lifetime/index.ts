@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // One-time $300 lifetime checkout. Supports two flows:
 //
 //   1) Anonymous (checkout-first):
@@ -100,7 +101,7 @@ serve(async (req) => {
         );
       }
 
-      const stripeForLookup = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+      const stripeForLookup = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
       const customers = await stripeForLookup.customers.list({
         email: user.email,
         limit: 1,
@@ -108,7 +109,7 @@ serve(async (req) => {
       customerId = customers.data[0]?.id;
     }
 
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
 
     const origin =
       req.headers.get("origin") ||

@@ -5,7 +5,7 @@
 
 import * as React from "npm:react@18.3.1";
 import { renderAsync } from "https://esm.sh/@react-email/components@0.0.22?deps=react@18.3.1";
-import { Resend } from "https://esm.sh/resend@2.0.0";
+import { sendResendSdkEmail } from "./send-resend.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import {
@@ -817,7 +817,7 @@ export async function processOrg(
     ? (orgEmailSettings?.resend_api_key as string)
     : (platformKey as string);
 
-  let resend = new Resend(senderKey);
+  let apiKey = senderKey;
   const messageId = crypto.randomUUID();
   let fromHeader = resolved.sender.from;
   const replyTo = orgEmailSettings ? getReplyTo(orgEmailSettings) : PLATFORM_SENDER_FROM;
@@ -883,7 +883,7 @@ export async function processOrg(
   });
 
   const sendOnce = () =>
-    resend.emails.send({
+    sendResendSdkEmail(apiKey, {
       from: fromHeader,
       to: recipients,
       reply_to: replyTo,
@@ -891,7 +891,7 @@ export async function processOrg(
       html,
       text,
       headers: { "X-Message-ID": messageId },
-    });
+    }, { organizationId: org.id });
 
   let sendError: unknown = null;
   try {
@@ -918,7 +918,7 @@ export async function processOrg(
         `[payroll-period-report] org ${org.id}: org identity failed (${firstError}); ` +
         `retrying from the platform sender immediately.`,
       );
-      resend = new Resend(platformKey as string);
+      apiKey = platformKey as string;
       fromHeader = escalated.sender.from;
       pendingFallbackReason = String(escalated.sender.fallbackReason);
       // NO WAIT ON THIS PATH, deliberately. The identity itself has just changed,

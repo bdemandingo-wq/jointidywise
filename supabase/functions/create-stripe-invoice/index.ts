@@ -1,3 +1,5 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
@@ -96,7 +98,7 @@ const handler = async (req: Request): Promise<Response> => {
     const wantsEmail = data.sendEmail !== false;
     const wantsSms = data.sendSms !== false;
 
-    const stripe = new Stripe(stripeApiKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeApiKey, { organizationId: data.organizationId, apiVersion: "2025-08-27.basil" });
 
     // Need a valid email for Stripe customer - use provided or generate placeholder
     const emailForStripe = data.customerEmail || `noemail+${data.invoiceId.substring(0, 8)}@placeholder.local`;
@@ -263,7 +265,7 @@ const handler = async (req: Request): Promise<Response> => {
         const invLabel = resolvedInvoiceNumber ? `INV-${String(resolvedInvoiceNumber).padStart(4, '0')}` : 'your invoice';
         const smsContent = `Hi ${data.customerName}! 📄 ${invLabel} for $${data.totalAmount.toFixed(2)} from ${companyName}.${dueDateText}\n\nPay securely here: ${session.url}`;
 
-        const smsResponse = await fetch("https://api.openphone.com/v1/messages", {
+        const smsResponse = await sendOpenPhoneMessage( { organizationId: data.organizationId,
           method: "POST",
           headers: {
             "Authorization": openPhoneApiKey,

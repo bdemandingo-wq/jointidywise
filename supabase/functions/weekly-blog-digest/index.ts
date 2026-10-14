@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // weekly-blog-digest
 // Sends a Monday morning email summary of new draft blog posts from the past week.
 //
@@ -115,7 +116,7 @@ serve(async (req) => {
       </div>
     `;
 
-    const emailRes = await fetch("https://api.resend.com/emails", {
+    const emailRes = await sendResendEmail( {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({

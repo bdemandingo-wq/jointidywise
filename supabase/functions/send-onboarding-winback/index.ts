@@ -1,3 +1,5 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
+import { sendResendEmail } from "../_shared/send-resend.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -90,7 +92,7 @@ serve(async (req) => {
 
   let stripe: Stripe | null = null;
   const stripeKey = billingSecretKey();
-  if (stripeKey) stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+  if (stripeKey) stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
 
   let sent = 0;
   let skipped = 0;
@@ -158,7 +160,7 @@ serve(async (req) => {
 
     let emailed = false;
     if (RESEND_API_KEY) {
-      const response = await fetch("https://api.resend.com/emails", {
+      const response = await sendResendEmail( {
         method: "POST",
         headers: {
           Authorization: `Bearer ${RESEND_API_KEY}`,

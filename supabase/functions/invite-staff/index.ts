@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
@@ -443,7 +444,7 @@ serve(async (req) => {
       // Try Resend directly with platform key (works regardless of org email setup).
       const resendKey = Deno.env.get("RESEND_API_KEY");
       if (resendKey) {
-        await fetch("https://api.resend.com/emails", {
+        await sendResendEmail( { organizationId: organizationId,
           method: "POST",
           headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({

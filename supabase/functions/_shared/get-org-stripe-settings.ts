@@ -1,3 +1,4 @@
+import { createStripeClient } from "./stripe-client.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 
@@ -72,7 +73,7 @@ export async function getOrgStripeClient(organizationId: string): Promise<GetOrg
   }
 
   try {
-    const stripe = new Stripe(stripeApiKey, {
+    const stripe = await createStripeClient(stripeApiKey, { organizationId: organizationId,
       apiVersion: "2025-08-27.basil",
     });
 

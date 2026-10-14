@@ -2,6 +2,7 @@ import { ReactNode, useCallback, useEffect, useLayoutEffect, useState } from 're
 import { useQueryClient } from '@tanstack/react-query';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminHeader } from './AdminHeader';
+import { DemoModeBanner } from './DemoModeBanner';
 
 import { PlanStateBanner } from './PlanStateBanner';
 import { TrialDaysBanner } from './TrialDaysBanner';
@@ -179,6 +180,7 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
         "pl-0 md:pl-16",
         sidebarOpen && "md:pl-64"
       )}>
+        <DemoModeBanner />
         {!hideHeader && <AdminHeader title={title} subtitle={subtitle} actions={actions} />}
 
         <main

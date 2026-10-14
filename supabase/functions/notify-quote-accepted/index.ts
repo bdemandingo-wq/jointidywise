@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 // Fires when an admin marks a quote as accepted.
 // Sends the CUSTOMER:
 //   1. Email — "Your quote is approved, your service is booked"
@@ -122,7 +123,8 @@ serve(async (req) => {
           : `+1${body.customer_phone.replace(/\D/g, "")}`;
         const msg = `Hi ${firstName}, your quote ${quoteLabel} with ${orgName} is approved — your service is booked${totalDisplay ? ` (${totalDisplay})` : ""}. We'll follow up shortly with timing.`;
         try {
-          await fetch("https://api.openphone.com/v1/messages", {
+          await sendOpenPhoneMessage( {
+      organizationId: body.organization_id,
             method: "POST",
             headers: { Authorization: auth, "Content-Type": "application/json" },
             body: JSON.stringify({ from: phoneNumberId, to: [to], content: msg }),

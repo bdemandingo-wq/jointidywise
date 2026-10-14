@@ -1,3 +1,4 @@
+import { OPENPHONE_MESSAGES_URL, sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { anthropicChat, MODEL_HAIKU } from "../_shared/anthropic.ts";
@@ -98,7 +99,7 @@ async function fetchDoneConversationStyle(
       if (participants.length === 0) continue;
 
       try {
-        const msgUrl = new URL('https://api.openphone.com/v1/messages');
+        const msgUrl = new URL(OPENPHONE_MESSAGES_URL);
         msgUrl.searchParams.set('phoneNumberId', phoneNumberId);
         for (const p of participants) msgUrl.searchParams.append('participants', p);
         msgUrl.searchParams.set('maxResults', '10');
@@ -359,7 +360,8 @@ RULES:
     else if (!formattedPhone.startsWith('+')) formattedPhone = `+${formattedPhone}`;
 
     // Send via OpenPhone
-    const sendResp = await fetch('https://api.openphone.com/v1/messages', {
+    const sendResp = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
       method: 'POST',
       headers: { 'Authorization': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({

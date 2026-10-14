@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 /**
  * RESEND SUBSCRIPTION RECEIPT
  *
@@ -68,7 +69,7 @@ serve(async (req) => {
     }
     const email = userData.user.email;
 
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
     const customers = await stripe.customers.list({ email, limit: 1 });
     if (customers.data.length === 0) {
       return new Response(

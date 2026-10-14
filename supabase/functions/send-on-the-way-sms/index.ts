@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
@@ -293,7 +294,7 @@ const handler = async (req: Request): Promise<Response> => {
     const sendSms = async (to: string, content: string, label: string): Promise<{ success: boolean; messageId?: string; error?: string }> => {
       console.log(`[send-on-the-way-sms] Sending ${label} SMS to ${to}`);
       
-      const response = await fetch("https://api.openphone.com/v1/messages", {
+      const response = await sendOpenPhoneMessage( { organizationId: booking.organization_id,
         method: "POST",
         headers: {
           "Authorization": authHeader,

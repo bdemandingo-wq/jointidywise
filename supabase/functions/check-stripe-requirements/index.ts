@@ -1,5 +1,6 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
+import { sendResendEmail } from "../_shared/send-resend.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveCallerOrg, isServiceRoleRequest } from "../_shared/require-caller-org.ts";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
@@ -35,7 +36,7 @@ serve(async (req: Request) => {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const stripe = new Stripe(platformStripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(platformStripeKey, { apiVersion: "2025-08-27.basil" });
 
     // Optional: filter to specific org
     let requestedOrgId: string | null = null;
@@ -261,7 +262,7 @@ serve(async (req: Request) => {
                 const fromName = orgEmailSettings?.from_name || "TidyWise";
                 const fromEmail = orgEmailSettings?.from_email || PLATFORM_SENDER_EMAIL;
 
-                const resendRes = await fetch("https://api.resend.com/emails", {
+                const resendRes = await sendResendEmail( {
                   method: "POST",
                   headers: {
                     Authorization: `Bearer ${resendApiKey}`,

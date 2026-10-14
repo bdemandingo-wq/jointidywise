@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
@@ -166,7 +167,7 @@ serve(async (req) => {
 
     let emailed = false;
     if (RESEND_API_KEY && profile.email) {
-      const response = await fetch("https://api.resend.com/emails", {
+      const response = await sendResendEmail( { organizationId: org.id,
         method: "POST",
         headers: {
           Authorization: `Bearer ${RESEND_API_KEY}`,

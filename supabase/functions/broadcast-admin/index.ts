@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // Platform broadcast admin API. Four actions behind one entry point, because
 // they share auth, validation and rendering.
 //
@@ -191,7 +192,7 @@ serve(async (req: Request) => {
       unsubscribeUrl = `${supabaseUrl}/functions/v1/handle-email-unsubscribe?token=${token}`;
     }
 
-    const res = await fetch("https://api.resend.com/emails", {
+    const res = await sendResendEmail( {
       method: "POST",
       headers: {
         Authorization: `Bearer ${Deno.env.get("RESEND_API_KEY")}`,

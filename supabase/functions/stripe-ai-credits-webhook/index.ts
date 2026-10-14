@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // Stripe webhook for AI credit purchases (PLATFORM account, not Connect).
 // On `checkout.session.completed` with metadata.purpose === 'ai_credits_topup',
 // credits the ai_credit_ledger via the idempotent credit_ai_purchase RPC.
@@ -31,7 +32,7 @@ serve(async (req) => {
     return new Response("Server misconfigured", { status: 500, headers: corsHeaders });
   }
 
-  const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+  const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
   const signature = req.headers.get("stripe-signature");
   if (!signature) {
     return new Response("Missing stripe-signature", { status: 400, headers: corsHeaders });

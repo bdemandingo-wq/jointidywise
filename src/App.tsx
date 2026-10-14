@@ -45,6 +45,8 @@ import {
   markNativeIosDocument,
 } from '@/lib/nativeShell';
 import { Sentry } from '@/lib/sentry';
+import { isSampleDemoOn } from '@/lib/demo/session';
+import { PublicDemoBoundary } from '@/components/PublicDemoBoundary';
 
 // Landing is eager so the hero paints with the app shell. Heavy sections
 // inside the page stay lazy. Other public pages stay on their own chunks.
@@ -320,6 +322,7 @@ const App = () => (
           // for bookings/customers since a stale price could mis-charge
           // a customer.
           shouldDehydrateQuery: (q) =>
+            !isSampleDemoOn() &&
             q.state.status === 'success' &&
             // Never persist Map/Set data — it rehydrates as a plain object
             // and crashes on the next .get()/.has() (same class of bug as
@@ -388,6 +391,7 @@ const App = () => (
                 */}
                 {Capacitor.isNativePlatform() ? (
                   <HashRouter>
+                    <PublicDemoBoundary />
                     <IosBackSwipe />
                     <CopilotProvider>
                      <ErrorBoundary featureName="App">
@@ -538,6 +542,7 @@ const App = () => (
                 </HashRouter>
               ) : (
                 <BrowserRouter>
+                  <PublicDemoBoundary />
                   <CopilotProvider>
                  <ErrorBoundary featureName="App">
                    <Suspense fallback={<PageLoader />}>

@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { ownerNewBookingSmsAllowed } from "../_shared/owner-notify-gates.ts";
@@ -39,17 +40,18 @@ const formatE164US = (phone: string): string | null => {
   return null;
 };
 
-const sendOpenPhoneMessage = async (payload: {
+const deliverOpenPhone = async (payload: {
   apiKey: string;
   from: string;
   to: string;
   content: string;
+  organizationId?: string | null;
 }): Promise<Response> => {
   const authToken = payload.apiKey.trim().replace(/^Bearer\s+/i, "");
 
   // OpenPhone auth varies across tokens; try raw token first, then Bearer fallback on 401.
   const doSend = (authHeader: string) =>
-    fetch("https://api.openphone.com/v1/messages", {
+    sendOpenPhoneMessage( {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -60,6 +62,7 @@ const sendOpenPhoneMessage = async (payload: {
         to: [payload.to],
         content: payload.content,
       }),
+      organizationId: payload.organizationId,
     });
 
   let resp = await doSend(authToken);
@@ -211,7 +214,8 @@ serve(async (req) => {
     }
     message += `\n\nReview in ${companyName} dashboard.`;
 
-    const openPhoneResponse = await sendOpenPhoneMessage({
+    const openPhoneResponse = await deliverOpenPhone({
+      organizationId: organizationId,
       apiKey,
       from: phoneNumberId,
       to: adminPhone,

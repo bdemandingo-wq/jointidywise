@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -185,7 +186,8 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("[send-payment-link] Sending SMS via OpenPhone to:", formattedPhone);
 
-    const openPhoneResponse = await fetch("https://api.openphone.com/v1/messages", {
+    const openPhoneResponse = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,

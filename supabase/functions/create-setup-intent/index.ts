@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -131,7 +132,7 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    const stripe = new Stripe(stripeSecretKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeSecretKey, { organizationId: organizationId, apiVersion: "2025-08-27.basil" });
 
     // SECURITY FIX: Look for customer with matching email AND organization_id in metadata
     const customers = await stripe.customers.list({ email: email, limit: 100 });

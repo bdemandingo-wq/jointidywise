@@ -1,3 +1,5 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@18.5.0";
@@ -183,7 +185,7 @@ const handler = async (req: Request): Promise<Response> => {
       );
     }
 
-    const stripe = new Stripe(stripeSecretKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeSecretKey, { organizationId: organizationId, apiVersion: "2025-08-27.basil" });
 
     // Check if customer exists in Stripe, create if not
     let customerId: string;
@@ -281,7 +283,8 @@ const handler = async (req: Request): Promise<Response> => {
      // OpenPhone expects the raw API key in the Authorization header
      const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
-    const openPhoneResponse = await fetch('https://api.openphone.com/v1/messages', {
+    const openPhoneResponse = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
       method: 'POST',
       headers: {
         'Authorization': authHeader,

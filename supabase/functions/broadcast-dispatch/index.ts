@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // Broadcast worker. Cron-driven and resumable: it claims a slice of queued
 // recipients, sends each through Resend, and writes the outcome back to the
 // same row. Safe to invoke concurrently — the claim is per-row.
@@ -90,7 +91,7 @@ serve(async (req: Request) => {
       }
 
       try {
-        const res = await fetch("https://api.resend.com/emails", {
+        const res = await sendResendEmail( {
           method: "POST",
           headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
           body: JSON.stringify({

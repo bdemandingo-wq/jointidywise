@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 
@@ -69,7 +70,8 @@ const handler = async (req: Request): Promise<Response> => {
       `Time: ${timestamp}\n\n` +
       `View in admin panel.`;
 
-    const response = await fetch("https://api.openphone.com/v1/messages", {
+    const response = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
       method: "POST",
       headers: {
         "Authorization": openphoneApiKey.startsWith('Bearer ') ? openphoneApiKey : `Bearer ${openphoneApiKey}`,

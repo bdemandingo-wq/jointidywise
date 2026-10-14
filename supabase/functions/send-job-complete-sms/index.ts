@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
@@ -150,12 +151,12 @@ const handler = async (req: Request): Promise<Response> => {
       `Customer: ${customerLabel}\n` +
       `Address: ${formatFullAddress(booking as any) || 'N/A'}${amount}`;
 
-    const r = await fetch("https://api.openphone.com/v1/messages", {
+    const r = await sendOpenPhoneMessage( { organizationId: booking.organization_id,
       method: "POST",
       headers: { "Authorization": authHeader, "Content-Type": "application/json" },
       body: JSON.stringify({ from: phoneNumberId, to: [parseAlertPhones(adminPhone)[0] || formatPhoneNumber(adminPhone)], content: message }),
     });
-    await sendToExtraAlertPhones(parseAlertPhones(adminPhone).slice(1), phoneNumberId, authHeader, message, 'send-job-complete-sms');
+    await sendToExtraAlertPhones(parseAlertPhones(adminPhone).slice(1), phoneNumberId, authHeader, message, 'send-job-complete-sms', booking.organization_id);
     if (!r.ok) {
       console.error('[send-job-complete-sms] admin SMS failed:', r.status, await r.text());
     } else {

@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // billing-backfill — replays PLATFORM Stripe history into the owned revenue ledger.
 // Reads Stripe (read-only restricted key) and writes ONLY:
 //   public.billing_events, public.billing_subscription_periods, public.billing_backfill_jobs
@@ -492,7 +493,7 @@ Deno.serve(async (req) => {
       || ""
     ).trim();
     if (!key) return json({ error: "STRIPE_BILLING_SECRET_KEY is not set" }, 500);
-    const stripe = new Stripe(key, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(key, { apiVersion: "2025-08-27.basil" });
 
     // --- job row
     const { data: existing } = await admin

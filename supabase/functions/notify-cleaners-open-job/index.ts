@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
@@ -172,7 +173,8 @@ const handler = async (req: Request): Promise<Response> => {
           try {
             // OpenPhone expects the raw API key without "Bearer" prefix
             const authHeader = orgOpenPhoneApiKey.trim().replace(/^Bearer\s+/i, '');
-            const response = await fetch("https://api.openphone.com/v1/messages", {
+            const response = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
               method: "POST",
               headers: {
                 "Content-Type": "application/json",

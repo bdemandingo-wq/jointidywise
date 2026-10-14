@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // Tier-aware subscription checkout. Supports two flows:
 //
 //   1) Anonymous (checkout-first):
@@ -197,7 +198,7 @@ serve(async (req) => {
         );
       }
 
-      const stripeForLookup = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+      const stripeForLookup = await createStripeClient(stripeKey, { organizationId: referredOrgId, apiVersion: "2025-08-27.basil" });
       const customers = await stripeForLookup.customers.list({
         email: user.email,
         limit: 1,
@@ -260,7 +261,7 @@ serve(async (req) => {
       req.headers.get("origin") ||
       Deno.env.get("APP_URL") ||
       "https://jointidywise.com";
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { organizationId: referredOrgId, apiVersion: "2025-08-27.basil" });
 
     // Card-free trial lives on the org (plan_type trial + trial_ends_at).
     // Signup does not call this function for Basic, Pro, or Custom.

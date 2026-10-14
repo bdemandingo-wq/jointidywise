@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { isServiceRoleRequest } from "../_shared/require-caller-org.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
@@ -65,7 +66,7 @@ const handler = async (req: Request): Promise<Response> => {
     const authHeader = openPhoneApiKey.trim().replace(/^Bearer\s+/i, '');
 
     // Send SMS via OpenPhone
-    const openPhoneResponse = await fetch('https://api.openphone.com/v1/messages', {
+    const openPhoneResponse = await sendOpenPhoneMessage( {
       method: 'POST',
       headers: {
         'Authorization': authHeader,

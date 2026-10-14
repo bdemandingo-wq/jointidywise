@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getOrgEmailSettings } from "../_shared/get-org-email-settings.ts";
@@ -87,7 +88,7 @@ async function sendBookingSMS(
 
     console.log(`[send-booking-email] Sending SMS to ${formattedPhone}`);
 
-    const response = await fetch("https://api.openphone.com/v1/messages", {
+    const response = await sendOpenPhoneMessage( { organizationId: organizationId,
       method: "POST",
       headers: {
         "Authorization": smsSettings.openphone_api_key,

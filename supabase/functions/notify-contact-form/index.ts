@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // Contact form notifier. Sends two emails per submission:
 //   1. Admin alert to the public support inbox with the message
 //   2. Confirmation reply to the submitter so they know we received it
@@ -91,7 +92,7 @@ serve(async (req: Request) => {
         <p style="font-size: 12px; color: #888;">Reply directly to this email to respond to ${safeName}.</p>
       </div>`;
 
-    const adminRes = await fetch("https://api.resend.com/emails", {
+    const adminRes = await sendResendEmail( {
       method: "POST",
       headers: {
         Authorization: `Bearer ${resendKey}`,
@@ -136,7 +137,7 @@ serve(async (req: Request) => {
       </div>`;
 
     try {
-      const userRes = await fetch("https://api.resend.com/emails", {
+      const userRes = await sendResendEmail( {
         method: "POST",
         headers: {
           Authorization: `Bearer ${resendKey}`,

@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import {
   resolveTemplate,
   withStopSentence,
@@ -220,7 +221,8 @@ serve(async (req: Request) => {
         if (formattedPhone.length === 10) formattedPhone = `+1${formattedPhone}`;
         else if (!formattedPhone.startsWith("+")) formattedPhone = `+${formattedPhone}`;
 
-        const openPhoneResponse = await fetch("https://api.openphone.com/v1/messages", {
+        const openPhoneResponse = await sendOpenPhoneMessage( {
+      organizationId: item.organization_id,
           method: "POST",
           headers: { Authorization: authHeader, "Content-Type": "application/json" },
           body: JSON.stringify({ content: message, from: phoneNumberId, to: [formattedPhone] }),

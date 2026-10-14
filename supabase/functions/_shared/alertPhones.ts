@@ -17,13 +17,16 @@ export function parseAlertPhones(raw: string | null | undefined): string[] {
 /** Send the same text to extra alert numbers (best effort, logged). */
 export async function sendToExtraAlertPhones(
   phones: string[], from: string, authHeader: string, content: string, tag: string,
+  organizationId?: string | null,
 ): Promise<void> {
+  const { sendOpenPhoneMessage } = await import("./send-openphone.ts");
   for (const to of phones) {
     try {
-      const r = await fetch("https://api.openphone.com/v1/messages", {
+      const r = await sendOpenPhoneMessage({
         method: "POST",
         headers: { "Authorization": authHeader, "Content-Type": "application/json" },
         body: JSON.stringify({ from, to: [to], content }),
+        organizationId,
       });
       if (!r.ok) console.error(`[${tag}] extra alert SMS to ${to} failed:`, r.status, await r.text());
     } catch (e) {

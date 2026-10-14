@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronOrUser } from "../_shared/requireCronOrUser.ts";
 import { checkOrgEmailEligibility, unsubscribeFooterHtml } from "../_shared/emailEligibility.ts";
@@ -323,7 +324,7 @@ Deno.serve(async (req) => {
 
   // Send via Resend
   try {
-    const res = await fetch("https://api.resend.com/emails", {
+    const res = await sendResendEmail( { organizationId: orgId,
       method: "POST",
       headers: {
         Authorization: `Bearer ${RESEND_API_KEY}`,

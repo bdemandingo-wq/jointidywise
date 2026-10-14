@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLayoutEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { demoScreenPath } from "@/lib/demo/screens";
+import { startPublicDemo } from "@/lib/demo/session";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SEOHead } from "@/components/SEOHead";
@@ -42,8 +44,20 @@ const faqs = [
 
 export default function DemoPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const screenTarget = demoScreenPath(params.get('screen'));
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    if (!screenTarget) return;
+    startPublicDemo();
+    navigate(screenTarget, { replace: true });
+  }, [screenTarget, navigate]);
+
+  if (screenTarget) {
+    return <div className="min-h-screen bg-background" aria-busy="true" aria-label="Opening demo" />;
+  }
 
   return (
     <div className="portal-v2 portal-v2-scroll min-h-screen bg-background">

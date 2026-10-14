@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // SECURITY REVIEW (2026-07-14): intentionally public/unauthenticated.
 // Its only caller is src/pages/DeleteAccountPage.tsx (/delete-account), a
 // standalone public page with no login gate — by design, since someone
@@ -132,7 +133,8 @@ Submitted: ${new Date().toISOString()}
 Please verify the user's identity and process this deletion request within 7 business days.
     `.trim();
 
-    const res = await fetch("https://api.resend.com/emails", {
+    const res = await sendResendEmail( {
+      organizationId: organizationId,
       method: "POST",
       headers: {
         "Content-Type": "application/json",

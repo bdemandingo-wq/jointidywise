@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { Resend } from "https://esm.sh/resend@2.0.0";
+import { sendResendSdkEmail } from "../_shared/send-resend.ts";
 import { getOrgEmailSettings, formatEmailFrom } from "../_shared/get-org-email-settings.ts";
 import { isServiceRoleRequest } from "../_shared/require-caller-org.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
@@ -80,10 +80,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("[notify-subscription-cancelled] Using org email settings - from:", senderFrom, "to:", adminEmail);
 
-    const resend = new Resend(emailSettings.resend_api_key || RESEND_API_KEY);
-
-    // Send notification to the organization admin
-    const { data: sendData, error: sendError } = await resend.emails.send({
+    const { data: sendData, error: sendError } = await sendResendSdkEmail(emailSettings.resend_api_key || RESEND_API_KEY || "", {
       from: senderFrom,
       to: [adminEmail],
       subject: `Subscription Cancelled: ${customerName}`,
@@ -113,7 +110,7 @@ const handler = async (req: Request): Promise<Response> => {
         <p>Please follow up with this customer to understand their feedback and potentially win them back.</p>
         <p style="color: #666; font-size: 12px;">This is an automated notification from ${companyName}.</p>
       `,
-    });
+    }, { organizationId });
 
     if (sendError) {
       const detail =

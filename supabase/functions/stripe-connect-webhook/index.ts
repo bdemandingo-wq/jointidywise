@@ -1,3 +1,5 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
+import { sendResendEmail } from "../_shared/send-resend.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -53,7 +55,7 @@ serve(async (req: Request) => {
       });
     }
 
-    const stripe = new Stripe(platformStripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(platformStripeKey, { apiVersion: "2025-08-27.basil" });
     let event: Stripe.Event;
     try {
       // Deno-compatible async signature verification. The sync
@@ -218,7 +220,7 @@ serve(async (req: Request) => {
               const fromName = orgEmailSettings?.from_name || "TidyWise";
               const fromEmail = orgEmailSettings?.from_email || PLATFORM_SENDER_EMAIL;
 
-              await fetch("https://api.resend.com/emails", {
+              await sendResendEmail( {
                 method: "POST",
                 headers: {
                   Authorization: `Bearer ${resendApiKey}`,

@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // Churned-owner winback. Platform mail via Resend, on the verified
 // jointidywise.com domain. founder@mail is not a verified sender in this
 // repo, so the visible from-name is the founder's and the envelope address
@@ -301,7 +302,8 @@ async function deliver(
   const pageUrl = winbackPageUnsubscribeUrl(token);
   const oneClickUrl = oneClickUnsubscribeUrl(supabaseUrl, token);
   const message = buildWinbackEmail(recipient, step, pageUrl);
-  const response = await fetch("https://api.resend.com/emails", {
+  const response = await sendResendEmail( {
+      organizationId: organizationId,
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,

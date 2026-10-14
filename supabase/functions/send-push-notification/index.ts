@@ -23,6 +23,9 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { isServiceRoleRequest } from "../_shared/require-caller-org.ts";
 import { tokensForPush } from "../_shared/push-tokens.ts";
+import { defaultApnsEnv, deliverApns, otherApnsEnv, type ApnsEnv } from "../_shared/apns-deliver.ts";
+import { demoModeEnabledForOrg } from "../_shared/demo-guard.ts";
+import { isKnownDemoOrganization } from "../_shared/demo-org.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,122 +35,6 @@ const corsHeaders = {
 const log = (step: string, details?: any) => {
   console.log(`[PUSH] ${step}${details ? " — " + JSON.stringify(details) : ""}`);
 };
-
-// ── APNs JWT token (cached per invocation) ────────────────────────────────────
-let cachedJwt: { token: string; exp: number } | null = null;
-
-async function getApnsJwt(): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  if (cachedJwt && cachedJwt.exp > now + 60) return cachedJwt.token;
-
-  const keyId   = Deno.env.get("APNS_KEY_ID")!;
-  const teamId  = Deno.env.get("APNS_TEAM_ID")!;
-  const p8Key   = Deno.env.get("APNS_PRIVATE_KEY")!; // full PEM content
-
-  // Build JWT header + payload
-  const header  = { alg: "ES256", kid: keyId };
-  const payload = { iss: teamId, iat: now };
-
-  const enc = (obj: object) =>
-    btoa(JSON.stringify(obj)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
-
-  const signingInput = `${enc(header)}.${enc(payload)}`;
-
-  // Import EC private key from p8
-  const pemBody = p8Key
-    .replace(/-----BEGIN PRIVATE KEY-----/, "")
-    .replace(/-----END PRIVATE KEY-----/, "")
-    .replace(/\s/g, "");
-  const keyDer = Uint8Array.from(atob(pemBody), (c) => c.charCodeAt(0));
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    keyDer,
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"]
-  );
-
-  const signature = await crypto.subtle.sign(
-    { name: "ECDSA", hash: "SHA-256" },
-    cryptoKey,
-    new TextEncoder().encode(signingInput)
-  );
-
-  const sig64 = btoa(String.fromCharCode(...new Uint8Array(signature)))
-    .replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
-
-  const token = `${signingInput}.${sig64}`;
-  cachedJwt = { token, exp: now + 3600 };
-  return token;
-}
-
-type ApnsEnv = "sandbox" | "production";
-
-type ApnsResult =
-  | { ok: true }
-  | { ok: false; status: number; reason: string };
-
-function hostFor(env: ApnsEnv): string {
-  return env === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com";
-}
-
-/** Unset APNS_ENV prefers production so TestFlight/App Store tokens work. */
-function defaultApnsEnv(): ApnsEnv {
-  return Deno.env.get("APNS_ENV") === "sandbox" ? "sandbox" : "production";
-}
-
-function otherEnv(env: ApnsEnv): ApnsEnv {
-  return env === "production" ? "sandbox" : "production";
-}
-
-// ── Send one APNs push ────────────────────────────────────────────────────────
-async function sendApns(
-  deviceToken: string,
-  env: ApnsEnv,
-  title: string,
-  body: string,
-  data?: Record<string, string>,
-): Promise<ApnsResult> {
-  const bundleId = Deno.env.get("APNS_BUNDLE_ID") || "com.TidyWiseApp.app";
-  const jwt = await getApnsJwt();
-
-  // aps is assigned after custom keys so a data field cannot replace it.
-  // The sound name is the file in the app bundle. Omitting sound is a silent
-  // push. If this build does not contain the file yet, iOS plays the default.
-  const payload = {
-    ...(data ?? {}),
-    aps: {
-      alert: { title, body },
-      sound: "tidywise_chime.caf",
-      badge: 1,
-    },
-  };
-
-  const url = `https://${hostFor(env)}/3/device/${deviceToken}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      authorization: `bearer ${jwt}`,
-      "apns-topic": bundleId,
-      "apns-push-type": "alert",
-      "apns-priority": "10",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    let reason = errText;
-    try {
-      const parsed = JSON.parse(errText) as { reason?: string };
-      if (parsed?.reason) reason = parsed.reason;
-    } catch { /* body was not JSON */ }
-    log("APNs error", { status: res.status, reason, env, deviceToken: deviceToken.slice(0, 8) + "..." });
-    return { ok: false, status: res.status, reason };
-  }
-  return { ok: true };
-}
 
 // ── Main handler ──────────────────────────────────────────────────────────────
 serve(async (req) => {
@@ -209,6 +96,14 @@ serve(async (req) => {
           status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+    }
+
+    if (isKnownDemoOrganization(organization_id) || await demoModeEnabledForOrg(supabase, organization_id)) {
+      log("skipped demo org", { organization_id });
+      return new Response(JSON.stringify({ sent: 0, skipped: "demo_mode" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
     }
 
     log("Sending push", { organization_id, title, staff_id, audience });
@@ -300,15 +195,15 @@ serve(async (req) => {
         : null;
       const first = stored ?? defaultApnsEnv();
       let resolved: ApnsEnv | null = null;
-      let result = await sendApns(row.token, first, title, body, data);
+      let result = await deliverApns(row.token, first, title, body, data, organization_id);
 
       if (result.ok) {
         resolved = first;
       } else if (result.reason === "BadDeviceToken") {
         // Sandbox token sent to production, or the reverse. Remember the host
         // that actually accepted it so the next send doesn't pay this round trip.
-        const fallback = otherEnv(first);
-        const retry = await sendApns(row.token, fallback, title, body, data);
+        const fallback = otherApnsEnv(first);
+        const retry = await deliverApns(row.token, fallback, title, body, data, organization_id);
         if (retry.ok) {
           result = retry;
           resolved = fallback;

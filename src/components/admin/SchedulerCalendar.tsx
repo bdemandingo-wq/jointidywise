@@ -802,6 +802,8 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
       onDragEnd={handleDragEnd}
     >
       <div
+        id="demo-calendar"
+        data-tour-id="demo-calendar"
         className="bg-card rounded-xl border border-border shadow-sm flex flex-col h-[calc(100vh-10rem)] md:h-[calc(100vh-8rem)]"
         {...pullHandlers}
       >

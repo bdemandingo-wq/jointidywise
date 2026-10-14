@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
@@ -60,7 +61,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const stripe = new Stripe(stripeApiKey, {
+    const stripe = await createStripeClient(stripeApiKey, { organizationId: organization_id,
       apiVersion: "2023-10-16",
     });
 

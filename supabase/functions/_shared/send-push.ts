@@ -14,6 +14,9 @@ export async function sendPushToOrg(
   opts?: { audience?: "org" | "operators" },
 ): Promise<{ sent: number }> {
   try {
+    const { demoSendShouldSkip } = await import("./demo-guard.ts");
+    const reason = await demoSendShouldSkip({ channel: "push", organizationId });
+    if (reason) return { sent: 0 };
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!supabaseUrl || !serviceKey) return { sent: 0 };

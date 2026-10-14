@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 // copilot-reengagement-cron — hourly stall-detection and nudge dispatch.
 //
 // Loops every active org, evaluates the 5 stall conditions, and sends at most
@@ -13,7 +14,7 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { Resend } from "https://esm.sh/resend@2.0.0";
+import { sendResendSdkEmail } from "../_shared/send-resend.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import {
   formatEmailFrom,
@@ -345,15 +346,14 @@ async function sendEmail(
     if (!platformKey) {
       return { success: false, error: "Platform RESEND_API_KEY not configured" };
     }
-    const resend = new Resend(platformKey);
     try {
-      const r = await resend.emails.send({
+      const r = await sendResendSdkEmail(platformKey, {
         from: `${FOUNDER_NAME} <${FOUNDER_EMAIL}>`,
         to: [nudge.recipient],
         reply_to: FOUNDER_EMAIL,
         subject: nudge.subject ?? "Checking in",
         text: nudge.body,
-      });
+      }, { organizationId: nudge.organizationId });
       if ((r as { error?: { message: string } | null })?.error) {
         return { success: false, error: (r as { error: { message: string } }).error.message };
       }
@@ -372,15 +372,14 @@ async function sendEmail(
   if (!settingsResult.settings.resend_api_key) {
     return { success: false, error: "Org has no Resend API key configured" };
   }
-  const resend = new Resend(settingsResult.settings.resend_api_key);
   try {
-    const r = await resend.emails.send({
+    const r = await sendResendSdkEmail(settingsResult.settings.resend_api_key, {
       from: formatEmailFrom(settingsResult.settings),
       to: [nudge.recipient],
       reply_to: getReplyTo(settingsResult.settings),
       subject: nudge.subject ?? "Quick nudge from TidyWise",
       text: nudge.body,
-    });
+    }, { organizationId: nudge.organizationId });
     if ((r as { error?: { message: string } | null })?.error) {
       return { success: false, error: (r as { error: { message: string } }).error.message };
     }
@@ -400,7 +399,7 @@ async function sendSms(
     return { success: false, error: "OpenPhone not configured" };
   }
   try {
-    const res = await fetch("https://api.openphone.com/v1/messages", {
+    const res = await sendOpenPhoneMessage( { organizationId: nudge.organizationId,
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import {
   resolveTemplate,
   withStopSentence,
@@ -230,7 +231,8 @@ const handler = async (req: Request): Promise<Response> => {
     const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
     // Send SMS via OpenPhone API
-    const openPhoneResponse = await fetch('https://api.openphone.com/v1/messages', {
+    const openPhoneResponse = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
       method: 'POST',
       headers: {
         'Authorization': authHeader,

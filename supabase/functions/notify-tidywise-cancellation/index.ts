@@ -1,3 +1,4 @@
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // TidyWise SaaS subscription cancellation notifications.
 //
 // Fans out four messages on every cancellation:
@@ -153,7 +154,7 @@ serve(async (req: Request) => {
             ${tidywiseEmailFooterHtml()}
           </div>`;
 
-        await fetch("https://api.resend.com/emails", {
+        await sendResendEmail( {
           method: "POST",
           headers: {
             Authorization: `Bearer ${resendKey}`,
@@ -195,7 +196,7 @@ serve(async (req: Request) => {
             <p style="font-size: 13px; color: #888;">Reply to this email to reach ${escapeHtml(userName || "the customer")} directly.</p>
           </div>`;
 
-        await fetch("https://api.resend.com/emails", {
+        await sendResendEmail( {
           method: "POST",
           headers: {
             Authorization: `Bearer ${resendKey}`,

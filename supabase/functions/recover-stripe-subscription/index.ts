@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // One-shot recovery for a Stripe subscription that never linked to an org.
 //
 // Built after the jigdahifash@gmail.com incident: customer paid, Stripe
@@ -91,7 +92,7 @@ serve(async (req: Request) => {
   const admin = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+  const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
 
   const body = (await req.json().catch(() => ({}))) as RecoverBody;
   const mode = body.mode || "lookup";

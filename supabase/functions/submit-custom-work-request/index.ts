@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // Submit a done-for-you request from a Custom-plan customer.
 //
 // Enforces the 1-request-per-billing-period cap by checking
@@ -115,7 +116,7 @@ serve(async (req) => {
     let periodEnd: Date;
     if (stripeKey) {
       try {
-        const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+        const stripe = await createStripeClient(stripeKey, { organizationId: orgId, apiVersion: "2025-08-27.basil" });
         const customers = await stripe.customers.list({ email: user.email, limit: 1 });
         if (customers.data.length > 0) {
           const subs = await stripe.subscriptions.list({

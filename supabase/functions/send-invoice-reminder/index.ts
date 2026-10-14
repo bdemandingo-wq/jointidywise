@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
@@ -162,7 +163,8 @@ const handler = async (req: Request): Promise<Response> => {
         const smsContent = `Hi ${customerName}! 📋 Friendly reminder: Your invoice #${invoice.invoice_number} for $${invoice.total_amount.toFixed(2)} from ${companyName} is now ${daysAfterDue} day${daysAfterDue > 1 ? 's' : ''} past due.\n\n${paymentUrl ? `Pay now: ${paymentUrl}` : 'Please contact us to arrange payment.'}`;
 
         try {
-          const smsResponse = await fetch("https://api.openphone.com/v1/messages", {
+          const smsResponse = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
             method: "POST",
             headers: {
               "Authorization": smsSettings.openphone_api_key,

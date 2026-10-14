@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // Pause the user's TidyWise CRM (platform) subscription for 1/2/3 months
 // via Stripe pause_collection with a resumes_at. Does not cancel.
 
@@ -39,7 +40,7 @@ serve(async (req) => {
 
     const stripeKey = billingSecretKey();
     if (!stripeKey) throw new Error("STRIPE_BILLING_SECRET_KEY is not set");
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { organizationId: organizationId, apiVersion: "2025-08-27.basil" });
 
     const customers = await stripe.customers.list({ email: userEmail, limit: 1 });
     if (customers.data.length === 0) {

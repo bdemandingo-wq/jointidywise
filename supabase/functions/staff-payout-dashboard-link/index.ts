@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -40,7 +41,7 @@ serve(async (req) => {
 
     const key = Deno.env.get("STRIPE_SECRET_KEY");
     if (!key) return json({ error: "Payouts are not configured. Please contact support." }, 500);
-    const stripe = new Stripe(key, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(key, { organizationId: organizationId, apiVersion: "2025-08-27.basil" });
     try {
       const link = await stripe.accounts.createLoginLink(acct.stripe_account_id);
       return json({ url: link.url });

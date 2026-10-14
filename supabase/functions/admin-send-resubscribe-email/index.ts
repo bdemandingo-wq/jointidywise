@@ -1,3 +1,5 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
+import { sendResendEmail } from "../_shared/send-resend.ts";
 // Platform-admin-only: generates a Stripe payment link for the TidyWise Pro
 // $50/mo plan and emails it to the given customer so they can re-subscribe
 // themselves (preserves consent / avoids chargebacks vs. force-charging a
@@ -392,7 +394,7 @@ serve(async (req) => {
       );
     }
 
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
     const paymentLink = await stripe.paymentLinks.create({
       line_items: [{ price: proMonthlyPriceId, quantity: 1 }],
       metadata: {
@@ -406,7 +408,7 @@ serve(async (req) => {
 
     // --- Send email via Resend (platform-level, not org-scoped) ---
     const html = buildEmailHtml(url, ctx);
-    const resendRes = await fetch("https://api.resend.com/emails", {
+    const resendRes = await sendResendEmail( {
       method: "POST",
       headers: {
         Authorization: `Bearer ${resendKey}`,

@@ -5,7 +5,7 @@ import {
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { Resend } from "https://esm.sh/resend@2.0.0";
+import { sendResendSdkEmail } from "../_shared/send-resend.ts";
 import { getOrgEmailSettings, formatEmailFrom } from "../_shared/get-org-email-settings.ts";
 import {
   resolveSender,
@@ -358,16 +358,16 @@ Give practical advice for a cleaning business owner.`;
           source === "org" ? (orgSettings?.resend_api_key || platformKey) : platformKey;
 
         let fromHeader = resolved.sender.from;
-        let resend = new Resend(keyFor(resolved.sender.keySource) as string);
+        let apiKey = keyFor(resolved.sender.keySource) as string;
         let fellBackTo: string | null = resolved.sender.usedFallback ? "platform" : null;
 
         const attempt = async () => {
-          const { data, error } = await resend.emails.send({
+          const { data, error } = await sendResendSdkEmail(apiKey, {
             from: fromHeader,
             to: [adminEmail],
             subject: wsSubject,
             html: reportHtml,
-          });
+          }, { organizationId: org.id });
           return { data, error };
         };
 
@@ -397,7 +397,7 @@ Give practical advice for a cleaning business owner.`;
             // No backoff. An unverified From or a rejected key is a permanent
             // validation error — waiting cannot change it, only the identity
             // swap on the next two lines can.
-            resend = new Resend(platformKey as string);
+            apiKey = platformKey as string;
             fromHeader = escalated.sender.from;
             fellBackTo = "platform";
             ({ data: sendData, error: sendError } = await attempt());

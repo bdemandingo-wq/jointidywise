@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // Self-serve cancellation for a TidyWise CRM (platform SaaS) subscription.
 // - Sets cancel_at_period_end = true on the user's Stripe subscription.
 // - Writes a cancellation_feedback row capturing the reason.
@@ -79,7 +80,7 @@ serve(async (req) => {
 
     const stripeKey = billingSecretKey();
     if (!stripeKey) throw new Error("STRIPE_BILLING_SECRET_KEY is not set");
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const stripe = await createStripeClient(stripeKey, { organizationId: organizationId, apiVersion: "2025-08-27.basil" });
 
     // Find the platform customer + subscription for this user (by email)
     const customers = await stripe.customers.list({ email: userEmail, limit: 1 });

@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import {
   resolveTemplate,
   withStopSentence,
@@ -8,6 +9,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireOrgAdmin } from "../_shared/requireOrgAdmin.ts";
 import { isServiceRoleRequest, rejectUnauthenticated } from "../_shared/require-caller-org.ts";
 import { isPhoneOptedOut } from "../_shared/marketing-guard.ts";
+import { demoModeEnabledForOrg } from "../_shared/demo-guard.ts";
+import { isKnownDemoOrganization } from "../_shared/demo-org.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -70,6 +73,14 @@ const handler = async (req: Request): Promise<Response> => {
     if (!isServiceRoleRequest(req)) {
       const authResult = await requireOrgAdmin(req, organizationId);
       if (authResult instanceof Response) return authResult;
+    }
+
+    if (isKnownDemoOrganization(organizationId) || await demoModeEnabledForOrg(supabase, organizationId)) {
+      console.log(`[followup-abandoned-booking] skipped demo org ${organizationId}`);
+      return new Response(
+        JSON.stringify({ success: true, skipped: "demo_mode", sentCount: 0, failedCount: 0 }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     console.log(`[followup-abandoned-booking] Starting for org: ${organizationId}, threshold: ${hoursThreshold}h`);
@@ -209,7 +220,8 @@ const handler = async (req: Request): Promise<Response> => {
         }
         toPhone = '+' + toPhone;
 
-        const response = await fetch('https://api.openphone.com/v1/messages', {
+        const response = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
           method: 'POST',
           headers: {
             'Authorization': authHeader,

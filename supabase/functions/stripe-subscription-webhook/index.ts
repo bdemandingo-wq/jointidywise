@@ -1,3 +1,5 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 // Stripe subscription webhook — keeps organizations.plan_tier in sync.
 // Listens for customer.subscription.created / updated / deleted, resolves the
 // customer email -> owner user -> organization, and updates plan_tier based on
@@ -32,7 +34,7 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: "Stripe env not configured" }), { status: 500, headers: corsHeaders });
   }
 
-  const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
+  const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL") ?? "",
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
@@ -159,7 +161,7 @@ serve(async (req) => {
         if (openphoneApiKey && openphonePhoneNumberId) {
           for (const phone of ADMIN_PHONES) {
             try {
-              const res = await fetch("https://api.openphone.com/v1/messages", {
+              const res = await sendOpenPhoneMessage( { organizationId: membership.organization_id,
                 method: "POST",
                 headers: {
                   Authorization: openphoneApiKey.trim().replace(/^Bearer\s+/i, ""),

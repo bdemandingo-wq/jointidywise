@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkAndRecord, getClientIp } from "../_shared/rate-limit.ts";
@@ -276,7 +277,8 @@ serve(async (req) => {
 
     const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
-    const response = await fetch("https://api.openphone.com/v1/messages", {
+    const response = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
       method: "POST",
       headers: {
         "Authorization": authHeader,

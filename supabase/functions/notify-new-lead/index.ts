@@ -1,3 +1,4 @@
+import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 // Fires on every new lead. Two jobs, in this order:
 //   1. Dispatch lead.created to Zapier/GHL — closing the gap where only the
 //      frontend's manual create-lead mutation ever fired it, so Facebook,
@@ -310,7 +311,8 @@ serve(async (req: Request) => {
   // malformed address, so there is nothing to format here.
 
   try {
-    const res = await fetch("https://api.openphone.com/v1/messages", {
+    const res = await sendOpenPhoneMessage( {
+      organizationId: organizationId,
       method: "POST",
       headers: {
         Authorization: smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, ""),

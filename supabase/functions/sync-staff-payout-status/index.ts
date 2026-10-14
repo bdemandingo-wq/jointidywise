@@ -1,3 +1,4 @@
+import { createStripeClient } from "../_shared/stripe-client.ts";
 // Tracks Stripe payouts to cleaners: pending -> paid (bank payout started, expected
 // arrival known) -> deposited, or failed / reversed.
 // Two callers:
@@ -52,7 +53,7 @@ serve(async (req) => {
 
   const key = Deno.env.get("STRIPE_SECRET_KEY");
   if (!key) return json({ error: "Platform Stripe key not configured" }, 500);
-  const stripe = new Stripe(key, { apiVersion: "2025-08-27.basil" });
+  const stripe = await createStripeClient(key, { apiVersion: "2025-08-27.basil" });
 
   let q = admin.from("payroll_payments")
     .select("id, organization_id, staff_id, amount, stripe_transfer_id, payout_status, status_history, created_at")
