@@ -60,18 +60,25 @@ REVOKE ALL ON FUNCTION public.redact_old_cleaner_locations() FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.redact_old_cleaner_locations() FROM anon;
 REVOKE ALL ON FUNCTION public.redact_old_cleaner_locations() FROM authenticated;
 
+-- Unschedule by name first so a second run replaces the job instead of
+-- inserting a duplicate. Skip when pg_cron is not installed so the rest
+-- of this migration still applies.
 DO $$
-DECLARE r record;
 BEGIN
-  FOR r IN
-    SELECT jobname FROM cron.job WHERE jobname = 'redact-old-cleaner-locations'
-  LOOP
-    PERFORM cron.unschedule(r.jobname);
-  END LOOP;
-END $$;
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    RAISE WARNING 'pg_cron is not installed; cleaner location coordinates older than 30 days will not be cleared automatically';
+    RETURN;
+  END IF;
 
-SELECT cron.schedule(
-  'redact-old-cleaner-locations',
-  '15 7 * * *',
-  $$SELECT public.redact_old_cleaner_locations();$$
-);
+  BEGIN
+    PERFORM cron.unschedule('redact-old-cleaner-locations');
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+
+  PERFORM cron.schedule(
+    'redact-old-cleaner-locations',
+    '15 7 * * *',
+    $cron$ SELECT public.redact_old_cleaner_locations(); $cron$
+  );
+END $$;
