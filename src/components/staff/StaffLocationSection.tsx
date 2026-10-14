@@ -128,9 +128,15 @@ export function StaffLocationSection({ staffId }: { staffId: string }) {
 
   return (
     <StaffLocationSectionView
-      model={model}
       requesting={loc.requesting}
+      model={{
+        ...model,
+        // The web browser prompt waits for the On My Way consent sheet.
+        showTurnOn: loc.platform === 'web' ? false : model.showTurnOn,
+        showCheckAgain: loc.platform === 'web' ? false : model.showCheckAgain,
+      }}
       onTurnOn={() => {
+        if (loc.platform === 'web') return;
         void loc.request();
       }}
       onOpenSettings={loc.openSettings}

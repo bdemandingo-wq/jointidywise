@@ -3368,6 +3368,61 @@ export type Database = {
           },
         ]
       }
+      cleaner_location_consents: {
+        Row: {
+          copy_version: string
+          created_at: string
+          decision: string
+          id: string
+          organization_id: string
+          source: string
+          staff_id: string
+          user_id: string
+        }
+        Insert: {
+          copy_version: string
+          created_at?: string
+          decision: string
+          id?: string
+          organization_id: string
+          source: string
+          staff_id: string
+          user_id: string
+        }
+        Update: {
+          copy_version?: string
+          created_at?: string
+          decision?: string
+          id?: string
+          organization_id?: string
+          source?: string
+          staff_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cleaner_location_consents_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cleaner_location_consents_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cleaner_location_consents_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_safe"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cleaner_location_tracking: {
         Row: {
           arrived_at: string | null

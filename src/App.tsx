@@ -96,6 +96,9 @@ const NotificationsPage = lazy(() => import("./pages/admin/NotificationsPage"));
 const NotificationSettingsPreview = import.meta.env.DEV
   ? lazy(() => import("./pages/dev/NotificationSettingsPreview"))
   : null;
+const LocationConsentPreview = import.meta.env.DEV
+  ? lazy(() => import("./pages/dev/LocationConsentPreview"))
+  : null;
 const RecurringBookingsPage = lazy(() => import("./pages/admin/RecurringBookingsPage"));
 const LeadsPage = lazy(() => import("./pages/admin/LeadsPage"));
 const InventoryPage = lazy(() => import("./pages/admin/InventoryPage"));
@@ -340,6 +343,12 @@ const App = () => (
             // been removed from, rendering data they can no longer write to.
             !JSON.stringify(q.queryKey).includes('org-memberships') &&
             !JSON.stringify(q.queryKey).includes('my-staff-orgs') &&
+            // A cached "no consent row" would show the first-run location
+            // sheet again after the cleaner already answered it.
+            !JSON.stringify(q.queryKey).includes('cleaner-location-consent') &&
+            // The tracking switch defaults to off. A cached true would
+            // show the consent sheet after a remote kill.
+            !JSON.stringify(q.queryKey).includes('cleaner-location-tracking-enabled') &&
             // The archive is the long tail of booking history. It fills in
             // after the recent window and must not be parsed back into the
             // first paint.
@@ -535,6 +544,9 @@ const App = () => (
                     <Route path="/" element={<LandingPage />} />
                     {NotificationSettingsPreview && (
                       <Route path="/dev/notification-settings" element={<NotificationSettingsPreview />} />
+                    )}
+                    {LocationConsentPreview && (
+                      <Route path="/dev/location-consent" element={<LocationConsentPreview />} />
                     )}
                     <Route path="/cleaning-business-software" element={<CleaningBusinessSoftware />} />
                     <Route path="/cleaning-business-software/:locationSlug" element={<LocationSoftwarePage />} />

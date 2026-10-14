@@ -18,7 +18,7 @@ export interface LocationPermissionState {
   platform: LocationPlatform;
   native: boolean;
   requesting: boolean;
-  request: () => Promise<void>;
+  request: () => Promise<LocationStatusKind>;
   refresh: () => Promise<void>;
   openSettings: () => void;
 }
@@ -209,13 +209,14 @@ export function useLocationPermission(staffId?: string): LocationPermissionState
     };
   }, [native, refresh]);
 
-  const request = useCallback(async () => {
+  const request = useCallback(async (): Promise<LocationStatusKind> => {
     setRequesting(true);
     try {
       const next = await requestLocation();
       apply(next);
       toastFor(next.kind);
       if (staffId) await rememberPermission(staffId, next.kind);
+      return next.kind;
     } finally {
       setRequesting(false);
     }
