@@ -52,6 +52,19 @@ export const SMS_OPT_OUT_PHRASES = [
 
 const KEYWORD_SET = new Set<string>(SMS_OPT_OUT_KEYWORDS);
 
+/**
+ * First or last word of a message of at most 3 words. CANCEL and END are
+ * deliberately absent: "End time is 3?" must not opt anyone out.
+ */
+const SHORT_MESSAGE_OPT_OUT = new Set<string>([
+  "STOP",
+  "STOPALL",
+  "UNSUBSCRIBE",
+  "QUIT",
+  "OPTOUT",
+  "REVOKE",
+]);
+
 export interface SmsOptOutResult {
   /** Auto opt-out: exact keyword or a clear phrase. */
   optOut: boolean;
@@ -156,10 +169,51 @@ function includesPhrase(text: string, phrase: string): boolean {
   return ` ${text} `.includes(` ${phrase} `);
 }
 
+/** "stop sending", "quit texting", "unsubscribe messaging", and the same shape. */
+function channelOptOutPhrase(normalized: string): string | null {
+  const parts = normalized.split(" ").filter((part) => part.length > 0);
+  for (let i = 0; i < parts.length - 1; i++) {
+    const lead = parts[i];
+    const follow = parts[i + 1];
+    const leadMatches = lead === "stop" || lead === "quit" || lead === "unsubscribe";
+    const followMatches = follow === "sending"
+      || follow === "contacting"
+      || follow === "receiving"
+      || follow.startsWith("messag")
+      || follow.startsWith("text");
+    if (leadMatches && followMatches) return `${lead} ${follow}`;
+  }
+  return null;
+}
+
+/** Whole-message resubscribe keywords. Same normalization as the STOP matcher. */
+export const SMS_RESUBSCRIBE_KEYWORDS = ["START", "UNSTOP"] as const;
+
+const RESUBSCRIBE_SET = new Set<string>(SMS_RESUBSCRIBE_KEYWORDS);
+
+export function exactSmsToken(content: string | null | undefined): string | null {
+  if (typeof content !== "string" || content.trim().length === 0) return null;
+  const token = lettersOnly(content);
+  return token || null;
+}
+
+export function isExactResubscribe(content: string | null | undefined): boolean {
+  const token = exactSmsToken(content);
+  return token !== null && RESUBSCRIBE_SET.has(token);
+}
+
+/** One-word CANCEL or END. "Cancel my Friday cleaning" is not this. */
+export function isExactCancelOrEnd(content: string | null | undefined): boolean {
+  const token = exactSmsToken(content);
+  return token === "CANCEL" || token === "END";
+}
+
 export function classifySmsOptOut(content: string | null | undefined): SmsOptOutResult {
   if (typeof content !== "string" || content.trim().length === 0) return NO_MATCH;
 
   const exact = lettersOnly(content);
+  // START / UNSTOP are not opt-outs. They are handled by nextSmsConsent.
+  if (exact && RESUBSCRIBE_SET.has(exact)) return NO_MATCH;
   if (exact && KEYWORD_SET.has(exact)) {
     return { optOut: true, needsReview: false, matched: exact };
   }
@@ -172,6 +226,24 @@ export function classifySmsOptOut(content: string | null | undefined): SmsOptOut
     }
   }
 
+  const channelPhrase = channelOptOutPhrase(normalized);
+  if (channelPhrase) {
+    return { optOut: true, needsReview: false, matched: channelPhrase };
+  }
+
+  // "please stop", "STOP STOP", "stop now" — not "End time is 3?" or "please cancel".
+  const tokenWords = words(content);
+  if (tokenWords.length > 0 && tokenWords.length <= 3) {
+    const first = tokenWords[0];
+    const last = tokenWords[tokenWords.length - 1];
+    if (SHORT_MESSAGE_OPT_OUT.has(first)) {
+      return { optOut: true, needsReview: false, matched: first };
+    }
+    if (SHORT_MESSAGE_OPT_OUT.has(last)) {
+      return { optOut: true, needsReview: false, matched: last };
+    }
+  }
+
   for (const word of words(content)) {
     if (KEYWORD_SET.has(word)) {
       return { optOut: false, needsReview: true, matched: word };
@@ -179,6 +251,152 @@ export function classifySmsOptOut(content: string | null | undefined): SmsOptOut
   }
 
   return NO_MATCH;
+}
+
+/**
+ * Customer consent columns the webhook reads and writes.
+ * marketing_status_before_sms_stop is the value to put back on START.
+ * It is null for opt-outs recorded before that column existed.
+ */
+export interface SmsConsentState {
+  marketing_status: string;
+  opted_out_at: string | null;
+  opted_out_method: string | null;
+  opted_out_campaign_id: string | null;
+  marketing_status_before_sms_stop: string | null;
+}
+
+export interface SmsConsentStep {
+  state: SmsConsentState;
+  /** Write `state` back to the customer row. */
+  persist: boolean;
+  /** Automatic opt-out. One confirmation text, and no AI reply. */
+  optOut: boolean;
+  sendConfirmation: boolean;
+  /** Inbox flag: keyword in a sentence, or START while opted out another way. */
+  optOutReview: boolean;
+  /** START/UNSTOP cleared an sms_stop opt-out. No second text. */
+  smsResubscribed: boolean;
+  /** Skip the AI auto-reply. */
+  suppressAi: boolean;
+}
+
+const SMS_STOP_METHOD = "sms_stop";
+
+function optedOutAnotherWay(state: SmsConsentState): boolean {
+  if (state.opted_out_method === SMS_STOP_METHOD) return false;
+  if (state.marketing_status === "opted_out") return true;
+  return Boolean(state.opted_out_method);
+}
+
+function applySmsStop(state: SmsConsentState, now: string, campaignId: string | null): SmsConsentState {
+  const alreadySmsStop = state.opted_out_method === SMS_STOP_METHOD;
+  // A second STOP must not overwrite the saved consent with "opted_out".
+  const snapshot = alreadySmsStop || state.marketing_status === "opted_out"
+    ? state.marketing_status_before_sms_stop
+    : state.marketing_status;
+  return {
+    marketing_status: "opted_out",
+    opted_out_at: now,
+    opted_out_method: SMS_STOP_METHOD,
+    opted_out_campaign_id: campaignId,
+    marketing_status_before_sms_stop: snapshot,
+  };
+}
+
+function restoreSmsStop(state: SmsConsentState): SmsConsentState {
+  const saved = state.marketing_status_before_sms_stop;
+  // No stored prior consent: leave marketing_status alone. Never invent opted-in.
+  const marketingStatus = saved == null || saved === "" ? state.marketing_status : saved;
+  return {
+    marketing_status: marketingStatus,
+    opted_out_at: null,
+    opted_out_method: null,
+    opted_out_campaign_id: null,
+    marketing_status_before_sms_stop: null,
+  };
+}
+
+/**
+ * One inbound message applied to one customer row. Pure: no database and no SMS.
+ */
+export function nextSmsConsent(
+  state: SmsConsentState,
+  content: string | null | undefined,
+  now: string,
+  campaignId: string | null,
+): SmsConsentStep {
+  const unchanged: SmsConsentStep = {
+    state,
+    persist: false,
+    optOut: false,
+    sendConfirmation: false,
+    optOutReview: false,
+    smsResubscribed: false,
+    suppressAi: false,
+  };
+
+  if (isExactResubscribe(content)) {
+    if (state.opted_out_method === SMS_STOP_METHOD) {
+      return {
+        state: restoreSmsStop(state),
+        persist: true,
+        optOut: false,
+        sendConfirmation: false,
+        optOutReview: false,
+        smsResubscribed: true,
+        suppressAi: false,
+      };
+    }
+    if (optedOutAnotherWay(state)) {
+      return {
+        ...unchanged,
+        optOutReview: true,
+        suppressAi: true,
+      };
+    }
+    return unchanged;
+  }
+
+  const classified = classifySmsOptOut(content);
+  if (classified.optOut) {
+    if (optedOutAnotherWay(state)) {
+      return {
+        ...unchanged,
+        optOut: true,
+        sendConfirmation: true,
+        suppressAi: true,
+      };
+    }
+    return {
+      state: applySmsStop(state, now, campaignId),
+      persist: true,
+      optOut: true,
+      sendConfirmation: true,
+      optOutReview: false,
+      smsResubscribed: false,
+      suppressAi: true,
+    };
+  }
+
+  if (classified.needsReview) {
+    return { ...unchanged, optOutReview: true };
+  }
+
+  return unchanged;
+}
+
+/**
+ * The amber "they may want to cancel an appointment" tag stays up until a
+ * later START/UNSTOP in the same thread actually resubscribes them.
+ */
+export function cancelOptOutTagVisible(
+  messages: Array<{ content: string; smsResubscribed?: boolean | null }>,
+  index: number,
+): boolean {
+  const message = messages[index];
+  if (!message || !isExactCancelOrEnd(message.content)) return false;
+  return !messages.slice(index + 1).some((later) => later.smsResubscribed === true);
 }
 
 const CONFIRM_PREFIX = "You're unsubscribed from ";

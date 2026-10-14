@@ -4,9 +4,13 @@ import { analyzeSms } from "../../../src/lib/smsSegments.ts";
 import {
   GSM_7_BASIC,
   GSM_7_SINGLE_SEGMENT,
+  cancelOptOutTagVisible,
   classifySmsOptOut,
+  isExactResubscribe,
+  nextSmsConsent,
   optOutReplyAddress,
   renderOptOutConfirmation,
+  type SmsConsentState,
 } from "./sms-opt-out.ts";
 
 /**
@@ -35,7 +39,7 @@ const cases: Array<{ text: string; optOut: boolean; needsReview: boolean }> = [
   { text: "End time is 3?", optOut: false, needsReview: true },
   { text: "what time do you stop", optOut: false, needsReview: true },
   { text: "can you stop by at 2", optOut: false, needsReview: true },
-  { text: "quit job early", optOut: false, needsReview: true },
+  { text: "quit job early", optOut: true, needsReview: false },
 ];
 
 test("opt-out classification", () => {
@@ -67,8 +71,25 @@ test("other exact keywords and clear phrases opt out", () => {
   }
 });
 
-test("a keyword that is not the whole message is flagged, not an opt-out", () => {
-  for (const text of ["please stop", "stop please", "Cancel my Friday cleaning"]) {
+test("short STOP-family messages opt out; CANCEL and END stay whole-message only", () => {
+  for (const text of [
+    "please stop",
+    "stop please",
+    "STOP STOP",
+    "stop now",
+    "stop it",
+    "please unsubscribe",
+    "stop sending me texts",
+    "stop contacting me",
+    "quit texting me",
+    "stop receiving these",
+    "unsubscribe messaging",
+  ]) {
+    const result = classifySmsOptOut(text);
+    assert.equal(result.optOut, true, text);
+    assert.equal(result.needsReview, false, text);
+  }
+  for (const text of ["please cancel", "please end", "end now", "Cancel my Friday cleaning"]) {
     const result = classifySmsOptOut(text);
     assert.equal(result.optOut, false, text);
     assert.equal(result.needsReview, true, text);
@@ -115,6 +136,184 @@ function assertGsm7BasicConfirmation(rendered: string): void {
   assert.equal(info.culprit, null);
   assert.equal(info.segments, 1);
 }
+
+function activeCustomer(): SmsConsentState {
+  return {
+    marketing_status: "active",
+    opted_out_at: null,
+    opted_out_method: null,
+    opted_out_campaign_id: null,
+    marketing_status_before_sms_stop: null,
+  };
+}
+
+test("START and UNSTOP match the whole message only", () => {
+  for (const text of ["START", "start", " Start ", "START!", "UNSTOP", "unstop.", "  Unstop  "]) {
+    assert.equal(isExactResubscribe(text), true, text);
+    assert.equal(classifySmsOptOut(text).optOut, false, text);
+  }
+  for (const text of ["start my service", "please start", "UNSTOP texting", "STOP", "Cancel"]) {
+    assert.equal(isExactResubscribe(text), false, text);
+  }
+});
+
+test("START restores sms_stop consent and leaves a manual opt-out alone", () => {
+  const smsStop: SmsConsentState = {
+    marketing_status: "opted_out",
+    opted_out_at: "2026-10-01T00:00:00.000Z",
+    opted_out_method: "sms_stop",
+    opted_out_campaign_id: "camp-1",
+    marketing_status_before_sms_stop: "active",
+  };
+  const started = nextSmsConsent(smsStop, "START", "2026-10-02T00:00:00.000Z", null);
+  assert.equal(started.smsResubscribed, true);
+  assert.equal(started.sendConfirmation, false);
+  assert.equal(started.persist, true);
+  assert.deepEqual(started.state, activeCustomer());
+
+  const unstopped = nextSmsConsent(smsStop, "UNSTOP!", "2026-10-02T00:00:00.000Z", null);
+  assert.deepEqual(unstopped.state, activeCustomer());
+  assert.equal(unstopped.sendConfirmation, false);
+
+  const manual: SmsConsentState = {
+    marketing_status: "opted_out",
+    opted_out_at: "2026-09-01T00:00:00.000Z",
+    opted_out_method: "manual",
+    opted_out_campaign_id: null,
+    marketing_status_before_sms_stop: null,
+  };
+  const blocked = nextSmsConsent(manual, " start ", "2026-10-02T00:00:00.000Z", null);
+  assert.equal(blocked.smsResubscribed, false);
+  assert.equal(blocked.optOutReview, true);
+  assert.equal(blocked.persist, false);
+  assert.equal(blocked.sendConfirmation, false);
+  assert.deepEqual(blocked.state, manual);
+
+  const emailOptOut: SmsConsentState = { ...manual, opted_out_method: "email" };
+  assert.deepEqual(nextSmsConsent(emailOptOut, "UNSTOP", "2026-10-02T00:00:00.000Z", null).state, emailOptOut);
+
+  const notOptedOut = nextSmsConsent(activeCustomer(), "START", "2026-10-02T00:00:00.000Z", null);
+  assert.deepEqual(notOptedOut.state, activeCustomer());
+  assert.equal(notOptedOut.optOutReview, false);
+  assert.equal(notOptedOut.smsResubscribed, false);
+  assert.equal(notOptedOut.persist, false);
+});
+
+test("START does not invent opted-in consent when the prior status was not saved", () => {
+  const legacy: SmsConsentState = {
+    marketing_status: "opted_out",
+    opted_out_at: "2026-08-01T00:00:00.000Z",
+    opted_out_method: "sms_stop",
+    opted_out_campaign_id: "camp-9",
+    marketing_status_before_sms_stop: null,
+  };
+  const step = nextSmsConsent(legacy, "START", "2026-10-02T00:00:00.000Z", null);
+  assert.equal(step.state.marketing_status, "opted_out");
+  assert.equal(step.state.opted_out_at, null);
+  assert.equal(step.state.opted_out_method, null);
+  assert.equal(step.state.opted_out_campaign_id, null);
+  assert.equal(step.state.marketing_status_before_sms_stop, null);
+  assert.notEqual(step.state.marketing_status, "active");
+});
+
+test("a manual opt-out is not rewritten when they text STOP", () => {
+  const manual: SmsConsentState = {
+    marketing_status: "opted_out",
+    opted_out_at: "2026-09-01T00:00:00.000Z",
+    opted_out_method: "manual",
+    opted_out_campaign_id: null,
+    marketing_status_before_sms_stop: null,
+  };
+  const step = nextSmsConsent(manual, "STOP", "2026-10-02T00:00:00.000Z", "camp-new");
+  assert.equal(step.optOut, true);
+  assert.equal(step.sendConfirmation, true);
+  assert.equal(step.persist, false);
+  assert.deepEqual(step.state, manual);
+});
+
+test("STOP, START, STOP, then one-word CANCEL keeps the saved consent", () => {
+  const steps: Array<{ text: string; at: string }> = [
+    { text: "STOP", at: "2026-10-01T00:00:00.000Z" },
+    { text: "START", at: "2026-10-02T00:00:00.000Z" },
+    { text: "STOP", at: "2026-10-03T00:00:00.000Z" },
+    { text: "CANCEL", at: "2026-10-04T00:00:00.000Z" },
+  ];
+  let state = activeCustomer();
+  const seen: SmsConsentState[] = [];
+  for (const step of steps) {
+    const next = nextSmsConsent(state, step.text, step.at, null);
+    state = next.state;
+    seen.push(state);
+  }
+
+  assert.deepEqual(seen[0], {
+    marketing_status: "opted_out",
+    opted_out_at: "2026-10-01T00:00:00.000Z",
+    opted_out_method: "sms_stop",
+    opted_out_campaign_id: null,
+    marketing_status_before_sms_stop: "active",
+  });
+  assert.deepEqual(seen[1], activeCustomer());
+  assert.deepEqual(seen[2], {
+    marketing_status: "opted_out",
+    opted_out_at: "2026-10-03T00:00:00.000Z",
+    opted_out_method: "sms_stop",
+    opted_out_campaign_id: null,
+    marketing_status_before_sms_stop: "active",
+  });
+  assert.deepEqual(seen[3], {
+    marketing_status: "opted_out",
+    opted_out_at: "2026-10-04T00:00:00.000Z",
+    opted_out_method: "sms_stop",
+    opted_out_campaign_id: null,
+    marketing_status_before_sms_stop: "active",
+  });
+  assert.equal(seen[3].marketing_status, "opted_out");
+  assert.notEqual(seen[3].marketing_status_before_sms_stop, "opted_out");
+});
+
+test("short STOP phrases persist an opt-out and ask for a confirmation only with the save", () => {
+  const step = nextSmsConsent(activeCustomer(), "please stop", "2026-10-05T00:00:00.000Z", null);
+  assert.equal(step.optOut, true);
+  assert.equal(step.persist, true);
+  assert.equal(step.sendConfirmation, true);
+  assert.equal(step.state.marketing_status, "opted_out");
+  assert.equal(step.state.opted_out_method, "sms_stop");
+  assert.equal(step.state.marketing_status_before_sms_stop, "active");
+
+  const sending = nextSmsConsent(activeCustomer(), "stop sending me texts", "2026-10-05T00:00:00.000Z", null);
+  assert.equal(sending.optOut, true);
+  assert.equal(sending.persist, true);
+  assert.equal(sending.state.marketing_status_before_sms_stop, "active");
+
+  const manual = nextSmsConsent(
+    {
+      marketing_status: "opted_out",
+      opted_out_at: "2026-09-01T00:00:00.000Z",
+      opted_out_method: "manual",
+      opted_out_campaign_id: null,
+      marketing_status_before_sms_stop: null,
+    },
+    "please stop",
+    "2026-10-05T00:00:00.000Z",
+    null,
+  );
+  assert.equal(manual.persist, false);
+  assert.equal(manual.sendConfirmation, true);
+  assert.equal(manual.state.opted_out_method, "manual");
+});
+
+test("appointment tag hides after a later resubscribe and returns on the next CANCEL", () => {
+  const thread = [
+    { content: "CANCEL", smsResubscribed: false },
+    { content: "START", smsResubscribed: true },
+    { content: "END!", smsResubscribed: false },
+  ];
+  assert.equal(cancelOptOutTagVisible(thread, 0), false);
+  assert.equal(cancelOptOutTagVisible(thread, 2), true);
+  assert.equal(cancelOptOutTagVisible([{ content: "END" }], 0), true);
+  assert.equal(cancelOptOutTagVisible([{ content: "Cancel my Friday cleaning" }], 0), false);
+});
 
 test("confirmation copy, phone sentence, and a straight apostrophe", () => {
   const withPhone = renderOptOutConfirmation("Sparkle", "(813) 555-0100");

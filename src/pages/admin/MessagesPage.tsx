@@ -47,6 +47,7 @@ import { AIInboxSummaryButton } from '@/components/admin/AIInboxSummaryButton';
 import { orgDateKey } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { confirmDialog } from "@/components/AppDialogs";
+import { cancelOptOutTagVisible, isExactResubscribe } from "../../../supabase/functions/_shared/sms-opt-out.ts";
 
 // ─── Types ──────────────────────────────────────────
 /*
@@ -89,6 +90,8 @@ interface Message {
    * Absent until migration 20261015040000 has been applied.
    */
   opt_out_review?: boolean | null;
+  /** Set after START/UNSTOP cleared an sms_stop opt-out. */
+  sms_resubscribed?: boolean | null;
 }
 
 /**
@@ -384,6 +387,7 @@ export default function MessagesPage() {
             content: newMsg.content, sent_at: newMsg.sent_at, status: newMsg.status,
             media_urls: newMsg.media_urls || null,
             opt_out_review: newMsg.opt_out_review === true,
+            sms_resubscribed: newMsg.sms_resubscribed === true,
           }]);
         }
         if (newMsg.direction === 'inbound' && !isSyncingRef.current) {
@@ -886,6 +890,21 @@ export default function MessagesPage() {
     });
     return groups;
   }, [messages]);
+
+  const appointmentOptOutIds = useMemo(() => {
+    const ids = new Set<string>();
+    messages.forEach((msg, index) => {
+      if (msg.direction !== 'inbound') return;
+      if (cancelOptOutTagVisible(messages, index)) ids.add(msg.id);
+    });
+    return ids;
+  }, [messages]);
+
+  const customerTel = (() => {
+    const raw = selectedConversation?.customer_phone?.trim() ?? '';
+    const dial = raw.replace(/[^\d+]/g, '');
+    return dial ? `tel:${dial}` : null;
+  })();
 
   // ─── Textarea auto-resize ─────────────────────────
   useEffect(() => {
@@ -1519,8 +1538,34 @@ export default function MessagesPage() {
               }
               const msg = item.msg!;
               const isOutbound = msg.direction === 'outbound';
+              const showAppointmentTag = appointmentOptOutIds.has(msg.id);
+              const askedToResubscribe = !isOutbound
+                && msg.opt_out_review === true
+                && isExactResubscribe(msg.content)
+                && msg.sms_resubscribed !== true;
               return (
-                <div key={msg.id} className={cn("flex", isOutbound ? 'justify-end' : 'justify-start', item.isFirst && 'mt-2')}>
+                <div key={msg.id} className={cn("flex flex-col", isOutbound ? 'items-end' : 'items-start', item.isFirst && 'mt-2')}>
+                  {showAppointmentTag ? (
+                    <div className="mb-1 flex max-w-[75%] flex-wrap items-center gap-2">
+                      <p className="rounded-md bg-amber-500/15 px-2 py-1 text-[11px] font-medium leading-snug text-amber-800 dark:text-amber-300">
+                        Opted out of texts. They may want to cancel an appointment.
+                      </p>
+                      {customerTel ? (
+                        <Button variant="secondary" size="sm" asChild>
+                          <a href={customerTel}>Call customer</a>
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {msg.sms_resubscribed ? (
+                    <p className="w-full py-1 text-center text-[11px] text-muted-foreground">Resubscribed by text.</p>
+                  ) : null}
+                  {askedToResubscribe ? (
+                    <p className="mb-1 max-w-[75%] rounded-md bg-amber-500/15 px-2 py-1 text-[11px] font-medium leading-snug text-amber-800 dark:text-amber-300">
+                      Asked to resubscribe. Review before texting
+                    </p>
+                  ) : null}
+                  <div className={cn("flex w-full", isOutbound ? 'justify-end' : 'justify-start')}>
                   <div className={cn(
                     "max-w-[75%] px-3.5 py-2 relative",
                     isOutbound ? 'bg-[#007AFF] text-white' : 'bg-muted text-foreground',
@@ -1550,7 +1595,7 @@ export default function MessagesPage() {
                       </div>
                     )}
                     <p className="text-[15px] leading-snug whitespace-pre-wrap break-words">{msg.content}</p>
-                    {msg.opt_out_review ? (
+                    {msg.opt_out_review && !askedToResubscribe ? (
                       <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
                         Review opt-out
                       </p>
@@ -1579,6 +1624,7 @@ export default function MessagesPage() {
                         })()}
                       </p>
                     )}
+                  </div>
                   </div>
                 </div>
               );

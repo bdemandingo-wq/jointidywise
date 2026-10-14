@@ -121,6 +121,9 @@ const HelpPage = lazy(() => import("./pages/admin/HelpPage"));
 const DiscountsPage = lazy(() => import("./pages/admin/DiscountsPage"));
 const PlatformAnalyticsPage = lazy(() => import("./pages/admin/PlatformAnalyticsPage"));
 const MessagesPage = lazy(() => import("./pages/admin/MessagesPage"));
+const SmsCompliancePreview = import.meta.env.DEV
+  ? lazy(() => import("./pages/dev/SmsCompliancePreview"))
+  : null;
 const TasksPage = lazy(() => import("./pages/admin/TasksPage"));
 const AIIntelligencePage = lazy(() => import("./pages/admin/AIIntelligencePage"));
 const ClientPortalAdminPage = lazy(() => import("./pages/admin/ClientPortalPage"));
@@ -547,6 +550,9 @@ const App = () => (
                     )}
                     {LocationConsentPreview && (
                       <Route path="/dev/location-consent" element={<LocationConsentPreview />} />
+                    )}
+                    {SmsCompliancePreview && (
+                      <Route path="/dev/sms-compliance-preview" element={<SmsCompliancePreview />} />
                     )}
                     <Route path="/cleaning-business-software" element={<CleaningBusinessSoftware />} />
                     <Route path="/cleaning-business-software/:locationSlug" element={<LocationSoftwarePage />} />
