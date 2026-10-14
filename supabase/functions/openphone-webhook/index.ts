@@ -7,6 +7,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { findCustomerIdByPhone } from "../_shared/marketing-guard.ts";
 import { internalDispatchHeaders } from "../_shared/internal-dispatch-auth.ts";
+import { classifySmsOptOut, optOutReplyAddress, renderOptOutConfirmation } from "../_shared/sms-opt-out.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -165,6 +166,108 @@ async function findLocalContactName(
   }
 
   return { name: null, customerId: null };
+}
+
+/**
+ * One transactional opt-out confirmation. Not a campaign and not gated by
+ * marketing_status — the customer is opted out by the time this runs, and a
+ * marketing guard would swallow the receipt. Sent at most once per webhook
+ * delivery; a failed send is logged and not retried, so a timeout cannot
+ * deliver a second copy.
+ */
+async function sendSmsOptOutConfirmation(
+  supabase: ReturnType<typeof createClient>,
+  args: {
+    organizationId: string;
+    conversationId: string;
+    customerPhone: string;
+    openphoneApiKey: string | null | undefined;
+    phoneNumberId: string | null | undefined;
+  },
+): Promise<void> {
+  const { organizationId, conversationId, customerPhone, openphoneApiKey, phoneNumberId } = args;
+
+  let businessName = '';
+  let businessPhone: string | null = null;
+  try {
+    const [{ data: biz }, { data: org }] = await Promise.all([
+      supabase
+        .from('business_settings')
+        .select('company_name, company_phone, business_line_phone')
+        .eq('organization_id', organizationId)
+        .maybeSingle(),
+      supabase
+        .from('organizations')
+        .select('name')
+        .eq('id', organizationId)
+        .maybeSingle(),
+    ]);
+    const settings = biz as {
+      company_name?: string | null;
+      company_phone?: string | null;
+      business_line_phone?: string | null;
+    } | null;
+    const orgRow = org as { name?: string | null } | null;
+    businessName = settings?.company_name || orgRow?.name || '';
+    businessPhone = (settings?.company_phone || settings?.business_line_phone || '').trim() || null;
+  } catch (lookupErr) {
+    console.error('[openphone-webhook] opt-out confirmation: business lookup failed', lookupErr);
+  }
+
+  const confirmation = renderOptOutConfirmation(businessName, businessPhone);
+  const destination = optOutReplyAddress(customerPhone);
+  let fromId = phoneNumberId ?? '';
+  if (fromId.includes('/') || fromId.includes('openphone') || fromId.includes('.com')) {
+    const pnMatch = fromId.match(/(PN[A-Za-z0-9]+)/);
+    if (pnMatch) fromId = pnMatch[1];
+  }
+
+  if (!openphoneApiKey || !fromId || !destination) {
+    console.error(
+      `[openphone-webhook] CRITICAL: opt-out confirmation NOT sent for org ${organizationId} ` +
+      `to ${customerPhone} — missing API key, from number, or a usable destination.`,
+    );
+    return;
+  }
+
+  const authHeader = openphoneApiKey.trim().replace(/^Bearer\s+/i, '');
+  const response = await fetch('https://api.openphone.com/v1/messages', {
+    method: 'POST',
+    headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: fromId, to: [destination], content: confirmation }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error(
+      `[openphone-webhook] CRITICAL: opt-out confirmation send failed (${response.status}) ` +
+      `for org ${organizationId}: ${errText}`,
+    );
+    return;
+  }
+
+  const result = await response.json().catch(() => ({}));
+  const confirmationId = (result as { data?: { id?: string } })?.data?.id ?? null;
+
+  const { error: logError } = await supabase.from('sms_messages').insert({
+    conversation_id: conversationId,
+    organization_id: organizationId,
+    direction: 'outbound',
+    content: confirmation,
+    status: 'sent',
+    openphone_message_id: confirmationId,
+    sent_at: new Date().toISOString(),
+  });
+  if (logError) {
+    console.error('[openphone-webhook] opt-out confirmation sent but not logged to the inbox:', logError);
+  }
+
+  await supabase
+    .from('sms_conversations')
+    .update({ last_message_at: new Date().toISOString() })
+    .eq('id', conversationId);
+
+  console.log(`[openphone-webhook] Opt-out confirmation sent to ${destination} for org ${organizationId}`);
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -892,19 +995,42 @@ const handler = async (req: Request): Promise<Response> => {
     // Extract media URLs from OpenPhone MMS
     const mediaUrls = message.media?.map((m) => m.url).filter(Boolean) || null;
 
-    // Insert the message
-    const { error: messageError } = await supabase
-      .from('sms_messages')
-      .insert({
-        conversation_id: conversationId,
-        organization_id: organizationId,
-        direction: direction,
-        content: content,
-        status: direction === 'inbound' ? 'received' : 'sent',
-        openphone_message_id: openphoneMessageId,
-        sent_at: message.createdAt || new Date().toISOString(),
-        media_urls: mediaUrls?.length ? mediaUrls : null,
-      });
+    // Classify before insert. A single-word CANCEL or END still opts out, and
+    // it is still written to sms_messages so a person sees it in the inbox.
+    // A keyword inside a normal sentence is not an opt-out; it is flagged.
+    const optOutClassification = direction === 'inbound' && typeof content === 'string'
+      ? classifySmsOptOut(content)
+      : { optOut: false, needsReview: false, matched: null };
+
+    const messageRow = {
+      conversation_id: conversationId,
+      organization_id: organizationId,
+      direction: direction,
+      content: content,
+      status: direction === 'inbound' ? 'received' : 'sent',
+      openphone_message_id: openphoneMessageId,
+      sent_at: message.createdAt || new Date().toISOString(),
+      media_urls: mediaUrls?.length ? mediaUrls : null,
+    };
+
+    let messageError: { message?: string } | null = null;
+    if (optOutClassification.needsReview) {
+      const flagged = await supabase
+        .from('sms_messages')
+        .insert({ ...messageRow, opt_out_review: true });
+      messageError = flagged.error;
+      if (messageError && /opt_out_review/i.test(messageError.message ?? '')) {
+        console.error(
+          '[openphone-webhook] opt_out_review column is missing — saving the message without the review flag. ' +
+          'Run migration 20261015040000 in the Supabase SQL editor.',
+        );
+        const retry = await supabase.from('sms_messages').insert(messageRow);
+        messageError = retry.error;
+      }
+    } else {
+      const inserted = await supabase.from('sms_messages').insert(messageRow);
+      messageError = inserted.error;
+    }
 
     if (messageError) {
       console.error("[openphone-webhook] Error inserting message:", messageError);
@@ -942,37 +1068,20 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log(`[openphone-webhook] Successfully saved ${direction} message`);
 
-    // Detect SMS opt-out keywords (STOP, STOPALL, UNSUBSCRIBE, CANCEL, END, QUIT, OPTOUT)
     // optOutDetected gates the AI auto-reply block below regardless of
     // whether the DB write to persist it succeeds — a customer who just
     // texted STOP must not get an automated reply from THIS webhook
     // delivery no matter what, that's not something a DB retry can fix
     // after the fact. TCPA/CAN-SPAM carry per-message statutory damages,
     // so this can't be a best-effort log-and-continue.
+    //
+    // Only an exact keyword (the whole text) or a clear phrase opts out.
+    // "Cancel my Friday cleaning" is a normal inbound message.
     let optOutDetected = false;
-    if (direction === 'inbound' && content) {
-      const upper = content.trim().toUpperCase();
-      const normalized = upper.replace(/[^A-Z]/g, '');
-      // "stop texting me" must count too — check the first word as well as
-      // the whole string, so multi-word requests aren't silently ignored.
-      const firstWord = (upper.split(/\s+/)[0] || '').replace(/[^A-Z]/g, '');
-      // Also check the last word, but only for short messages (≤3 words).
-      // Catches trailing keywords like "please stop" and "stop please" without
-      // flagging ordinary longer questions such as "what time do you stop".
-      const words = upper
-        .split(/\s+/)
-        .map(w => w.replace(/[^A-Z]/g, ''))
-        .filter(w => w.length > 0);
-      const wordCount = words.length;
-      const lastWord = wordCount > 0 ? words[wordCount - 1] : '';
-      const OPT_OUT_KEYWORDS = ['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'OPTOUT'];
-      if (
-        OPT_OUT_KEYWORDS.includes(normalized) ||
-        OPT_OUT_KEYWORDS.includes(firstWord) ||
-        (wordCount <= 3 && OPT_OUT_KEYWORDS.includes(lastWord))
-      ) {
-        optOutDetected = true;
-        try {
+    if (optOutClassification.optOut) {
+      optOutDetected = true;
+      const matchedOptOut = optOutClassification.matched ?? '';
+      try {
           // Find most recent campaign send to this phone for attribution
           const { data: lastSend } = await supabase
             .from('campaign_sms_sends')
@@ -1021,17 +1130,17 @@ const handler = async (req: Request): Promise<Response> => {
               }
             }
             if (optOutSaved) {
-              console.log(`[openphone-webhook] Customer ${customerIdToOptOut} opted out via SMS keyword "${normalized}"`);
+              console.log(`[openphone-webhook] Customer ${customerIdToOptOut} opted out via SMS keyword "${matchedOptOut}"`);
             } else {
               console.error(
                 `[openphone-webhook] CRITICAL: customer ${customerIdToOptOut} (org ${organizationId}) texted ` +
-                `"${normalized}" but marketing_status was NOT updated after 3 attempts (${lastOptOutErr}) — ` +
+                `"${matchedOptOut}" but marketing_status was NOT updated after 3 attempts (${lastOptOutErr}) — ` +
                 `this customer can still receive marketing SMS until manually fixed.`,
               );
             }
           } else {
             console.error(
-              `[openphone-webhook] CRITICAL: STOP RECEIVED BUT NOT RECORDED — inbound "${normalized}" ` +
+              `[openphone-webhook] CRITICAL: STOP RECEIVED BUT NOT RECORDED — inbound "${matchedOptOut}" ` +
               `from phone ${customerPhone} (org ${organizationId}) could not be resolved to a customer ` +
               `via conversation, campaign send, or phone lookup. This opt-out must be applied by hand.`,
             );
@@ -1039,7 +1148,20 @@ const handler = async (req: Request): Promise<Response> => {
         } catch (optOutErr) {
           console.error('[openphone-webhook] Error processing opt-out:', optOutErr);
         }
-      }
+
+        // One confirmation, after the opt-out save. Not marketing. A send
+        // failure must not undo the opt-out or trigger the AI reply.
+        try {
+          await sendSmsOptOutConfirmation(supabase, {
+            organizationId,
+            conversationId,
+            customerPhone,
+            openphoneApiKey,
+            phoneNumberId,
+          });
+        } catch (confirmErr) {
+          console.error('[openphone-webhook] opt-out confirmation failed:', confirmErr);
+        }
     }
 
     // Trigger AI auto-reply for inbound messages if automation is enabled

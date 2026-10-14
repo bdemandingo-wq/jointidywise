@@ -83,6 +83,12 @@ interface Message {
    * rather than as an error.
    */
   sender_user_id?: string | null;
+  /**
+   * Inbound text mentions an opt-out keyword but was not treated as one
+   * (for example "Cancel my Friday cleaning"). A person should read it.
+   * Absent until migration 20261015040000 has been applied.
+   */
+  opt_out_review?: boolean | null;
 }
 
 /**
@@ -377,6 +383,7 @@ export default function MessagesPage() {
             id: newMsg.id, direction: newMsg.direction as 'inbound' | 'outbound',
             content: newMsg.content, sent_at: newMsg.sent_at, status: newMsg.status,
             media_urls: newMsg.media_urls || null,
+            opt_out_review: newMsg.opt_out_review === true,
           }]);
         }
         if (newMsg.direction === 'inbound' && !isSyncingRef.current) {
@@ -1543,6 +1550,11 @@ export default function MessagesPage() {
                       </div>
                     )}
                     <p className="text-[15px] leading-snug whitespace-pre-wrap break-words">{msg.content}</p>
+                    {msg.opt_out_review ? (
+                      <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+                        Review opt-out
+                      </p>
+                    ) : null}
                     {item.isLast && (
                       <p className={cn("text-[10px] mt-0.5", isOutbound ? 'text-white/60 text-right' : 'text-muted-foreground')}>
                         {/* Initials, no colour: the bubble is already carrying
