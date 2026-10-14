@@ -27,3 +27,4 @@
 - [x] Seed Broward, Miami-Dade, Palm Beach FL (45 inserted)
 - [x] Deploy create-subscription, admin-send-resubscribe-email, platform-analytics from main 8e831bf (all live; not invoked)
 - [x] Deploy check-subscription from main e9b4cf5 (live; new-signup database trial when Stripe has no subscription)
+- [x] Sync to e5424ab (#45 trial 30 days, #46 sitemap build fix); deploy check-subscription + provision-trial-org (live preflight 401s, not invoked); build OK, tsc OK
