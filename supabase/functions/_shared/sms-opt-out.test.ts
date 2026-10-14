@@ -96,6 +96,42 @@ test("short STOP-family messages opt out; CANCEL and END stay whole-message only
   }
 });
 
+test("contractions, stop by, and clock times are not short opt-outs", () => {
+  for (const text of [
+    "don't stop",
+    "can't stop",
+    "don\u2019t stop",
+    "can\u2019t stop",
+    "stop by",
+    "stop by tomorrow",
+    "stop by at 3",
+    "stop by at 3:00",
+    "stop by at 3pm",
+  ]) {
+    const result = classifySmsOptOut(text);
+    assert.equal(result.optOut, false, text);
+    assert.equal(result.needsReview, true, text);
+  }
+});
+
+test("opt me out and no more texts opt out in a message of at most 6 words", () => {
+  for (const text of [
+    "opt me out",
+    "OPT ME OUT",
+    "please opt me out",
+    "no more texts",
+    "No More Texts!",
+    "please no more texts",
+  ]) {
+    const result = classifySmsOptOut(text);
+    assert.equal(result.optOut, true, text);
+    assert.equal(result.needsReview, false, text);
+  }
+  const tooLong = classifySmsOptOut("please opt me out of the weekly marketing list");
+  assert.equal(tooLong.optOut, false);
+  assert.equal(tooLong.needsReview, false);
+});
+
 test("ordinary sentences that merely contain a keyword stem are not flagged", () => {
   for (const text of ["See you Friday", "weekend plans", "nonstop service", "cancellation policy"]) {
     assert.deepEqual(classifySmsOptOut(text), {

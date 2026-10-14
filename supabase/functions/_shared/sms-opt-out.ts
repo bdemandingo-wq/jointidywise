@@ -155,9 +155,43 @@ function lettersOnly(raw: string): string {
   return raw.toUpperCase().replace(/[^A-Z]/g, "");
 }
 
-function words(raw: string): string[] {
-  return raw.toUpperCase().split(/[^A-Z]+/).filter((word) => word.length > 0);
+/**
+ * One token per word. A contraction (don't, can't) is one word. A number or
+ * a clock time (3, 3:00, 3pm) is one word, so "stop by at 3" is four words.
+ */
+function messageTokens(raw: string): string[] {
+  const normalized = raw.toLowerCase().replace(APOSTROPHE_LIKE, "'");
+  return normalized.match(
+    /[a-z]+(?:'[a-z]+)+|\d{1,2}:\d{2}\s*(?:am|pm)?|\d+\s*(?:am|pm)?|[a-z]+/g,
+  ) ?? [];
 }
+
+function keywordKey(token: string): string {
+  return token.toUpperCase().replace(/[^A-Z]/g, "");
+}
+
+/** "don't stop" / "can't stop" negate the keyword. They are not opt-outs. */
+const NEGATION_WORDS = new Set([
+  "DONT",
+  "CANT",
+  "WONT",
+  "ISNT",
+  "ARENT",
+  "DIDNT",
+  "WASNT",
+  "WERENT",
+  "HAVENT",
+  "HASNT",
+  "HADNT",
+  "COULDNT",
+  "SHOULDNT",
+  "WOULDNT",
+]);
+
+const BOUNDED_OPT_OUT_PHRASES = [
+  ["OPT", "ME", "OUT"],
+  ["NO", "MORE", "TEXTS"],
+] as const;
 
 function phraseText(raw: string): string {
   return collapse(
@@ -167,6 +201,20 @@ function phraseText(raw: string): string {
 
 function includesPhrase(text: string, phrase: string): boolean {
   return ` ${text} `.includes(` ${phrase} `);
+}
+
+/** "opt me out" and "no more texts", anywhere in a message of at most 6 words. */
+function boundedOptOutPhrase(tokens: string[]): string | null {
+  if (tokens.length === 0 || tokens.length > 6) return null;
+  const keys = tokens.map(keywordKey);
+  for (const phrase of BOUNDED_OPT_OUT_PHRASES) {
+    for (let i = 0; i <= keys.length - phrase.length; i++) {
+      if (phrase.every((part, offset) => keys[i + offset] === part)) {
+        return phrase.join(" ").toLowerCase();
+      }
+    }
+  }
+  return null;
 }
 
 /** "stop sending", "quit texting", "unsubscribe messaging", and the same shape. */
@@ -231,22 +279,31 @@ export function classifySmsOptOut(content: string | null | undefined): SmsOptOut
     return { optOut: true, needsReview: false, matched: channelPhrase };
   }
 
-  // "please stop", "STOP STOP", "stop now" — not "End time is 3?" or "please cancel".
-  const tokenWords = words(content);
-  if (tokenWords.length > 0 && tokenWords.length <= 3) {
-    const first = tokenWords[0];
-    const last = tokenWords[tokenWords.length - 1];
-    if (SHORT_MESSAGE_OPT_OUT.has(first)) {
+  const tokens = messageTokens(content);
+  const bounded = boundedOptOutPhrase(tokens);
+  if (bounded) {
+    return { optOut: true, needsReview: false, matched: bounded };
+  }
+
+  // "please stop", "STOP STOP", "stop now". Not "stop by", "don't stop",
+  // "End time is 3?", or "please cancel".
+  const keys = tokens.map(keywordKey);
+  if (keys.length > 0 && keys.length <= 3) {
+    const first = keys[0];
+    const last = keys[keys.length - 1];
+    const stopBy = first === "STOP" && keys[1] === "BY";
+    if (!stopBy && SHORT_MESSAGE_OPT_OUT.has(first)) {
       return { optOut: true, needsReview: false, matched: first };
     }
-    if (SHORT_MESSAGE_OPT_OUT.has(last)) {
+    const precededByNegation = NEGATION_WORDS.has(keys[keys.length - 2] ?? "");
+    if (SHORT_MESSAGE_OPT_OUT.has(last) && !precededByNegation) {
       return { optOut: true, needsReview: false, matched: last };
     }
   }
 
-  for (const word of words(content)) {
-    if (KEYWORD_SET.has(word)) {
-      return { optOut: false, needsReview: true, matched: word };
+  for (const key of keys) {
+    if (KEYWORD_SET.has(key)) {
+      return { optOut: false, needsReview: true, matched: key };
     }
   }
 
