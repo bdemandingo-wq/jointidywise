@@ -1,14 +1,18 @@
-export function hapticImpact(style: 'light' | 'medium' | 'heavy' = 'light') {
-  // Web-compatible haptics (works on some Android devices; iOS Safari is limited).
-  // Safe no-op if unsupported.
-  if (typeof navigator === 'undefined') return;
-  if (typeof navigator.vibrate !== 'function') return;
+import { Capacitor } from '@capacitor/core';
 
-  const duration = style === 'heavy' ? 20 : style === 'medium' ? 12 : 7;
-  try {
-    navigator.vibrate(duration);
-  } catch {
-    // Some browsers expose vibrate but require navigator as the invocation context.
-    // Fail silently so UI interactions never break.
-  }
+/**
+ * Light / medium / heavy tap on the iOS app. The website never vibrates:
+ * navigator.vibrate is not called, and the Capacitor plugin is not loaded.
+ */
+export function hapticImpact(style: 'light' | 'medium' | 'heavy' = 'light') {
+  if (Capacitor.getPlatform() !== 'ios') return;
+  void import('@capacitor/haptics')
+    .then(({ Haptics, ImpactStyle }) => {
+      const impact =
+        style === 'heavy' ? ImpactStyle.Heavy : style === 'medium' ? ImpactStyle.Medium : ImpactStyle.Light;
+      return Haptics.impact({ style: impact });
+    })
+    .catch(() => {
+      // Haptics are optional. A missing plugin must not break the tap.
+    });
 }

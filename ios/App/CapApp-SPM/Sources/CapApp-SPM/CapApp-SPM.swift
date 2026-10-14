@@ -1,5 +1,7 @@
 import Capacitor
 import class PushNotificationsPlugin.PushNotificationsPlugin
+import class SplashScreenPlugin.SplashScreenPlugin
+import class StatusBarPlugin.StatusBarPlugin
 
 public let isCapacitorApp = true
 
@@ -22,4 +24,21 @@ public func registerLinkedPushNotificationsPlugin(on bridge: CAPBridgeProtocol) 
     }
     bridge.registerPluginInstance(PushNotificationsPlugin())
     print("[Push] registered PushNotificationsPlugin from the linked SPM class")
+}
+
+/// Splash and status bar live in SPM. Registering them here keeps the launch
+/// splash and theme-matched status bar working even when `packageClassList`
+/// in the generated capacitor.config.json has not been refreshed yet.
+/// `npx cap sync ios` rewrites Package.swift from package.json and will keep
+/// these two products as long as the npm packages stay installed. It does not
+/// rewrite this file.
+public func registerLinkedShellPlugins(on bridge: CAPBridgeProtocol) {
+    if bridge.plugin(withName: "SplashScreen") == nil {
+        bridge.registerPluginInstance(SplashScreenPlugin())
+        print("[Shell] registered SplashScreenPlugin")
+    }
+    if bridge.plugin(withName: "StatusBar") == nil {
+        bridge.registerPluginInstance(StatusBarPlugin())
+        print("[Shell] registered StatusBarPlugin")
+    }
 }

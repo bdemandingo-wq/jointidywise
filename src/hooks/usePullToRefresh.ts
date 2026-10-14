@@ -1,4 +1,16 @@
 import { useState, useRef, useCallback } from 'react';
+import { hapticImpact } from '@/lib/haptics';
+
+function scrollTopFromTouch(start: EventTarget | null): number {
+  let node = start instanceof Element ? start : null;
+  while (node && node !== document.body && node !== document.documentElement) {
+    const overflowY = window.getComputedStyle(node).overflowY;
+    const scrolls = overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay';
+    if (scrolls && node.scrollHeight > node.clientHeight + 2) return node.scrollTop;
+    node = node.parentElement;
+  }
+  return window.scrollY || document.documentElement.scrollTop || 0;
+}
 
 /**
  * Native-feel pull-to-refresh hook for touch devices.
@@ -18,10 +30,13 @@ export function usePullToRefresh(onRefresh: () => Promise<void>) {
   const refreshingRef = useRef(false);
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
-    // Support both inner scroll containers and body-scrolled pages
-    scrollTop.current = (e.currentTarget as HTMLElement).scrollTop || window.scrollY;
+    // Support both inner scroll containers and body-scrolled pages.
+    // A list that is already scrolled must not start a refresh.
+    scrollTop.current = scrollTopFromTouch(e.target);
     if (scrollTop.current <= 0) {
       startY.current = e.touches[0].clientY;
+    } else {
+      startY.current = null;
     }
   }, []);
 
@@ -40,6 +55,7 @@ export function usePullToRefresh(onRefresh: () => Promise<void>) {
   const onTouchEnd = useCallback(async () => {
     const distance = pullDistanceRef.current;
     if (distance >= threshold && !refreshingRef.current) {
+      hapticImpact('medium');
       refreshingRef.current = true;
       setRefreshing(true);
       try {

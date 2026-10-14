@@ -16,9 +16,6 @@
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
 		AA0001013048E000009275CC /* WidgetBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0001023048E000009275CC /* WidgetBridgePlugin.swift */; };
 		AA0001033048E000009275CC /* WidgetBridgePlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0001043048E000009275CC /* WidgetBridgePlugin.m */; };
-		FB000101AAAA000000000001 /* FacebookCore in Frameworks */ = {isa = PBXBuildFile; productRef = FB000103AAAA000000000003 /* FacebookCore */; };
-		FB000106AAAA000000000006 /* MetaEventsPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB000104AAAA000000000004 /* MetaEventsPlugin.swift */; };
-		FB000107AAAA000000000007 /* MetaEventsPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = FB000105AAAA000000000005 /* MetaEventsPlugin.m */; };
 		NA0001013048E000009275CC /* NotificationAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = NA0001023048E000009275CC /* NotificationAuthPlugin.swift */; };
 		NA0001033048E000009275CC /* NotificationAuthPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = NA0001043048E000009275CC /* NotificationAuthPlugin.m */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
@@ -68,8 +65,6 @@
 		63F1B8F62EFD000100E891AA /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		AA0001023048E000009275CC /* WidgetBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetBridgePlugin.swift; sourceTree = "<group>"; };
 		AA0001043048E000009275CC /* WidgetBridgePlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WidgetBridgePlugin.m; sourceTree = "<group>"; };
-		FB000104AAAA000000000004 /* MetaEventsPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetaEventsPlugin.swift; sourceTree = "<group>"; };
-		FB000105AAAA000000000005 /* MetaEventsPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MetaEventsPlugin.m; sourceTree = "<group>"; };
 		NA0001023048E000009275CC /* NotificationAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAuthPlugin.swift; sourceTree = "<group>"; };
 		NA0001043048E000009275CC /* NotificationAuthPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NotificationAuthPlugin.m; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
@@ -106,7 +101,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */,
-				FB000101AAAA000000000001 /* FacebookCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -149,8 +143,6 @@
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				AA0001023048E000009275CC /* WidgetBridgePlugin.swift */,
 				AA0001043048E000009275CC /* WidgetBridgePlugin.m */,
-				FB000104AAAA000000000004 /* MetaEventsPlugin.swift */,
-				FB000105AAAA000000000005 /* MetaEventsPlugin.m */,
 				NA0001023048E000009275CC /* NotificationAuthPlugin.swift */,
 				NA0001043048E000009275CC /* NotificationAuthPlugin.m */,
 				63F1B8F62EFD000100E891AA /* App.entitlements */,
@@ -207,7 +199,6 @@
 			name = App;
 			packageProductDependencies = (
 				4D22ABE82AF431CB00220026 /* CapApp-SPM */,
-				FB000103AAAA000000000003 /* FacebookCore */,
 			);
 			productName = App;
 			productReference = 504EC3041FED79650016851F /* App.app */;
@@ -244,7 +235,6 @@
 			mainGroup = 504EC2FB1FED79650016851F;
 			packageReferences = (
 				D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */,
-				FB000102AAAA000000000002 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */,
 			);
 			productRefGroup = 504EC3051FED79650016851F /* Products */;
 			projectDirPath = "";
@@ -295,8 +285,6 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				AA0001013048E000009275CC /* WidgetBridgePlugin.swift in Sources */,
 				AA0001033048E000009275CC /* WidgetBridgePlugin.m in Sources */,
-				FB000106AAAA000000000006 /* MetaEventsPlugin.swift in Sources */,
-				FB000107AAAA000000000007 /* MetaEventsPlugin.m in Sources */,
 				NA0001013048E000009275CC /* NotificationAuthPlugin.swift in Sources */,
 				NA0001033048E000009275CC /* NotificationAuthPlugin.m in Sources */,
 			);
@@ -470,7 +458,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -521,7 +509,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
@@ -540,7 +528,7 @@
 				CURRENT_PROJECT_VERSION = 1008;
 				DEVELOPMENT_TEAM = JV99ZGTGR3;
 				INFOPLIST_FILE = App/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -564,7 +552,7 @@
 				CURRENT_PROJECT_VERSION = 1008;
 				DEVELOPMENT_TEAM = JV99ZGTGR3;
 				INFOPLIST_FILE = App/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -617,27 +605,11 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		FB000102AAAA000000000002 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/facebook/facebook-ios-sdk";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 17.0.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
 /* Begin XCSwiftPackageProductDependency section */
 		4D22ABE82AF431CB00220026 /* CapApp-SPM */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D4C12C0A2AAA248700AAC8A2 /* XCLocalSwiftPackageReference "CapApp-SPM" */;
 			productName = "CapApp-SPM";
-		};
-		FB000103AAAA000000000003 /* FacebookCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = FB000102AAAA000000000002 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */;
-			productName = FacebookCore;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

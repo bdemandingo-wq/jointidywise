@@ -1671,6 +1671,37 @@ body {
   }
 }
 
+/* Native iOS shell only. main.tsx/App adds html.ios-native on Capacitor iOS.
+   The website does not get this class, so selection, callouts, and input
+   size on jointidywise.com stay as they are. */
+html.ios-native,
+html.ios-native body {
+  overscroll-behavior-y: none;
+}
+html.ios-native button,
+html.ios-native a,
+html.ios-native nav,
+html.ios-native header,
+html.ios-native [role="button"],
+html.ios-native [role="tab"],
+html.ios-native [role="tablist"] {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+html.ios-native input,
+html.ios-native textarea,
+html.ios-native select {
+  font-size: 16px !important;
+  -webkit-user-select: text;
+  user-select: text;
+}
+html.ios-native [contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* iOS input auto-zoom guard: WKWebView zooms the whole viewport when a
    focused input's font-size is under 16px, and the page stays zoomed
    after blur (looks like "everything is huge" — reported on Platform

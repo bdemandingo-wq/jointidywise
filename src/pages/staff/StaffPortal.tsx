@@ -25,6 +25,7 @@ import { NotificationBell } from '@/components/staff/NotificationBell';
 import { ThemeToggle } from '@/components/admin/ThemeToggle';
 import { OnboardingProgress } from '@/components/staff/OnboardingProgress';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { hapticImpact } from '@/lib/haptics';
 import { PullToRefreshIndicator } from '@/components/admin/PullToRefreshIndicator';
 import { SEOHead } from '@/components/SEOHead';
 import { StaffLocationPrompt } from '@/components/staff/StaffLocationPrompt';
@@ -949,6 +950,9 @@ export default function StaffPortal() {
 
       return { status, reviewSent: status === 'completed', officeNotice };
     },
+    onMutate: (variables) => {
+      if (variables.status === 'completed') hapticImpact('medium');
+    },
     onSuccess: (result, variables) => {
       queryClient.invalidateQueries({ queryKey: ['staff-bookings'] });
       const completedBase = result.officeNotice || 'Job completed!';
@@ -981,6 +985,9 @@ export default function StaffPortal() {
     mutationFn: async (bookingId: string) => {
       const { error } = await reopenAssignedBooking(bookingId);
       if (error) throw new Error(error.message || 'Could not undo completion');
+    },
+    onMutate: () => {
+      hapticImpact('medium');
     },
     onSuccess: () => {
       toast.success('Job is in progress again. Photos stay, and nothing new was charged or texted.');

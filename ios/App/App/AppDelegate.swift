@@ -1,7 +1,6 @@
 import UIKit
 import Capacitor
 import UserNotifications
-import FBSDKCoreKit
 import CapApp_SPM
 
 /// Storyboard root. Registers notification plugins before the web view loads.
@@ -15,6 +14,7 @@ import CapApp_SPM
 class TidyWiseBridgeViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
+        configureShellWebView()
         guard let bridge = self.bridge else {
             print("[Push] no bridge in capacitorDidLoad")
             return
@@ -22,6 +22,20 @@ class TidyWiseBridgeViewController: CAPBridgeViewController {
         bridge.registerPluginInstance(NotificationAuthPlugin())
         print("[Push] registered NotificationAuthPlugin")
         registerLinkedPushNotificationsPlugin(on: bridge)
+        registerLinkedShellPlugins(on: bridge)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        configureShellWebView()
+    }
+
+    /// Interactive pop goes back through WKWebView history (hash routes use
+    /// pushState, so they are on that list). Bounces stay off so the fixed
+    /// shell does not rubber-band; list scrolling still happens inside the page.
+    private func configureShellWebView() {
+        webView?.allowsBackForwardNavigationGestures = true
+        webView?.scrollView.bounces = false
     }
 }
 
@@ -31,9 +45,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Initialize Facebook SDK before Capacitor
-        FBSDKCoreKit.ApplicationDelegate.shared.application(application, didFinishLaunchingWithOptions: launchOptions)
-
         UNUserNotificationCenter.current().delegate = self
 
         // Register local plugins after the bridge initializes
@@ -42,10 +53,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
                 let widgetPlugin = WidgetBridgePlugin()
                 vc.bridge?.registerPluginInstance(widgetPlugin)
                 print("[AppDelegate] registered WidgetBridgePlugin on bridge")
-
-                let metaPlugin = MetaEventsPlugin()
-                vc.bridge?.registerPluginInstance(metaPlugin)
-                print("[AppDelegate] registered MetaEventsPlugin on bridge")
             } else {
                 print("[AppDelegate] WARNING: could not find CAPBridgeViewController to register plugins")
             }
@@ -78,14 +85,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        // Only let FB SDK process its own URLs (fb{appId}:// scheme).
-        // Non-Facebook URLs (Supabase auth callbacks, deep links) go
-        // straight to Capacitor without touching the FB SDK pipeline.
-        if url.scheme?.hasPrefix("fb") == true {
-            if FBSDKCoreKit.ApplicationDelegate.shared.application(app, open: url, options: options) {
-                return true
-            }
-        }
         return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
     }
 
