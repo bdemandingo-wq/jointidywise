@@ -223,6 +223,7 @@ export default function AdminDashboard() {
         </div>
         
         <div>
+          {/* Same card on web and iOS. Hidden while DASHBOARD_ACTIVITY_FEED_ENABLED is false. */}
           <ActivityFeedCard events={growth.events} />
           <UpcomingBookings bookings={bookings as BookingWithDetails[]} />
         </div>

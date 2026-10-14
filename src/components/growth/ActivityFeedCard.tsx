@@ -1,8 +1,11 @@
 import { activitySentence } from '@/lib/publicActivity';
 import type { PublicActivityEvent } from '@/lib/publicActivity';
+import { DASHBOARD_ACTIVITY_FEED_ENABLED } from '@/lib/dashboardActivityFeed';
 
 /** Dashboard card. Fewer events show as a shorter list. None hides the card. */
 export function ActivityFeedCard({ events }: { events: PublicActivityEvent[] }) {
+  if (!DASHBOARD_ACTIVITY_FEED_ENABLED) return null;
+
   const lines = events
     .map((event) => activitySentence(event))
     .filter((line): line is string => Boolean(line))
