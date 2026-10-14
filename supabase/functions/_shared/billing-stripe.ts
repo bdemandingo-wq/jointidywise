@@ -27,6 +27,16 @@ export function billingPublishableKey(): string | null {
 
 export const BILLING_KEY_MISSING = "STRIPE_BILLING_SECRET_KEY is not set";
 
+/**
+ * Payment method configuration on the billing account.
+ * An id from the old account (pmc_…) is rejected by the new account.
+ * Unset means omit payment_method_configuration and use the account default.
+ */
+export function billingPaymentMethodConfiguration(): string | null {
+  const id = (Deno.env.get("STRIPE_BILLING_PMC_ID") || "").trim();
+  return id || null;
+}
+
 export const STRIPE_API_VERSION = "2025-08-27.basil" as const;
 
 export function billingStripe(): Stripe {

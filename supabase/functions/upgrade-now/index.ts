@@ -11,11 +11,8 @@ const corsHeaders = {
 // Used to "end trial now" for users already in a Stripe trial, or open
 // a Checkout Session for users on an org-based free trial.
 //
-// Previously this hardcoded `price_1SihrVJv857o86noT8NIIfrq` as a
-// fallback when STRIPE_STANDARD_PRICE_ID wasn't set. That price ID is
-// not in current production secrets — and silently using it would bill
-// $50 against a legacy "Pro Subscription" product the customer didn't
-// pick. Prefer the configured tier prices, with Pro monthly as the
+// Do not fall back to a hard-coded price id from the old Stripe account.
+// Prefer the configured tier prices, with Pro monthly as the
 // sensible default (the post-trial path is for users converting their
 // trial, which is the canonical paid plan). Fail closed with a 503 if
 // none are configured.

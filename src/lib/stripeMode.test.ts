@@ -24,7 +24,7 @@ test("an unpaid org trial is checkout, not the billing portal", () => {
   assert.equal(billingNextStep({ product_id: null }), "checkout");
   assert.equal(billingNextStep(null), "checkout");
   assert.equal(
-    billingNextStep({ product_id: "prod_Tg3zSKe9hRHLZy" }),
+    billingNextStep({ product_id: "prod_example" }),
     "portal",
   );
   assert.equal(

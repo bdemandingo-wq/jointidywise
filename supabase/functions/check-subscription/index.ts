@@ -9,9 +9,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// TIDYWISE Pro product ID
-const PRO_PRODUCT_ID = "prod_Tg3zSKe9hRHLZy";
-
 // Trial duration in days (from organization creation date)
 const TRIAL_DURATION_DAYS = 60;
 

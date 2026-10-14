@@ -233,35 +233,16 @@ serve(async (req) => {
         "STRIPE_LIFETIME_PRICE_ID",
       ];
 
-      // Products that CANNOT be derived, and must not be "cleaned up".
-      //
-      // Each of these holds live subscribers but has no secret pointing at it,
-      // because there is only one STRIPE_PRO_MONTHLY_PRICE_ID and one
-      // STRIPE_BASIC_MONTHLY_PRICE_ID — a secret can name exactly one price, and
-      // therefore reach exactly one product. Deleting any line below drops those
-      // customers off this dashboard with no error and no symptom.
-      //
-      //   prod_Tg3zSKe9hRHLZy — legacy "TIDYWISE Pro Subscription", $50/mo, 13
-      //     subscribers. A retired product at a retired price. No current secret
-      //     names it and none can, because the Pro secret points at the $97/mo
-      //     product. These are grandfathered customers still paying $50.
-      //
-      //   prod_Uc4rWR3lSym9VN — a DUPLICATE TidyWise Basic product, 5
-      //     subscribers. Same plan as the derived Basic product, separate Stripe
-      //     product record. STRIPE_BASIC_MONTHLY_PRICE_ID reaches the other one.
-      //
-      //   prod_Uc5BhR3ZK0V6M8 — a DUPLICATE TidyWise Pro product, 4 subscribers.
-      //     Same story: STRIPE_PRO_MONTHLY_PRICE_ID reaches the other Pro
-      //     product, so these four are unreachable by derivation.
-      //
-      // The two duplicates are twins, not different plans. Consolidating those 9
-      // subscribers onto the derived products would let two of these three lines
-      // be deleted — until that happens, they stay.
-      const LEGACY_PRODUCT_IDS = new Set<string>([
-        "prod_Tg3zSKe9hRHLZy",
-        "prod_Uc4rWR3lSym9VN",
-        "prod_Uc5BhR3ZK0V6M8",
-      ]);
+      // Extra products that cannot be derived from the price secrets.
+      // They lived on the old Stripe account, so they are omitted unless
+      // STRIPE_BILLING_LEGACY_PRODUCT_IDS lists prod_ ids for the account
+      // this function is actually reading (comma-separated).
+      const LEGACY_PRODUCT_IDS = new Set(
+        (Deno.env.get("STRIPE_BILLING_LEGACY_PRODUCT_IDS") || "")
+          .split(",")
+          .map((id) => id.trim())
+          .filter((id) => id.startsWith("prod_")),
+      );
 
       const derivedProductIds = new Set<string>();
       const priceResolution: Array<{ secret: string; price: string | null; product: string | null; error?: string }> = [];
@@ -295,10 +276,8 @@ serve(async (req) => {
       console.log("[PLATFORM-ANALYTICS] legacy product ids:", [...LEGACY_PRODUCT_IDS]);
 
       // Hard stop, and it checks the DERIVED set specifically — not the union
-      // below. Checking the union would make this unreachable, because the three
-      // legacy ids are unconditional, so the set can never be empty and a total
-      // failure of the six secrets would sail through reporting only legacy
-      // subscribers as if that were the whole business.
+      // below. Legacy ids are optional. A total failure of the price secrets
+      // must not report an empty or legacy-only set as the whole business.
       if (derivedProductIds.size === 0) {
         throw new Error(
           "platform-analytics: no CRM product ids could be derived from the six " +
