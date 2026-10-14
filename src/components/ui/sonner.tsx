@@ -12,7 +12,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       className="toaster group pointer-events-none"
       position="bottom-center"
       closeButton
-      offset="calc(env(safe-area-inset-bottom, 0px) + 5.5rem)"
+      offset="calc(env(safe-area-inset-bottom, 0px) + var(--tw-cookie-bar-height, 0px) + 1rem)"
       toastOptions={{
         duration: 3000,
         classNames: {

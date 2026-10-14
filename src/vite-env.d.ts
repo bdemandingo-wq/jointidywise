@@ -4,10 +4,13 @@
 interface ImportMetaEnv {
   readonly VITE_APP_BUILD_ID?: string;
   /**
-   * TidyWise-owned Meta Pixel and Google tag (GA4 or Google Ads).
-   * Leave both unset until the privacy policy names Google, Meta, and UTM storage.
-   * Blank or invalid values load nothing.
+   * TidyWise-owned Meta Pixel, GA4, and Google Ads tags.
+   * Leave them unset until the privacy policy names Google, Meta, and UTM storage.
+   * Blank or invalid values load nothing. VITE_TIDYWISE_TAG_TEST_HOSTS is
+   * ignored in production builds.
    */
   readonly VITE_TIDYWISE_META_PIXEL_ID?: string;
-  readonly VITE_TIDYWISE_GA_ID?: string;
+  readonly VITE_TIDYWISE_GA4_ID?: string;
+  readonly VITE_TIDYWISE_GOOGLE_ADS_ID?: string;
+  readonly VITE_TIDYWISE_TAG_TEST_HOSTS?: string;
 }

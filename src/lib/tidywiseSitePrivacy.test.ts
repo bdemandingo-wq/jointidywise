@@ -7,13 +7,19 @@ import {
   DO_NOT_SELL_LABEL,
   PRIVACY_CHOICE_KEY,
   conversionPayload,
+  isTagHostnameAllowed,
   isTidyWiseMarketingOrSignupPath,
+  isTidyWiseTagSurface,
+  optOutTagPlan,
   planMetaCommand,
   readGlobalPrivacyControl,
   readPrivacyChoice,
-  sanitizeGaId,
+  sanitizeAdsId,
+  sanitizeGa4Id,
   sanitizeMetaPixelId,
   shouldShowCookieNotice,
+  tagHostOptionsFromEnv,
+  tidyWiseConversionAllowed,
   tidyWiseTagDecision,
   writePrivacyChoice,
   type PrivacyStorage,
@@ -90,47 +96,57 @@ test('booking, admin, cleaner portal, and auth paths are not the notice surface'
 });
 
 test('native platform hides the banner and blocks tags even on the homepage', () => {
-  assert.equal(shouldShowCookieNotice({ pathname: '/', native: true, choice: null }), false);
+  assert.equal(shouldShowCookieNotice({ pathname: '/', native: true, choice: null, hostnameAllowed: true }), false);
   const tags = tidyWiseTagDecision({
     pathname: '/',
     native: true,
     choice: null,
     gpc: false,
+    hostnameAllowed: true,
     metaId: '1234567890123',
-    gaId: 'G-ABC1234',
+    ga4Id: 'G-ABC1234',
+    adsId: 'AW-123456',
   });
-  assert.deepEqual(tags, { loadMeta: false, loadGa: false });
+  assert.deepEqual(tags, { loadMeta: false, loadGa4: false, loadAds: false });
 });
 
 test('banner shows only until a choice is stored', () => {
-  assert.equal(shouldShowCookieNotice({ pathname: '/signup', native: false, choice: null }), true);
-  assert.equal(shouldShowCookieNotice({ pathname: '/signup', native: false, choice: 'acknowledged' }), false);
-  assert.equal(shouldShowCookieNotice({ pathname: '/signup', native: false, choice: 'opted_out' }), false);
-  assert.equal(shouldShowCookieNotice({ pathname: '/book/acme', native: false, choice: null }), false);
+  assert.equal(shouldShowCookieNotice({ pathname: '/signup', native: false, choice: null, hostnameAllowed: true }), true);
+  assert.equal(shouldShowCookieNotice({ pathname: '/signup', native: false, choice: 'acknowledged', hostnameAllowed: true }), false);
+  assert.equal(shouldShowCookieNotice({ pathname: '/signup', native: false, choice: 'opted_out', hostnameAllowed: true }), false);
+  assert.equal(shouldShowCookieNotice({ pathname: '/book/acme', native: false, choice: null, hostnameAllowed: true }), false);
+  assert.equal(shouldShowCookieNotice({ pathname: '/do-not-sell', native: false, choice: null, hostnameAllowed: true }), false);
+  assert.equal(shouldShowCookieNotice({ pathname: '/terms', native: false, choice: null, hostnameAllowed: true }), false);
+  assert.equal(shouldShowCookieNotice({ pathname: '/privacy-policy', native: false, choice: null, hostnameAllowed: true }), false);
+  assert.equal(shouldShowCookieNotice({ pathname: '/feedback', native: false, choice: null, hostnameAllowed: true }), false);
+  assert.equal(shouldShowCookieNotice({ pathname: '/', native: false, choice: null, hostnameAllowed: true, tourActive: true }), false);
+  assert.equal(shouldShowCookieNotice({ pathname: '/', native: false, choice: null, hostnameAllowed: false }), false);
 });
 
 test('acknowledged allows tags, opted_out and Global Privacy Control block them', () => {
   const base = {
     pathname: '/signup',
     native: false,
+    hostnameAllowed: true,
     metaId: '1234567890123',
-    gaId: 'G-ABC1234',
+    ga4Id: 'G-ABC1234',
+    adsId: 'AW-123456',
   };
   assert.deepEqual(
     tidyWiseTagDecision({ ...base, choice: null, gpc: false }),
-    { loadMeta: true, loadGa: true },
+    { loadMeta: true, loadGa4: true, loadAds: true },
   );
   assert.deepEqual(
     tidyWiseTagDecision({ ...base, choice: 'acknowledged', gpc: false }),
-    { loadMeta: true, loadGa: true },
+    { loadMeta: true, loadGa4: true, loadAds: true },
   );
   assert.deepEqual(
     tidyWiseTagDecision({ ...base, choice: 'opted_out', gpc: false }),
-    { loadMeta: false, loadGa: false },
+    { loadMeta: false, loadGa4: false, loadAds: false },
   );
   assert.deepEqual(
     tidyWiseTagDecision({ ...base, choice: 'acknowledged', gpc: true }),
-    { loadMeta: false, loadGa: false },
+    { loadMeta: false, loadGa4: false, loadAds: false },
   );
   assert.equal(readGlobalPrivacyControl({ globalPrivacyControl: true }), true);
   assert.equal(readGlobalPrivacyControl({ globalPrivacyControl: false }), false);
@@ -142,35 +158,82 @@ test('unset or invalid tag ids load nothing', () => {
   assert.equal(sanitizeMetaPixelId(''), null);
   assert.equal(sanitizeMetaPixelId('not-a-pixel'), null);
   assert.equal(sanitizeMetaPixelId('1234567890123'), '1234567890123');
-  assert.equal(sanitizeGaId(''), null);
-  assert.equal(sanitizeGaId('UA-hack'), null);
-  assert.equal(sanitizeGaId('G-ABC1234'), 'G-ABC1234');
-  assert.equal(sanitizeGaId('AW-123456'), 'AW-123456');
+  assert.equal(sanitizeGa4Id(''), null);
+  assert.equal(sanitizeGa4Id('UA-1234-1'), null);
+  assert.equal(sanitizeGa4Id('AW-123456'), null);
+  assert.equal(sanitizeGa4Id('G-ABC1234'), 'G-ABC1234');
+  assert.equal(sanitizeAdsId(''), null);
+  assert.equal(sanitizeAdsId('UA-1234-1'), null);
+  assert.equal(sanitizeAdsId('G-ABC1234'), null);
+  assert.equal(sanitizeAdsId('AW-123456'), 'AW-123456');
   assert.deepEqual(
     tidyWiseTagDecision({
       pathname: '/',
       native: false,
       choice: null,
       gpc: false,
+      hostnameAllowed: true,
       metaId: null,
-      gaId: null,
+      ga4Id: null,
+      adsId: null,
     }),
-    { loadMeta: false, loadGa: false },
+    { loadMeta: false, loadGa4: false, loadAds: false },
   );
 });
 
-test('booking pages never load TidyWise tags', () => {
+test('booking pages and legal pages never load TidyWise tags', () => {
+  for (const pathname of ['/book/acme', '/terms', '/privacy-policy', '/feedback']) {
+    assert.equal(isTidyWiseTagSurface(pathname), false, pathname);
+    assert.deepEqual(
+      tidyWiseTagDecision({
+        pathname,
+        native: false,
+        choice: null,
+        gpc: false,
+        hostnameAllowed: true,
+        metaId: '1234567890123',
+        ga4Id: 'G-ABC1234',
+        adsId: 'AW-123456',
+      }),
+      { loadMeta: false, loadGa4: false, loadAds: false },
+      pathname,
+    );
+  }
+  assert.equal(isTidyWiseMarketingOrSignupPath('/terms'), true);
+  assert.equal(isTidyWiseMarketingOrSignupPath('/feedback'), true);
+});
+
+test('production ignores extra tag hosts', () => {
+  assert.equal(isTagHostnameAllowed('jointidywise.com', { production: true, extraHosts: ['localhost'] }), true);
+  assert.equal(isTagHostnameAllowed('www.jointidywise.com', { production: true, extraHosts: [] }), true);
+  assert.equal(isTagHostnameAllowed('localhost', { production: true, extraHosts: ['localhost'] }), false);
+  assert.equal(isTagHostnameAllowed('evil.example', { production: false, extraHosts: ['localhost'] }), false);
+  assert.equal(isTagHostnameAllowed('localhost', { production: false, extraHosts: ['localhost', '127.0.0.1'] }), true);
   assert.deepEqual(
-    tidyWiseTagDecision({
-      pathname: '/book/acme',
-      native: false,
-      choice: null,
-      gpc: false,
-      metaId: '1234567890123',
-      gaId: 'G-ABC1234',
-    }),
-    { loadMeta: false, loadGa: false },
+    tagHostOptionsFromEnv({ PROD: true, VITE_TIDYWISE_TAG_TEST_HOSTS: 'localhost,127.0.0.1' }),
+    { production: true, extraHosts: [] },
   );
+  assert.deepEqual(
+    tagHostOptionsFromEnv({ PROD: false, VITE_TIDYWISE_TAG_TEST_HOSTS: 'localhost, 127.0.0.1' }),
+    { production: false, extraHosts: ['localhost', '127.0.0.1'] },
+  );
+});
+
+test('trial_started is allowed on onboarding and the dashboard, signup_completed stays on signup', () => {
+  const base = {
+    native: false,
+    choice: null as const,
+    gpc: false,
+    hostnameAllowed: true,
+    hasDestination: true,
+  };
+  assert.equal(tidyWiseConversionAllowed({ ...base, event: 'trial_started', pathname: '/onboarding' }), true);
+  assert.equal(tidyWiseConversionAllowed({ ...base, event: 'trial_started', pathname: '/dashboard' }), true);
+  assert.equal(tidyWiseConversionAllowed({ ...base, event: 'trial_started', pathname: '/book/acme' }), false);
+  assert.equal(tidyWiseConversionAllowed({ ...base, event: 'signup_completed', pathname: '/signup' }), true);
+  assert.equal(tidyWiseConversionAllowed({ ...base, event: 'signup_completed', pathname: '/dashboard' }), false);
+  assert.equal(tidyWiseConversionAllowed({ ...base, event: 'trial_started', pathname: '/onboarding', gpc: true }), false);
+  assert.equal(tidyWiseConversionAllowed({ ...base, event: 'signup_completed', pathname: '/signup', choice: 'opted_out' }), false);
 });
 
 test('acknowledged and opted_out persist as distinct values', () => {
@@ -238,18 +301,68 @@ test('the notice layout rules keep a 44px target, safe area, and page clearance'
   assert.match(css, /html\.tw-cookie-notice-open #root\s*\{[^}]*padding-bottom:\s*var\(--tw-cookie-bar-height/s);
 });
 
+test('opting out mid-session revokes consent and drops later tracks', () => {
+  const plan = optOutTagPlan();
+  assert.deepEqual(plan.metaConsent, ['consent', 'revoke']);
+  assert.equal(plan.googleConsentUpdate.ad_storage, 'denied');
+  assert.equal(plan.googleConsentUpdate.ad_user_data, 'denied');
+  assert.equal(plan.googleConsentUpdate.ad_personalization, 'denied');
+  assert.deepEqual(plan.clearCookieNames, ['_fbp', '_fbc', '_ga', '_gcl_']);
+  assert.equal(plan.reloadWhenStored, true);
+  assert.deepEqual(
+    planMetaCommand({
+      command: 'track',
+      pixelId: null,
+      ourId: '1111111111',
+      ourAllowed: false,
+      otherIds: ['2222222222'],
+      revoked: true,
+    }),
+    { action: 'drop' },
+  );
+  assert.deepEqual(
+    planMetaCommand({
+      command: 'trackSingle',
+      pixelId: '1111111111',
+      ourId: '1111111111',
+      ourAllowed: false,
+      otherIds: ['2222222222'],
+      revoked: true,
+    }),
+    { action: 'drop' },
+  );
+  assert.deepEqual(
+    planMetaCommand({
+      command: 'trackSingle',
+      pixelId: '2222222222',
+      ourId: '1111111111',
+      ourAllowed: false,
+      otherIds: ['2222222222'],
+      revoked: true,
+    }),
+    { action: 'passthrough' },
+  );
+  const tags = readFileSync(new URL('./tidywiseTags.ts', import.meta.url), 'utf8');
+  assert.match(tags, /fbqFn\(\)\?\.\(\.\.\.plan\.metaConsent\)/);
+  assert.match(tags, /consent', 'default'/);
+  assert.match(tags, /ga-disable-/);
+});
+
 test('the banner has no close X and the footer keeps the opt-out link', () => {
   const notice = readFileSync(new URL('../components/TidyWiseCookieNotice.tsx', import.meta.url), 'utf8');
   const footer = readFileSync(new URL('../components/SiteFooter.tsx', import.meta.url), 'utf8');
   const pixels = readFileSync(new URL('../components/TrackingPixels.tsx', import.meta.url), 'utf8');
   const tags = readFileSync(new URL('./tidywiseTags.ts', import.meta.url), 'utf8');
+  const site = readFileSync(new URL('../components/TidyWiseSitePrivacy.tsx', import.meta.url), 'utf8');
   assert.match(notice, /BANNER_BODY/);
   assert.match(notice, /OK/);
   assert.equal(notice.includes('aria-label="Close"'), false);
   assert.equal(notice.includes('✕'), false);
+  assert.match(notice, /metaKey/);
   assert.match(footer, /DoNotSellShareLink/);
   assert.equal(pixels.includes('VITE_TIDYWISE'), false);
-  assert.equal(tags.includes('consent'), false);
   assert.match(tags, /send_to/);
   assert.match(tags, /trackSingle/);
+  assert.equal(site.includes('createPortal'), false);
+  assert.equal(site.includes('MutationObserver'), false);
 });

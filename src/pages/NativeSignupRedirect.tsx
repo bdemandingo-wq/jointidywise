@@ -248,6 +248,12 @@ export default function NativeSignupPage() {
     if (error) {
       toast.error('Google sign-in failed. Please try again.');
       setOauthLoading(null);
+      return;
+    }
+    try {
+      sessionStorage.setItem('tw-oauth-signup', 'google');
+    } catch {
+      // Native tags do not load. The web return path reads this flag.
     }
   };
 

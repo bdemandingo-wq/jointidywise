@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { locationData } from "@/data/locationData";
 import { useState } from "react";
 import { CopyrightYear } from '@/components/CopyrightYear';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 import {
   Calendar,
   CreditCard,
@@ -472,6 +473,7 @@ export default function LocationSoftwarePage() {
             </Link>
           </div>
         </div>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

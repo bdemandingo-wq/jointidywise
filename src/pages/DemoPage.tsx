@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import emmanuelPhoto from "@/assets/emmanuel-headshot.webp";
 import { CopyrightYear } from '@/components/CopyrightYear';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 const testimonials = [
   {
@@ -211,6 +212,7 @@ export default function DemoPage() {
 
       <footer className="border-t border-border py-8 px-4 text-center text-sm text-muted-foreground pb-20 md:pb-8">
         <p>© <CopyrightYear /> TidyWise. All rights reserved.</p>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

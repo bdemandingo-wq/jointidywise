@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { CopyrightYear } from '@/components/CopyrightYear';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 const benefits = [
   {
@@ -279,6 +280,7 @@ export default function PayrollSoftware() {
             <Link to="/blog" className="text-muted-foreground hover:text-foreground">Blog</Link>
           </div>
         </div>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

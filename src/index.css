@@ -1791,7 +1791,8 @@ html.ios-native [contenteditable="true"] {
 
 /* TidyWise marketing cookie notice. White bar in both themes so the
    approved copy stays on the light brand blue. Org booking pages do not
-   mount this. */
+   mount this. Toasts use z-100 (and Sonner sits higher), so they stay
+   above this bar. The product tour holds the bar until it ends. */
 .tw-cookie-notice {
   position: fixed;
   left: 0;
@@ -1879,8 +1880,17 @@ html.ios-native [contenteditable="true"] {
 html.tw-cookie-notice-open {
   scroll-padding-bottom: var(--tw-cookie-bar-height, 0px);
 }
+html.tw-cookie-notice-open #root,
+html.tw-cookie-notice-open main,
+html.tw-cookie-notice-open .portal-v2-scroll {
+  scroll-padding-bottom: var(--tw-cookie-bar-height, 0px);
+}
 html.tw-cookie-notice-open #root {
   padding-bottom: var(--tw-cookie-bar-height, 0px);
+}
+/* Pages that scroll inside their own container, not the document. */
+html.tw-cookie-notice-open .portal-v2-scroll {
+  padding-bottom: calc(var(--pv-nav-h, 0px) + env(safe-area-inset-bottom, 0px) + 32px + var(--tw-cookie-bar-height, 0px));
 }
 html.tw-cookie-notice-open [data-signup-submit] {
   scroll-margin-bottom: calc(var(--tw-cookie-bar-height, 0px) + 12px);

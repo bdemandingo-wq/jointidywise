@@ -4,6 +4,7 @@ import { SEOHead } from '@/components/SEOHead';
 import { InPageLink } from '@/components/InPageLink';
 import { BreadcrumbJsonLd } from '@/components/seo/BreadcrumbJsonLd';
 import { Button } from "@/components/ui/button";
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 import { 
   ArrowLeft, 
   Calendar, 
@@ -707,6 +708,7 @@ export default function CleaningBusinessCRM() {
             © 2026 TIDYWISE. A CRM for cleaning business owners.
           </div>
         </div>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

@@ -3,6 +3,7 @@ import { SEOHead } from '@/components/SEOHead';
 import { BreadcrumbJsonLd } from '@/components/seo/BreadcrumbJsonLd';
 import { Button } from "@/components/ui/button";
 import { RelatedArticles, allArticles } from "@/components/blog/RelatedArticles";
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 import { 
   ArrowLeft, 
   Calendar, 
@@ -270,6 +271,7 @@ export default function BookingKoalaVsJobberVsTidywise() {
         <div className="max-w-4xl mx-auto text-center text-sm text-muted-foreground">
           © 2026 TIDYWISE. A cleaning business software alternative to Booking Koala & Jobber.
         </div>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

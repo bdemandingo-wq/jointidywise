@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
 import { safeJsonLd } from "@/lib/safeJsonLd";
 import { CopyrightYear } from '@/components/CopyrightYear';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 export default function DynamicBlogPost() {
   const { slug } = useParams<{ slug: string }>();
@@ -231,6 +232,7 @@ export default function DynamicBlogPost() {
         <div className="max-w-7xl mx-auto text-center text-sm text-muted-foreground">
           © <CopyrightYear /> TIDYWISE. All rights reserved.
         </div>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

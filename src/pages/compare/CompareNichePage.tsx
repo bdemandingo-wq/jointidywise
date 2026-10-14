@@ -5,6 +5,7 @@ import { SEOHead } from "@/components/SEOHead";
 import { BreadcrumbJsonLd } from "@/components/seo/BreadcrumbJsonLd";
 import { RelatedArticles, allArticles } from "@/components/blog/RelatedArticles";
 import { COMPETITORS, NICHES, TIDYWISE_FEATURE_MAP } from "@/data/compareNicheData";
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 import {
   CheckCircle2,
   XCircle,
@@ -322,6 +323,7 @@ export default function CompareNichePage() {
             <Link to="/blog" className="text-muted-foreground hover:text-foreground">Blog</Link>
           </div>
         </div>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { SEOHead } from '@/components/SEOHead';
@@ -6,6 +6,7 @@ import { SiteFooter } from '@/components/SiteFooter';
 import { Button } from '@/components/ui/button';
 import { loadPrivacyChoice, persistPrivacyChoice } from '@/lib/tidywisePrivacyStore';
 import { readGlobalPrivacyControl, type PrivacyChoice } from '@/lib/tidywiseSitePrivacy';
+import { revokeTidyWiseTags } from '@/lib/tidywiseTags';
 import { SUPPORT_EMAIL } from '@/lib/supportEmail';
 
 function browserGpc(): boolean {
@@ -13,25 +14,39 @@ function browserGpc(): boolean {
   return readGlobalPrivacyControl(navigator as Navigator & { globalPrivacyControl?: boolean });
 }
 
+function focusHeading(heading: HTMLElement | null): void {
+  if (!heading) return;
+  if (!heading.hasAttribute('tabindex')) heading.tabIndex = -1;
+  heading.focus({ preventScroll: true });
+}
+
 /**
  * Opt-out page for TidyWise's own Google and Meta tags.
  * A cleaning company's pixel on their booking page is unchanged.
+ *
+ * Copy pending owner approval.
  */
 export default function DoNotSellPage() {
   const [choice, setChoice] = useState<PrivacyChoice | null>(() => loadPrivacyChoice());
   const gpc = browserGpc();
-  const optedOut = choice === 'opted_out';
+  const optedOut = choice === 'opted_out' || gpc;
+
+  useEffect(() => {
+    focusHeading(document.querySelector('main h1'));
+  }, []);
 
   const optOut = () => {
-    persistPrivacyChoice('opted_out');
+    const stored = persistPrivacyChoice('opted_out');
     setChoice('opted_out');
+    revokeTidyWiseTags();
+    if (stored) window.location.reload();
   };
 
   return (
     <div className="portal-v2 portal-v2-scroll min-h-screen bg-background">
       <SEOHead
         title="Do Not Sell or Share My Personal Information | TidyWise"
-        description="Opt out of TidyWise using Google and Meta cookies to measure our marketing site and show ads."
+        description="Opt out of TidyWise using Google and Meta advertising tools on our marketing pages."
         canonical="/do-not-sell"
       />
       <header
@@ -55,50 +70,26 @@ export default function DoNotSellPage() {
       <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
         <article className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-10">
           <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            Do Not Sell or Share My Personal Information
+            Do Not Sell or Share My Personal Information.
           </h1>
           <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-            On TidyWise marketing and signup pages we use cookies and similar tools from Google and Meta
-            to measure our site and show relevant ads. This page turns those TidyWise tags off in this
-            browser. It does not change a cleaning company's own pixel on their public booking page.
-          </p>
-
-          <div className="mt-8 rounded-xl border border-border bg-background p-4" role="status">
-            <h2 className="text-base font-semibold text-foreground">Status in this browser</h2>
-            {optedOut ? (
-              <p className="mt-2 text-sm leading-relaxed text-foreground">
-                Opted out. TidyWise will not load its Meta Pixel or Google tag here.
-              </p>
-            ) : (
-              <p className="mt-2 text-sm leading-relaxed text-foreground">
-                {choice === 'acknowledged'
-                  ? 'Allowed. You dismissed the notice, so TidyWise tags may load on our marketing and signup pages.'
-                  : 'No choice saved yet. TidyWise tags may load on our marketing and signup pages until you opt out.'}
-              </p>
-            )}
-            {gpc ? (
-              <p className="mt-2 text-sm leading-relaxed text-foreground">
-                Your browser is sending Global Privacy Control, so these tags stay off even without a saved opt-out.
-              </p>
-            ) : null}
-          </div>
-
-          <div className="mt-6">
-            <button
-              type="button"
-              className="tw-cookie-notice__ok"
-              onClick={optOut}
-              disabled={optedOut}
-            >
-              {optedOut ? 'You are opted out' : 'Opt out of sale or sharing'}
-            </button>
-          </div>
-
-          <p className="mt-8 text-sm text-muted-foreground">
-            Questions: <a className="underline" href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
-            {' · '}
+            TidyWise doesn't sell your personal data for money. On our marketing pages we use Google and Meta advertising tools, which some state laws treat as 'sharing.'
+            {optedOut ? " You've opted out on this browser, so those tools won't load here." : null}
+            {' '}If you use another browser or device, or clear your cookies, opt out again there. We also honor Global Privacy Control signals automatically. You can email{' '}
+            <a className="underline" href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+            {' '}to opt out by email, or with any questions.{' '}
             <Link to="/privacy-policy" className="underline">Privacy Policy</Link>
           </p>
+
+          <div className="mt-8" role="status">
+            {optedOut ? (
+              <p className="text-sm font-semibold text-foreground">You're opted out</p>
+            ) : (
+              <button type="button" className="tw-cookie-notice__ok" onClick={optOut}>
+                Opt out now
+              </button>
+            )}
+          </div>
         </article>
       </main>
       <SiteFooter />

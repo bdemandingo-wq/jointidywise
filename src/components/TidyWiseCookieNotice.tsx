@@ -4,17 +4,32 @@ import { BANNER_BODY, DO_NOT_SELL_LABEL, DO_NOT_SELL_PATH } from '@/lib/tidywise
 
 const FADE_MS = 180;
 
+function focusMainHeading(): void {
+  const heading = document.querySelector('main h1') ?? document.querySelector('h1');
+  if (!(heading instanceof HTMLElement)) return;
+  if (!heading.hasAttribute('tabindex')) heading.tabIndex = -1;
+  heading.focus({ preventScroll: true });
+}
+
+function isModifiedClick(event: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean; button: number }): boolean {
+  return event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0;
+}
+
 /**
  * Notice bar for TidyWise's own marketing and signup pages.
- * OK stores acknowledged. The Do Not Sell link stores opted_out and opens
- * the opt-out page. There is no dismiss X.
+ * OK stores acknowledged. The Do Not Sell link stores opted_out immediately,
+ * before the fade, and still lets a modified click open a new tab.
+ * There is no dismiss X. Closing unmounts the bar.
  */
 export function TidyWiseCookieNotice({
   onAcknowledge,
   onOptOut,
+  onClosed,
 }: {
   onAcknowledge: () => void;
-  onOptOut: () => void;
+  /** Persists opted_out and revokes tags. Returns whether storage accepted the write. */
+  onOptOut: () => boolean;
+  onClosed: () => void;
 }) {
   const navigate = useNavigate();
   const barRef = useRef<HTMLDivElement>(null);
@@ -42,7 +57,10 @@ export function TidyWiseCookieNotice({
     if (closed.current) return;
     closed.current = true;
     setClosing(true);
-    window.setTimeout(action, FADE_MS);
+    window.setTimeout(() => {
+      action();
+      onClosed();
+    }, FADE_MS);
   };
 
   return (
@@ -60,9 +78,19 @@ export function TidyWiseCookieNotice({
             to={DO_NOT_SELL_PATH}
             className="tw-cookie-notice__link"
             onClick={(event) => {
+              // Save before the fade. A ctrl/cmd/middle click still opens the
+              // browser's new tab; this page opts out either way.
+              const stored = onOptOut();
+              if (isModifiedClick(event)) {
+                onClosed();
+                return;
+              }
               event.preventDefault();
               finish(() => {
-                onOptOut();
+                if (stored) {
+                  window.location.assign(DO_NOT_SELL_PATH);
+                  return;
+                }
                 navigate(DO_NOT_SELL_PATH);
               });
             }}
@@ -77,7 +105,10 @@ export function TidyWiseCookieNotice({
         <button
           type="button"
           className="tw-cookie-notice__ok"
-          onClick={() => finish(onAcknowledge)}
+          onClick={() => {
+            onAcknowledge();
+            finish(() => focusMainHeading());
+          }}
         >
           OK
         </button>

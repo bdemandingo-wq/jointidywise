@@ -1,5 +1,7 @@
 /**
- * SIGNUP PAGE - Email/Password only
+ * SIGNUP PAGE
+ * Email and password, plus Google on the web. Google signup sends
+ * signup_completed the same way email signup does.
  */
 
 import { useState, useEffect } from 'react';
@@ -78,6 +80,7 @@ export default function SignupPage() {
     loading: authLoading,
     initialCleanupDone,
     signUp,
+    signInWithGoogle,
     signOut
   } = useAuthNoSession();
 
@@ -125,6 +128,30 @@ export default function SignupPage() {
         if (first) toast.error(first);
       }
       return false;
+    }
+  };
+
+  const handleGoogleSignup = async () => {
+    if (!tosAccepted) {
+      toast.error('You must agree to the Terms of Service and refund policy to continue.');
+      return;
+    }
+    setLoading(true);
+    const { error, mockedUserId } = await signInWithGoogle();
+    if (error) {
+      toast.error('Google sign-up failed. Please try again.');
+      setLoading(false);
+      return;
+    }
+    if (mockedUserId) {
+      trackTidyWiseConversion('signup_completed', mockedUserId);
+      setLoading(false);
+      return;
+    }
+    try {
+      sessionStorage.setItem('tw-oauth-signup', 'google');
+    } catch {
+      // The return path still fires when storage works on the next page.
     }
   };
 
@@ -403,6 +430,16 @@ export default function SignupPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            <Button
+              type="button"
+              variant="outline"
+              className="mb-4 w-full h-12 text-base font-medium"
+              data-google-signup=""
+              disabled={loading}
+              onClick={() => void handleGoogleSignup()}
+            >
+              Continue with Google
+            </Button>
             <form onSubmit={handleSubmit} className="space-y-4" noValidate>
               {/* Full Name */}
               <div className="space-y-2">

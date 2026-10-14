@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { CopyrightYear } from '@/components/CopyrightYear';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 const features = [
   "Instant online booking available 24/7",
@@ -154,6 +155,7 @@ export default function BookingSoftware() {
 
       <footer className="border-t border-border py-8 px-4 text-center text-sm text-muted-foreground">
         <p>© <CopyrightYear /> TidyWise. All rights reserved.</p>
+              <DoNotSellShareLink />
       </footer>
     </div>
   );
