@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import {
   cascadeCancelAdSubscriptionsIfDowngraded,
   downgradeOrgOnSubscriptionDeleted,
+  subscriptionDeletedPlanFailure,
   type AdCascadeEffects,
   type PlanDowngradeClient,
   type PlanDowngradeResult,
@@ -33,10 +34,12 @@ class MemoryUpdate implements PlanDowngradeUpdate {
   private readonly orGroups: Clause[][] = [];
   private readonly orgs: Org[];
   private readonly values: { plan_type: "free" };
+  private readonly fail: boolean;
 
-  constructor(orgs: Org[], values: { plan_type: "free" }) {
+  constructor(orgs: Org[], values: { plan_type: "free" }, fail = false) {
     this.orgs = orgs;
     this.values = values;
+    this.fail = fail;
   }
 
   eq(column: string, value: string): this {
@@ -64,6 +67,7 @@ class MemoryUpdate implements PlanDowngradeUpdate {
   }
 
   select(_columns: string): Promise<PlanDowngradeResult> {
+    if (this.fail) return Promise.resolve({ data: null, error: { message: "plan update failed" } });
     const matched = this.orgs.filter((row) => this.matches(row));
     for (const row of matched) row.plan_type = this.values.plan_type;
     return Promise.resolve({
@@ -236,6 +240,45 @@ describe("customer.subscription.deleted plan downgrade", { concurrency: 1 }, () 
     assert.equal(orgs.find((row) => row.id === "standard")?.plan_type, "free");
   });
 
+  test("a failed plan update returns 500 and removes the event row, then the retry downgrades and cancels ads", async () => {
+    const orgs: Org[] = [
+      { id: "standard", plan_type: "standard", grandfathered_lifetime: false },
+    ];
+    const ads: AdSub[] = [ad("standard", "sub_std", "active")];
+    const events: WebhookEvent[] = [];
+    const store = memoryBilling(orgs, ads, { events, failPlanUpdates: 1 });
+    const stripeCancels: string[] = [];
+    const notices: number[] = [];
+    const effects: AdCascadeEffects = {
+      cancelStripeSubscription: async (stripeSubscriptionId) => {
+        stripeCancels.push(stripeSubscriptionId);
+      },
+      notifyAdmin: async (activeCount) => {
+        notices.push(activeCount);
+      },
+    };
+
+    const first = await offline(() => deliverDeletedSubscription(store, "evt_delete_1", effects));
+    assert.equal(first.status, 500);
+    assert.equal(first.duplicate, false);
+    assert.deepEqual(events, []);
+    assert.equal(orgs[0].plan_type, "standard");
+    assert.equal(ads[0].status, "active");
+    assert.deepEqual(stripeCancels, []);
+    assert.deepEqual(notices, []);
+
+    const retry = await offline(() => deliverDeletedSubscription(store, "evt_delete_1", effects));
+    assert.equal(retry.status, 200);
+    assert.equal(retry.duplicate, false);
+    assert.equal(retry.downgraded, true);
+    assert.equal(orgs[0].plan_type, "free");
+    assert.equal(ads[0].status, "cancelled");
+    assert.equal(ads[0].cancellation_reason, "tidywise_subscription_cancelled");
+    assert.deepEqual(stripeCancels, ["sub_std"]);
+    assert.deepEqual(notices, [1]);
+    assert.equal(events.length, 1);
+  });
+
   test("subscription.deleted uses the guarded downgrade", () => {
     const source = readFileSync(
       new URL("../stripe-invoice-webhook/index.ts", import.meta.url),
@@ -260,6 +303,20 @@ describe("customer.subscription.deleted plan downgrade", { concurrency: 1 }, () 
     assert.ok(stripeCancel > reverted && stripeCancel < unchanged);
     assert.equal(branch.slice(unchanged).includes("cascadeCancelAdSubscriptionsIfDowngraded"), false);
     assert.equal(branch.slice(unchanged).includes("stripe.subscriptions.cancel"), false);
+
+    const planErrAt = branch.indexOf("if (planErr)");
+    const failure = branch.slice(planErrAt, reverted);
+    assert.ok(planErrAt >= 0 && planErrAt < reverted);
+    assert.match(failure, /subscriptionDeletedPlanFailure\(/);
+    assert.match(failure, /status: failure\.status/);
+    assert.equal(failure.includes("cascadeCancelAdSubscriptionsIfDowngraded"), false);
+    const helper = readFileSync(new URL("./subscription-deleted-plan.ts", import.meta.url), "utf8");
+    const release = helper.slice(helper.indexOf("export async function subscriptionDeletedPlanFailure"));
+    assert.match(release, /from\("stripe_webhook_events"\)/);
+    assert.match(release, /\.delete\(\)/);
+    assert.match(release, /\.eq\("event_id", eventId\)/);
+    assert.match(release, /\.eq\("source", "stripe-invoice-webhook"\)/);
+    assert.match(release, /status: 500/);
   });
 });
 
@@ -319,14 +376,75 @@ class AdQuery {
   }
 }
 
-function memoryBilling(orgs: Org[], ads: AdSub[]) {
+type WebhookEvent = {
+  event_id: string;
+  event_type: string;
+  source: string;
+};
+
+class EventInsert {
+  private readonly rows: WebhookEvent[];
+  private readonly row: WebhookEvent;
+
+  constructor(rows: WebhookEvent[], row: WebhookEvent) {
+    this.rows = rows;
+    this.row = row;
+  }
+
+  then(
+    resolve: (value: { error: { code: string; message: string } | null }) => unknown,
+    reject?: (reason: unknown) => unknown,
+  ): Promise<unknown> {
+    if (this.rows.some((existing) => existing.event_id === this.row.event_id)) {
+      return Promise.resolve({ error: { code: "23505", message: "duplicate key" } }).then(resolve, reject);
+    }
+    this.rows.push({ ...this.row });
+    return Promise.resolve({ error: null }).then(resolve, reject);
+  }
+}
+
+class EventDelete {
+  private readonly rows: WebhookEvent[];
+  private readonly filters: { column: string; value: string }[] = [];
+
+  constructor(rows: WebhookEvent[]) {
+    this.rows = rows;
+  }
+
+  eq(column: string, value: string): this {
+    this.filters.push({ column, value });
+    return this;
+  }
+
+  then(
+    resolve: (value: { error: null }) => unknown,
+    reject?: (reason: unknown) => unknown,
+  ): Promise<unknown> {
+    const remaining = this.rows.filter((row) =>
+      !this.filters.every((filter) => row[filter.column as keyof WebhookEvent] === filter.value),
+    );
+    this.rows.splice(0, this.rows.length, ...remaining);
+    return Promise.resolve({ error: null }).then(resolve, reject);
+  }
+}
+
+function memoryBilling(
+  orgs: Org[],
+  ads: AdSub[],
+  options?: { events?: WebhookEvent[]; failPlanUpdates?: number },
+) {
+  const events = options?.events ?? [];
+  let failuresLeft = options?.failPlanUpdates ?? 0;
   return {
     orgs,
+    events,
     from(table: string) {
       if (table === "organizations") {
         return {
           update(values: { plan_type: "free" }) {
-            return new MemoryUpdate(orgs, values);
+            const fail = failuresLeft > 0;
+            if (fail) failuresLeft -= 1;
+            return new MemoryUpdate(orgs, values, fail);
           },
         };
       }
@@ -340,7 +458,44 @@ function memoryBilling(orgs: Org[], ads: AdSub[]) {
           },
         };
       }
+      if (table === "stripe_webhook_events") {
+        return {
+          insert(row: WebhookEvent) {
+            return new EventInsert(events, row);
+          },
+          delete() {
+            return new EventDelete(events);
+          },
+        };
+      }
       throw new Error(`unexpected table ${table}`);
     },
   };
+}
+
+/**
+ * The webhook inserts the event claim, then runs the plan write. A failed
+ * write deletes that claim and returns 500. The retry inserts again.
+ */
+async function deliverDeletedSubscription(
+  store: ReturnType<typeof memoryBilling>,
+  eventId: string,
+  effects: AdCascadeEffects,
+): Promise<{ status: number; duplicate: boolean; downgraded: boolean }> {
+  const { error: claimErr } = await store.from("stripe_webhook_events").insert({
+    event_id: eventId,
+    event_type: "customer.subscription.deleted",
+    source: "stripe-invoice-webhook",
+  });
+  if (claimErr?.code === "23505") return { status: 200, duplicate: true, downgraded: false };
+
+  const result = await downgradeOrgOnSubscriptionDeleted(store, "standard");
+  if (result.error) {
+    const failure = await subscriptionDeletedPlanFailure(store, eventId);
+    return { status: failure.status, duplicate: false, downgraded: false };
+  }
+  if (result.downgraded) {
+    await cascadeCancelAdSubscriptionsIfDowngraded(store, "standard", result.downgraded, effects);
+  }
+  return { status: 200, duplicate: false, downgraded: result.downgraded };
 }

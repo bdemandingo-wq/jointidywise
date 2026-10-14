@@ -52,6 +52,36 @@ export async function downgradeOrgOnSubscriptionDeleted(
   return { downgraded: Array.isArray(data) && data.length > 0, error: null };
 }
 
+/** Body of the 500 Stripe retries after a failed subscription.deleted plan write. */
+export const SUBSCRIPTION_DELETED_PLAN_RETRY_ERROR =
+  "subscription state was not saved; Stripe will retry.";
+
+/**
+ * The webhook inserts stripe_webhook_events before the plan write. A 500
+ * left in place would make Stripe's retry look like a duplicate and return
+ * 200 without downgrading the org or cancelling its ad subscriptions.
+ */
+export async function subscriptionDeletedPlanFailure(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  eventId: string | null | undefined,
+): Promise<{ status: 500; error: string }> {
+  if (eventId) {
+    const { error: releaseErr } = await supabase
+      .from("stripe_webhook_events")
+      .delete()
+      .eq("event_id", eventId)
+      .eq("source", "stripe-invoice-webhook");
+    if (releaseErr) {
+      console.error(
+        "[stripe-invoice-webhook] failed to release idempotency claim; a Stripe retry would be skipped:",
+        releaseErr,
+      );
+    }
+  }
+  return { status: 500, error: SUBSCRIPTION_DELETED_PLAN_RETRY_ERROR };
+}
+
 export interface AdCascadeEffects {
   cancelStripeSubscription: (stripeSubscriptionId: string) => Promise<unknown>;
   notifyAdmin: (activeCount: number) => Promise<void>;

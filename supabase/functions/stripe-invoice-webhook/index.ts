@@ -9,6 +9,7 @@ import { verifyStripeWebhook } from "../_shared/billing-stripe.ts";
 import {
   cascadeCancelAdSubscriptionsIfDowngraded,
   downgradeOrgOnSubscriptionDeleted,
+  subscriptionDeletedPlanFailure,
 } from "../_shared/subscription-deleted-plan.ts";
 
 /**
@@ -1640,6 +1641,14 @@ const handler = async (req: Request): Promise<Response> => {
                 console.error(
                   "[stripe-invoice-webhook] failed to revert org plan after subscription delete:",
                   { organizationId: membership.organization_id, error: planErr },
+                );
+                // Same release as a failed refund write: drop this event's
+                // stripe_webhook_events row and return 500 so Stripe retries
+                // the downgrade and the ad cancel.
+                const failure = await subscriptionDeletedPlanFailure(supabase, event.id);
+                return new Response(
+                  JSON.stringify({ error: failure.error }),
+                  { status: failure.status, headers: { ...corsHeaders, "Content-Type": "application/json" } },
                 );
               } else if (downgraded) {
                 console.log(
