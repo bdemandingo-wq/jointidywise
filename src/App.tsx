@@ -9,7 +9,7 @@ import { refreshBadges } from "@/lib/badgeRefresh";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 import { BrowserRouter, HashRouter, Routes, Route, Navigate } from "react-router-dom";
-import { ThemeProvider } from "next-themes";
+import { ThemeProvider, useTheme } from "next-themes";
 import { AuthProvider } from "@/hooks/useAuth";
 import { AuthProviderNoSession } from "@/hooks/useAuthNoSession";
 import { OrganizationProvider } from "@/contexts/OrganizationContext";
@@ -33,8 +33,14 @@ import { Capacitor } from "@capacitor/core";
 import { AppDialogsProvider } from "@/components/AppDialogs";
 import { useAppStateHandler } from '@/hooks/useAppStateHandler';
 import { captureReferralFromLocation } from '@/lib/referralAttribution';
-import { requestTrackingPermission } from '@/lib/metaEvents';
 import { NativePushRegistrar } from '@/components/NativePushRegistrar';
+import { IosBackSwipe } from '@/components/mobile/IosBackSwipe';
+import {
+  applyNativeStatusBar,
+  hideNativeSplashAfterPaint,
+  hydrateNativeOfflineCache,
+  markNativeIosDocument,
+} from '@/lib/nativeShell';
 import { Sentry } from '@/lib/sentry';
 
 // Landing is eager so the hero paints with the app shell. Heavy sections
@@ -225,6 +231,8 @@ const queryClient = new QueryClient({
   }),
 });
 
+markNativeIosDocument();
+hydrateNativeOfflineCache(queryClient);
 
 // Offline mode: persist the query cache to device storage so the app opens
 // with yesterday's calendar, bookings, and customers even with no signal.
@@ -253,20 +261,20 @@ const offlinePersister = createSyncStoragePersister({
 
 const AppStateHandler = (): null => {
   useAppStateHandler();
+  const { resolvedTheme } = useTheme();
   // Capture /r/CODE and ?ref= on first load, including the hash route the
   // native app uses, so the code survives until the org is created.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     captureReferralFromLocation(window.location);
   }, []);
-  // Request ATT after the app is fully mounted and stable — never during
-  // startup. The 3s delay lets the webview finish loading, session restore
-  // complete, and the user see the UI before the system dialog appears.
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    const timer = setTimeout(() => { requestTrackingPermission(); }, 3000);
-    return () => clearTimeout(timer);
+    markNativeIosDocument();
+    hideNativeSplashAfterPaint();
   }, []);
+  useEffect(() => {
+    applyNativeStatusBar(resolvedTheme);
+  }, [resolvedTheme]);
   return null;
 };
 
@@ -358,6 +366,7 @@ const App = () => (
                 */}
                 {Capacitor.isNativePlatform() ? (
                   <HashRouter>
+                    <IosBackSwipe />
                     <CopilotProvider>
                      <ErrorBoundary featureName="App">
                        <Suspense fallback={<PageLoader />}>

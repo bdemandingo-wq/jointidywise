@@ -1,4 +1,5 @@
-import { ReactNode, useEffect, useLayoutEffect, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminHeader } from './AdminHeader';
 
@@ -11,6 +12,32 @@ import { matchPath, useLocation } from 'react-router-dom';
 import { useBrandingColors } from '@/hooks/useBrandingColors';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useBodyPointerEventsRecovery } from '@/hooks/useBodyPointerEventsRecovery';
+import { usePullToRefresh } from '@/hooks/usePullToRefresh';
+import { PullToRefreshIndicator } from '@/components/admin/PullToRefreshIndicator';
+import { Capacitor } from '@capacitor/core';
+
+const LIST_PULL_PREFIXES = [
+  '/dashboard/customers',
+  '/dashboard/leads',
+  '/dashboard/invoices',
+  '/dashboard/tasks',
+  '/dashboard/estimates',
+  '/dashboard/recurring',
+];
+
+// Prefix of the list query on that page: useCustomers ['customers', org],
+// LeadsPage ['leads', org], InvoicesPage ['invoices', org],
+// TasksPage ['tasks-and-notes', org], EstimatesPage ['estimates', org],
+// RecurringBookingsPage ['recurring-bookings', org].
+function listQueryKey(pathname: string): string {
+  if (pathname.includes('/customers')) return 'customers';
+  if (pathname.includes('/leads')) return 'leads';
+  if (pathname.includes('/invoices')) return 'invoices';
+  if (pathname.includes('/tasks')) return 'tasks-and-notes';
+  if (pathname.includes('/estimates')) return 'estimates';
+  if (pathname.includes('/recurring')) return 'recurring-bookings';
+  return 'bookings';
+}
 
 interface AdminLayoutProps {
   children: ReactNode;
@@ -22,6 +49,14 @@ interface AdminLayoutProps {
 export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const location = useLocation();
+  const queryClient = useQueryClient();
+  const listPull = LIST_PULL_PREFIXES.some(
+    (prefix) => location.pathname === prefix || location.pathname.startsWith(`${prefix}/`),
+  );
+  const refreshList = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: [listQueryKey(location.pathname)] });
+  }, [location.pathname, queryClient]);
+  const { refreshing, pullDistance, handlers: pullHandlers } = usePullToRefresh(refreshList);
 
   // Admin pages pass `title` into the header but most of them never touch
   // document.title, so the browser tab stayed on the marketing default.
@@ -91,6 +126,9 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
       // Endpoint check kept, plus the path's worst vertical excursion.
       if (dy > 60 || maxDy > 60) return;
       if (isMobileView) {
+        // The iOS shell uses this edge for back. The menu button still opens
+        // the sidebar. The website keeps the edge-swipe opener.
+        if (Capacitor.getPlatform() === 'ios' && fromEdge) return;
         if (fromEdge && dx > 50) {
           window.dispatchEvent(new CustomEvent('tw:open-mobile-sidebar'));
         } else if (dx < -60 && startX <= 288) {
@@ -148,7 +186,9 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
             "animate-page-enter flex-1 w-full max-w-full min-w-0 overflow-x-auto",
             "px-3 py-3 md:p-4 pb-[calc(11.25rem+env(safe-area-inset-bottom))] md:pb-24"
           )}
+          {...(listPull ? pullHandlers : {})}
         >
+          {listPull && <PullToRefreshIndicator pullDistance={pullDistance} refreshing={refreshing} />}
           <PlanStateBanner />
           <TrialDaysBanner />
           {children}

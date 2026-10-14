@@ -19,10 +19,8 @@ import {
   type PushDiagnosticDetail,
 } from '@/lib/pushRuntime';
 
-// PushNotifications is created here, at module scope, the same way MetaEvents
-// is. App Tracking Transparency shows because requestTrackingPermission awaits
-// MetaEvents.requestTracking() — a real Promise. Awaiting a helper that
-// *returns* the push plugin does not. Capacitor 8.0.0's proxy answers `.then`
+// PushNotifications is created here, at module scope. Awaiting a helper that
+// *returns* the push plugin does not reach native. Capacitor 8.0.0's proxy answers `.then`
 // with a native method wrapper, the engine treats that return value as a
 // thenable, and the await hangs before requestPermissions runs
 // (ionic-team/capacitor#8469). Do not return this proxy from an async function.

@@ -7,7 +7,7 @@ import {
   Receipt, PieChart, CreditCard, Zap, Briefcase, Image,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useOrgId } from '@/hooks/useOrgId';
 import { AddBookingDialog } from '@/components/admin/AddBookingDialog';
@@ -20,6 +20,25 @@ import {
   writeCachedMobileNav,
   type MobileNavSlot,
 } from '@/lib/mobileNavSlots';
+import { hapticImpact } from '@/lib/haptics';
+import { isNativeIos } from '@/lib/nativeShell';
+
+const tabScrollY = new Map<string, number>();
+
+function readTabScroll(): number {
+  const inner = document.querySelector('main .overflow-auto, main .overflow-y-auto');
+  if (inner instanceof HTMLElement && inner.scrollHeight > inner.clientHeight + 8) return inner.scrollTop;
+  return window.scrollY;
+}
+
+function writeTabScroll(y: number) {
+  const inner = document.querySelector('main .overflow-auto, main .overflow-y-auto');
+  if (inner instanceof HTMLElement && inner.scrollHeight > inner.clientHeight + 8) {
+    inner.scrollTop = y;
+    return;
+  }
+  window.scrollTo(0, y);
+}
 
 export type MobileNavItem = MobileNavSlot;
 
@@ -86,16 +105,29 @@ export function MobileBottomNav() {
 
   const isDashboard = isDashboardRoute(location.pathname);
 
-  const triggerHaptic = useCallback(async () => {
-    try {
-      const { Capacitor } = await import('@capacitor/core');
-      if (!Capacitor.isNativePlatform()) return;
-      const { Haptics, ImpactStyle } = await import('@capacitor/haptics');
-      await Haptics.impact({ style: ImpactStyle.Light });
-    } catch {
-      /* haptics are optional */
-    }
+  const triggerHaptic = useCallback(() => {
+    hapticImpact('light');
   }, []);
+
+  useEffect(() => {
+    if (!isNativeIos()) return;
+    const path = location.pathname;
+    const remember = () => {
+      tabScrollY.set(path, readTabScroll());
+    };
+    document.addEventListener('scroll', remember, { passive: true, capture: true });
+    window.addEventListener('scroll', remember, { passive: true });
+    return () => {
+      document.removeEventListener('scroll', remember, true);
+      window.removeEventListener('scroll', remember);
+    };
+  }, [location.pathname]);
+
+  useLayoutEffect(() => {
+    if (!isNativeIos()) return;
+    const y = tabScrollY.get(location.pathname) ?? 0;
+    writeTabScroll(y);
+  }, [location.pathname]);
 
   useEffect(() => {
     const onSaved = (event: Event) => {
@@ -158,7 +190,9 @@ export function MobileBottomNav() {
     <nav
       className={cn(
         'fixed left-0 right-0 bottom-0 z-50 md:hidden',
-        'bg-background/95 backdrop-blur-md border-t border-border/30'
+        isNativeIos()
+          ? 'bg-background border-t border-border'
+          : 'bg-background/95 backdrop-blur-md border-t border-border/30'
       )}
       aria-label="Primary"
     >
@@ -221,10 +255,14 @@ function NavItem({ item, onTap, currentPath }: { item: MobileNavItem; onTap: () 
   return (
     <NavLink
       to={item.to}
-      onClick={onTap}
+      onClick={() => {
+        if (isNativeIos()) tabScrollY.set(currentPath, readTabScroll());
+        onTap();
+      }}
       className={cn(
         'flex flex-col items-center justify-center gap-0.5',
-        'text-[10px] font-medium transition-all duration-200',
+        'text-[10px] font-medium',
+        isNativeIos() ? 'transition-transform duration-100' : 'transition-all duration-200',
         'active:scale-[0.96] will-change-transform touch-manipulation',
         'h-12',
         active ? 'text-primary font-semibold' : 'text-muted-foreground'
