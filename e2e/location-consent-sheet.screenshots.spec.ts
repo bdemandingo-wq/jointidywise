@@ -21,7 +21,8 @@ test("consent sheet keeps Allow and Not now on screen", async ({ page }) => {
       const allowButton = buttons.find((button) => button.textContent?.trim() === "Allow");
       const notNowButton = buttons.find((button) => button.textContent?.trim() === "Not now");
       const copy = document.getElementById("location-consent-copy");
-      if (!allowButton || !notNowButton || !copy) return null;
+      const heading = document.getElementById("location-consent-title");
+      if (!allowButton || !notNowButton || !copy || !heading) return null;
       const allowBox = allowButton.getBoundingClientRect();
       const notNowBox = notNowButton.getBoundingClientRect();
       const allowStyle = getComputedStyle(allowButton);
@@ -34,8 +35,12 @@ test("consent sheet keeps Allow and Not now on screen", async ({ page }) => {
         notNow: { top: notNowBox.top, bottom: notNowBox.bottom, height: notNowBox.height, width: notNowBox.width },
         allowFont: allowStyle.fontSize,
         notNowFont: notNowStyle.fontSize,
+        allowBg: allowStyle.backgroundColor,
+        notNowBg: notNowStyle.backgroundColor,
+        notNowColor: notNowStyle.color,
         notNowOpacity: notNowStyle.opacity,
         notNowBorder: notNowStyle.borderTopWidth,
+        headingFont: getComputedStyle(heading).fontSize,
         copyFont: getComputedStyle(copy).fontSize,
         copyText: copy.textContent ?? "",
       };
@@ -53,7 +58,11 @@ test("consent sheet keeps Allow and Not now on screen", async ({ page }) => {
     expect(measured.allow.height).toBe(measured.notNow.height);
     expect(measured.allow.width).toBe(measured.notNow.width);
     expect(measured.allow.width).toBeGreaterThan(viewport.width * 0.7);
-    expect(measured.allowFont).toBe(measured.notNowFont);
+    expect(measured.allowFont).toBe("16px");
+    expect(measured.notNowFont).toBe("16px");
+    expect(measured.headingFont).toBe("24px");
+    expect(measured.allowBg).not.toBe(measured.notNowBg);
+    expect(measured.notNowColor).not.toBe(measured.notNowBg);
     expect(measured.notNowOpacity).toBe("1");
     expect(Number.parseFloat(measured.notNowBorder)).toBeGreaterThanOrEqual(2);
     expect(measured.copyFont).toBe("16px");

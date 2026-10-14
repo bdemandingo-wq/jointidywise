@@ -33,24 +33,24 @@ export function LocationConsentSheet({
           <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/10">
             <MapPin className="h-10 w-10 text-primary" />
           </div>
-          <h1 id="location-consent-title" className="text-[24px] font-bold leading-tight">
+          <h1 id="location-consent-title" className="!text-[24px] font-bold !leading-tight">
             {LOCATION_CONSENT_HEADING}
           </h1>
-          <p id="location-consent-copy" className="text-left text-[16px] leading-relaxed text-muted-foreground">
+          <p id="location-consent-copy" className="text-left !text-[16px] !leading-relaxed text-muted-foreground">
             {formatLocationConsentCopy(businessName)}
           </p>
         </div>
       </div>
       <div className="shrink-0 bg-background px-6 pb-6 pt-4">
         <div className="mx-auto flex w-full max-w-md flex-col gap-3">
-          <Button type="button" onClick={onContinue} disabled={busy} className="h-12 w-full text-[16px]" size="lg">
+          <Button type="button" onClick={onContinue} disabled={busy} className="h-12 w-full !text-[16px]" size="lg">
             Allow
           </Button>
           <Button
             type="button"
             variant="outline"
             onClick={onNotNow}
-            className="h-12 w-full border-2 border-foreground bg-background text-[16px] text-foreground"
+            className="h-12 w-full border-2 border-foreground bg-background !text-[16px] text-foreground"
             size="lg"
           >
             Not now
