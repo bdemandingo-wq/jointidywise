@@ -25,6 +25,7 @@ const LINK_ROOTS = [
   'src/lib/notificationCatalog.ts',
   'src/lib/sidebarSections.ts',
   'src/hooks/useOnboardingChecklist.ts',
+  'src/lib/activationMilestones.ts',
 ];
 
 function walk(rel: string): string[] {

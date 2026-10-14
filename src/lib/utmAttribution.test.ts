@@ -110,7 +110,7 @@ test("normalized source is direct only when no source was received", () => {
   assert.equal(none.utm_medium, null);
 
   const blank = normalizeCapturedUtm({ utm_source: "   ", utm_medium: " CPC " });
-  assert.equal(blank.utm_source_raw, "   ");
+  assert.equal(blank.utm_source_raw, null);
   assert.equal(blank.utm_source, "direct");
   assert.equal(blank.utm_medium_raw, " CPC ");
   assert.equal(blank.utm_medium, "cpc");
@@ -211,6 +211,20 @@ test("signup args send the raw value and a timestamp", () => {
   const missing = signupAttributionArgs(null, Date.parse("2026-03-02T00:00:00.000Z"));
   assert.equal(missing.p_utm_source, null);
   assert.equal(missing.p_captured_at, "2026-03-02T00:00:00.000Z");
+});
+
+test("whitespace-only UTM is null raw and direct source", () => {
+  const normalized = normalizeCapturedUtm({
+    utm_source: "   ",
+    utm_medium: " \t ",
+    utm_campaign: " Onboarding ",
+  });
+  assert.equal(normalized.utm_source_raw, null);
+  assert.equal(normalized.utm_source, "direct");
+  assert.equal(normalized.utm_medium_raw, null);
+  assert.equal(normalized.utm_medium, null);
+  assert.equal(normalized.utm_campaign_raw, " Onboarding ");
+  assert.equal(normalized.utm_campaign, "onboarding");
 });
 
 test("analytics summary shows normalized source and medium together", () => {

@@ -148,8 +148,10 @@ export function normalizeUtmValue(raw: string | null | undefined): string | null
   return normalized.length > 0 ? normalized : null;
 }
 
+/** As received, except whitespace-only, which is absent. Matches utm_raw_or_null. */
 function rawOrNull(value: string | null | undefined): string | null {
-  if (typeof value !== "string" || value.length === 0) return null;
+  if (typeof value !== "string") return null;
+  if (value.trim().length === 0) return null;
   return value;
 }
 

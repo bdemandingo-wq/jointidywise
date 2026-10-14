@@ -165,6 +165,27 @@ serve(async (req) => {
     const errorLog: any[] = [];
     const dataType = importRecord.data_type;
 
+    // Tag rows the activation milestones must ignore. customers still fire
+    // clients_imported. staff, bookings, and (if a future import writes them)
+    // invoices and manual payments do not fire staff_added, first_job_booked,
+    // or first_payment_received. This importer does not insert invoices or
+    // manual payments. An imported booking's payment_status is not a native
+    // client payment because the booking itself is tagged. Retry without the
+    // column when the activation migration has not been applied yet.
+    async function insertImported(
+      table: "customers" | "staff" | "bookings" | "invoices" | "manual_payments",
+      payload: Record<string, unknown>,
+    ): Promise<{ id: string }> {
+      const tagged = { ...payload, created_via: "migration_import" };
+      let { data, error } = await adminClient.from(table).insert(tagged).select("id").single();
+      if (error && /created_via/i.test(error.message || "")) {
+        ({ data, error } = await adminClient.from(table).insert(payload).select("id").single());
+      }
+      if (error) throw error;
+      if (!data?.id) throw new Error(`Import insert into ${table} did not return an id`);
+      return data as { id: string };
+    }
+
     for (const row of rows || []) {
       try {
         const data = row.mapped_data as Record<string, any>;
@@ -217,15 +238,7 @@ serve(async (req) => {
             notes: notes || null,
             customer_status: customerStatus,
           };
-          let { data: created, error: insertErr } = await adminClient
-            .from("customers").insert({ ...customerPayload, created_via: "migration_import" }).select("id").single();
-          // Column lands with the activation migration. Import the customer
-          // anyway if that SQL has not been applied yet.
-          if (insertErr && /created_via/i.test(insertErr.message || "")) {
-            ({ data: created, error: insertErr } = await adminClient
-              .from("customers").insert(customerPayload).select("id").single());
-          }
-          if (insertErr) throw insertErr;
+          const created = await insertImported("customers", customerPayload);
           await adminClient.from("migration_import_rows")
             .update({ status: "imported", created_record_id: created.id }).eq("id", row.id);
           imported++;
@@ -242,21 +255,19 @@ serve(async (req) => {
             });
           }
           const isActive = data.is_active === undefined ? true : !/^(false|no|inactive|0)$/i.test(String(data.is_active));
-          const { data: created, error: insertErr } = await adminClient
-            .from("staff").insert({
-              organization_id: organizationId,
-              // Validated, not trusted. This insert had no check at all, so a CSV
-              // column holding a phone number, "n/a" or a merged email+phone was
-              // stored verbatim and every later send to that staff member failed.
-              // An unusable value becomes NULL and is reported per row rather than
-              // blocking — the name, phone and rate are still worth keeping.
-              name,
-              email: isValidEmail(data.email) ? String(data.email).trim().toLowerCase() : null,
-              phone: data.phone || null,
-              hourly_rate: data.pay_rate ? normalizeMoney(data.pay_rate) : null,
-              is_active: isActive,
-            }).select("id").single();
-          if (insertErr) throw insertErr;
+          const created = await insertImported("staff", {
+            organization_id: organizationId,
+            // Validated, not trusted. This insert had no check at all, so a CSV
+            // column holding a phone number, "n/a" or a merged email+phone was
+            // stored verbatim and every later send to that staff member failed.
+            // An unusable value becomes NULL and is reported per row rather than
+            // blocking — the name, phone and rate are still worth keeping.
+            name,
+            email: isValidEmail(data.email) ? String(data.email).trim().toLowerCase() : null,
+            phone: data.phone || null,
+            hourly_rate: data.pay_rate ? normalizeMoney(data.pay_rate) : null,
+            is_active: isActive,
+          });
           await adminClient.from("migration_import_rows")
             .update({ status: "imported", created_record_id: created.id }).eq("id", row.id);
           imported++;
@@ -311,31 +322,29 @@ serve(async (req) => {
           const duration = data.duration ? normalizeInt(data.duration, 120)
             : data.duration_hours ? Math.round(parseFloat(data.duration_hours) * 60) : 120;
 
-          const { data: created, error: insertErr } = await adminClient
-            .from("bookings").insert({
-              organization_id: organizationId,
-              customer_id: customerId, service_id: serviceId, staff_id: staffId,
-              scheduled_at: scheduledAt,
-              duration,
-              total_amount: normalizeMoney(data.total_amount),
-              subtotal: data.subtotal ? normalizeMoney(data.subtotal) : null,
-              tax_amount: data.tax_amount ? normalizeMoney(data.tax_amount) : null,
-              tip_amount: data.tip_amount ? normalizeMoney(data.tip_amount) : null,
-              discount_amount: data.discount_amount ? normalizeMoney(data.discount_amount) : null,
-              status: normalizeStatus(data.status),
-              payment_status: normalizePaymentStatus(data.payment_status),
-              address: data.address || null,
-              city: data.city || null,
-              state: data.state || null,
-              zip_code: data.zip_code || null,
-              bedrooms: data.bedrooms ? String(data.bedrooms) : null,
-              bathrooms: data.bathrooms ? String(data.bathrooms) : null,
-              square_footage: data.square_footage ? String(data.square_footage) : null,
-              extras: parseExtras(data.extras),
-              frequency: data.frequency ? normalizeFrequency(data.frequency) : "one_time",
-              notes: data.notes ? `[Imported] ${data.notes}` : "[Imported from migration]",
-            }).select("id").single();
-          if (insertErr) throw insertErr;
+          const created = await insertImported("bookings", {
+            organization_id: organizationId,
+            customer_id: customerId, service_id: serviceId, staff_id: staffId,
+            scheduled_at: scheduledAt,
+            duration,
+            total_amount: normalizeMoney(data.total_amount),
+            subtotal: data.subtotal ? normalizeMoney(data.subtotal) : null,
+            tax_amount: data.tax_amount ? normalizeMoney(data.tax_amount) : null,
+            tip_amount: data.tip_amount ? normalizeMoney(data.tip_amount) : null,
+            discount_amount: data.discount_amount ? normalizeMoney(data.discount_amount) : null,
+            status: normalizeStatus(data.status),
+            payment_status: normalizePaymentStatus(data.payment_status),
+            address: data.address || null,
+            city: data.city || null,
+            state: data.state || null,
+            zip_code: data.zip_code || null,
+            bedrooms: data.bedrooms ? String(data.bedrooms) : null,
+            bathrooms: data.bathrooms ? String(data.bathrooms) : null,
+            square_footage: data.square_footage ? String(data.square_footage) : null,
+            extras: parseExtras(data.extras),
+            frequency: data.frequency ? normalizeFrequency(data.frequency) : "one_time",
+            notes: data.notes ? `[Imported] ${data.notes}` : "[Imported from migration]",
+          });
           await adminClient.from("migration_import_rows")
             .update({ status: "imported", created_record_id: created.id }).eq("id", row.id);
           imported++;

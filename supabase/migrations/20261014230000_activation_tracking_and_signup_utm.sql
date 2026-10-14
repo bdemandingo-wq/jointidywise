@@ -1,33 +1,67 @@
 -- Activation milestones and first-touch signup attribution.
 --
 -- The owner runs this by hand in the SQL editor. It does not call Stripe.
--- Re-running it is safe: objects are created IF NOT EXISTS, functions are
--- replaced, and policies/triggers are dropped before they are created.
+-- The whole file is one transaction. If the SQL editor already opened one,
+-- BEGIN is a warning and this COMMIT still commits that transaction.
 --
--- Milestones (one row per organization, ever):
---   trial_signup, cleaner_added, clients_imported,
---   first_job_booked, first_payment_received
+-- Milestone keys (one row per organization, the first time it happens).
+-- Keep this list identical to ACTIVATION_MILESTONES in
+-- src/lib/activationMilestones.ts:
+--   trial_signup            Trial signup
+--   service_added           Add your first service
+--   staff_added             Add your first staff member
+--   openphone_connected     Connect OpenPhone
+--   stripe_connected        Connect Stripe
+--   first_job_booked        Create your first booking
+--   clients_imported        Clients imported
+--   first_payment_received  First client payment received
 --
--- Last login is not a milestone. profiles.last_login_at and
--- organizations.last_login_at follow auth.users.last_sign_in_at.
+-- first_payment_received is a client of the cleaning business paying that
+-- business (a booking, an invoice, or a manual payment). It is not TidyWise
+-- subscription revenue.
 --
--- UTM values are free text. Nothing here restricts source or medium to a
--- list. Each UTM field is stored twice:
---   *_raw        the characters as received (not trimmed, not lowercased)
---   utm_*        trimmed and lowercased, for reporting
+-- openphone_connected and stripe_connected mean "first connected at".
+-- Disconnecting does not delete the row. The setup checklist reads the live
+-- row in organization_sms_settings / org_stripe_settings, not this ledger.
+-- org_stripe_settings has no charges_enabled column. That flag lives on
+-- staff_payout_accounts and describes a cleaner's payout account, which is
+-- a different Stripe account. The org is connected when is_connected is true
+-- or stripe_account_id is set (OAuth). Manual API keys set is_connected
+-- with a null account id and still count. If a charges_enabled key is ever
+-- present on the settings row and is false, that row is not connected.
+--
+-- Imported rows do not count as staff_added, first_job_booked, or
+-- first_payment_received. created_via (or source) of migration_import or
+-- csv_import is an import. Bookings whose notes still start with the
+-- migration importer's "[Imported" prefix are imports too. clients_imported
+-- is the milestone that does fire for those customer rows. service_added
+-- does fire for an imported service: the business now has a service.
+--
+-- Last login is not a milestone. The app calls touch_my_last_login() after
+-- sign-in. This file does not create a trigger on auth.users. Creating one
+-- can fail in the SQL editor because this role does not own the auth schema,
+-- and that failure would roll this whole transaction back.
+--
+-- UTM values are free text. Each UTM field is stored twice:
+--   *_raw   the characters as received, or null when missing or whitespace
+--   utm_*   trimmed and lowercased
 -- When a signup has no utm_source, the normalized column is 'direct'.
 -- The raw column stays null. 'direct' is never written into utm_source_raw.
 --
--- Demo orgs never get a milestone row. Last login is still stamped.
--- A row is treated as demo when any of these is true:
+-- Demo orgs never keep a milestone row. A row is demo when any of these
+-- is true:
 --   organization_pricing_settings.demo_mode_enabled
 --   organizations / profiles / pricing-settings jsonb flags named
 --     is_demo, demo_mode, demo_account, is_demo_account, is_demo_org
 --   the org owner's email is applereview@tidywise.com,
 --     applereview@tidywise1.com, or any @tidywise1.com address
---   the source row's is_test flag is true (bookings today; any later
---     is_test column is seen via to_jsonb)
+--   the source row's is_test flag is true
 -- support@tidywisecleaning.com is the owner's real account, not a demo.
+-- Turning demo mode on deletes that org's milestone rows. Reads also hide
+-- demo orgs, so a trial_signup written before the demo flag existed does
+-- not show up.
+
+BEGIN;
 
 -- ---------------------------------------------------------------------------
 -- Columns on existing tables
@@ -37,19 +71,43 @@ ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS last_login_at timestamptz;
 
 COMMENT ON COLUMN public.profiles.last_login_at IS
-  'Last auth sign-in for this account. Written by touch_account_last_login from auth.users.last_sign_in_at. Clients cannot change it.';
+  'Last time this account called touch_my_last_login. Written only by that function. Clients cannot change it.';
 
 ALTER TABLE public.organizations
   ADD COLUMN IF NOT EXISTS last_login_at timestamptz;
 
 COMMENT ON COLUMN public.organizations.last_login_at IS
-  'Latest sign-in by the owner, a member, or a cleaner of this org.';
+  'Latest touch_my_last_login by the owner, a member, or a cleaner of this org.';
 
 ALTER TABLE public.customers
   ADD COLUMN IF NOT EXISTS created_via text;
 
 COMMENT ON COLUMN public.customers.created_via IS
   'csv_import or migration_import when the row came from a client import. Null for customers added by hand, a booking, or a lead. The clients_imported milestone fires only for those two values.';
+
+ALTER TABLE public.staff
+  ADD COLUMN IF NOT EXISTS created_via text;
+
+COMMENT ON COLUMN public.staff.created_via IS
+  'migration_import or csv_import when the cleaner was imported. Null for staff added in TidyWise. staff_added ignores imported rows.';
+
+ALTER TABLE public.bookings
+  ADD COLUMN IF NOT EXISTS created_via text;
+
+COMMENT ON COLUMN public.bookings.created_via IS
+  'migration_import or csv_import when the job was imported. Null for a job created in TidyWise. first_job_booked and first_payment_received ignore imported rows.';
+
+ALTER TABLE public.invoices
+  ADD COLUMN IF NOT EXISTS created_via text;
+
+COMMENT ON COLUMN public.invoices.created_via IS
+  'migration_import or csv_import when the invoice was imported. Null for an invoice created in TidyWise. first_payment_received ignores imported rows. The migration importer does not insert invoices today; the column is here so an imported invoice cannot count as a native client payment.';
+
+ALTER TABLE public.manual_payments
+  ADD COLUMN IF NOT EXISTS created_via text;
+
+COMMENT ON COLUMN public.manual_payments.created_via IS
+  'migration_import or csv_import when the payment row was imported. Null for a payment recorded in TidyWise. first_payment_received ignores imported rows. This is a client paying the cleaning business, not TidyWise revenue.';
 
 -- ---------------------------------------------------------------------------
 -- Milestone ledger
@@ -75,29 +133,57 @@ BEGIN
       ADD CONSTRAINT organization_activation_events_org_milestone_key
       UNIQUE (organization_id, milestone);
   END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'organization_activation_events_milestone_check'
-      AND conrelid = 'public.organization_activation_events'::regclass
-  ) THEN
-    ALTER TABLE public.organization_activation_events
-      ADD CONSTRAINT organization_activation_events_milestone_check
-      CHECK (milestone IN (
-        'trial_signup',
-        'cleaner_added',
-        'clients_imported',
-        'first_job_booked',
-        'first_payment_received'
-      ));
-  END IF;
 END $$;
+
+-- A previous run of this file may have installed the shorter check list
+-- (cleaner_added, no service / OpenPhone / Stripe). Drop that check before
+-- renaming, because the old check rejects staff_added.
+ALTER TABLE public.organization_activation_events
+  DROP CONSTRAINT IF EXISTS organization_activation_events_milestone_check;
+
+UPDATE public.organization_activation_events
+SET milestone = 'staff_added'
+WHERE milestone = 'cleaner_added';
+
+ALTER TABLE public.organization_activation_events
+  ADD CONSTRAINT organization_activation_events_milestone_check
+  CHECK (milestone IN (
+    'trial_signup',
+    'service_added',
+    'staff_added',
+    'openphone_connected',
+    'stripe_connected',
+    'first_job_booked',
+    'clients_imported',
+    'first_payment_received'
+  ));
+
+COMMENT ON CONSTRAINT organization_activation_events_milestone_check
+  ON public.organization_activation_events IS
+  'Canonical milestone keys. first_payment_received is a client paying this cleaning business, not TidyWise subscription revenue. openphone_connected and stripe_connected are the first time that integration was connected.';
 
 CREATE INDEX IF NOT EXISTS organization_activation_events_org_occurred_idx
   ON public.organization_activation_events (organization_id, occurred_at DESC);
 
 COMMENT ON TABLE public.organization_activation_events IS
-  'One activation milestone per organization. Inserts are ON CONFLICT DO NOTHING so retries, refreshes, and double clicks do not create a second row.';
+  'First time each activation milestone happened for an organization. Inserts are ON CONFLICT DO NOTHING. Disconnecting OpenPhone or Stripe, or deleting the service or staff member, does not remove the row. Demo orgs are deleted from this table and hidden on read.';
+
+-- Failures inside milestone triggers land here. The business write still
+-- commits. The post-deploy query at the bottom of this file reads this table.
+CREATE TABLE IF NOT EXISTS public.activation_trigger_log (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  organization_id uuid,
+  milestone text,
+  source text,
+  message text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS activation_trigger_log_created_idx
+  ON public.activation_trigger_log (created_at DESC);
+
+COMMENT ON TABLE public.activation_trigger_log IS
+  'Warnings from activation triggers. A row here means a milestone was not recorded. The customer-facing write was not rolled back.';
 
 -- ---------------------------------------------------------------------------
 -- Signup attribution (UTM + referrer + landing page)
@@ -145,26 +231,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS account_signup_attribution_org_uidx
   WHERE organization_id IS NOT NULL;
 
 COMMENT ON TABLE public.account_signup_attribution IS
-  'First-touch marketing attribution for one account. utm_*_raw is the value as received. utm_* is trimmed and lowercased. utm_source is direct when no source was sent. Not an allowlist.';
+  'First-touch marketing attribution for one account. utm_*_raw is the value as received. utm_* is trimmed and lowercased. utm_source is direct when no source was sent. Not an allowlist. Readable by the account, by org owners and admins, and by platform admins.';
 
 COMMENT ON COLUMN public.account_signup_attribution.utm_source_raw IS
-  'utm_source exactly as received. Null when the visit had no utm_source. Never the word direct.';
+  'utm_source exactly as received. Null when the visit had no utm_source, or only whitespace. Never the word direct.';
 COMMENT ON COLUMN public.account_signup_attribution.utm_source IS
   'Trimmed, lowercased utm_source. direct when utm_source_raw is null or blank after trim.';
 COMMENT ON COLUMN public.account_signup_attribution.utm_medium_raw IS
-  'utm_medium exactly as received.';
+  'utm_medium exactly as received. Null when missing or whitespace.';
 COMMENT ON COLUMN public.account_signup_attribution.utm_medium IS
   'Trimmed, lowercased utm_medium. Null when absent.';
 COMMENT ON COLUMN public.account_signup_attribution.utm_campaign_raw IS
-  'utm_campaign exactly as received (often a post or page slug, or onboarding).';
+  'utm_campaign exactly as received (often a post or page slug, or onboarding). Null when missing or whitespace.';
 COMMENT ON COLUMN public.account_signup_attribution.utm_campaign IS
   'Trimmed, lowercased utm_campaign. Null when absent.';
 COMMENT ON COLUMN public.account_signup_attribution.utm_term_raw IS
-  'utm_term exactly as received.';
+  'utm_term exactly as received. Null when missing or whitespace.';
 COMMENT ON COLUMN public.account_signup_attribution.utm_term IS
   'Trimmed, lowercased utm_term. Null when absent.';
 COMMENT ON COLUMN public.account_signup_attribution.utm_content_raw IS
-  'utm_content exactly as received.';
+  'utm_content exactly as received. Null when missing or whitespace.';
 COMMENT ON COLUMN public.account_signup_attribution.utm_content IS
   'Trimmed, lowercased utm_content. Null when absent.';
 COMMENT ON COLUMN public.account_signup_attribution.referrer IS
@@ -187,6 +273,22 @@ AS $$
 $$;
 
 REVOKE ALL ON FUNCTION public.normalize_utm_value(text) FROM PUBLIC, anon, authenticated;
+
+-- Whitespace-only is absent. A value that still has characters after trim
+-- is kept as received (not trimmed) so the raw column matches the URL.
+CREATE OR REPLACE FUNCTION public.utm_raw_or_null(p_raw text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+  SELECT CASE
+    WHEN p_raw IS NULL OR btrim(left(p_raw, 500)) = '' THEN NULL
+    ELSE left(p_raw, 500)
+  END;
+$$;
+
+REVOKE ALL ON FUNCTION public.utm_raw_or_null(text) FROM PUBLIC, anon, authenticated;
 
 CREATE OR REPLACE FUNCTION public.jsonb_flag_true(p_json jsonb, p_key text)
 RETURNS boolean
@@ -283,7 +385,36 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.activation_subject_is_demo(uuid) FROM PUBLIC, anon, authenticated;
+-- Granted to authenticated so row-level policies can call it. It returns
+-- only a boolean. It does not return the owner email.
+REVOKE ALL ON FUNCTION public.activation_subject_is_demo(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.activation_subject_is_demo(uuid) TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.activation_log_warning(
+  _org_id uuid,
+  _milestone text,
+  _source text,
+  _message text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.activation_trigger_log (organization_id, milestone, source, message)
+  VALUES (
+    _org_id,
+    NULLIF(left(coalesce(_milestone, ''), 80), ''),
+    NULLIF(left(coalesce(_source, ''), 80), ''),
+    left(coalesce(_message, 'unknown'), 500)
+  );
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'activation_log_warning failed: %', SQLERRM;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.activation_log_warning(uuid, text, text, text) FROM PUBLIC, anon, authenticated;
 
 -- Not granted to clients. Triggers call it as the owner. A grant to
 -- authenticated would let any login write another org's milestone.
@@ -309,6 +440,7 @@ BEGIN
   VALUES (_org_id, _milestone, NULLIF(left(COALESCE(_source, ''), 80), ''))
   ON CONFLICT (organization_id, milestone) DO NOTHING;
 EXCEPTION WHEN OTHERS THEN
+  PERFORM public.activation_log_warning(_org_id, _milestone, _source, SQLERRM);
   RAISE WARNING 'record_activation_milestone failed: %', SQLERRM;
 END;
 $$;
@@ -325,6 +457,99 @@ $$;
 
 REVOKE ALL ON FUNCTION public.row_is_test(jsonb) FROM PUBLIC, anon, authenticated;
 
+-- Keep the two created_via values in sync with IMPORTED_CREATED_VIA in
+-- src/lib/activationMilestones.ts. The notes prefix is the label the
+-- migration importer wrote before created_via existed.
+CREATE OR REPLACE FUNCTION public.row_is_imported(p_row jsonb)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT lower(btrim(coalesce(p_row ->> 'created_via', ''))) IN ('migration_import', 'csv_import')
+      OR lower(btrim(coalesce(p_row ->> 'source', ''))) IN ('migration_import', 'csv_import')
+      OR btrim(coalesce(p_row ->> 'notes', '')) ILIKE '[Imported%';
+$$;
+
+REVOKE ALL ON FUNCTION public.row_is_imported(jsonb) FROM PUBLIC, anon, authenticated;
+
+-- A native job: not a test, not a draft, not an import.
+CREATE OR REPLACE FUNCTION public.booking_is_real_job(p_row jsonb)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT NOT public.jsonb_flag_true(p_row, 'is_test')
+     AND NOT public.jsonb_flag_true(p_row, 'is_draft')
+     AND NOT public.row_is_imported(p_row);
+$$;
+
+REVOKE ALL ON FUNCTION public.booking_is_real_job(jsonb) FROM PUBLIC, anon, authenticated;
+
+-- A client of this org paying this org. Not a TidyWise subscription charge.
+-- Imported bookings are not a native payment even when payment_status is paid.
+CREATE OR REPLACE FUNCTION public.booking_is_payment(p_row jsonb)
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  v_status text;
+  v_deposit numeric;
+BEGIN
+  IF NOT public.booking_is_real_job(p_row) THEN
+    RETURN false;
+  END IF;
+  v_status := lower(coalesce(p_row ->> 'payment_status', ''));
+  IF v_status IN ('paid', 'partial') THEN
+    RETURN true;
+  END IF;
+  BEGIN
+    v_deposit := COALESCE(NULLIF(p_row ->> 'deposit_paid', '')::numeric, 0);
+  EXCEPTION WHEN invalid_text_representation THEN
+    v_deposit := 0;
+  END;
+  RETURN v_deposit > 0;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.booking_is_payment(jsonb) FROM PUBLIC, anon, authenticated;
+
+-- API key and phone number both saved. The checklist uses the same rule
+-- against live columns, not the milestone row.
+CREATE OR REPLACE FUNCTION public.org_openphone_is_connected(p_row jsonb)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT NULLIF(btrim(coalesce(p_row ->> 'openphone_api_key', '')), '') IS NOT NULL
+     AND NULLIF(btrim(coalesce(p_row ->> 'openphone_phone_number_id', '')), '') IS NOT NULL;
+$$;
+
+REVOKE ALL ON FUNCTION public.org_openphone_is_connected(jsonb) FROM PUBLIC, anon, authenticated;
+
+-- See the header comment for why charges_enabled is not required unless the
+-- key is actually present on this row.
+CREATE OR REPLACE FUNCTION public.org_stripe_is_connected(p_row jsonb)
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+BEGIN
+  IF p_row IS NULL THEN
+    RETURN false;
+  END IF;
+  IF p_row ? 'charges_enabled' AND NOT public.jsonb_flag_true(p_row, 'charges_enabled') THEN
+    RETURN false;
+  END IF;
+  IF public.jsonb_flag_true(p_row, 'is_connected') THEN
+    RETURN true;
+  END IF;
+  RETURN NULLIF(btrim(coalesce(p_row ->> 'stripe_account_id', '')), '') IS NOT NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.org_stripe_is_connected(jsonb) FROM PUBLIC, anon, authenticated;
+
 -- ---------------------------------------------------------------------------
 -- Triggers: milestones
 -- ---------------------------------------------------------------------------
@@ -337,11 +562,16 @@ SET search_path = public
 AS $$
 BEGIN
   BEGIN
-    IF COALESCE(NULLIF(lower(btrim(COALESCE(NEW.plan_type, ''))), ''), 'trial') IN ('trial', 'free') THEN
+    -- Demo mode usually lands on organization_pricing_settings after this
+    -- insert. record_activation_milestone skips orgs that are already demo
+    -- (review emails, flags on the org row). A later demo_mode_enabled = true
+    -- deletes the row. Reads hide demo orgs either way.
+    IF NOT public.activation_subject_is_demo(NEW.id)
+       AND COALESCE(NULLIF(lower(btrim(COALESCE(NEW.plan_type, ''))), ''), 'trial') IN ('trial', 'free') THEN
       PERFORM public.record_activation_milestone(NEW.id, 'trial_signup', 'organizations.insert');
     END IF;
   EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'activation org milestone failed: %', SQLERRM;
+    PERFORM public.activation_log_warning(NEW.id, 'trial_signup', 'organizations.insert', SQLERRM);
   END;
 
   BEGIN
@@ -351,7 +581,7 @@ BEGIN
     WHERE user_id = NEW.owner_id
       AND organization_id IS NULL;
   EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'activation org attribution link failed: %', SQLERRM;
+    PERFORM public.activation_log_warning(NEW.id, NULL, 'organizations.attribution', SQLERRM);
   END;
 
   RETURN NEW;
@@ -365,6 +595,74 @@ CREATE TRIGGER activation_organizations_insert
   AFTER INSERT ON public.organizations
   FOR EACH ROW
   EXECUTE FUNCTION public.activation_on_organization_insert();
+
+CREATE OR REPLACE FUNCTION public.activation_purge_if_demo()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_org uuid;
+BEGIN
+  v_org := NEW.organization_id;
+  IF v_org IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF public.activation_subject_is_demo(v_org) THEN
+    DELETE FROM public.organization_activation_events
+    WHERE organization_id = v_org;
+  END IF;
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  PERFORM public.activation_log_warning(v_org, NULL, 'demo_purge', SQLERRM);
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.activation_purge_if_demo() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS activation_purge_demo_pricing ON public.organization_pricing_settings;
+CREATE TRIGGER activation_purge_demo_pricing
+  AFTER INSERT OR UPDATE OF demo_mode_enabled ON public.organization_pricing_settings
+  FOR EACH ROW
+  EXECUTE FUNCTION public.activation_purge_if_demo();
+
+CREATE OR REPLACE FUNCTION public.activation_on_service_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.organization_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF COALESCE(NEW.is_active, false) IS NOT TRUE THEN
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'UPDATE' AND COALESCE(OLD.is_active, false) IS TRUE THEN
+    RETURN NEW;
+  END IF;
+  IF public.row_is_test(to_jsonb(NEW)) THEN
+    RETURN NEW;
+  END IF;
+
+  PERFORM public.record_activation_milestone(NEW.organization_id, 'service_added', 'services.' || lower(TG_OP));
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  PERFORM public.activation_log_warning(NEW.organization_id, 'service_added', 'services', SQLERRM);
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.activation_on_service_change() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS activation_services_change ON public.services;
+CREATE TRIGGER activation_services_change
+  AFTER INSERT OR UPDATE OF is_active ON public.services
+  FOR EACH ROW
+  EXECUTE FUNCTION public.activation_on_service_change();
 
 CREATE OR REPLACE FUNCTION public.activation_on_staff_change()
 RETURNS trigger
@@ -382,14 +680,14 @@ BEGIN
   IF TG_OP = 'UPDATE' AND COALESCE(OLD.is_active, true) IS TRUE THEN
     RETURN NEW;
   END IF;
-  IF public.row_is_test(to_jsonb(NEW)) THEN
+  IF public.row_is_test(to_jsonb(NEW)) OR public.row_is_imported(to_jsonb(NEW)) THEN
     RETURN NEW;
   END IF;
 
-  PERFORM public.record_activation_milestone(NEW.organization_id, 'cleaner_added', 'staff.' || lower(TG_OP));
+  PERFORM public.record_activation_milestone(NEW.organization_id, 'staff_added', 'staff.' || lower(TG_OP));
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
-  RAISE WARNING 'activation staff hook failed: %', SQLERRM;
+  PERFORM public.activation_log_warning(NEW.organization_id, 'staff_added', 'staff', SQLERRM);
   RETURN NEW;
 END;
 $$;
@@ -426,7 +724,7 @@ BEGIN
   );
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
-  RAISE WARNING 'activation customer hook failed: %', SQLERRM;
+  PERFORM public.activation_log_warning(NEW.organization_id, 'clients_imported', 'customers', SQLERRM);
   RETURN NEW;
 END;
 $$;
@@ -439,43 +737,87 @@ CREATE TRIGGER activation_customers_import
   FOR EACH ROW
   EXECUTE FUNCTION public.activation_on_customer_insert();
 
-CREATE OR REPLACE FUNCTION public.booking_is_real_job(p_row jsonb)
-RETURNS boolean
-LANGUAGE sql
-IMMUTABLE
-AS $$
-  SELECT NOT public.jsonb_flag_true(p_row, 'is_test')
-     AND NOT public.jsonb_flag_true(p_row, 'is_draft');
-$$;
-
-REVOKE ALL ON FUNCTION public.booking_is_real_job(jsonb) FROM PUBLIC, anon, authenticated;
-
-CREATE OR REPLACE FUNCTION public.booking_is_payment(p_row jsonb)
-RETURNS boolean
+CREATE OR REPLACE FUNCTION public.activation_on_openphone_change()
+RETURNS trigger
 LANGUAGE plpgsql
-IMMUTABLE
+SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
-  v_status text;
-  v_deposit numeric;
+  v_new jsonb := to_jsonb(NEW);
+  v_old jsonb := CASE WHEN TG_OP = 'UPDATE' THEN to_jsonb(OLD) ELSE NULL END;
 BEGIN
-  IF NOT public.booking_is_real_job(p_row) THEN
-    RETURN false;
+  IF NEW.organization_id IS NULL THEN
+    RETURN NEW;
   END IF;
-  v_status := lower(coalesce(p_row ->> 'payment_status', ''));
-  IF v_status IN ('paid', 'partial') THEN
-    RETURN true;
+  IF NOT public.org_openphone_is_connected(v_new) THEN
+    RETURN NEW;
   END IF;
-  BEGIN
-    v_deposit := COALESCE(NULLIF(p_row ->> 'deposit_paid', '')::numeric, 0);
-  EXCEPTION WHEN invalid_text_representation THEN
-    v_deposit := 0;
-  END;
-  RETURN v_deposit > 0;
+  IF v_old IS NOT NULL AND public.org_openphone_is_connected(v_old) THEN
+    RETURN NEW;
+  END IF;
+
+  PERFORM public.record_activation_milestone(
+    NEW.organization_id,
+    'openphone_connected',
+    'organization_sms_settings.' || lower(TG_OP)
+  );
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  PERFORM public.activation_log_warning(NEW.organization_id, 'openphone_connected', 'organization_sms_settings', SQLERRM);
+  RETURN NEW;
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.booking_is_payment(jsonb) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.activation_on_openphone_change() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS activation_openphone_connected ON public.organization_sms_settings;
+CREATE TRIGGER activation_openphone_connected
+  AFTER INSERT OR UPDATE OF openphone_api_key, openphone_phone_number_id
+  ON public.organization_sms_settings
+  FOR EACH ROW
+  EXECUTE FUNCTION public.activation_on_openphone_change();
+
+CREATE OR REPLACE FUNCTION public.activation_on_stripe_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_new jsonb := to_jsonb(NEW);
+  v_old jsonb := CASE WHEN TG_OP = 'UPDATE' THEN to_jsonb(OLD) ELSE NULL END;
+BEGIN
+  IF NEW.organization_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF NOT public.org_stripe_is_connected(v_new) THEN
+    RETURN NEW;
+  END IF;
+  IF v_old IS NOT NULL AND public.org_stripe_is_connected(v_old) THEN
+    RETURN NEW;
+  END IF;
+
+  PERFORM public.record_activation_milestone(
+    NEW.organization_id,
+    'stripe_connected',
+    'org_stripe_settings.' || lower(TG_OP)
+  );
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  PERFORM public.activation_log_warning(NEW.organization_id, 'stripe_connected', 'org_stripe_settings', SQLERRM);
+  RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.activation_on_stripe_change() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS activation_stripe_connected ON public.org_stripe_settings;
+CREATE TRIGGER activation_stripe_connected
+  AFTER INSERT OR UPDATE OF is_connected, stripe_account_id, stripe_secret_key
+  ON public.org_stripe_settings
+  FOR EACH ROW
+  EXECUTE FUNCTION public.activation_on_stripe_change();
 
 CREATE OR REPLACE FUNCTION public.activation_on_booking_job()
 RETURNS trigger
@@ -500,7 +842,7 @@ BEGIN
   PERFORM public.record_activation_milestone(NEW.organization_id, 'first_job_booked', 'bookings.' || lower(TG_OP));
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
-  RAISE WARNING 'activation booking job hook failed: %', SQLERRM;
+  PERFORM public.activation_log_warning(NEW.organization_id, 'first_job_booked', 'bookings', SQLERRM);
   RETURN NEW;
 END;
 $$;
@@ -509,7 +851,7 @@ REVOKE ALL ON FUNCTION public.activation_on_booking_job() FROM PUBLIC, anon, aut
 
 DROP TRIGGER IF EXISTS activation_bookings_job ON public.bookings;
 CREATE TRIGGER activation_bookings_job
-  AFTER INSERT OR UPDATE OF is_draft, is_test ON public.bookings
+  AFTER INSERT OR UPDATE OF is_draft, is_test, created_via ON public.bookings
   FOR EACH ROW
   EXECUTE FUNCTION public.activation_on_booking_job();
 
@@ -526,6 +868,7 @@ BEGIN
   IF NEW.organization_id IS NULL THEN
     RETURN NEW;
   END IF;
+  -- Client paid this cleaning business. Not a TidyWise subscription charge.
   IF NOT public.booking_is_payment(v_new) THEN
     RETURN NEW;
   END IF;
@@ -540,7 +883,7 @@ BEGIN
   );
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
-  RAISE WARNING 'activation booking payment hook failed: %', SQLERRM;
+  PERFORM public.activation_log_warning(NEW.organization_id, 'first_payment_received', 'bookings.payment', SQLERRM);
   RETURN NEW;
 END;
 $$;
@@ -549,7 +892,7 @@ REVOKE ALL ON FUNCTION public.activation_on_booking_payment() FROM PUBLIC, anon,
 
 DROP TRIGGER IF EXISTS activation_bookings_payment ON public.bookings;
 CREATE TRIGGER activation_bookings_payment
-  AFTER INSERT OR UPDATE OF payment_status, deposit_paid, is_test, is_draft ON public.bookings
+  AFTER INSERT OR UPDATE OF payment_status, deposit_paid, is_test, is_draft, created_via ON public.bookings
   FOR EACH ROW
   EXECUTE FUNCTION public.activation_on_booking_payment();
 
@@ -563,7 +906,7 @@ BEGIN
   IF NEW.organization_id IS NULL THEN
     RETURN NEW;
   END IF;
-  IF public.row_is_test(to_jsonb(NEW)) THEN
+  IF public.row_is_test(to_jsonb(NEW)) OR public.row_is_imported(to_jsonb(NEW)) THEN
     RETURN NEW;
   END IF;
   IF lower(coalesce(NEW.status, '')) <> 'paid' THEN
@@ -573,10 +916,11 @@ BEGIN
     RETURN NEW;
   END IF;
 
+  -- Client paid this cleaning business. Not a TidyWise subscription charge.
   PERFORM public.record_activation_milestone(NEW.organization_id, 'first_payment_received', 'invoices.paid');
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
-  RAISE WARNING 'activation invoice hook failed: %', SQLERRM;
+  PERFORM public.activation_log_warning(NEW.organization_id, 'first_payment_received', 'invoices.paid', SQLERRM);
   RETURN NEW;
 END;
 $$;
@@ -585,7 +929,7 @@ REVOKE ALL ON FUNCTION public.activation_on_invoice_paid() FROM PUBLIC, anon, au
 
 DROP TRIGGER IF EXISTS activation_invoices_paid ON public.invoices;
 CREATE TRIGGER activation_invoices_paid
-  AFTER INSERT OR UPDATE OF status ON public.invoices
+  AFTER INSERT OR UPDATE OF status, created_via ON public.invoices
   FOR EACH ROW
   EXECUTE FUNCTION public.activation_on_invoice_paid();
 
@@ -602,14 +946,15 @@ BEGIN
   IF COALESCE(NEW.amount, 0) <= 0 THEN
     RETURN NEW;
   END IF;
-  IF public.row_is_test(to_jsonb(NEW)) THEN
+  IF public.row_is_test(to_jsonb(NEW)) OR public.row_is_imported(to_jsonb(NEW)) THEN
     RETURN NEW;
   END IF;
 
+  -- Client paid this cleaning business. Not a TidyWise subscription charge.
   PERFORM public.record_activation_milestone(NEW.organization_id, 'first_payment_received', 'manual_payments.insert');
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
-  RAISE WARNING 'activation manual payment hook failed: %', SQLERRM;
+  PERFORM public.activation_log_warning(NEW.organization_id, 'first_payment_received', 'manual_payments.insert', SQLERRM);
   RETURN NEW;
 END;
 $$;
@@ -623,7 +968,14 @@ CREATE TRIGGER activation_manual_payments_insert
   EXECUTE FUNCTION public.activation_on_manual_payment();
 
 -- ---------------------------------------------------------------------------
--- Last login
+-- Last login. No trigger on auth.users.
+--
+-- If an earlier draft of this file created on_auth_user_last_login, leave
+-- that trigger in place until a role that owns auth.users runs:
+--   DROP TRIGGER IF EXISTS on_auth_user_last_login ON auth.users;
+-- The function it calls is kept below so sign-in does not break in the
+-- meantime. New installs never create the trigger. The app calls
+-- touch_my_last_login() after a session is established.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.protect_last_login_at()
@@ -654,6 +1006,7 @@ CREATE TRIGGER protect_organizations_last_login
   FOR EACH ROW
   EXECUTE FUNCTION public.protect_last_login_at();
 
+-- Retained for a draft trigger on auth.users. Not created by this file.
 CREATE OR REPLACE FUNCTION public.touch_account_last_login()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -687,22 +1040,53 @@ BEGIN
 
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
-  RAISE WARNING 'touch_account_last_login failed: %', SQLERRM;
+  PERFORM public.activation_log_warning(NULL, NULL, 'auth.last_sign_in', SQLERRM);
   RETURN NEW;
 END;
 $$;
 
 REVOKE ALL ON FUNCTION public.touch_account_last_login() FROM PUBLIC, anon, authenticated;
 
-DROP TRIGGER IF EXISTS on_auth_user_last_login ON auth.users;
-CREATE TRIGGER on_auth_user_last_login
-  AFTER INSERT OR UPDATE OF last_sign_in_at ON auth.users
-  FOR EACH ROW
-  EXECUTE FUNCTION public.touch_account_last_login();
+CREATE OR REPLACE FUNCTION public.touch_my_last_login()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid uuid := auth.uid();
+  v_now timestamptz := now();
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN;
+  END IF;
+
+  PERFORM set_config('tw.allow_last_login', 'on', true);
+
+  UPDATE public.profiles
+  SET last_login_at = v_now
+  WHERE id = v_uid;
+
+  UPDATE public.organizations o
+  SET last_login_at = v_now
+  WHERE o.id IN (
+    SELECT owned.id FROM public.organizations owned WHERE owned.owner_id = v_uid
+    UNION
+    SELECT m.organization_id FROM public.org_memberships m WHERE m.user_id = v_uid
+    UNION
+    SELECT s.organization_id FROM public.staff s
+    WHERE s.user_id = v_uid AND s.organization_id IS NOT NULL
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.touch_my_last_login() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.touch_my_last_login() TO authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Save attribution at signup. First write wins. The client sends raw values;
--- this function computes the normalized copies, including direct.
+-- this function stores null for whitespace-only and computes the normalized
+-- copies, including direct.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.save_signup_attribution(
@@ -750,11 +1134,11 @@ BEGIN
     v_landing := now();
   END IF;
 
-  v_source_raw := CASE WHEN p_utm_source IS NULL OR p_utm_source = '' THEN NULL ELSE left(p_utm_source, 500) END;
-  v_medium_raw := CASE WHEN p_utm_medium IS NULL OR p_utm_medium = '' THEN NULL ELSE left(p_utm_medium, 500) END;
-  v_campaign_raw := CASE WHEN p_utm_campaign IS NULL OR p_utm_campaign = '' THEN NULL ELSE left(p_utm_campaign, 500) END;
-  v_term_raw := CASE WHEN p_utm_term IS NULL OR p_utm_term = '' THEN NULL ELSE left(p_utm_term, 500) END;
-  v_content_raw := CASE WHEN p_utm_content IS NULL OR p_utm_content = '' THEN NULL ELSE left(p_utm_content, 500) END;
+  v_source_raw := public.utm_raw_or_null(p_utm_source);
+  v_medium_raw := public.utm_raw_or_null(p_utm_medium);
+  v_campaign_raw := public.utm_raw_or_null(p_utm_campaign);
+  v_term_raw := public.utm_raw_or_null(p_utm_term);
+  v_content_raw := public.utm_raw_or_null(p_utm_content);
 
   BEGIN
     INSERT INTO public.account_signup_attribution (
@@ -790,7 +1174,7 @@ BEGIN
     )
     ON CONFLICT (user_id) DO NOTHING;
   EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'save_signup_attribution insert failed: %', SQLERRM;
+    PERFORM public.activation_log_warning(NULL, NULL, 'save_signup_attribution', SQLERRM);
     RETURN;
   END;
 
@@ -816,7 +1200,7 @@ BEGIN
         AND organization_id IS NULL;
     END IF;
   EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'save_signup_attribution org link failed: %', SQLERRM;
+    PERFORM public.activation_log_warning(v_org, NULL, 'save_signup_attribution.org', SQLERRM);
   END;
 END;
 $$;
@@ -825,12 +1209,16 @@ REVOKE ALL ON FUNCTION public.save_signup_attribution(text, text, text, text, te
 GRANT EXECUTE ON FUNCTION public.save_signup_attribution(text, text, text, text, text, text, text, timestamptz) TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- RLS: an org sees its own rows. Platform admins see every row.
--- Clients cannot insert or update. The functions above are the writers.
+-- RLS. An org sees its own milestone rows, except demo orgs, which are
+-- hidden even if a row was written before the demo flag existed. Platform
+-- admins see every non-demo row. Clients cannot insert or update.
+-- Signup attribution is limited to the account itself, org owners and
+-- admins, and platform admins. Cleaners and managers cannot read it.
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE public.organization_activation_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.account_signup_attribution ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.activation_trigger_log ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON TABLE public.organization_activation_events FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.organization_activation_events TO authenticated;
@@ -838,19 +1226,28 @@ GRANT SELECT ON TABLE public.organization_activation_events TO authenticated;
 REVOKE ALL ON TABLE public.account_signup_attribution FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.account_signup_attribution TO authenticated;
 
+REVOKE ALL ON TABLE public.activation_trigger_log FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.activation_trigger_log TO authenticated;
+
 DROP POLICY IF EXISTS "Org members read own activation events" ON public.organization_activation_events;
 CREATE POLICY "Org members read own activation events"
   ON public.organization_activation_events
   FOR SELECT
   TO authenticated
-  USING (public.is_org_member(organization_id));
+  USING (
+    public.is_org_member(organization_id)
+    AND NOT public.activation_subject_is_demo(organization_id)
+  );
 
 DROP POLICY IF EXISTS "Platform admins read all activation events" ON public.organization_activation_events;
 CREATE POLICY "Platform admins read all activation events"
   ON public.organization_activation_events
   FOR SELECT
   TO authenticated
-  USING (public.is_platform_admin());
+  USING (
+    public.is_platform_admin()
+    AND NOT public.activation_subject_is_demo(organization_id)
+  );
 
 DROP POLICY IF EXISTS "Users read own signup attribution" ON public.account_signup_attribution;
 CREATE POLICY "Users read own signup attribution"
@@ -860,11 +1257,21 @@ CREATE POLICY "Users read own signup attribution"
   USING (user_id = auth.uid());
 
 DROP POLICY IF EXISTS "Org members read own signup attribution" ON public.account_signup_attribution;
-CREATE POLICY "Org members read own signup attribution"
+DROP POLICY IF EXISTS "Org owners and admins read signup attribution" ON public.account_signup_attribution;
+CREATE POLICY "Org owners and admins read signup attribution"
   ON public.account_signup_attribution
   FOR SELECT
   TO authenticated
-  USING (organization_id IS NOT NULL AND public.is_org_member(organization_id));
+  USING (
+    organization_id IS NOT NULL
+    AND EXISTS (
+      SELECT 1
+      FROM public.org_memberships m
+      WHERE m.organization_id = account_signup_attribution.organization_id
+        AND m.user_id = auth.uid()
+        AND m.role IN ('owner', 'admin')
+    )
+  );
 
 DROP POLICY IF EXISTS "Platform admins read all signup attribution" ON public.account_signup_attribution;
 CREATE POLICY "Platform admins read all signup attribution"
@@ -872,3 +1279,73 @@ CREATE POLICY "Platform admins read all signup attribution"
   FOR SELECT
   TO authenticated
   USING (public.is_platform_admin());
+
+DROP POLICY IF EXISTS "Platform admins read activation trigger log" ON public.activation_trigger_log;
+CREATE POLICY "Platform admins read activation trigger log"
+  ON public.activation_trigger_log
+  FOR SELECT
+  TO authenticated
+  USING (public.is_platform_admin());
+
+-- security_invoker so the caller's RLS still applies, plus the demo filter
+-- for readers that query the view directly.
+CREATE OR REPLACE VIEW public.organization_activation_events_live
+WITH (security_invoker = true) AS
+SELECT
+  e.id,
+  e.organization_id,
+  e.milestone,
+  e.occurred_at,
+  e.source,
+  e.created_at
+FROM public.organization_activation_events e
+WHERE NOT public.activation_subject_is_demo(e.organization_id);
+
+COMMENT ON VIEW public.organization_activation_events_live IS
+  'Activation milestones with demo orgs removed. Current OpenPhone, Stripe, service, and staff status is not in this view; read those tables for live connection state.';
+
+GRANT SELECT ON public.organization_activation_events_live TO authenticated;
+
+COMMIT;
+
+-- ---------------------------------------------------------------------------
+-- Post-deploy verification. These statements are comments so applying the
+-- file does not depend on them. Run them in the SQL editor after COMMIT.
+-- A growing activation_trigger_log means a trigger is failing quietly.
+-- The business write still succeeded; the milestone did not.
+--
+-- Milestone counts, demo orgs excluded:
+--
+-- SELECT milestone, count(*) AS orgs
+-- FROM public.organization_activation_events e
+-- WHERE NOT public.activation_subject_is_demo(e.organization_id)
+-- GROUP BY milestone
+-- ORDER BY milestone;
+--
+-- Demo rows that should already have been deleted (expect 0):
+--
+-- SELECT count(*) AS demo_rows_still_present
+-- FROM public.organization_activation_events e
+-- WHERE public.activation_subject_is_demo(e.organization_id);
+--
+-- Recent trigger warnings:
+--
+-- SELECT created_at, organization_id, milestone, source, message
+-- FROM public.activation_trigger_log
+-- ORDER BY created_at DESC
+-- LIMIT 50;
+--
+-- Triggers this file installs. on_auth_user_last_login must not appear
+-- unless an earlier draft created it:
+--
+-- SELECT c.relname AS table_name, t.tgname
+-- FROM pg_trigger t
+-- JOIN pg_class c ON c.oid = t.tgrelid
+-- WHERE NOT t.tgisinternal
+--   AND t.tgname LIKE 'activation_%'
+-- ORDER BY 1, 2;
+--
+-- Optional, only if a draft trigger exists and the role owns auth.users:
+--
+-- DROP TRIGGER IF EXISTS on_auth_user_last_login ON auth.users;
+-- ---------------------------------------------------------------------------
