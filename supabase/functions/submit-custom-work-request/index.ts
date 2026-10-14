@@ -10,6 +10,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -109,7 +110,7 @@ serve(async (req) => {
     // subscription, use its current_period_start..end. Otherwise
     // (grandfathered with no Stripe sub) fall back to the calendar
     // month. The period boundary is what dedupes the 1/month cap.
-    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+    const stripeKey = billingSecretKey() ?? "";
     let periodStart: Date;
     let periodEnd: Date;
     if (stripeKey) {

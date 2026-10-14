@@ -3,11 +3,13 @@
 // credits the ai_credit_ledger via the idempotent credit_ai_purchase RPC.
 //
 // IMPORTANT: verify_jwt=false (Stripe doesn't send a JWT). Signature is
-// verified using STRIPE_WEBHOOK_SECRET.
+// verified using STRIPE_AI_CREDITS_WEBHOOK_SECRET. The API client is the
+// billing account (STRIPE_BILLING_SECRET_KEY, else STRIPE_SECRET_KEY).
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,7 +22,7 @@ serve(async (req) => {
     return new Response("Method not allowed", { status: 405, headers: corsHeaders });
   }
 
-  const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+  const stripeKey = billingSecretKey();
   const webhookSecret = Deno.env.get("STRIPE_AI_CREDITS_WEBHOOK_SECRET");
   const supaUrl = Deno.env.get("SUPABASE_URL");
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");

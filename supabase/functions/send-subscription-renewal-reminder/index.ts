@@ -3,6 +3,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://jointidywise.com";
@@ -29,7 +30,7 @@ serve(async (req) => {
   const cronGate = requireCronSecret(req);
   if (cronGate) return cronGate;
 
-  const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+  const stripeKey = billingSecretKey();
   if (!stripeKey || !RESEND_API_KEY) {
     return new Response(JSON.stringify({ error: "Missing required secrets" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },

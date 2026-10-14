@@ -2,7 +2,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 
 /**
  * Coupons for the onboarding winback emails. Created with stripe.coupons.create
- * against STRIPE_SECRET_KEY, so a live key mints live coupons and a test key
+ * against the billing account key, so a live key mints live coupons and a test key
  * mints test coupons. IDs are stable. Nothing here is a test-mode-only id.
  *
  * duration is repeating/1 month, not once. Checkout with a trial issues a $0

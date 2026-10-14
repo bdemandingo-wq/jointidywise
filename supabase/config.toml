@@ -234,6 +234,14 @@ verify_jwt = true
     # The function rejects anything else. It never creates a charge.
     verify_jwt = false
 
+  [functions.stripe-subscription-webhook]
+    # Stripe signs the body. There is no user JWT.
+    verify_jwt = false
+
+  [functions.stripe-ai-credits-webhook]
+    # Stripe signs the body. There is no user JWT.
+    verify_jwt = false
+
   [functions.send-trial-reminders]
     verify_jwt = false
 

@@ -28,7 +28,7 @@ const COPY: Record<ReportedStripeMode, { label: string; className: string }> = {
 
 /**
  * Admin-visible test/live indicator. The mode comes from the prefix of
- * STRIPE_SECRET_KEY, reported by check-subscription. This component does not
+ * the billing secret, reported by check-subscription. This component does not
  * choose a mode.
  */
 export function StripeModeBadge() {

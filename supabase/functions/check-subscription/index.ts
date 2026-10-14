@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { stripeKeyMode } from "../_shared/stripe-key-mode.ts";
+import { billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,7 +35,7 @@ serve(async (req) => {
   }
 
   // Report the mode the key prefix implies. Do not log the key or switch it.
-  const stripeKey = Deno.env.get("STRIPE_SECRET_KEY") ?? "";
+  const stripeKey = billingSecretKey() ?? "";
   const stripeMode = stripeKeyMode(stripeKey);
 
   const supabaseClient = createClient(
@@ -46,7 +47,7 @@ serve(async (req) => {
   try {
     logStep("Function started");
 
-    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
+    if (!stripeKey) throw new Error("STRIPE_BILLING_SECRET_KEY is not set");
     logStep("Stripe key verified", { stripeMode });
 
     const authHeader = req.headers.get("Authorization");

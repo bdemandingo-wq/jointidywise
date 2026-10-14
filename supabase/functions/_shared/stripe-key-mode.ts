@@ -1,5 +1,6 @@
 /**
- * Prefix check for STRIPE_SECRET_KEY. Does not read, log, or change the key.
+ * Prefix check for a Stripe secret. check-subscription passes the billing key.
+ * Does not read, log, or change the key.
  * Keep identical to stripeKeyMode() in src/lib/stripeMode.ts.
  */
 export type StripeKeyMode = "live" | "test" | "unset" | "unknown";

@@ -3,6 +3,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { ensureOnboardingCoupon, type OnboardingCouponOffer } from "../_shared/onboarding-coupons.ts";
+import { billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://jointidywise.com";
@@ -88,7 +89,7 @@ serve(async (req) => {
   }
 
   let stripe: Stripe | null = null;
-  const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+  const stripeKey = billingSecretKey();
   if (stripeKey) stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
 
   let sent = 0;

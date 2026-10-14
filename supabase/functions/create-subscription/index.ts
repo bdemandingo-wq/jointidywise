@@ -26,6 +26,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ensureOnboardingCoupon, type OnboardingCouponOffer } from "../_shared/onboarding-coupons.ts";
 import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
 import { stripeTrialEndUnix } from "../_shared/trial-end.ts";
+import { billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -60,8 +61,8 @@ serve(async (req) => {
   try {
     logStep("Function started");
 
-    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
+    const stripeKey = billingSecretKey();
+    if (!stripeKey) throw new Error("STRIPE_BILLING_SECRET_KEY is not set");
 
     let bodyData: Record<string, unknown> = {};
     try {
@@ -378,7 +379,7 @@ serve(async (req) => {
     if (!publishableKey) {
       return new Response(
         JSON.stringify({
-          error: "Checkout is not configured. STRIPE_PUBLISHABLE_KEY is missing on the server. Nothing was charged.",
+          error: "Checkout is not configured. STRIPE_BILLING_PUBLISHABLE_KEY is missing on the server. Nothing was charged.",
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
       );

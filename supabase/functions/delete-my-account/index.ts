@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { logToSystem } from "../_shared/system-logger.ts";
+import { billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,7 +19,7 @@ const corsHeaders = {
  * already inactive) so we can audit-log it.
  */
 async function cancelStripeSubscriptionsForEmail(email: string): Promise<string[]> {
-  const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+  const stripeKey = billingSecretKey();
   if (!stripeKey || !email) return [];
   const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
   const cancelled: string[] = [];

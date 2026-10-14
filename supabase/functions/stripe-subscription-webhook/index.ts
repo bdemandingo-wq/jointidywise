@@ -9,6 +9,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { subscriptionToPlanTier, updateOrgPlanTier, PlanTier } from "../_shared/plan-tier.ts";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 import { syncLoyaltySubscription } from "../_shared/loyalty-pricing-sync.ts";
+import { billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -25,7 +26,7 @@ const log = (step: string, details?: unknown) => {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+  const stripeKey = billingSecretKey();
   const webhookSecret = Deno.env.get("STRIPE_SUBSCRIPTION_WEBHOOK_SECRET");
   if (!stripeKey || !webhookSecret) {
     return new Response(JSON.stringify({ error: "Stripe env not configured" }), { status: 500, headers: corsHeaders });

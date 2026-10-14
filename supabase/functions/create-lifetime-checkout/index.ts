@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
+import { billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,7 +10,6 @@ const corsHeaders = {
 };
 
 const TOTAL_SPOTS = 100;
-const LIFETIME_PRICE_CENTS = 20000; // $200.00
 
 const logStep = (step: string, details?: any) => {
   console.log(`[CREATE-LIFETIME-CHECKOUT] ${step}${details ? ` - ${JSON.stringify(details)}` : ""}`);
@@ -23,8 +23,8 @@ serve(async (req) => {
   try {
     logStep("Function started");
 
-    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
+    const stripeKey = billingSecretKey();
+    if (!stripeKey) throw new Error("STRIPE_BILLING_SECRET_KEY is not set");
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -70,10 +70,17 @@ serve(async (req) => {
       );
     }
 
-    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
-
-    // Use configured lifetime price ID if set, otherwise create a price on the fly
     const lifetimePriceId = Deno.env.get("STRIPE_LIFETIME_PRICE_ID");
+    if (!lifetimePriceId) {
+      return new Response(
+        JSON.stringify({
+          error: "Lifetime checkout is not configured on the server. STRIPE_LIFETIME_PRICE_ID is missing.",
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
+      );
+    }
+
+    const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
     const origin = req.headers.get("origin") || Deno.env.get("APP_URL") || "https://jointidywise.com";
 
     // Get or create Stripe customer
@@ -84,7 +91,7 @@ serve(async (req) => {
     if (!publishableKey) {
       return new Response(
         JSON.stringify({
-          error: "Checkout is not configured. STRIPE_PUBLISHABLE_KEY is missing on the server. Nothing was charged.",
+          error: "Checkout is not configured. STRIPE_BILLING_PUBLISHABLE_KEY is missing on the server. Nothing was charged.",
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
       );
@@ -111,21 +118,7 @@ serve(async (req) => {
           plan: "lifetime",
         },
       },
-      line_items: lifetimePriceId
-        ? [{ price: lifetimePriceId, quantity: 1 }]
-        : [
-            {
-              price_data: {
-                currency: "usd",
-                product_data: {
-                  name: "TidyWise Lifetime Access",
-                  description: `One-time payment — lifetime access to all TidyWise features. Spot ${used + 1} of ${TOTAL_SPOTS}.`,
-                },
-                unit_amount: LIFETIME_PRICE_CENTS,
-              },
-              quantity: 1,
-            },
-          ],
+      line_items: [{ price: lifetimePriceId, quantity: 1 }],
     };
 
     const session = await stripe.checkout.sessions.create(sessionParams);

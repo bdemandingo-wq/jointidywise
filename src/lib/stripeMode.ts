@@ -1,7 +1,8 @@
 /**
  * Platform Stripe mode, derived from the secret key prefix.
  *
- * Checkout uses `STRIPE_SECRET_KEY` in the edge function environment. There is
+ * Checkout uses `STRIPE_BILLING_SECRET_KEY` (falling back to `STRIPE_SECRET_KEY`)
+ * in the edge function environment. There is
  * no separate test/live switch in code. `sk_live_` / `rk_live_` mint `cs_live_`
  * sessions. `sk_test_` / `rk_test_` mint `cs_test_` sessions. This module only
  * classifies a prefix. It never selects or rewrites a key.
