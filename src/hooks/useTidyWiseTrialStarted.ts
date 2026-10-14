@@ -9,8 +9,9 @@ import {
   shouldSendTrialStartedPixel,
   tagHostOptionsFromEnv,
   trialStartedConsentAllows,
+  trialStartedDestinationConfigured,
 } from '@/lib/tidywiseSitePrivacy';
-import { detectNativePlatform, trackTidyWiseConversion } from '@/lib/tidywiseTags';
+import { detectNativePlatform, tidyWiseIdsFromEnv, trackTidyWiseConversion } from '@/lib/tidywiseTags';
 
 interface TrialOrg {
   id?: string;
@@ -63,7 +64,10 @@ export function useTidyWiseTrialStarted(organization: TrialOrg | null | undefine
     const inTrial = planIsTrial(planType) || isTrialActive;
     if (!planIsTrial(planType) && isLoading) return;
     if (!inTrial) return;
-    if (!trialStartedConsentAllows(liveConsent())) return;
+    // No ids, opt-out, GPC, or a disallowed host must not spend the one-time claim.
+    const consent = liveConsent();
+    if (!trialStartedConsentAllows(consent)) return;
+    if (!trialStartedDestinationConfigured(tidyWiseIdsFromEnv())) return;
 
     void (async () => {
       const { data, error } = await supabase.rpc('claim_trial_started_pixel', { p_org: organizationId });

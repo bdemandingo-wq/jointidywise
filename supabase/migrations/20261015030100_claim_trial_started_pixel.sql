@@ -8,6 +8,11 @@
 --
 -- Safe to re-run. The column add is IF NOT EXISTS and the function is
 -- replaced.
+--
+-- The stamp column is not protected. Supabase grants UPDATE on the whole
+-- organizations table, and a column-level REVOKE does not override that
+-- table-wide grant. The worst case is an owner suppressing their own
+-- event. This migration does not change RLS.
 
 BEGIN;
 
@@ -15,9 +20,7 @@ ALTER TABLE public.organizations
   ADD COLUMN IF NOT EXISTS trial_started_pixel_at timestamptz;
 
 COMMENT ON COLUMN public.organizations.trial_started_pixel_at IS
-  'Set once when the org owner or an admin claims the trial_started marketing pixel. Not a report to Google or Meta.';
-
-REVOKE UPDATE (trial_started_pixel_at) ON TABLE public.organizations FROM PUBLIC, anon, authenticated;
+  'Set once when the org owner or an admin claims the trial_started marketing pixel. Not a report to Google or Meta. The column is not protected from a table UPDATE; the worst case is an owner suppressing their own event.';
 
 CREATE OR REPLACE FUNCTION public.claim_trial_started_pixel(p_org uuid)
 RETURNS boolean

@@ -344,6 +344,15 @@ export function orgCreatedWithinTrialPixelWindow(
   return age >= 0 && age <= TRIAL_STARTED_MAX_AGE_MS;
 }
 
+/** True when at least one TidyWise tag id is configured. An empty config must not claim. */
+export function trialStartedDestinationConfigured(ids: {
+  metaId?: string | null;
+  ga4Id?: string | null;
+  adsId?: string | null;
+}): boolean {
+  return !!(ids.metaId || ids.ga4Id || ids.adsId);
+}
+
 /** Read again at send time. Opt-out, GPC, or a disallowed host blocks the pixel. */
 export function trialStartedConsentAllows(input: {
   choice: PrivacyChoice | null;

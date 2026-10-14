@@ -10,6 +10,7 @@ import {
   orgCreatedWithinTrialPixelWindow,
   shouldSendTrialStartedPixel,
   trialStartedConsentAllows,
+  trialStartedDestinationConfigured,
   trialStartedGoogleArgs,
   trialStartedMetaArgs,
   TRIAL_STARTED_MAX_AGE_MS,
@@ -413,6 +414,19 @@ test('an org older than 24 hours does not send trial_started', () => {
   assert.equal(shouldSendTrialStartedPixel(trialPixel({ createdAt: OLD })), false);
 });
 
+test('no tag ids means the trial claim is not called', () => {
+  assert.equal(trialStartedDestinationConfigured({ metaId: null, ga4Id: null, adsId: null }), false);
+  assert.equal(trialStartedDestinationConfigured({}), false);
+  assert.equal(trialStartedDestinationConfigured({ metaId: '1234567890123' }), true);
+  assert.equal(trialStartedDestinationConfigured({ ga4Id: 'G-TEST1234' }), true);
+  assert.equal(trialStartedDestinationConfigured({ adsId: 'AW-123456789' }), true);
+  const hook = readFileSync(new URL('../hooks/useTidyWiseTrialStarted.ts', import.meta.url), 'utf8');
+  const claimAt = hook.indexOf("supabase.rpc('claim_trial_started_pixel'");
+  const idsAt = hook.indexOf('if (!trialStartedDestinationConfigured(');
+  const consentAt = hook.indexOf('if (!trialStartedConsentAllows(');
+  assert.ok(idsAt > 0 && consentAt > 0 && idsAt < claimAt && consentAt < claimAt);
+});
+
 test('a second claim returns no trial_started pixel', () => {
   assert.equal(shouldSendTrialStartedPixel(trialPixel({ claimGranted: false })), false);
   assert.equal(shouldSendTrialStartedPixel(trialPixel({ inTrial: false })), false);
@@ -446,7 +460,10 @@ test('the trial pixel claim is one owner-or-admin stamp, re-checked at send time
   assert.match(sql, /lower\(btrim\(COALESCE\(v_plan, ''\)\)\) <> 'trial'/);
   assert.match(sql, /REVOKE ALL ON FUNCTION public\.claim_trial_started_pixel\(uuid\) FROM PUBLIC, anon/);
   assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.claim_trial_started_pixel\(uuid\) TO authenticated/);
-  assert.match(sql, /REVOKE UPDATE \(trial_started_pixel_at\)/);
+  assert.equal(/REVOKE UPDATE \(trial_started_pixel_at\)/.test(sql), false);
+  assert.match(sql, /column is not protected/i);
+  assert.match(sql, /owner suppressing their own event/);
+  assert.equal(/CREATE POLICY|ENABLE ROW LEVEL SECURITY|GRANT UPDATE ON/i.test(sql), false);
   assert.equal(/net\.http|http_post|pg_net|facebook\.com|googletagmanager/i.test(sql), false);
 
   const hook = readFileSync(new URL('../hooks/useTidyWiseTrialStarted.ts', import.meta.url), 'utf8');

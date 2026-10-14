@@ -54,8 +54,8 @@ async function interceptTags(page: Page, testName: string): Promise<void> {
   });
 }
 
-async function arm(page: Page, testName: string): Promise<void> {
-  await injectFakeIds(page);
+async function arm(page: Page, testName: string, options?: { ids?: boolean }): Promise<void> {
+  if (options?.ids !== false) await injectFakeIds(page);
   await interceptTags(page, testName);
 }
 
@@ -90,7 +90,7 @@ async function readTrialEvents(page: Page): Promise<TrialEventDump> {
 
 async function openTrialOnboarding(
   page: Page,
-  options: { label: string; createdAt: string; claim: 'first-true'; choice?: 'opted_out'; gpc?: boolean },
+  options: { label: string; createdAt: string; claim: 'first-true'; choice?: 'opted_out'; gpc?: boolean; ids?: boolean },
 ): Promise<{ claimCalls: () => number }> {
   let claims = 0;
   const user = {
@@ -142,7 +142,7 @@ async function openTrialOnboarding(
     }
   }, { session, choice: options.choice, gpc: options.gpc === true });
 
-  await arm(page, options.label);
+  await arm(page, options.label, { ids: options.ids });
   await page.route('**/*supabase.co/**', async (route) => {
     const url = route.request().url();
     if (url.includes('claim_trial_started_pixel')) {
@@ -490,6 +490,22 @@ test.describe('TidyWise cookie notice', () => {
       createdAt: new Date().toISOString(),
       claim: 'first-true',
       choice: 'opted_out',
+    });
+    await page.goto('/onboarding');
+    await expect(page.getByRole('heading', { name: 'Set Up Your Cleaning Business', exact: true })).toBeVisible();
+    await page.waitForTimeout(1500);
+    expect(trial.claimCalls()).toBe(0);
+    const sent = await readTrialEvents(page);
+    expect(sent.google).toEqual([]);
+    expect(sent.meta).toEqual([]);
+  });
+
+  test('no tag ids means the trial claim is not called', async ({ page }) => {
+    const trial = await openTrialOnboarding(page, {
+      label: 'trial-no-ids',
+      createdAt: new Date().toISOString(),
+      claim: 'first-true',
+      ids: false,
     });
     await page.goto('/onboarding');
     await expect(page.getByRole('heading', { name: 'Set Up Your Cleaning Business', exact: true })).toBeVisible();
