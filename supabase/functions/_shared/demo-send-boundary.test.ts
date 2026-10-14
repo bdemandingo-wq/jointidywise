@@ -172,7 +172,7 @@ test('paying non-lifetime subscriptions are never demo or test', () => {
     subscriptions: [],
   }), false);
   const migration = fs.readFileSync(
-    path.resolve(functionsRoot, '../migrations/20261014240000_demo_mode_off_and_paid_not_demo.sql'),
+    path.resolve(functionsRoot, '../migrations/20261015000000_demo_mode_off_and_paid_not_demo.sql'),
     'utf8',
   );
   assert.match(migration, /demo_mode_enabled = false/);
