@@ -15,7 +15,7 @@ import {
   bookingsRecentKey,
   BookingWithDetails,
 } from '@/hooks/useBookings';
-import { Loader2 } from 'lucide-react';
+import { QueryError } from '@/components/QueryError';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
@@ -34,6 +34,29 @@ import { ActivityFeedCard } from '@/components/growth/ActivityFeedCard';
 
 // Lazy load the heavy ReportsOverview component
 const ReportsOverview = lazy(() => import('@/components/admin/ReportsOverview').then(m => ({ default: m.ReportsOverview })));
+
+function ReportsOverviewSkeleton() {
+  return (
+    <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card p-3 shadow-sm md:p-4" aria-busy="true" aria-label="Loading reports overview">
+      <div className="mb-4 h-6 w-40 rounded bg-muted" />
+      <div className="mb-4 flex gap-2 overflow-hidden">
+        {Array.from({ length: 7 }, (_, index) => (
+          <div key={index} className="h-8 w-12 shrink-0 rounded-full bg-muted" />
+        ))}
+      </div>
+      <div className="space-y-2">
+        {Array.from({ length: 5 }, (_, index) => (
+          <div key={index} className="border-t border-border py-5">
+            <div className="h-4 w-28 rounded bg-muted" />
+            <div className="mt-2 h-8 w-24 rounded bg-muted" />
+            <div className="mt-2 h-3 w-32 rounded bg-muted" />
+            <div className="mt-4 h-36 rounded-lg border border-border/60 bg-muted/40" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function DashboardSkeleton() {
   return (
@@ -80,8 +103,11 @@ function getGreeting() {
 export default function AdminDashboard() {
   const { data: bookings = [], isLoading: bookingsLoading } = useDashboardUpcoming();
   const upcomingReady = !bookingsLoading;
-  const { data: chartBookings, isLoading: chartLoading, isError: chartError } = useDashboardChart(upcomingReady);
-  const { data: customers = [] } = useDashboardCustomers(upcomingReady);
+  const chart = useDashboardChart(upcomingReady);
+  const dashboardCustomers = useDashboardCustomers(upcomingReady);
+  const chartBookings = chart.data;
+  const customers = useMemo(() => dashboardCustomers.data ?? [], [dashboardCustomers.data]);
+  const chartsReady = chartBookings != null && (dashboardCustomers.data != null || dashboardCustomers.isError);
   const queryClient = useQueryClient();
   const { organization } = useOrganization();
   const { isTrialActive, hasFullAccess, isLoading: subscriptionLoading } = useSubscription();
@@ -198,25 +224,15 @@ export default function AdminDashboard() {
             customers={todayStats.customers}
           />
           
-          {chartLoading && !chartBookings && !chartError ? (
-            <div className="bg-card rounded-xl p-4 border border-border shadow-sm animate-pulse">
-              <div className="h-5 w-32 bg-muted rounded mb-4" />
-              <div className="h-64 bg-muted/50 rounded-xl flex items-center justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-              </div>
-            </div>
+          {chart.isError ? (
+            <QueryError subject="reports overview" onRetry={() => { void chart.refetch(); }} />
+          ) : !chartsReady ? (
+            <ReportsOverviewSkeleton />
           ) : (
-          <Suspense fallback={
-            <div className="bg-card rounded-xl p-4 border border-border shadow-sm animate-pulse">
-              <div className="h-5 w-32 bg-muted rounded mb-4" />
-              <div className="h-64 bg-muted/50 rounded-xl flex items-center justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-              </div>
-            </div>
-          }>
+          <Suspense fallback={<ReportsOverviewSkeleton />}>
             <ReportsOverview
-              bookings={(chartBookings ?? bookings) as BookingWithDetails[]}
-              customers={customers.map(c => ({ id: c.id, created_at: c.created_at }))}
+              bookings={chartBookings as BookingWithDetails[]}
+              customers={(dashboardCustomers.data ?? []).map(c => ({ id: c.id, created_at: c.created_at }))}
             />
           </Suspense>
           )}

@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 import { syncWidgetData } from '@/lib/syncWidgetData';
+import { refreshBadges } from '@/lib/badgeRefresh';
 
 // Routes that are considered "root" tabs — back button should not navigate away from these
 const ROOT_ROUTES = [
@@ -213,6 +214,7 @@ export function useAppStateHandler() {
           void queryClient.invalidateQueries({ queryKey: ['bookings'] });
           void queryClient.invalidateQueries({ queryKey: ['customers'] });
           void queryClient.invalidateQueries({ queryKey: ['startup-subscription'] });
+          refreshBadges(queryClient);
           void syncWidgetData();
           try {
             const { data: { session } } = await supabase.auth.getSession();

@@ -1,7 +1,6 @@
-import { lazy, Suspense, useMemo } from 'react';
+import { useMemo } from 'react';
 import { fmt } from '@/lib/activeCurrency';
-
-const MetricChartPlot = lazy(() => import('./MetricChartPlot').then((m) => ({ default: m.MetricChartPlot })));
+import { MetricChartPlot } from './MetricChartPlot';
 
 interface DataPoint {
   date: string;
@@ -56,15 +55,13 @@ export function MetricChart({
       <p className="mt-1 truncate text-xs text-muted-foreground">{dateRange}</p>
       
       <div className="relative mt-4 h-36 min-w-0 overflow-hidden rounded-lg border border-border/60">
-        <Suspense fallback={<div className="h-full w-full animate-pulse bg-muted/40" />}>
-          <MetricChartPlot
-            data={data}
-            maxValue={maxValue}
-            color={color}
-            isCurrency={isCurrency}
-            title={title}
-          />
-        </Suspense>
+        <MetricChartPlot
+          data={data}
+          maxValue={maxValue}
+          color={color}
+          isCurrency={isCurrency}
+          title={title}
+        />
         
         {/* Max value label */}
         {maxPoint && maxPoint.value > 0 && (

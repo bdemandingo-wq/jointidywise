@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sendPushBestEffort } from '@/lib/pushNotify';
 import { supabase } from '@/lib/supabase';
 import { syncWidgetData } from '@/lib/syncWidgetData';
@@ -397,6 +397,7 @@ export function useDashboardUpcoming() {
     enabled: !!organizationId,
     staleTime: 60_000,
     gcTime: 1000 * 60 * 60 * 24,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -411,6 +412,7 @@ export function useDashboardChart(ready = true) {
     enabled: !!organizationId && ready,
     staleTime: 5 * 60 * 1000,
     gcTime: 1000 * 60 * 60 * 24,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -423,6 +425,7 @@ export function useDashboardCustomers(ready = true) {
     enabled: !!organizationId && ready,
     staleTime: 5 * 60 * 1000,
     gcTime: 1000 * 60 * 60 * 24,
+    placeholderData: keepPreviousData,
   });
 }
 

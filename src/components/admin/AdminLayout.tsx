@@ -146,7 +146,7 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
         <main
           className={cn(
             "animate-page-enter flex-1 w-full max-w-full min-w-0 overflow-x-auto",
-            "px-3 py-3 md:p-4 pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:pb-4"
+            "px-3 py-3 md:p-4 pb-[calc(11.25rem+env(safe-area-inset-bottom))] md:pb-24"
           )}
         >
           <PlanStateBanner />

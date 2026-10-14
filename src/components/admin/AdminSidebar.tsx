@@ -46,6 +46,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useOrgRole } from '@/hooks/useOrgRole';
 import { useSidebarBadgesFull, type BadgeReason } from '@/hooks/useSidebarBadges';
+import { orderBySavedHrefs } from '@/lib/orderNavigation';
 import { useSidebarHiddenItems } from '@/hooks/useSidebarHiddenItems';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -310,9 +311,22 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
     };
   }, []);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [companyName, setCompanyName] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState<string | null>(() => {
+    try {
+      const orgId = localStorage.getItem('tidywise_active_org');
+      return orgId ? localStorage.getItem(`tw-biz-name:${orgId}`) : null;
+    } catch {
+      return null;
+    }
+  });
   const businessDisplayName = displayBusinessName(organization?.name, companyName);
-  const [navigation, setNavigation] = useState<NavItem[]>(defaultNavigation);
+  const [navigation, setNavigation] = useState<NavItem[]>(() => {
+    try {
+      return orderBySavedHrefs(defaultNavigation, JSON.parse(localStorage.getItem('tidywise_nav_order') || 'null'));
+    } catch {
+      return defaultNavigation;
+    }
+  });
   const [reorderMode, setReorderMode] = useState(false);
   const [openSectionIds, setOpenSectionIds] = useState<string[] | null>(() => {
     try {
@@ -377,30 +391,6 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
 
   // Hidden items now come from useSidebarHiddenItems (DB-backed, per-org).
 
-
-  // Load navigation order from localStorage
-  useEffect(() => {
-    const savedOrder = localStorage.getItem('tidywise_nav_order');
-    if (savedOrder) {
-      try {
-        const hrefOrder: string[] = JSON.parse(savedOrder);
-        const reordered = hrefOrder
-          .map(href => defaultNavigation.find(item => item.href === href))
-          .filter((item): item is NavItem => item !== undefined);
-        
-        // Add any new nav items that weren't in saved order
-        defaultNavigation.forEach(item => {
-          if (!reordered.find(r => r.href === item.href)) {
-            reordered.push(item);
-          }
-        });
-        
-        setNavigation(reordered);
-      } catch (e) {
-        console.error('Error parsing nav order:', e);
-      }
-    }
-  }, []);
 
   // Platform detection for App Store compliance
   const { canShowPaymentFlows } = usePlatform();
@@ -469,7 +459,15 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
           setLogoUrl(raw);
         }
       }
-      setCompanyName(data?.company_name ?? null);
+      const name = data?.company_name ?? null;
+      setCompanyName(name);
+      try {
+        const key = `tw-biz-name:${organization.id}`;
+        if (name) localStorage.setItem(key, name);
+        else localStorage.removeItem(key);
+      } catch {
+        /* ignore */
+      }
     };
     fetchLogoAndName();
   }, [organization?.id, organization?.name]);

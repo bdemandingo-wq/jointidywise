@@ -4,6 +4,25 @@ import { useOrganization } from '@/contexts/OrganizationContext';
 import { Sentry } from '@/lib/sentry';
 
 const DEFAULT_TIMEZONE = 'America/New_York';
+const TZ_CACHE_PREFIX = 'tw-org-tz:';
+
+function readCachedTimezone(orgId: string | null): string | null {
+  if (!orgId || typeof localStorage === 'undefined') return null;
+  try {
+    const value = localStorage.getItem(`${TZ_CACHE_PREFIX}${orgId}`);
+    return value && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedTimezone(orgId: string, timezone: string) {
+  try {
+    localStorage.setItem(`${TZ_CACHE_PREFIX}${orgId}`, timezone);
+  } catch {
+    /* ignore */
+  }
+}
 
 export interface OrgTimezoneResult {
   timezone: string;
@@ -25,6 +44,7 @@ export function useOrgTimezone(orgIdOverride?: string | null): OrgTimezoneResult
   const { organization } = useOrganization();
   const organizationId = orgIdOverride ?? organization?.id ?? null;
 
+  const cachedTimezone = readCachedTimezone(organizationId);
   const { data: timezone, error } = useQuery({
     queryKey: ['org-timezone', organizationId],
     queryFn: async () => {
@@ -41,11 +61,15 @@ export function useOrgTimezone(orgIdOverride?: string | null): OrgTimezoneResult
         throw fetchError;
       }
       // Org exists but has no timezone configured — legitimate, not an error.
-      if (!data?.timezone) return DEFAULT_TIMEZONE;
-      return data.timezone;
+      const resolved = data?.timezone || DEFAULT_TIMEZONE;
+      writeCachedTimezone(organizationId, resolved);
+      return resolved;
     },
     enabled: !!organizationId,
     staleTime: 1000 * 60 * 10,
+    // Last known zone on the first paint, so the chart is not drawn in
+    // America/New_York and then redrawn when the real zone arrives.
+    ...(cachedTimezone ? { initialData: cachedTimezone, initialDataUpdatedAt: 0 } : {}),
   });
 
   const resolvedError = error as Error | null;

@@ -17,7 +17,7 @@ export function CopilotBubble() {
       aria-pressed={false}
       data-tour-id="tidy-bubble"
       className={cn(
-        'copilot-bubble fixed z-[9999]',
+        'copilot-bubble fixed z-30',
         'bottom-[calc(7rem+env(safe-area-inset-bottom))] md:bottom-6',
         'right-[calc(1rem+env(safe-area-inset-right))] md:right-6',
         'w-14 h-14 max-w-[calc(100vw-2rem)] rounded-full',
