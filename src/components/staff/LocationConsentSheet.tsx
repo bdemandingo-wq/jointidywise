@@ -23,24 +23,36 @@ export function LocationConsentSheet({
 
   return (
     <div
-      className="fixed inset-0 z-[210] bg-background flex items-center justify-center p-6 overflow-y-auto"
+      className="fixed inset-0 z-[210] flex flex-col bg-background"
       role="dialog"
       aria-modal="true"
       aria-labelledby="location-consent-title"
     >
-      <div className="max-w-md w-full text-center space-y-6 my-auto">
-        <div className="mx-auto w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
-          <MapPin className="h-10 w-10 text-primary" />
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-8">
+        <div className="mx-auto w-full max-w-md space-y-6 text-center">
+          <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/10">
+            <MapPin className="h-10 w-10 text-primary" />
+          </div>
+          <h1 id="location-consent-title" className="text-[24px] font-bold leading-tight">
+            {LOCATION_CONSENT_HEADING}
+          </h1>
+          <p id="location-consent-copy" className="text-left text-[16px] leading-relaxed text-muted-foreground">
+            {formatLocationConsentCopy(businessName)}
+          </p>
         </div>
-        <h1 id="location-consent-title" className="text-2xl font-bold">
-          {LOCATION_CONSENT_HEADING}
-        </h1>
-        <p className="text-muted-foreground text-left">{formatLocationConsentCopy(businessName)}</p>
-        <div className="flex flex-col gap-2">
-          <Button type="button" onClick={onContinue} disabled={busy} className="w-full" size="lg">
-            Continue
+      </div>
+      <div className="shrink-0 bg-background px-6 pb-6 pt-4">
+        <div className="mx-auto flex w-full max-w-md flex-col gap-3">
+          <Button type="button" onClick={onContinue} disabled={busy} className="h-12 w-full text-[16px]" size="lg">
+            Allow
           </Button>
-          <Button type="button" onClick={onNotNow} disabled={busy} variant="ghost" className="w-full" size="lg">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onNotNow}
+            className="h-12 w-full border-2 border-foreground bg-background text-[16px] text-foreground"
+            size="lg"
+          >
             Not now
           </Button>
         </div>
