@@ -16,7 +16,7 @@ export const LOCATION_SHARING_OFF_NOTE = 'Location sharing is off. Turn on in Se
  * `{businessName}` is filled from the organization's name.
  */
 export const LOCATION_CONSENT_COPY =
-  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings. If you allow location, job photos you take will also record where they were taken.";
+  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings. If you allow location, your location is also recorded when you clock in or out. If you allow location, job photos you take will also record where they were taken.";
 
 /**
  * Both NSLocationWhenInUseUsageDescription and
@@ -24,7 +24,7 @@ export const LOCATION_CONSENT_COPY =
  * The system prompt uses this only after a new iOS build is shipped.
  */
 export const PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION =
-  "TidyWise uses your location while the app is open to share your ETA with your company's admins after you tap On My Way, and to record where job photos are taken.";
+  "TidyWise uses your location while the app is open to share your ETA with your company's admins after you tap On My Way, to record where you clock in and out, and to record where job photos are taken.";
 
 /**
  * Native builds below this never share On My Way location.
