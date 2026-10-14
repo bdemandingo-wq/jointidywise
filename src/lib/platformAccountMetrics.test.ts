@@ -14,6 +14,8 @@ import {
   replayTestModeBillingEvents,
   saasRefundDrafts,
   subscriptionBillingSnapshot,
+  subscriptionPersistHttpStatus,
+  subscriptionPersistReleasesIdempotency,
   type ReplaySubscriptionEvent,
   type SubscriptionEventPayload,
   type TestModeBillingEvent,
@@ -442,6 +444,33 @@ test("connected-account and unlinked refunds are ignored, and lifetime is not a 
   assert.equal(classifySaasRefund({
     charge: { invoice: { id: "in_ads", subscription: "sub_ads", metadata: { purpose: "tidywise_ad_management" } } },
   }), null);
+});
+
+test("a failed subscription write returns 500 and releases the idempotency claim", () => {
+  assert.equal(subscriptionPersistHttpStatus("failed"), 500);
+  assert.equal(subscriptionPersistHttpStatus("wrote"), 200);
+  assert.equal(subscriptionPersistHttpStatus("skipped"), 200);
+  assert.equal(subscriptionPersistReleasesIdempotency("failed"), true);
+  assert.equal(subscriptionPersistReleasesIdempotency("wrote"), false);
+  assert.equal(subscriptionPersistReleasesIdempotency("skipped"), false);
+
+  const invoice = readFileSync(
+    new URL("../../supabase/functions/stripe-invoice-webhook/index.ts", import.meta.url),
+    "utf8",
+  );
+  const subscription = readFileSync(
+    new URL("../../supabase/functions/stripe-subscription-webhook/index.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(invoice, /subscriptionPersistHttpStatus\("failed"\)/);
+  assert.match(invoice, /subscriptionPersistReleasesIdempotency\("failed"\)/);
+  assert.match(invoice, /from\("stripe_webhook_events"\)\s*\.delete\(\)/);
+  assert.match(invoice, /return "skipped"/);
+  assert.match(subscription, /subscriptionPersistHttpStatus\("failed"\)/);
+  const retryAt = subscription.indexOf('subscriptionPersistHttpStatus("failed")');
+  const smsAt = subscription.indexOf("Trial -> paid conversion notification");
+  assert.ok(retryAt > 0);
+  assert.ok(smsAt > retryAt);
 });
 
 test("an org owner and a cleaner are rejected with 42501", () => {

@@ -17,6 +17,7 @@ import {
   laterBillingEventAt,
   stripeSubscriptionBillingPatch,
   subscriptionBillingSnapshot,
+  subscriptionPersistHttpStatus,
   subscriptionStateFields,
 } from "../_shared/subscription-billing-snapshot.ts";
 
@@ -121,6 +122,7 @@ serve(async (req) => {
     }
 
     const columnsMissing = !!billingReadErr && isMissingBillingColumn(billingReadErr);
+    let subscriptionStateFailed = false;
     const applyState = columnsMissing
       ? true
       : authoritative
@@ -149,6 +151,10 @@ serve(async (req) => {
 
       const result = await updateOrgPlanTier(supabase, membership.organization_id, tier);
       log("Updated plan_tier", { orgId: membership.organization_id, tier, ...result });
+      if (result.skipped && result.skipped !== "org_not_found" && result.skipped !== "lifetime_locked") {
+        log("plan_tier write failed", { message: result.skipped });
+        subscriptionStateFailed = true;
+      }
     }
 
     // Do not insert. A new row would change the paywall mirror. Status,
@@ -159,6 +165,7 @@ serve(async (req) => {
         log("billing columns are not migrated yet; subscription row left unchanged");
       } else if (billingReadErr) {
         log("billing guard read failed; not writing status or period", { message: billingReadErr.message });
+        subscriptionStateFailed = true;
       } else if (!existingBilling) {
         log("no stripe_subscriptions row yet; not inserting from the subscription webhook", { subId: sub.id });
       } else if (!applyState) {
@@ -176,10 +183,23 @@ serve(async (req) => {
           .from("stripe_subscriptions")
           .update({ ...state, ...billing })
           .eq("stripe_subscription_id", sub.id);
-        if (writeErr) log("billing column update failed", { message: writeErr.message });
+        if (writeErr && isMissingBillingColumn(writeErr)) {
+          log("billing columns are not migrated yet; subscription row left unchanged");
+        } else if (writeErr) {
+          log("billing column update failed", { message: writeErr.message });
+          subscriptionStateFailed = true;
+        }
       }
     } catch (billingErr) {
-      log("subscription billing snapshot failed (non-fatal)", { message: (billingErr as Error).message });
+      log("subscription billing snapshot failed", { message: (billingErr as Error).message });
+      subscriptionStateFailed = true;
+    }
+
+    if (subscriptionStateFailed) {
+      return new Response(
+        JSON.stringify({ error: "subscription state was not saved; Stripe will retry." }),
+        { status: subscriptionPersistHttpStatus("failed"), headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     // --- Trial -> paid conversion notification -------------------------------

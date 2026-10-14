@@ -220,6 +220,22 @@ export function shouldWriteSubscriptionState(
   return incomingBillingIsNewer(stored, incomingCreatedSec);
 }
 
+/** wrote: the row was saved. skipped: an older event, or columns the
+ * migration has not added yet. failed: the database rejected the read or
+ * the write, and Stripe should deliver the event again. */
+export type SubscriptionPersistOutcome = "wrote" | "skipped" | "failed";
+
+export function subscriptionPersistHttpStatus(outcome: SubscriptionPersistOutcome): number {
+  return outcome === "failed" ? 500 : 200;
+}
+
+/** stripe_webhook_events is inserted before the write. A 500 left in place
+ * would make the retry look like a duplicate and return 200 without saving.
+ * Only a failed write releases that claim. A skip or a success keeps it. */
+export function subscriptionPersistReleasesIdempotency(outcome: SubscriptionPersistOutcome): boolean {
+  return outcome === "failed";
+}
+
 export interface SubscriptionStateFields {
   status: string | null;
   current_period_end: string | null;

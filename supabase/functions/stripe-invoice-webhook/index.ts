@@ -20,7 +20,10 @@ import {
   shouldWriteSubscriptionState,
   stripeSubscriptionBillingPatch,
   subscriptionBillingSnapshot,
+  subscriptionPersistHttpStatus,
+  subscriptionPersistReleasesIdempotency,
   subscriptionStateFields,
+  type SubscriptionPersistOutcome,
 } from "../_shared/subscription-billing-snapshot.ts";
 
 /**
@@ -207,6 +210,9 @@ const handler = async (req: Request): Promise<Response> => {
 
     // Extract organization_id from event metadata if available
     let organizationId: string | null = null;
+    // A failed stripe_subscriptions / plan write must not acknowledge the
+    // event. The flag is checked once, after every event branch.
+    let subscriptionStateFailed = false;
 
     // Handle new subscription created - notify platform admin
     if (event.type === "customer.subscription.created") {
@@ -359,13 +365,14 @@ const handler = async (req: Request): Promise<Response> => {
         const resolved = await resolveOrgIdForSubscription(supabase, stripe, subscription);
         if (resolved.orgId) {
           const current = await readCurrentSaasSubscription(subscription.id);
-          await upsertStripeSubscription(
+          const outcome = await upsertStripeSubscription(
             supabase,
             resolved.orgId,
             current ?? subscription,
             event.created,
             current != null,
           );
+          if (outcome === "failed") subscriptionStateFailed = true;
         } else {
           await logSubscriptionOrphan(
             supabase, supabaseUrl, supabaseServiceKey,
@@ -375,6 +382,7 @@ const handler = async (req: Request): Promise<Response> => {
         }
       } catch (mirrorErr) {
         console.error("[stripe-invoice-webhook] mirror to stripe_subscriptions failed:", mirrorErr);
+        subscriptionStateFailed = true;
       }
     }
 
@@ -394,14 +402,19 @@ const handler = async (req: Request): Promise<Response> => {
         const resolved = await resolveOrgIdForSubscription(supabase, stripe, subscription);
         if (resolved.orgId) {
           const current = await readCurrentSaasSubscription(subscription.id);
-          const wrote = await upsertStripeSubscription(
+          const outcome = await upsertStripeSubscription(
             supabase,
             resolved.orgId,
             current ?? subscription,
             event.created,
             current != null,
           );
-          if (wrote) await syncOrgPlanFromSubscription(supabase, resolved.orgId, current ?? subscription);
+          if (outcome === "failed") {
+            subscriptionStateFailed = true;
+          } else if (outcome === "wrote") {
+            const synced = await syncOrgPlanFromSubscription(supabase, resolved.orgId, current ?? subscription);
+            if (!synced) subscriptionStateFailed = true;
+          }
         } else {
           await logSubscriptionOrphan(
             supabase, supabaseUrl, supabaseServiceKey,
@@ -411,6 +424,7 @@ const handler = async (req: Request): Promise<Response> => {
         }
       } catch (e) {
         console.error("[stripe-invoice-webhook] subscription.updated mirror error:", e);
+        subscriptionStateFailed = true;
       }
     }
 
@@ -883,10 +897,14 @@ const handler = async (req: Request): Promise<Response> => {
                   .maybeSingle();
                 orgId = mem?.organization_id ?? null;
               }
-              if (orgId) await upsertStripeSubscription(supabase, orgId, fullSub, event.created, true);
+              if (orgId) {
+                const outcome = await upsertStripeSubscription(supabase, orgId, fullSub, event.created, true);
+                if (outcome === "failed") subscriptionStateFailed = true;
+              }
             }
           } catch (mirrorErr) {
             console.error("[stripe-invoice-webhook] checkout mirror failed:", mirrorErr);
+            subscriptionStateFailed = true;
           }
         }
       }
@@ -1680,7 +1698,10 @@ const handler = async (req: Request): Promise<Response> => {
                 trial_end: state.trial_end,
                 updated_at: new Date().toISOString(),
               };
-              if (!applyState) {
+              if (billingReadErr && !billingColumnsMissing) {
+                console.error("[stripe-invoice-webhook] subscription delete guard read failed:", billingReadErr);
+                subscriptionStateFailed = true;
+              } else if (!applyState) {
                 console.log("[stripe-invoice-webhook] older or duplicate delete; status and period left unchanged", sub.id);
               } else {
                 const billingPatch = billingColumnsMissing
@@ -1696,7 +1717,7 @@ const handler = async (req: Request): Promise<Response> => {
                   .update({ ...stateUpdate, ...billingPatch })
                   .eq("stripe_subscription_id", sub.id);
                 if (cancelWriteErr && isMissingBillingColumn(cancelWriteErr)) {
-                  await supabase
+                  const { error: fallbackErr } = await supabase
                     .from("stripe_subscriptions")
                     .update({
                       status: stateUpdate.status,
@@ -1704,8 +1725,13 @@ const handler = async (req: Request): Promise<Response> => {
                       updated_at: stateUpdate.updated_at,
                     })
                     .eq("stripe_subscription_id", sub.id);
+                  if (fallbackErr) {
+                    console.error("[stripe-invoice-webhook] subscription cancel mirror failed:", fallbackErr);
+                    subscriptionStateFailed = true;
+                  }
                 } else if (cancelWriteErr) {
                   console.error("[stripe-invoice-webhook] subscription cancel mirror failed:", cancelWriteErr);
+                  subscriptionStateFailed = true;
                 }
               }
 
@@ -1717,7 +1743,7 @@ const handler = async (req: Request): Promise<Response> => {
                 || state.status === "cancelled"
                 || state.status === "incomplete_expired"
                 || state.status === "unpaid";
-              if (applyState && (!authoritative || sourceIsEnded)) {
+              if (applyState && !subscriptionStateFailed && (!authoritative || sourceIsEnded)) {
               const { error: planErr, downgraded } = await downgradeOrgOnSubscriptionDeleted(
                 supabase,
                 membership.organization_id,
@@ -1811,6 +1837,24 @@ const handler = async (req: Request): Promise<Response> => {
     // Log organization context if available
     if (organizationId) {
       console.log("[stripe-invoice-webhook] Event processed for organization:", organizationId);
+    }
+
+    if (subscriptionStateFailed) {
+      const retry = subscriptionPersistHttpStatus("failed");
+      if (subscriptionPersistReleasesIdempotency("failed") && event.id) {
+        const { error: releaseErr } = await supabase
+          .from("stripe_webhook_events")
+          .delete()
+          .eq("event_id", event.id)
+          .eq("source", "stripe-invoice-webhook");
+        if (releaseErr) {
+          console.error("[stripe-invoice-webhook] failed to release idempotency claim; a Stripe retry would be skipped:", releaseErr);
+        }
+      }
+      return new Response(
+        JSON.stringify({ error: "subscription state was not saved; Stripe will retry." }),
+        { status: retry, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     return new Response(
@@ -2077,7 +2121,7 @@ async function upsertStripeSubscription(
   subscription: Stripe.Subscription,
   eventCreatedSec: number | null,
   authoritative: boolean,
-): Promise<boolean> {
+): Promise<SubscriptionPersistOutcome> {
   const item = subscription.items?.data?.[0];
   const price = item?.price;
   const meta = (subscription.metadata ?? {}) as Record<string, string>;
@@ -2119,19 +2163,19 @@ async function upsertStripeSubscription(
       .upsert(legacyRow, { onConflict: "stripe_subscription_id" });
     if (fallbackError) {
       console.error("[stripe-invoice-webhook] stripe_subscriptions upsert failed:", fallbackError);
-      return false;
+      return "failed";
     }
-    return true;
+    return "wrote";
   }
   if (billingReadErr) {
     console.error("[stripe-invoice-webhook] billing guard read failed; status and period left unchanged:", billingReadErr);
-    return false;
+    return "failed";
   }
   if (!shouldWriteSubscriptionState(authoritative, existingBilling, eventCreatedSec)) {
     console.log("[stripe-invoice-webhook] older or duplicate subscription event; status and period left unchanged", {
       subId: subscription.id,
     });
-    return false;
+    return "skipped";
   }
 
   const billingPatch = authoritative
@@ -2149,13 +2193,13 @@ async function upsertStripeSubscription(
       .upsert(legacyRow, { onConflict: "stripe_subscription_id" });
     if (fallbackError) {
       console.error("[stripe-invoice-webhook] stripe_subscriptions upsert failed:", fallbackError);
-      return false;
+      return "failed";
     }
-    return true;
+    return "wrote";
   }
   if (error) {
     console.error("[stripe-invoice-webhook] stripe_subscriptions upsert failed:", error);
-    return false;
+    return "failed";
   }
   console.log("[stripe-invoice-webhook] stripe_subscriptions upserted", {
     orgId,
@@ -2163,7 +2207,7 @@ async function upsertStripeSubscription(
     status: state.status,
     authoritative,
   });
-  return true;
+  return "wrote";
 }
 
 /**
@@ -2313,23 +2357,27 @@ async function syncOrgPlanFromSubscription(
   supabase: any,
   orgId: string,
   subscription: Stripe.Subscription,
-): Promise<void> {
+): Promise<boolean> {
   // Don't downgrade a Lifetime/grandfathered org from Stripe updates.
-  const { data: existingOrg } = await supabase
+  const { data: existingOrg, error: readErr } = await supabase
     .from("organizations")
     .select("plan_type, grandfathered_lifetime, plan_downgrade_scheduled_to")
     .eq("id", orgId)
     .maybeSingle();
+  if (readErr) {
+    console.error("[stripe-invoice-webhook] syncOrgPlanFromSubscription read failed:", readErr);
+    return false;
+  }
   if (
     existingOrg?.grandfathered_lifetime ||
     existingOrg?.plan_type === "lifetime"
   ) {
-    return;
+    return true;
   }
 
   const tier = resolvePlanTierFromSubscription(subscription);
-  if (!tier) return;
-  if (!["active", "trialing", "past_due"].includes(subscription.status)) return;
+  if (!tier) return true;
+  if (!["active", "trialing", "past_due"].includes(subscription.status)) return true;
 
   const update: Record<string, unknown> = { plan_type: tier };
   // If we reached the scheduled tier, clear pending-downgrade markers.
@@ -2348,9 +2396,10 @@ async function syncOrgPlanFromSubscription(
     .eq("id", orgId);
   if (error) {
     console.error("[stripe-invoice-webhook] syncOrgPlanFromSubscription failed:", error);
-  } else {
-    console.log("[stripe-invoice-webhook] organization plan_type synced", { orgId, tier });
+    return false;
   }
+  console.log("[stripe-invoice-webhook] organization plan_type synced", { orgId, tier });
+  return true;
 }
 
 serve(handler);
