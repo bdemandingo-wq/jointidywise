@@ -64,6 +64,8 @@ test('side effects are blocked and booking reads stay in memory', () => {
   assert.equal(demoInvokeKind('check-subscription'), 'allow');
   assert.equal(isMutatingDemoRpc('mark_abandoned_booking_progress'), true);
   assert.equal(isSilentDemoRpc('mark_abandoned_booking_progress'), true);
+  assert.equal(isMutatingDemoRpc('claim_trial_started_pixel'), true);
+  assert.equal(isSilentDemoRpc('claim_trial_started_pixel'), true);
 });
 
 test('sample demo stays off outside the app and the public preview is separate', () => {

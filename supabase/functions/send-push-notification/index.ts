@@ -25,7 +25,7 @@ import { isServiceRoleRequest } from "../_shared/require-caller-org.ts";
 import { tokensForPush } from "../_shared/push-tokens.ts";
 import { defaultApnsEnv, deliverApns, otherApnsEnv, type ApnsEnv } from "../_shared/apns-deliver.ts";
 import { demoModeEnabledForOrg } from "../_shared/demo-guard.ts";
-import { isKnownDemoOrganization } from "../_shared/demo-org.ts";
+import { isDemoSendBlocked, isKnownDemoOrganization } from "../_shared/demo-org.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -195,7 +195,13 @@ serve(async (req) => {
         : null;
       const first = stored ?? defaultApnsEnv();
       let resolved: ApnsEnv | null = null;
-      let result = await deliverApns(row.token, first, title, body, data, organization_id);
+      let result;
+      try {
+        result = await deliverApns(row.token, first, title, body, data, organization_id);
+      } catch (err) {
+        if (isDemoSendBlocked(err)) return false;
+        throw err;
+      }
 
       if (result.ok) {
         resolved = first;

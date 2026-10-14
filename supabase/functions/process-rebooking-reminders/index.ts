@@ -1,4 +1,5 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import {
   resolveTemplate,
   withStopSentence,
@@ -281,6 +282,10 @@ const handler = async (req: Request): Promise<Response> => {
         sentCount++;
         console.log(`[process-rebooking-reminders] Sent rebooking reminder for booking ${item.booking_id} to ${formattedPhone}`);
       } catch (itemError: any) {
+        if (isDemoSendBlocked(itemError)) {
+          console.log(`[process-rebooking-reminders] skipped demo send for booking ${item.booking_id}`);
+          continue;
+        }
         console.error(`[process-rebooking-reminders] Error processing item ${item.id}:`, itemError);
         const { error: markErrorErr } = await supabase.from("rebooking_reminder_queue")
           .update({ sent: true, sent_at: now, error: itemError?.message || "Unknown error" })

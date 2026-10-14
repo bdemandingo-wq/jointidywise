@@ -1,4 +1,5 @@
 import { sendResendEmail } from "../_shared/send-resend.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 // Churned-owner winback. Platform mail via Resend, on the verified
 // jointidywise.com domain. founder@mail is not a verified sender in this
 // repo, so the visible from-name is the founder's and the envelope address
@@ -549,6 +550,11 @@ serve(async (req) => {
     try {
       result = await deliver(supabase, supabaseUrl, apiKey, recipient.email, recipient, item.step);
     } catch (error) {
+      if (isDemoSendBlocked(error)) {
+        await supabase.from("winback_sends").delete().eq("id", claimed.id);
+        summary.skipped += 1;
+        continue;
+      }
       result = {
         ok: false,
         error: error instanceof Error ? error.message : String(error),

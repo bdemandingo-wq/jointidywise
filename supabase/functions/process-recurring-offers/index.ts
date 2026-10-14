@@ -1,4 +1,5 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import {
   resolveTemplate,
   withStopSentence,
@@ -295,6 +296,10 @@ serve(async (req: Request) => {
         sentCount++;
         console.log(`[process-recurring-offers] Sent recurring offer to customer ${item.customer_id} at ${formattedPhone}`);
       } catch (itemError: any) {
+        if (isDemoSendBlocked(itemError)) {
+          console.log(`[process-recurring-offers] skipped demo send for customer ${item.customer_id}`);
+          continue;
+        }
         console.error(`[process-recurring-offers] Error processing item ${item.id}:`, itemError);
         const { error: markErrorErr } = await supabase.from("recurring_offer_queue")
           .update({ sent: true, sent_at: now, error: itemError?.message || "Unknown error" })

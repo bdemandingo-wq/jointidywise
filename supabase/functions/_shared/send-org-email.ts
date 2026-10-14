@@ -309,7 +309,8 @@ export async function sendOrgEmail(opts: SendOrgEmailOptions): Promise<SendOrgEm
     recipients: toArr(opts.to),
   });
   if (demoReason) {
-    return { success: true, id: "demo-skipped", method: "none" };
+    const { DemoSendBlocked } = await import("./demo-guard.ts");
+    throw new DemoSendBlocked("email");
   }
   const settingsResult = await getOrgEmailSettings(opts.organizationId);
   if (!settingsResult.success || !settingsResult.settings) {

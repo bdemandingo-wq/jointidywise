@@ -1,4 +1,5 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 // Fires on every new lead. Two jobs, in this order:
 //   1. Dispatch lead.created to Zapier/GHL — closing the gap where only the
 //      frontend's manual create-lead mutation ever fired it, so Facebook,
@@ -339,6 +340,13 @@ serve(async (req: Request) => {
       return done("failed", { reason: `openphone ${res.status}` });
     }
   } catch (err) {
+    if (isDemoSendBlocked(err)) {
+      await supabase
+        .from("lead_notification_sends")
+        .update({ status: "skipped", completed_at: new Date().toISOString() })
+        .eq("lead_id", leadId);
+      return done("skipped_sms_not_configured");
+    }
     console.error(`[notify-new-lead] SMS threw for lead ${leadId}:`, err);
     await supabase
       .from("lead_notification_sends")

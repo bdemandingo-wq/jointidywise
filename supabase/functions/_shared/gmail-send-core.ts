@@ -28,7 +28,10 @@ export async function sendViaGmail(req: GmailSendInput): Promise<
     organizationId: req.organization_id,
     recipients,
   });
-  if (demoReason) return { success: true, message_id: "demo-skipped" };
+  if (demoReason) {
+    const { DemoSendBlocked } = await import("./demo-guard.ts");
+    throw new DemoSendBlocked("email");
+  }
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,

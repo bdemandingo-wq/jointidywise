@@ -1,3 +1,4 @@
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { verifyAdminAuth, createUnauthorizedResponse, createForbiddenResponse } from "../_shared/verify-admin-auth.ts";
@@ -248,6 +249,10 @@ serve(async (req) => {
           emailsFailed.push(customer.email);
         }
       } catch (error) {
+        if (isDemoSendBlocked(error)) {
+          console.log(`[send-followup-campaign] skipped demo send to ${customer.email}`);
+          continue;
+        }
         console.error(`[send-followup-campaign] Failed to send email to ${customer.email}:`, error);
         emailsFailed.push(customer.email);
       }

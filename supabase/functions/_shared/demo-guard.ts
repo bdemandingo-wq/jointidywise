@@ -5,7 +5,12 @@
  * database call.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
-import { demoSendBlockReason, isKnownDemoOrganization } from "./demo-org.ts";
+import {
+  DEMO_FLAG_TTL_MS,
+  demoFlagCacheFresh,
+  demoSendBlockReason,
+  isKnownDemoOrganization,
+} from "./demo-org.ts";
 
 type Lookup = {
   from: (table: string) => {
@@ -17,7 +22,9 @@ type Lookup = {
   };
 };
 
-const cache = new Map<string, Promise<boolean>>();
+type CachedFlag = { at: number; value: Promise<boolean> };
+
+const cache = new Map<string, CachedFlag>();
 
 function serviceClient(): Lookup | null {
   const url = Deno.env.get("SUPABASE_URL");
@@ -33,7 +40,7 @@ export async function demoModeEnabledForOrg(
   if (!organizationId) return false;
   if (isKnownDemoOrganization(organizationId)) return true;
   const cached = cache.get(organizationId);
-  if (cached) return cached;
+  if (cached && demoFlagCacheFresh(cached.at, Date.now(), DEMO_FLAG_TTL_MS)) return cached.value;
   const pending = (async () => {
     const client = supabase ?? serviceClient();
     if (!client) return false;
@@ -53,7 +60,7 @@ export async function demoModeEnabledForOrg(
       return false;
     }
   })();
-  cache.set(organizationId, pending);
+  cache.set(organizationId, { at: Date.now(), value: pending });
   return pending;
 }
 
@@ -72,7 +79,10 @@ export async function demoSendShouldSkip(input: {
   organizationId?: string | null;
   recipients?: Array<string | null | undefined>;
   supabase?: Lookup | null;
+  /** A reply the recipient just requested, such as a STOP confirmation. */
+  requestedReply?: boolean;
 }): Promise<string | null> {
+  if (input.requestedReply) return null;
   const demoModeEnabled = input.organizationId
     ? await demoModeEnabledForOrg(input.supabase ?? null, input.organizationId)
     : false;
@@ -80,6 +90,7 @@ export async function demoSendShouldSkip(input: {
     organizationId: input.organizationId,
     demoModeEnabled,
     recipients: input.recipients,
+    requestedReply: input.requestedReply,
   });
   if (reason) {
     console.log(`[demo-block] skipped ${input.channel} reason=${reason} org=${input.organizationId ?? "none"}`);

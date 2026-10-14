@@ -6,6 +6,7 @@
 import * as React from "npm:react@18.3.1";
 import { renderAsync } from "https://esm.sh/@react-email/components@0.0.22?deps=react@18.3.1";
 import { sendResendSdkEmail } from "./send-resend.ts";
+import { isDemoSendBlocked } from "./demo-org.ts";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 import {
@@ -944,6 +945,14 @@ export async function processOrg(
     } catch (e) {
       sendError = e;
     }
+  }
+
+  if (isDemoSendBlocked(sendError)) {
+    await supabase
+      .from("email_send_log")
+      .update({ status: "skipped", error_message: "Disabled in demo mode" })
+      .eq("message_id", messageId);
+    return { ...result, success: false, error: "Disabled in demo mode" };
   }
 
   if (sendError) {

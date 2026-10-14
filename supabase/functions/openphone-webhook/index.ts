@@ -1,4 +1,6 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
+import { phoneMatchKey } from "../_shared/phone.ts";
 import {
   resolveTemplate,
   withStopSentence,
@@ -918,6 +920,10 @@ const handler = async (req: Request): Promise<Response> => {
         return new Response(JSON.stringify({ success: true, message: 'Missed-call textback sent' }),
           { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       } catch (mcErr) {
+        if (isDemoSendBlocked(mcErr)) {
+          return new Response(JSON.stringify({ success: true, skipped: true, reason: "demo_mode" }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
         // Never fail the webhook over a textback problem.
         console.error('[openphone-webhook] Missed-call textback error:', mcErr);
         return new Response(JSON.stringify({ success: true, message: 'Missed call logged (textback errored)' }),
@@ -1236,6 +1242,21 @@ const handler = async (req: Request): Promise<Response> => {
         }
       } catch (optOutErr) {
         console.error('[openphone-webhook] Error processing opt-out:', optOutErr);
+      }
+
+      // Phone-level suppression only when classifySmsOptOut says optOut.
+      // A needsReview message stays in the inbox and is not suppressed.
+      const suppressionPhone = phoneMatchKey(customerPhone) ?? customerPhone.replace(/\D/g, '');
+      if (suppressionPhone) {
+        const { error: suppressionError } = await supabase
+          .from('sms_suppressions')
+          .upsert(
+            { organization_id: organizationId, phone: suppressionPhone, source: 'sms_stop' },
+            { onConflict: 'organization_id,phone' },
+          );
+        if (suppressionError) {
+          console.error('[openphone-webhook] sms_suppressions upsert failed:', suppressionError);
+        }
       }
 
       // One confirmation, and only after the opt-out row is saved. Not marketing.

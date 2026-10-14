@@ -2,7 +2,7 @@
  * The only APNs delivery. Demo organizations are logged and skipped before
  * any request to Apple.
  */
-import { demoSendShouldSkip } from "./demo-guard.ts";
+import { DemoSendBlocked, demoSendShouldSkip } from "./demo-guard.ts";
 
 let cachedJwt: { token: string; exp: number } | null = null;
 
@@ -72,7 +72,7 @@ export async function deliverApns(
   organizationId?: string | null,
 ): Promise<ApnsResult> {
   const reason = await demoSendShouldSkip({ channel: "push", organizationId });
-  if (reason) return { ok: false, status: 0, reason: "demo_mode" };
+  if (reason) throw new DemoSendBlocked("push");
 
   const bundleId = Deno.env.get("APNS_BUNDLE_ID") || "com.TidyWiseApp.app";
   const jwt = await getApnsJwt();

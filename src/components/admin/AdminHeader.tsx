@@ -46,8 +46,8 @@ export function AdminHeader({ title, actions }: AdminHeaderProps) {
 
   return (
     <>
-      <div className="portal-v2 sticky top-0 z-30 w-full max-w-full overflow-x-hidden">
-        <header className="bg-background/80 backdrop-blur-sm border-b border-border pt-[env(safe-area-inset-top)]">
+      <div className="portal-v2 z-30 w-full max-w-full overflow-x-hidden">
+        <header className="bg-background/80 backdrop-blur-sm border-b border-border">
 
           {/* Primary row: hamburger spacer + title + icon buttons */}
           <div className="flex h-12 max-w-full items-center gap-2 px-3 md:h-14 md:px-4">

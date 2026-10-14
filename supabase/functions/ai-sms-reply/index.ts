@@ -1,4 +1,5 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { anthropicChat, MODEL_HAIKU } from "../_shared/anthropic.ts";
@@ -346,6 +347,10 @@ ${historyText}`;
     );
 
   } catch (error: unknown) {
+    if (isDemoSendBlocked(error)) {
+      return new Response(JSON.stringify({ success: false, skipped: true, reason: "demo_mode" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     console.error("[ai-sms-reply] Error:", errorMessage);
     return new Response(JSON.stringify({ success: false, error: errorMessage }),

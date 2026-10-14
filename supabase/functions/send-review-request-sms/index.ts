@@ -1,4 +1,5 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import {
   resolveTemplate,
   withStopSentence,
@@ -296,6 +297,12 @@ const handler = async (req: Request): Promise<Response> => {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
   } catch (error: any) {
+    if (isDemoSendBlocked(error)) {
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "demo_mode" }),
+        { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
     console.error("Error in send-review-request-sms function:", error);
     return new Response(JSON.stringify({ error: error?.message || "Unknown error" }), {
       status: 500,

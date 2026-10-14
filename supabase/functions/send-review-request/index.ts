@@ -1,3 +1,4 @@
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getOrgEmailSettings, formatEmailFrom, getReplyTo } from "../_shared/get-org-email-settings.ts";
@@ -278,6 +279,12 @@ const handler = async (req: Request): Promise<Response> => {
       headers: { "Content-Type": "application/json", ...corsHeaders },
     });
   } catch (error: any) {
+    if (isDemoSendBlocked(error)) {
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "demo_mode" }),
+        { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
     console.error("Error in send-review-request function:", error);
     return new Response(JSON.stringify({ error: error?.message || "Unknown error" }), {
       status: 500,

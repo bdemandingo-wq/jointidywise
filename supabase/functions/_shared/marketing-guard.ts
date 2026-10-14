@@ -151,6 +151,20 @@ export async function isPhoneOptedOut(
   }
 
   try {
+    const { data: suppressed, error: suppressionError } = await supabase
+      .from("sms_suppressions")
+      .select("phone")
+      .eq("organization_id", organizationId)
+      .eq("phone", target)
+      .maybeSingle();
+    if (suppressionError) {
+      console.error(
+        `[marketing-guard] sms_suppressions lookup failed — failing closed | org:${organizationId} | ${suppressionError.message}`,
+      );
+      return true;
+    }
+    if (suppressed) return true;
+
     const rows = await loadOrgPhoneRows(supabase, organizationId);
     const matches = rows.filter((r) => phoneMatchKey(r.phone) === target);
     // No matching customer record: nothing says this person opted out.

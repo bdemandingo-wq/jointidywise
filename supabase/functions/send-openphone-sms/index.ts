@@ -1,4 +1,5 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
@@ -312,6 +313,12 @@ const handler = async (req: Request): Promise<Response> => {
     );
 
   } catch (error: unknown) {
+    if (isDemoSendBlocked(error)) {
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "demo_mode" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     console.error("[send-openphone-sms] Error:", errorMessage);
 

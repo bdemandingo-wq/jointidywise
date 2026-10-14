@@ -1,4 +1,5 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import {
   resolveTemplate,
   withStopSentence,
@@ -294,6 +295,15 @@ const handler = async (req: Request): Promise<Response> => {
         successCount++;
         console.log(`Review SMS sent for booking ${item.booking_id} to ${formattedPhone}`);
       } catch (itemError: any) {
+        if (isDemoSendBlocked(itemError)) {
+          await supabase.from("review_requests")
+            .update({ status: "pending", sent_at: null })
+            .eq("booking_id", item.booking_id)
+            .eq("customer_id", item.customer_id)
+            .eq("status", "sent");
+          console.log(`[process-review-sms-queue] skipped demo send for booking ${item.booking_id}`);
+          continue;
+        }
         console.error(`Error processing item ${item.id}:`, itemError);
         const { error: markErrorErr } = await supabase.from("automated_review_sms_queue")
           .update({ sent: true, sent_at: new Date().toISOString(), error: itemError?.message || "Unknown error" })

@@ -48,6 +48,7 @@ android/
 /playwright-report/
 /qa-report/
 /tests/.auth/
+e2e/artifacts
 
 # Scratch DB dumps dropped at repo root during investigation/debugging
 # (e.g. DDL extracts pasted from Lovable's SQL runner) — not source,

@@ -97,6 +97,7 @@ const MUTATING_RPC = new Set([
 
 const SILENT_RPC = new Set([
   'mark_abandoned_booking_progress',
+  'claim_trial_started_pixel',
 ]);
 
 export function isMutatingDemoRpc(name: string): boolean {

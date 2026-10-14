@@ -1,4 +1,5 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
@@ -318,6 +319,9 @@ const handler = async (req: Request): Promise<Response> => {
           body: JSON.stringify({ from: phoneNumberId, to: [formattedPhone], content: message }),
         });
       } catch (netErr: any) {
+        if (isDemoSendBlocked(netErr)) {
+          return { success: false, skipped: true, reason: "demo_mode" };
+        }
         const msg = `Network error: ${netErr?.message || netErr}`;
         console.error(`[send-booking-reminder] ${msg}`);
         await logFailure(msg);

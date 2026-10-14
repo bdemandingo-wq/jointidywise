@@ -1,4 +1,5 @@
 import { sendResendEmail } from "../_shared/send-resend.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 // Broadcast worker. Cron-driven and resumable: it claims a slice of queued
 // recipients, sends each through Resend, and writes the outcome back to the
 // same row. Safe to invoke concurrently — the claim is per-row.
@@ -148,6 +149,13 @@ serve(async (req: Request) => {
           processed++;
         }
       } catch (err) {
+        if (isDemoSendBlocked(err)) {
+          await supabase
+            .from("broadcast_recipients")
+            .update({ status: "queued", updated_at: new Date().toISOString() })
+            .eq("id", r.id);
+          continue;
+        }
         await supabase
           .from("broadcast_recipients")
           .update({

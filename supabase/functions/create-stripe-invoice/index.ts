@@ -1,4 +1,5 @@
 import { createStripeClient } from "../_shared/stripe-client.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
@@ -351,6 +352,12 @@ const handler = async (req: Request): Promise<Response> => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
+    if (isDemoSendBlocked(error)) {
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "demo_mode" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     console.error("Error creating Stripe invoice:", error);
     return new Response(
       JSON.stringify({ error: error.message }),

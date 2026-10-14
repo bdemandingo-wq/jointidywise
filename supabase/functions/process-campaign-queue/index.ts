@@ -1,4 +1,5 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 // process-campaign-queue
 //
 // PGMQ worker for campaign SMS. Modelled on process-email-queue: same
@@ -939,6 +940,13 @@ Deno.serve(async (req) => {
           sendError = `OpenPhone ${response.status}: ${await response.text()}`
         }
       } catch (err) {
+        if (isDemoSendBlocked(err)) {
+          console.log("[process-campaign-queue] skipped demo send", {
+            run_id: run.id,
+            customer_id: payload.customer_id,
+          })
+          continue
+        }
         sendError = err instanceof Error ? err.message : String(err)
       }
 

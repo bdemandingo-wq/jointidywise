@@ -14,9 +14,9 @@ export async function sendPushToOrg(
   opts?: { audience?: "org" | "operators" },
 ): Promise<{ sent: number }> {
   try {
-    const { demoSendShouldSkip } = await import("./demo-guard.ts");
+    const { DemoSendBlocked, demoSendShouldSkip } = await import("./demo-guard.ts");
     const reason = await demoSendShouldSkip({ channel: "push", organizationId });
-    if (reason) return { sent: 0 };
+    if (reason) throw new DemoSendBlocked("push");
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!supabaseUrl || !serviceKey) return { sent: 0 };
@@ -38,6 +38,7 @@ export async function sendPushToOrg(
     const json = await res.json().catch(() => ({}));
     return { sent: Number((json as { sent?: number }).sent ?? 0) };
   } catch (err) {
+    if (err instanceof Error && err.name === "DemoSendBlocked") return { sent: 0 };
     console.error("[send-push] helper error:", err);
     return { sent: 0 };
   }
