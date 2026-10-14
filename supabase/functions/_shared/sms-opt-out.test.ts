@@ -129,7 +129,7 @@ test("opt me out and no more texts opt out in a message of at most 6 words", () 
   }
   const tooLong = classifySmsOptOut("please opt me out of the weekly marketing list");
   assert.equal(tooLong.optOut, false);
-  assert.equal(tooLong.needsReview, false);
+  assert.equal(tooLong.needsReview, true);
 });
 
 test("ordinary sentences that merely contain a keyword stem are not flagged", () => {

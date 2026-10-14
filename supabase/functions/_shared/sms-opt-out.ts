@@ -203,9 +203,9 @@ function includesPhrase(text: string, phrase: string): boolean {
   return ` ${text} `.includes(` ${phrase} `);
 }
 
-/** "opt me out" and "no more texts", anywhere in a message of at most 6 words. */
+/** "opt me out" or "no more texts" anywhere in the message. Length is decided by the caller. */
 function boundedOptOutPhrase(tokens: string[]): string | null {
-  if (tokens.length === 0 || tokens.length > 6) return null;
+  if (tokens.length === 0) return null;
   const keys = tokens.map(keywordKey);
   for (const phrase of BOUNDED_OPT_OUT_PHRASES) {
     for (let i = 0; i <= keys.length - phrase.length; i++) {
@@ -281,8 +281,11 @@ export function classifySmsOptOut(content: string | null | undefined): SmsOptOut
 
   const tokens = messageTokens(content);
   const bounded = boundedOptOutPhrase(tokens);
-  if (bounded) {
+  if (bounded && tokens.length <= 6) {
     return { optOut: true, needsReview: false, matched: bounded };
+  }
+  if (bounded) {
+    return { optOut: false, needsReview: true, matched: bounded };
   }
 
   // "please stop", "STOP STOP", "stop now". Not "stop by", "don't stop",
