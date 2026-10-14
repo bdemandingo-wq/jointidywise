@@ -13095,6 +13095,7 @@ export type Database = {
           raw_plan_type: string
         }[]
       }
+      org_has_native_booking: { Args: { _org_id: string }; Returns: boolean }
       org_has_no_memberships: { Args: { _org_id: string }; Returns: boolean }
       org_has_resend_api_key: { Args: { p_org_id: string }; Returns: boolean }
       org_stripe_has_secrets: {

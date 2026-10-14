@@ -132,6 +132,32 @@ export function isImportedCreatedVia(value: string | null | undefined): boolean 
   return (IMPORTED_CREATED_VIA as readonly string[]).includes(normalized);
 }
 
+function flagTrue(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === "number") return value === 1;
+  if (typeof value !== "string") return false;
+  return ["true", "t", "1", "yes"].includes(value.trim().toLowerCase());
+}
+
+/**
+ * Same rule as public.booking_is_real_job. Imported jobs, drafts, and test
+ * rows do not complete "Create your first booking".
+ */
+export function bookingIsRealJob(row: {
+  is_test?: unknown;
+  is_draft?: unknown;
+  created_via?: string | null;
+  source?: string | null;
+  notes?: string | null;
+} | null | undefined): boolean {
+  if (!row) return false;
+  if (flagTrue(row.is_test) || flagTrue(row.is_draft)) return false;
+  if (isImportedCreatedVia(row.created_via) || isImportedCreatedVia(row.source)) return false;
+  const notes = typeof row.notes === "string" ? row.notes.trim() : "";
+  if (notes.length > 0 && notes.toLowerCase().startsWith("[imported")) return false;
+  return true;
+}
+
 /** Same rule as public.org_openphone_is_connected. Both pieces must be saved. */
 export function openPhoneLiveConnected(
   hasApiKey: boolean,

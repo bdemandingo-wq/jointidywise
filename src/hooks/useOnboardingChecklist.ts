@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useOrgId } from './useOrgId';
 import {
+  bookingIsRealJob,
   checklistMilestones,
   openPhoneLiveConnected,
   setupStepState,
@@ -28,17 +29,27 @@ export interface OnboardingItem {
   icon: string;
 }
 
-async function hasAnyRow(
-  table: 'bookings',
-  organizationId: string,
-): Promise<boolean> {
+function missingRpc(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  const message = error.message ?? '';
+  return error.code === 'PGRST202'
+    || /schema cache|could not find the function/i.test(message);
+}
+
+/** Native jobs only. Matches public.booking_is_real_job, including imports. */
+async function hasNativeBooking(organizationId: string): Promise<boolean> {
+  const rpc = await supabase.rpc('org_has_native_booking', { _org_id: organizationId });
+  if (!rpc.error) return rpc.data === true;
+  if (!missingRpc(rpc.error)) throw rpc.error;
+  // Migration not applied yet. created_via is absent, so the note prefix is
+  // the only import mark the client can see.
   const { data, error } = await supabase
-    .from(table)
-    .select('id')
+    .from('bookings')
+    .select('id, notes, is_test, is_draft')
     .eq('organization_id', organizationId)
-    .limit(1);
+    .limit(200);
   if (error) throw error;
-  return (data?.length ?? 0) > 0;
+  return (data ?? []).some((row) => bookingIsRealJob(row));
 }
 
 async function hasActiveService(organizationId: string): Promise<boolean> {
@@ -92,7 +103,7 @@ export function useOnboardingChecklist(enabled = true) {
         hasActiveStaff(organizationId),
         supabase.rpc('has_openphone_api_key', { _org_id: organizationId }),
         supabase.rpc('get_org_stripe_settings_safe', { p_organization_id: organizationId }),
-        hasAnyRow('bookings', organizationId),
+        hasNativeBooking(organizationId),
         supabase
           .from('organization_sms_settings')
           .select('openphone_phone_number_id')

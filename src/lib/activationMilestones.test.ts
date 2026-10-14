@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import {
   ACTIVATION_MILESTONE_KEYS,
   ACTIVATION_MILESTONES,
+  bookingIsRealJob,
   checklistMilestones,
   isImportedCreatedVia,
   openPhoneLiveConnected,
@@ -103,6 +104,18 @@ test("Stripe is live from is_connected or a Connect account id", () => {
   assert.equal(stripeLiveConnected(null), false);
 });
 
+test("a native booking counts and an import does not", () => {
+  assert.equal(bookingIsRealJob({ notes: "weekly clean" }), true);
+  assert.equal(bookingIsRealJob({ created_via: "migration_import" }), false);
+  assert.equal(bookingIsRealJob({ created_via: " CSV_IMPORT " }), false);
+  assert.equal(bookingIsRealJob({ source: "csv_import" }), false);
+  assert.equal(bookingIsRealJob({ notes: "  [Imported from migration]" }), false);
+  assert.equal(bookingIsRealJob({ notes: "[Imported] old job" }), false);
+  assert.equal(bookingIsRealJob({ is_draft: true }), false);
+  assert.equal(bookingIsRealJob({ is_test: "yes" }), false);
+  assert.equal(bookingIsRealJob(null), false);
+});
+
 test("the migration importer tags bookings and staff, and predicates ignore imports", () => {
   const importer = readFileSync(
     new URL("../../supabase/functions/process-migration-import/index.ts", import.meta.url),
@@ -113,4 +126,25 @@ test("the migration importer tags bookings and staff, and predicates ignore impo
   assert.match(importer, /insertImported\(\s*"staff"/);
   assert.match(migration, /row_is_imported/);
   assert.match(migration, /AND NOT public\.row_is_imported\(p_row\)/);
+  assert.match(migration, /org_has_native_booking/);
+  assert.match(migration, /booking_is_real_job\(to_jsonb\(b\)\)/);
+});
+
+test("follow-up guards are in the migration and can be re-applied", () => {
+  assert.match(
+    migration,
+    /last_login_at IS NULL OR last_login_at < now\(\) - interval '15 minutes'/,
+  );
+  assert.match(
+    migration,
+    /o\.last_login_at IS NULL OR o\.last_login_at < now\(\) - interval '15 minutes'/,
+  );
+  assert.match(migration, /NOT public\.is_org_member\(_org_id\)/);
+  assert.match(migration, /NOT public\.is_platform_admin\(\)/);
+  assert.match(migration, /o\.owner_id = auth\.uid\(\)/);
+  assert.match(migration, /activation_purge_demo_organization/);
+  assert.match(migration, /interval '90 days'/);
+  assert.match(migration, /cron\.unschedule\('activation-trigger-log-purge'\)/);
+  assert.match(migration, /pg_cron/);
+  assert.equal(migration.trimEnd().endsWith("COMMIT;") || migration.includes("\nCOMMIT;\n"), true);
 });

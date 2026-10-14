@@ -38,7 +38,8 @@
 -- does fire for an imported service: the business now has a service.
 --
 -- Last login is not a milestone. The app calls touch_my_last_login() after
--- sign-in. This file does not create a trigger on auth.users. Creating one
+-- sign-in. Each update is skipped when that row was stamped in the last 15
+-- minutes. This file does not create a trigger on auth.users. Creating one
 -- can fail in the SQL editor because this role does not own the auth schema,
 -- and that failure would roll this whole transaction back.
 --
@@ -319,6 +320,23 @@ BEGIN
     RETURN true;
   END IF;
 
+  -- Direct RPC calls must not reveal whether some other org is a demo.
+  -- A null auth.uid() is a trigger, the SQL editor, or the service role,
+  -- and those callers still get the real answer. The org owner counts even
+  -- before their membership row exists (org insert).
+  IF auth.uid() IS NOT NULL
+     AND NOT public.is_org_member(_org_id)
+     AND NOT EXISTS (
+       SELECT 1
+       FROM public.organizations owned
+       WHERE owned.id = _org_id
+         AND owned.owner_id = auth.uid()
+     )
+     AND NOT public.is_platform_admin()
+  THEN
+    RETURN false;
+  END IF;
+
   SELECT to_jsonb(o) INTO v_org
   FROM public.organizations o
   WHERE o.id = _org_id;
@@ -385,8 +403,9 @@ BEGIN
 END;
 $$;
 
--- Granted to authenticated so row-level policies can call it. It returns
--- only a boolean. It does not return the owner email.
+-- Granted to authenticated so row-level policies can call it. Callers who
+-- are not a member, the owner, or a platform admin get false, not the real
+-- demo bit. It does not return the owner email.
 REVOKE ALL ON FUNCTION public.activation_subject_is_demo(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.activation_subject_is_demo(uuid) TO authenticated;
 
@@ -603,9 +622,23 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
+  v_row jsonb := to_jsonb(NEW);
   v_org uuid;
 BEGIN
-  v_org := NEW.organization_id;
+  -- organization_pricing_settings uses organization_id. organizations uses id.
+  -- Prefer organization_id so a settings row's own id is not treated as an org.
+  BEGIN
+    v_org := NULLIF(v_row ->> 'organization_id', '')::uuid;
+  EXCEPTION WHEN invalid_text_representation THEN
+    v_org := NULL;
+  END;
+  IF v_org IS NULL THEN
+    BEGIN
+      v_org := NULLIF(v_row ->> 'id', '')::uuid;
+    EXCEPTION WHEN invalid_text_representation THEN
+      v_org := NULL;
+    END;
+  END IF;
   IF v_org IS NULL THEN
     RETURN NEW;
   END IF;
@@ -627,6 +660,44 @@ CREATE TRIGGER activation_purge_demo_pricing
   AFTER INSERT OR UPDATE OF demo_mode_enabled ON public.organization_pricing_settings
   FOR EACH ROW
   EXECUTE FUNCTION public.activation_purge_if_demo();
+
+-- organizations has no dedicated demo column in this schema. The flag that
+-- exists today is organization_pricing_settings.demo_mode_enabled, covered
+-- above. This trigger follows owner_id (a new owner can be a demo email)
+-- and any of the jsonb flag names activation_subject_is_demo already reads,
+-- if that column is present. Re-running the file rebuilds the column list.
+DO $$
+DECLARE
+  v_cols text;
+BEGIN
+  SELECT string_agg(quote_ident(c.column_name), ', ' ORDER BY c.column_name)
+    INTO v_cols
+  FROM information_schema.columns c
+  WHERE c.table_schema = 'public'
+    AND c.table_name = 'organizations'
+    AND c.column_name IN (
+      'owner_id',
+      'is_demo',
+      'demo_mode',
+      'demo_account',
+      'is_demo_account',
+      'is_demo_org',
+      'demo_mode_enabled'
+    );
+
+  IF v_cols IS NULL OR btrim(v_cols) = '' THEN
+    RAISE EXCEPTION 'organizations has none of the demo-purge columns';
+  END IF;
+
+  EXECUTE 'DROP TRIGGER IF EXISTS activation_purge_demo_organization ON public.organizations';
+  EXECUTE format(
+    'CREATE TRIGGER activation_purge_demo_organization
+       AFTER INSERT OR UPDATE OF %s ON public.organizations
+       FOR EACH ROW
+       EXECUTE FUNCTION public.activation_purge_if_demo()',
+    v_cols
+  );
+END $$;
 
 CREATE OR REPLACE FUNCTION public.activation_on_service_change()
 RETURNS trigger
@@ -1063,20 +1134,23 @@ BEGIN
 
   PERFORM set_config('tw.allow_last_login', 'on', true);
 
+  -- Skip a row stamped in the last 15 minutes so a refresh does not write.
   UPDATE public.profiles
   SET last_login_at = v_now
-  WHERE id = v_uid;
+  WHERE id = v_uid
+    AND (last_login_at IS NULL OR last_login_at < now() - interval '15 minutes');
 
   UPDATE public.organizations o
   SET last_login_at = v_now
-  WHERE o.id IN (
-    SELECT owned.id FROM public.organizations owned WHERE owned.owner_id = v_uid
-    UNION
-    SELECT m.organization_id FROM public.org_memberships m WHERE m.user_id = v_uid
-    UNION
-    SELECT s.organization_id FROM public.staff s
-    WHERE s.user_id = v_uid AND s.organization_id IS NOT NULL
-  );
+  WHERE (o.last_login_at IS NULL OR o.last_login_at < now() - interval '15 minutes')
+    AND o.id IN (
+      SELECT owned.id FROM public.organizations owned WHERE owned.owner_id = v_uid
+      UNION
+      SELECT m.organization_id FROM public.org_memberships m WHERE m.user_id = v_uid
+      UNION
+      SELECT s.organization_id FROM public.staff s
+      WHERE s.user_id = v_uid AND s.organization_id IS NOT NULL
+    );
 END;
 $$;
 
@@ -1264,12 +1338,20 @@ CREATE POLICY "Org owners and admins read signup attribution"
   TO authenticated
   USING (
     organization_id IS NOT NULL
-    AND EXISTS (
-      SELECT 1
-      FROM public.org_memberships m
-      WHERE m.organization_id = account_signup_attribution.organization_id
-        AND m.user_id = auth.uid()
-        AND m.role IN ('owner', 'admin')
+    AND (
+      EXISTS (
+        SELECT 1
+        FROM public.org_memberships m
+        WHERE m.organization_id = account_signup_attribution.organization_id
+          AND m.user_id = auth.uid()
+          AND m.role IN ('owner', 'admin')
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM public.organizations o
+        WHERE o.id = account_signup_attribution.organization_id
+          AND o.owner_id = auth.uid()
+      )
     )
   );
 
@@ -1305,6 +1387,82 @@ COMMENT ON VIEW public.organization_activation_events_live IS
   'Activation milestones with demo orgs removed. Current OpenPhone, Stripe, service, and staff status is not in this view; read those tables for live connection state.';
 
 GRANT SELECT ON public.organization_activation_events_live TO authenticated;
+
+-- Checklist "Create your first booking" uses this so imported jobs do not
+-- count. Same predicate as the first_job_booked trigger.
+CREATE OR REPLACE FUNCTION public.org_has_native_booking(_org_id uuid)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF _org_id IS NULL THEN
+    RETURN false;
+  END IF;
+  IF auth.uid() IS NOT NULL
+     AND NOT public.is_org_member(_org_id)
+     AND NOT EXISTS (
+       SELECT 1
+       FROM public.organizations owned
+       WHERE owned.id = _org_id
+         AND owned.owner_id = auth.uid()
+     )
+     AND NOT public.is_platform_admin()
+  THEN
+    RETURN false;
+  END IF;
+
+  RETURN EXISTS (
+    SELECT 1
+    FROM public.bookings b
+    WHERE b.organization_id = _org_id
+      AND public.booking_is_real_job(to_jsonb(b))
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.org_has_native_booking(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.org_has_native_booking(uuid) TO authenticated;
+
+-- Drop activation_trigger_log rows older than 90 days. pg_cron is already
+-- used in this project. Unschedule first so a second run replaces the job
+-- instead of failing on a duplicate name. Skip quietly when the extension
+-- is absent so this file can still be applied.
+CREATE OR REPLACE FUNCTION public.activation_trigger_log_purge()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  DELETE FROM public.activation_trigger_log
+  WHERE created_at < now() - interval '90 days';
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.activation_trigger_log_purge() FROM PUBLIC, anon, authenticated;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
+    RAISE WARNING 'pg_cron is not installed; activation_trigger_log rows older than 90 days will not be deleted automatically';
+    RETURN;
+  END IF;
+
+  BEGIN
+    PERFORM cron.unschedule('activation-trigger-log-purge');
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+
+  PERFORM cron.schedule(
+    'activation-trigger-log-purge',
+    '15 3 * * *',
+    $cron$ SELECT public.activation_trigger_log_purge(); $cron$
+  );
+END $$;
 
 COMMIT;
 
