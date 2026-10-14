@@ -7,6 +7,12 @@ import { calculateDistanceMiles, estimateDriveMinutes } from '@/lib/distanceUtil
 import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
 import { consentAllowsTracking, parseConsentDecision } from '@/lib/locationConsent';
 import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
+import {
+  nextWebSharePhase,
+  webShareShouldReadGeolocation,
+  type WebSharePhase,
+  type WebShareSignal,
+} from '@/lib/webLocationSharing';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -102,6 +108,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   const watchIdRef       = useRef<string | null>(null);   // Capacitor watchId (string)
   const browserWatchRef  = useRef<number | null>(null);   // browser watchId (number)
   const stopTrackingRef  = useRef<() => Promise<void>>(async () => {});
+  const webSharePhaseRef = useRef<WebSharePhase>('idle');
   const [isTracking, setIsTracking] = useState(false);
   const [hasArrived, setHasArrived] = useState(false);
 
@@ -170,6 +177,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
   const writePosition = useCallback(async (latitude: number, longitude: number) => {
     if (!trackingIdRef.current) return;
+    if (Capacitor.getPlatform() === 'web' && !webShareShouldReadGeolocation(webSharePhaseRef.current)) return;
     const now = Date.now();
     if (now - lastWriteRef.current < MIN_WRITE_INTERVAL_MS) return;
     lastWriteRef.current = now;
@@ -190,7 +198,15 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
   // ── stop tracking ─────────────────────────────────────────────────────────
 
+  const clearBrowserWatch = useCallback(() => {
+    if (browserWatchRef.current !== null && typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.clearWatch(browserWatchRef.current);
+      browserWatchRef.current = null;
+    }
+  }, []);
+
   const stopTracking = useCallback(async () => {
+    webSharePhaseRef.current = 'idle';
     // Clear Capacitor watch
     if (watchIdRef.current !== null) {
       try {
@@ -199,11 +215,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       } catch {}
       watchIdRef.current = null;
     }
-    // Clear browser watch
-    if (browserWatchRef.current !== null) {
-      navigator.geolocation.clearWatch(browserWatchRef.current);
-      browserWatchRef.current = null;
-    }
+    clearBrowserWatch();
     // Release wake lock
     if (wakeLockRef.current) {
       try { await wakeLockRef.current.release(); } catch {}
@@ -221,7 +233,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     setHasArrived(false);
     setIsTracking(false);
     console.log('[GPS] Tracking stopped');
-  }, []);
+  }, [clearBrowserWatch]);
 
   stopTrackingRef.current = stopTracking;
 
@@ -232,7 +244,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   // arrival check so the "arrived" texts still fire automatically.
 
   useEffect(() => {
-    if (!isTracking) return;
+    if (!isTracking || Capacitor.getPlatform() === 'web') return;
 
     const checkNow = async () => {
       if (arrivedRef.current) return;
@@ -288,8 +300,14 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       }
     }
 
-    // Browser fallback (web/simulator)
+    // Browser fallback (web/simulator). A hidden tab does not start a watch.
+    if (Capacitor.getPlatform() === 'web' && document.visibilityState === 'hidden') {
+      webSharePhaseRef.current = 'paused';
+      return;
+    }
+    if (Capacitor.getPlatform() === 'web') webSharePhaseRef.current = 'sharing';
     if (navigator.geolocation?.watchPosition) {
+      clearBrowserWatch();
       browserWatchRef.current = navigator.geolocation.watchPosition(
         (pos) => { void writePosition(pos.coords.latitude, pos.coords.longitude); },
         (err) => console.warn('[GPS] browser watch error', err?.code, err?.message),
@@ -297,7 +315,52 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       );
       console.log('[GPS] Browser watchPosition started');
     }
-  }, [writePosition]);
+  }, [writePosition, clearBrowserWatch]);
+
+  const startWatchRef = useRef(startWatch);
+  startWatchRef.current = startWatch;
+
+  const applyWebShareSignal = useCallback((signal: WebShareSignal) => {
+    if (Capacitor.getPlatform() !== 'web') return;
+    const prev = webSharePhaseRef.current;
+    const next = nextWebSharePhase(prev, signal);
+    webSharePhaseRef.current = next;
+    if (next === 'paused') {
+      clearBrowserWatch();
+      return;
+    }
+    if (next === 'sharing' && prev === 'paused') void startWatchRef.current();
+  }, [clearBrowserWatch]);
+
+  useEffect(() => {
+    if (!isTracking || Capacitor.getPlatform() !== 'web') return;
+
+    const onVisibility = () => {
+      const visibilityState = document.visibilityState;
+      if (visibilityState === 'visible' || visibilityState === 'hidden' || visibilityState === 'prerender') {
+        applyWebShareSignal({ type: 'visibility', visibilityState });
+      }
+    };
+    const onPageHide = () => applyWebShareSignal({ type: 'pagehide' });
+    const onUnload = () => applyWebShareSignal({ type: 'unload' });
+    const onPageShow = () => {
+      if (document.visibilityState === 'visible') {
+        applyWebShareSignal({ type: 'visibility', visibilityState: 'visible' });
+      }
+    };
+    if (document.visibilityState === 'hidden') onVisibility();
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('pageshow', onPageShow);
+    window.addEventListener('unload', onUnload);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('pageshow', onPageShow);
+      window.removeEventListener('unload', onUnload);
+    };
+  }, [isTracking, applyWebShareSignal]);
 
   // ── start tracking ────────────────────────────────────────────────────────
 

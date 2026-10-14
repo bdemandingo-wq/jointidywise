@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent } from '@/components/ui/card';
@@ -46,7 +47,7 @@ export function LocationSharingToggle({
           source: row.source,
         });
       }
-      if (!nextOn) return;
+      if (!nextOn || Capacitor.getPlatform() === 'web') return;
       const kind = await loc.request();
       if (kind !== 'off') return;
       const followUp = consentLogsForAction({

@@ -1,4 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { isTeamJob, remainingSpots } from '@/lib/teamJobs';
 import { QueryError } from '@/components/QueryError';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -1075,7 +1076,7 @@ export default function StaffPortal() {
   return (
     <>
       <SEOHead title="Staff Portal | TidyWise" description="Manage your jobs, availability, and earnings." noIndex />
-      {staffInfo?.id && (
+      {staffInfo?.id && Capacitor.getPlatform() !== 'web' && (
         <StaffLocationPrompt staffId={staffInfo.id} onResolved={() => { /* unmounts itself */ }} />
       )}
       <div className="portal-v2 min-h-screen" {...pullHandlers}>

@@ -1,5 +1,6 @@
 import { formatDuration } from '@/lib/formatDuration';
 import { useState, useEffect, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -38,6 +39,7 @@ import {
   type LocationConsentSource,
 } from '@/lib/locationConsent';
 import { osStateFromKind, readOsLocationState } from '@/lib/osLocationState';
+import { geolocationFollowsSheet, webOnMyWaySteps } from '@/lib/webLocationSharing';
 import { staffLocationSearch } from '@/lib/locationPermission';
 import { supabase } from '@/lib/supabase';
 import { resolveCleanerPay, describeCleanerPay, type WageBooking, type WageStaff } from '@/lib/wageCalculation';
@@ -313,7 +315,17 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
       await sendOnTheWay(false);
       return;
     }
-    if (!snapshot.hasDecision) {
+    if (!snapshot.hasDecision || (Capacitor.getPlatform() === 'web' && snapshot.decision === 'toggled_on')) {
+      const steps = webOnMyWaySteps({
+        stage: 'before_choice',
+        hasDecision: snapshot.hasDecision,
+        decision: snapshot.decision,
+        osState: 'prompt',
+      });
+      if (steps.includes('geolocation') || steps[0] !== 'sheet') {
+        await sendOnTheWay(false);
+        return;
+      }
       setConsentSheetOpen(true);
       return;
     }
@@ -369,6 +381,12 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
     }
     setConsentSheetOpen(false);
     const osState = await readOsLocationState();
+    const steps = webOnMyWaySteps({
+      stage: 'continue',
+      hasDecision: false,
+      decision: null,
+      osState,
+    });
     if (osState === 'denied') {
       const followUp = consentLogsForAction({
         latest: 'granted',
@@ -382,7 +400,8 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
       await sendOnTheWay(false);
       return;
     }
-    await sendOnTheWay(true);
+    const share = steps.includes('geolocation') && geolocationFollowsSheet(steps);
+    await sendOnTheWay(share);
   };
 
   const handleConsentNotNow = async () => {
@@ -395,11 +414,21 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
     }
     setSavingConsent(true);
     try {
+      const steps = webOnMyWaySteps({
+        stage: 'not_now',
+        hasDecision: false,
+        decision: null,
+        osState: 'prompt',
+      });
       const rows = consentLogsForAction({
         latest: null,
         action: { type: 'sheet', choice: 'not_now', osDenied: false },
       });
       await logConsentRows(rows);
+      if (steps.includes('geolocation')) {
+        await sendOnTheWay(false);
+        return;
+      }
     } catch (err) {
       console.error('[location-consent] could not save not now', err);
       toast.error('Could not save your choice. The on-the-way notice will still send without location.');
