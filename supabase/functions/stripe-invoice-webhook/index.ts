@@ -292,75 +292,13 @@ const handler = async (req: Request): Promise<Response> => {
         });
       }
 
-      // Get customer details from Stripe
-      try {
-        const customer = await stripe.customers.retrieve(customerId);
-        const email = (customer as Stripe.Customer).email || "Unknown";
-        
-        // Find the organization for this user
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('email', email)
-          .maybeSingle();
-          
-        let orgName = "New Business";
-        if (profile?.id) {
-          const { data: membership } = await supabase
-            .from('org_memberships')
-            .select('organization:organizations(name)')
-            .eq('user_id', profile.id)
-            .maybeSingle();
-            
-          if (membership?.organization) {
-            const org = membership.organization as unknown as { name: string };
-            if (org?.name) {
-              orgName = org.name;
-            }
-          }
-        }
-        
-        // Send SMS notification to platform admin
-        await sendAdminNotification(supabaseUrl, supabaseServiceKey, {
-          organizationName: orgName,
-          ownerEmail: email,
-          subscriptionType: subscription.status === 'trialing' ? 'Trial Started' : 'Active',
-        });
-
-        // Trigger Make subscription confirmation email
-        try {
-          const makeSubWebhookUrl = "https://hook.us2.make.com/1dcdsn08refadbtlbj1v1j8uxel4dwil";
-          const profileData = await supabase
-            .from('profiles')
-            .select('full_name')
-            .eq('email', email)
-            .maybeSingle();
-
-          await fetch(makeSubWebhookUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email,
-              full_name: profileData?.data?.full_name || orgName,
-              organization_name: orgName,
-              subscription_status: subscription.status === 'trialing' ? 'Trial Started' : 'Active',
-              subscribed_at: new Date().toISOString(),
-            }),
-          });
-          console.log("[stripe-invoice-webhook] Make subscription confirmation webhook triggered");
-        } catch (makeErr) {
-          console.error("[stripe-invoice-webhook] Make webhook failed (non-critical):", makeErr);
-        }
-
-      } catch (notifyError) {
-        console.error("[stripe-invoice-webhook] Failed to notify admin:", notifyError);
-        // Don't fail the webhook - notification is non-critical
-      }
-
       // Mirror this subscription into stripe_subscriptions so the org
       // immediately has an active row that the paywall gate can read.
       // If we can't resolve an org, log an orphan + admin SMS instead of
       // silently dropping (see jigdahifash incident).
+      // The admin notice and confirmation email run only after this write
+      // succeeds. A 500 retry must not send them again.
+      let notifyAfterMirror = false;
       try {
         const resolved = await resolveOrgIdForSubscription(supabase, stripe, subscription);
         if (resolved.orgId) {
@@ -373,6 +311,7 @@ const handler = async (req: Request): Promise<Response> => {
             current != null,
           );
           if (outcome === "failed") subscriptionStateFailed = true;
+          else notifyAfterMirror = true;
         } else {
           await logSubscriptionOrphan(
             supabase, supabaseUrl, supabaseServiceKey,
@@ -383,6 +322,67 @@ const handler = async (req: Request): Promise<Response> => {
       } catch (mirrorErr) {
         console.error("[stripe-invoice-webhook] mirror to stripe_subscriptions failed:", mirrorErr);
         subscriptionStateFailed = true;
+      }
+
+      if (notifyAfterMirror) {
+        try {
+          const customer = await stripe.customers.retrieve(customerId);
+          const email = (customer as Stripe.Customer).email || "Unknown";
+
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('email', email)
+            .maybeSingle();
+
+          let orgName = "New Business";
+          if (profile?.id) {
+            const { data: membership } = await supabase
+              .from('org_memberships')
+              .select('organization:organizations(name)')
+              .eq('user_id', profile.id)
+              .maybeSingle();
+
+            if (membership?.organization) {
+              const org = membership.organization as unknown as { name: string };
+              if (org?.name) {
+                orgName = org.name;
+              }
+            }
+          }
+
+          await sendAdminNotification(supabaseUrl, supabaseServiceKey, {
+            organizationName: orgName,
+            ownerEmail: email,
+            subscriptionType: subscription.status === 'trialing' ? 'Trial Started' : 'Active',
+          });
+
+          try {
+            const makeSubWebhookUrl = "https://hook.us2.make.com/1dcdsn08refadbtlbj1v1j8uxel4dwil";
+            const profileData = await supabase
+              .from('profiles')
+              .select('full_name')
+              .eq('email', email)
+              .maybeSingle();
+
+            await fetch(makeSubWebhookUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                email,
+                full_name: profileData?.data?.full_name || orgName,
+                organization_name: orgName,
+                subscription_status: subscription.status === 'trialing' ? 'Trial Started' : 'Active',
+                subscribed_at: new Date().toISOString(),
+              }),
+            });
+            console.log("[stripe-invoice-webhook] Make subscription confirmation webhook triggered");
+          } catch (makeErr) {
+            console.error("[stripe-invoice-webhook] Make webhook failed (non-critical):", makeErr);
+          }
+        } catch (notifyError) {
+          console.error("[stripe-invoice-webhook] Failed to notify admin:", notifyError);
+        }
       }
     }
 

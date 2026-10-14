@@ -446,6 +446,60 @@ test("connected-account and unlinked refunds are ignored, and lifetime is not a 
   }), null);
 });
 
+test("a paying non-lifetime org is not demo, and is_test still applies", () => {
+  const start = migration.indexOf("A real paying subscription is not a demo org");
+  const end = migration.indexOf("AS is_demo_or_test", start);
+  const block = migration.slice(start, end);
+  assert.ok(start > 0 && end > start);
+  const whenAt = block.indexOf("s.status IN ('active', 'past_due')");
+  const thenAt = block.indexOf("THEN false");
+  const elseAt = block.indexOf("ELSE public.activation_subject_is_demo(o.id)");
+  const caseEnd = block.indexOf("END");
+  assert.ok(whenAt > 0);
+  assert.ok(thenAt > whenAt);
+  assert.ok(elseAt > thenAt);
+  assert.ok(caseEnd > elseAt);
+  assert.match(block, /grandfathered_lifetime IS TRUE/);
+  assert.match(block, /starts_with\(coalesce\(s\.stripe_subscription_id, ''\), 'lifetime_'\)/);
+  const afterCase = block.slice(caseEnd);
+  assert.match(afterCase, /jsonb_flag_true\(to_jsonb\(o\), 'is_test'\)/);
+  assert.match(afterCase, /jsonb_flag_true\(to_jsonb\(ps\), 'is_test'\)/);
+  assert.doesNotMatch(
+    migration,
+    /CREATE OR REPLACE FUNCTION public\.activation_subject_is_demo/,
+  );
+});
+
+test("created and deleted side effects run only after the subscription mirror", () => {
+  const invoice = readFileSync(
+    new URL("../../supabase/functions/stripe-invoice-webhook/index.ts", import.meta.url),
+    "utf8",
+  );
+  const createdAt = invoice.indexOf('event.type === "customer.subscription.created"');
+  const updatedAt = invoice.indexOf('event.type === "customer.subscription.updated"');
+  const created = invoice.slice(createdAt, updatedAt);
+  const mirrorAt = created.indexOf("upsertStripeSubscription(");
+  const gateAt = created.indexOf("if (notifyAfterMirror)");
+  const adminAt = created.indexOf("sendAdminNotification", gateAt);
+  const emailAt = created.indexOf("hook.us2.make.com");
+  assert.ok(mirrorAt > 0);
+  assert.ok(gateAt > mirrorAt);
+  assert.ok(adminAt > gateAt);
+  assert.ok(emailAt > adminAt);
+
+  const deletedAt = invoice.indexOf('event.type === "customer.subscription.deleted"');
+  const failedAt = invoice.indexOf("PAYMENT FAILED", deletedAt);
+  const deleted = invoice.slice(deletedAt, failedAt);
+  const mirrorWrite = deleted.indexOf('.from("stripe_subscriptions")');
+  const cancelAt = deleted.indexOf("stripe.subscriptions.cancel");
+  const noticeAt = deleted.indexOf("Ad Mgmt Cascade-Cancelled");
+  assert.ok(mirrorWrite > 0);
+  assert.ok(cancelAt > mirrorWrite);
+  assert.ok(noticeAt > cancelAt);
+  const afterCancel = deleted.slice(cancelAt);
+  assert.doesNotMatch(afterCancel, /subscriptionStateFailed\s*=\s*true/);
+});
+
 test("a failed subscription write returns 500 and releases the idempotency claim", () => {
   assert.equal(subscriptionPersistHttpStatus("failed"), 500);
   assert.equal(subscriptionPersistHttpStatus("wrote"), 200);

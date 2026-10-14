@@ -52,6 +52,10 @@
 --   5. An annual plan has monthly_amount_basis = normalized_from_annual
 --      and monthly_amount_cents = (invoice after discount) / 12.
 --   6. A demo or test org is present with is_demo_or_test true.
+--      A non-lifetime org whose chosen Stripe subscription is active or
+--      past_due is not demo. An is_test flag on the org or its pricing
+--      settings still sets is_demo_or_test. activation_subject_is_demo
+--      is not changed by this file.
 --   7. Inserting an activation milestone changes activation_milestones
 --      and does not change mrr_cents.
 --   8. After the webhook deploy, subscription.updated fills
@@ -415,7 +419,23 @@ org_core AS (
     COALESCE(rf.subscription_refund_dates, ARRAY[]::timestamptz[]) AS subscription_refund_dates,
     COALESCE(rf.lifetime_refund_dates, ARRAY[]::timestamptz[]) AS lifetime_refund_dates,
     (
-      public.activation_subject_is_demo(o.id)
+      -- A real paying subscription is not a demo org. Lifetime is excluded
+      -- because a demo account can carry a synthetic lifetime row.
+      -- is_test on the org or its pricing settings still flags the row.
+      -- activation_subject_is_demo itself is unchanged.
+      (
+        CASE
+          WHEN s.status IN ('active', 'past_due')
+            AND NOT (
+              o.grandfathered_lifetime IS TRUE
+              OR lower(coalesce(o.plan_type, '')) = 'lifetime'
+              OR lower(coalesce(s.plan, '')) = 'lifetime'
+              OR starts_with(coalesce(s.stripe_subscription_id, ''), 'lifetime_')
+            )
+          THEN false
+          ELSE public.activation_subject_is_demo(o.id)
+        END
+      )
       OR public.jsonb_flag_true(to_jsonb(o), 'is_test')
       OR COALESCE((
         SELECT public.jsonb_flag_true(to_jsonb(ps), 'is_test')
@@ -614,7 +634,7 @@ JOIN LATERAL public.platform_monthly_billed_cents(
 ) price ON true;
 
 COMMENT ON VIEW public.platform_account_metrics_v IS
-  'One row per organization for platform admins. Do not grant this view. Read it through public.platform_account_metrics(). monthly_amount_cents and mrr_cents are the collected amount after one loyalty or Stripe coupon, never both. An annual plan is that invoice divided by 12 in both columns. mrr_cents is null for lifetime, trials, canceled subscriptions, and rows whose price is not stored. subscription_status is the raw Stripe status. Activation milestone timestamps are not copied into mrr_cents. Demo and test orgs stay in the result with is_demo_or_test true.';
+  'One row per organization for platform admins. Do not grant this view. Read it through public.platform_account_metrics(). monthly_amount_cents and mrr_cents are the collected amount after one loyalty or Stripe coupon, never both. An annual plan is that invoice divided by 12 in both columns. mrr_cents is null for lifetime, trials, canceled subscriptions, and rows whose price is not stored. subscription_status is the raw Stripe status. Activation milestone timestamps are not copied into mrr_cents. A non-lifetime active or past_due subscription is not demo. An is_test flag still sets is_demo_or_test. Other demo orgs stay in the result with is_demo_or_test true.';
 
 REVOKE ALL ON public.platform_account_metrics_v FROM PUBLIC, anon, authenticated, service_role;
 
