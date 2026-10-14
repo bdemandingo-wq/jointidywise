@@ -20,6 +20,7 @@ import { Capacitor } from '@capacitor/core';
 import { signInWithOAuthNative } from '@/lib/nativeOAuth';
 import { appendReferralParam, readCapturedReferral } from '@/lib/referralAttribution';
 import { touchLastLogin } from '@/lib/touchLastLogin';
+import { trackTidyWiseConversion } from '@/lib/tidywiseTags';
 import { Sentry } from '@/lib/sentry';
 import { clearStartupCache, readStartupSection } from '@/lib/startupCache';
 
@@ -237,6 +238,7 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
             setProvisioning('failed');
             return;
           }
+          if (orgId) trackTidyWiseConversion('trial_started', userId);
         }
         if (!cancelled) setProvisioning('done');
       } catch (err) {

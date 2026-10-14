@@ -37,6 +37,7 @@ import { captureUtmFromLocation, readCapturedUtm } from '@/lib/utmAttribution';
 import { persistSignupAttribution } from '@/lib/persistSignupAttribution';
 import { NativePushRegistrar } from '@/components/NativePushRegistrar';
 import { IosBackSwipe } from '@/components/mobile/IosBackSwipe';
+import { TidyWiseSitePrivacy } from '@/components/TidyWiseSitePrivacy';
 import {
   applyNativeStatusBar,
   hideNativeSplashAfterPaint,
@@ -183,6 +184,7 @@ const CleaningBusinessSoftware = lazy(() => import("./pages/CleaningBusinessSoft
 const LocationSoftwarePage = lazy(() => import("./pages/locations/LocationSoftwarePage"));
 const DemoPage = lazy(() => import("./pages/DemoPage"));
 const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
+const DoNotSellPage = lazy(() => import("./pages/DoNotSellPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const DeleteAccountPage = lazy(() => import("./pages/DeleteAccountPage"));
 const UnsubscribePage = lazy(() => import("./pages/UnsubscribePage"));
@@ -422,6 +424,7 @@ const App = () => (
                       <Route path="/deposit/:token" element={<DepositPage />} />
                       <Route path="/track/:token" element={<TrackCleanerPage />} />
                       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                      <Route path="/do-not-sell" element={<DoNotSellPage />} />
                       <Route path="/terms" element={<TermsPage />} />
                       <Route path="/delete-account" element={<DeleteAccountPage />} />
                       <Route path="/unsubscribe" element={<UnsubscribePage />} />
@@ -527,6 +530,7 @@ const App = () => (
                    </ErrorBoundary>
                     <CopilotMount />
                     <ProductTour />
+                    <TidyWiseSitePrivacy />
                     </CopilotProvider>
                 </HashRouter>
               ) : (
@@ -573,6 +577,7 @@ const App = () => (
                      <Route path="/deposit/:token" element={<DepositPage />} />
                      <Route path="/track/:token" element={<TrackCleanerPage />} />
                       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                      <Route path="/do-not-sell" element={<DoNotSellPage />} />
                       <Route path="/terms" element={<TermsPage />} />
                      <Route path="/delete-account" element={<DeleteAccountPage />} />
                      <Route path="/unsubscribe" element={<UnsubscribePage />} />
@@ -716,6 +721,7 @@ const App = () => (
                  </ErrorBoundary>
                    <CopilotMount />
                    <ProductTour />
+                   <TidyWiseSitePrivacy />
                   </CopilotProvider>
                 </BrowserRouter>
               )}

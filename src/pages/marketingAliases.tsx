@@ -3,6 +3,7 @@ import { SEOHead } from "@/components/SEOHead";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { REFERRAL_OFFER } from "@/lib/referralProgram";
+import { DoNotSellShareLink } from "@/components/DoNotSellShareLink";
 
 export function ReferralAlias() {
   const { user, loading } = useAuth();
@@ -31,6 +32,9 @@ export function ReferralAlias() {
           <Link to="/signup">Create your referral link</Link>
         </Button>
       </section>
+      <footer className="border-t border-border py-8 px-4 text-center">
+        <DoNotSellShareLink />
+      </footer>
     </main>
   );
 }

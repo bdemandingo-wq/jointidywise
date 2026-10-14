@@ -199,7 +199,7 @@ export default function DemoPage() {
       </section>
 
       {/* Mobile Sticky CTA */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-background border-t border-border p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+      <div className="tw-above-cookie-notice fixed bottom-0 left-0 right-0 z-40 md:hidden bg-background border-t border-border p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
         <Button
           size="lg"
           className="w-full h-12 text-base font-semibold"

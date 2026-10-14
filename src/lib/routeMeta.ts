@@ -169,6 +169,12 @@ export const STATIC_ROUTE_META: Record<string, RouteMeta> = {
       "How TidyWise collects, uses, and protects your cleaning business data. Read our privacy practices for customer records, payments, and staff information.",
     h1: "Privacy Policy",
   },
+  "/do-not-sell": {
+    title: "Do Not Sell or Share My Personal Information | TidyWise",
+    description:
+      "Opt out of TidyWise using Google and Meta cookies on our marketing and signup pages to measure the site and show ads.",
+    h1: "Do Not Sell or Share My Personal Information",
+  },
   "/delete-account": {
     title: "Delete Your TidyWise Account",
     description:

@@ -1788,3 +1788,121 @@ html.ios-native [contenteditable="true"] {
   background: #0f172a;
   color: #f8fafc;
 }
+
+/* TidyWise marketing cookie notice. White bar in both themes so the
+   approved copy stays on the light brand blue. Org booking pages do not
+   mount this. */
+.tw-cookie-notice {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 80;
+  background: #fff;
+  color: #141414;
+  border-top: 1px solid #e5e5e5;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+  font-size: 14px;
+  line-height: 1.35;
+  animation: tw-cookie-fade 180ms ease-out;
+}
+.tw-cookie-notice[data-closing="true"] {
+  animation: tw-cookie-fade 160ms ease-in reverse forwards;
+}
+@keyframes tw-cookie-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tw-cookie-notice,
+  .tw-cookie-notice[data-closing="true"] {
+    animation: none;
+  }
+}
+.tw-cookie-notice__row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.tw-cookie-notice__copy {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.tw-cookie-notice__link {
+  color: #141414;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 2px;
+}
+.tw-cookie-notice__ok {
+  flex: 0 0 auto;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 8px;
+  background: hsl(230 100% 50%);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tw-cookie-notice__ok:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+.tw-cookie-notice__ok:focus-visible,
+.tw-cookie-notice__link:focus-visible,
+.tw-dns-footer-anchor:focus-visible {
+  outline: 2px solid hsl(230 100% 50%);
+  outline-offset: 2px;
+}
+@media (max-width: 399px) {
+  .tw-cookie-notice__row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .tw-cookie-notice .tw-cookie-notice__ok {
+    width: 100%;
+  }
+}
+html.tw-cookie-notice-open {
+  scroll-padding-bottom: var(--tw-cookie-bar-height, 0px);
+}
+html.tw-cookie-notice-open #root {
+  padding-bottom: var(--tw-cookie-bar-height, 0px);
+}
+html.tw-cookie-notice-open [data-signup-submit] {
+  scroll-margin-bottom: calc(var(--tw-cookie-bar-height, 0px) + 12px);
+}
+html.tw-cookie-notice-open .tw-above-cookie-notice {
+  bottom: var(--tw-cookie-bar-height, 0px);
+}
+.tw-dns-footer-link,
+.tw-dns-fallback {
+  margin-top: 12px;
+  text-align: center;
+}
+.tw-dns-fallback {
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid #e5e5e5;
+}
+.tw-dns-footer-anchor {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  font-size: 14px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { ArrowRight, Clock, Loader2, MessageCircle, Users } from 'lucide-react';
 import { z } from 'zod';
 import { SUPPORT_EMAIL } from '@/lib/supportEmail';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 const schema = z.object({
   name: z.string().trim().min(2, 'Please enter your name').max(100),
@@ -339,6 +340,9 @@ export default function ContactPage() {
           </ul>
         </div>
       </section>
+      <footer className="border-t border-border py-8 px-4 text-center text-sm text-muted-foreground">
+        <DoNotSellShareLink />
+      </footer>
     </div>
   );
 }

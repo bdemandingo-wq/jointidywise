@@ -25,6 +25,8 @@ import { validatePhone } from '@/lib/phoneValidation';
 import { PERSON_NAME_MAX } from '@/lib/displayName';
 import { ReferredSignupBanner } from '@/components/ReferredSignupBanner';
 import { persistSignupAttribution } from '@/lib/persistSignupAttribution';
+import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
+import { trackTidyWiseConversion } from '@/lib/tidywiseTags';
 
 // Plan metadata for the "you're signing up to start X" banner. Kept
 // inline so the signup page doesn't have to import the full features.ts
@@ -215,6 +217,7 @@ export default function SignupPage() {
         // hasn't entered their business details yet.
         
         toast.success('Account created! Welcome aboard.');
+        trackTidyWiseConversion('signup_completed', data.user.id);
 
         // Fire-and-forget welcome email via our own send-welcome-email
         // edge function (Resend under the hood). Previously this was a
@@ -590,7 +593,7 @@ export default function SignupPage() {
 
               {/* Submit button. Lifetime continues into checkout. Every
                   other plan starts the card-free 30-day Pro trial. */}
-              <Button type="submit" className="w-full" variant="premium" disabled={loading}>
+              <Button type="submit" className="w-full" variant="premium" disabled={loading} data-signup-submit="">
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {planMeta ? planMeta.ctaLabel : 'Create Account'}
               </Button>
@@ -626,6 +629,9 @@ export default function SignupPage() {
             Privacy Policy
           </Link>
           .
+          <div className="mt-3">
+            <DoNotSellShareLink />
+          </div>
         </div>
       </div>
       </div>
