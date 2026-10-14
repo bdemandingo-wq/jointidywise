@@ -26,13 +26,13 @@ async function fetchConsentSnapshot(staffId: string): Promise<ConsentSnapshot> {
   return consentSnapshot(!!row, row?.decision);
 }
 
-export function useLocationConsent(staffId: string | undefined) {
+export function useLocationConsent(staffId: string | undefined, enabled = true) {
   const queryClient = useQueryClient();
   const queryKey = [LOCATION_CONSENT_QUERY_KEY, staffId] as const;
 
   const query = useQuery({
     queryKey,
-    enabled: !!staffId,
+    enabled: !!staffId && enabled,
     // A stale "no row" would show the first-run sheet again. Always re-read.
     staleTime: 0,
     queryFn: () => fetchConsentSnapshot(staffId!),
@@ -66,7 +66,7 @@ export function useLocationConsent(staffId: string | undefined) {
   return {
     hasDecision: query.data?.hasDecision ?? false,
     decision: query.data?.decision ?? null,
-    isLoading: !!staffId && query.isLoading,
+    isLoading: !!staffId && enabled && query.isLoading,
     isError: query.isError,
     error: query.error,
     loadLatest,

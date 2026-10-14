@@ -6,6 +6,7 @@ import { useOrgCountryCode } from '@/hooks/useDistanceUnit';
 import { calculateDistanceMiles, estimateDriveMinutes } from '@/lib/distanceUtils';
 import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
 import { consentAllowsTracking, parseConsentDecision } from '@/lib/locationConsent';
+import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ export type TrackingStartResult =
       latitude: number;
       longitude: number;
     }
-  | { ok: false; reason: 'consent' | 'os_denied' | 'unavailable' };
+  | { ok: false; reason: 'consent' | 'disabled' | 'os_denied' | 'unavailable' };
 
 async function latestConsentAllowsTracking(staffId: string): Promise<boolean> {
   const { data, error } = await supabase
@@ -302,6 +303,9 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
   const startTracking = useCallback(async (onStatus?: (message: string) => void): Promise<TrackingStartResult> => {
     console.log('[GPS] startTracking called for booking:', bookingId);
+
+    const gate = await readLocationSharingAvailability();
+    if (!gate.trackingEnabled) return { ok: false, reason: 'disabled' };
 
     let allowed = false;
     try {

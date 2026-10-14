@@ -29,6 +29,7 @@ import { PropertyInspectionUpload } from './PropertyInspectionUpload';
 import { useMapsNavigation } from '@/hooks/useMapsNavigation';
 import { useCleanerTracking } from '@/hooks/useCleanerTracking';
 import { useLocationConsent } from '@/hooks/useLocationConsent';
+import { useLocationSharingGate } from '@/hooks/useLocationSharingGate';
 import { useLocationPermission } from '@/hooks/useLocationPermission';
 import { LocationConsentSheet, LocationSharingOffNote } from '@/components/staff/LocationConsentSheet';
 import {
@@ -146,7 +147,8 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
     destinationLat: (booking as { latitude?: number | null }).latitude,
     destinationLng: (booking as { longitude?: number | null }).longitude,
   });
-  const consent = useLocationConsent(staffInfo.id);
+  const sharing = useLocationSharingGate();
+  const consent = useLocationConsent(staffInfo.id, sharing.trackingEnabled);
   const loc = useLocationPermission(staffInfo.id);
   const [consentSheetOpen, setConsentSheetOpen] = useState(false);
   const [savingConsent, setSavingConsent] = useState(false);
@@ -297,6 +299,11 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
       toast.error('Your staff profile is still loading — try again in a moment.');
       return;
     }
+    const gate = await sharing.load();
+    if (!gate.trackingEnabled) {
+      await sendOnTheWay(false);
+      return;
+    }
     let snapshot;
     try {
       snapshot = await consent.loadLatest();
@@ -337,6 +344,12 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
   const handleConsentContinue = async () => {
     if (!staffInfo.id) return;
+    const gate = await sharing.load();
+    if (!gate.logConsent) {
+      setConsentSheetOpen(false);
+      await sendOnTheWay(false);
+      return;
+    }
     setSavingConsent(true);
     consentSourceRef.current = 'first_run_sheet';
     try {
@@ -374,6 +387,12 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
   const handleConsentNotNow = async () => {
     if (!staffInfo.id) return;
+    const gate = await sharing.load();
+    if (!gate.logConsent) {
+      setConsentSheetOpen(false);
+      await sendOnTheWay(false);
+      return;
+    }
     setSavingConsent(true);
     try {
       const rows = consentLogsForAction({
@@ -466,7 +485,12 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
         osState: osStateFromKind(loc.kind),
       });
   const showLocationOffNote =
-    !isTracking && !consent.isLoading && !consent.isError && locationPlan?.showOffNote === true;
+    sharing.trackingEnabled &&
+    !sharing.pending &&
+    !isTracking &&
+    !consent.isLoading &&
+    !consent.isError &&
+    locationPlan?.showOffNote === true;
 
   const handleDirectionsClick = () => {
     openDirections({
@@ -479,6 +503,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
   return (
     <Card className="hover:shadow-md transition-shadow">
+      {sharing.showConsentSheet && (
       <LocationConsentSheet
         open={consentSheetOpen}
         businessName={businessName}
@@ -486,6 +511,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
         onContinue={() => { void handleConsentContinue(); }}
         onNotNow={() => { void handleConsentNotNow(); }}
       />
+      )}
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between">
           <div>

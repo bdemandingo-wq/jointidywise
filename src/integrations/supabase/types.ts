@@ -3337,7 +3337,6 @@ export type Database = {
           organization_id: string
           recorded_at: string
           staff_id: string
-          stopped_at: string | null
           tracking_token: string
         }
         Insert: {
@@ -3351,7 +3350,6 @@ export type Database = {
           organization_id: string
           recorded_at?: string
           staff_id: string
-          stopped_at?: string | null
           tracking_token?: string
         }
         Update: {
@@ -3365,7 +3363,6 @@ export type Database = {
           organization_id?: string
           recorded_at?: string
           staff_id?: string
-          stopped_at?: string | null
           tracking_token?: string
         }
         Relationships: [

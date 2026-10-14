@@ -16,15 +16,87 @@ export const LOCATION_SHARING_OFF_NOTE = 'Location sharing is off. Turn on in Se
  * `{businessName}` is filled from the organization's name.
  */
 export const LOCATION_CONSENT_COPY =
-  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings.";
+  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings. If you allow location, job photos you take will also record where they were taken.";
 
 /**
- * Proposed replacement for both iOS location usage strings.
- * Not written into Info.plist here: that file is compiled into the app
- * binary, so the system prompt keeps the current text until a new iOS build.
+ * Both NSLocationWhenInUseUsageDescription and
+ * NSLocationAlwaysAndWhenInUseUsageDescription in Info.plist.
+ * The system prompt uses this only after a new iOS build is shipped.
  */
 export const PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION =
-  "TidyWise shares your location with your company's admins only while you're on the way to a job.";
+  "TidyWise uses your location while the app is open to share your ETA with your company's admins after you tap On My Way, and to record where job photos are taken.";
+
+/**
+ * Native builds below this never share On My Way location.
+ * TODO: set this to the CFBundleVersion that ships the updated
+ * NSLocation usage strings. 1018 must stay dark; this sits above it
+ * until that shipping build number is known.
+ */
+export const MIN_IOS_LOCATION_BUILD = 1019;
+
+/** platform_settings key. Stored false until someone turns tracking on. */
+export const LOCATION_TRACKING_SWITCH_KEY = 'cleaner_location_tracking_enabled';
+
+export interface LocationSharingAvailability {
+  /** On My Way may share a location. Requires the remote switch and a new enough native build. */
+  trackingEnabled: boolean;
+  showConsentSheet: boolean;
+  showSettingsToggle: boolean;
+  /** False means do not insert a cleaner_location_consents row. */
+  logConsent: boolean;
+}
+
+export const LOCATION_SHARING_CLOSED: LocationSharingAvailability = {
+  trackingEnabled: false,
+  showConsentSheet: false,
+  showSettingsToggle: false,
+  logConsent: false,
+};
+
+export function parseNativeBuild(build: string | number | null | undefined): number | null {
+  if (typeof build === 'number' && Number.isInteger(build) && build >= 0) return build;
+  if (typeof build !== 'string' || !/^\d+$/.test(build.trim())) return null;
+  return Number(build.trim());
+}
+
+/** Missing, false, and anything other than JSON true stay off. */
+export function remoteTrackingEnabled(value: unknown): boolean {
+  return value === true;
+}
+
+/**
+ * Tracking needs both gates. The remote switch defaults to off.
+ * On iOS, the installed build must also be at least MIN_IOS_LOCATION_BUILD.
+ * Web has no usage-string build, so only the switch applies.
+ * An unreadable native build stays off.
+ */
+export function locationSharingAvailability(input: {
+  native: boolean;
+  build: string | number | null | undefined;
+  remoteEnabled: boolean;
+}): LocationSharingAvailability {
+  if (!input.remoteEnabled) return LOCATION_SHARING_CLOSED;
+  if (input.native) {
+    const build = parseNativeBuild(input.build);
+    if (build == null || build < MIN_IOS_LOCATION_BUILD) return LOCATION_SHARING_CLOSED;
+  }
+  return {
+    trackingEnabled: true,
+    showConsentSheet: true,
+    showSettingsToggle: true,
+    logConsent: true,
+  };
+}
+
+/** When the gate is closed, an On My Way action writes no consent rows. */
+export function consentLogsIfSharingOpen(
+  gate: LocationSharingAvailability,
+  action: Parameters<typeof consentLogsForAction>[0]['action'],
+  latest: LocationConsentDecision | null,
+): ConsentLogEvent[] {
+  if (!gate.logConsent) return [];
+  return consentLogsForAction({ latest, action });
+}
 
 export const CONSENT_DECISIONS = [
   'granted',

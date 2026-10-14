@@ -10,15 +10,19 @@ import {
   buildConsentLogRow,
   canStartLocationTracking,
   consentLogsForAction,
+  consentLogsIfSharingOpen,
   formatLocationConsentCopy,
   latestConsentDecision,
+  locationSharingAvailability,
+  MIN_IOS_LOCATION_BUILD,
   onMyWayLocationPlan,
+  remoteTrackingEnabled,
   settingsToggleOn,
   shouldLogOsDenied,
 } from './locationConsent.ts';
 
 const APPROVED_COPY =
-  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings.";
+  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings. If you allow location, job photos you take will also record where they were taken.";
 
 test('consent copy is version v1 and fills the business name', () => {
   assert.equal(CONSENT_COPY_VERSION, 'v1');
@@ -185,6 +189,49 @@ test('an OS denial is logged once, from a current yes, and the row is append-onl
       copy_version: 'v1',
       source: 'first_run_sheet',
     },
+  );
+});
+
+test('build 1018 shows nothing and writes no consent decision', () => {
+  assert.ok(MIN_IOS_LOCATION_BUILD > 1018);
+  const action = { type: 'sheet' as const, choice: 'continue' as const, osDenied: false };
+  for (const build of ['1018', 1018]) {
+    for (const remoteEnabled of [true, false]) {
+      const gate = locationSharingAvailability({ native: true, build, remoteEnabled });
+      assert.equal(gate.trackingEnabled, false);
+      assert.equal(gate.showConsentSheet, false);
+      assert.equal(gate.showSettingsToggle, false);
+      assert.equal(gate.logConsent, false);
+      assert.deepEqual(consentLogsIfSharingOpen(gate, action, null), []);
+    }
+  }
+});
+
+test('tracking needs the remote switch and, on iOS, a new enough build', () => {
+  assert.equal(remoteTrackingEnabled(undefined), false);
+  assert.equal(remoteTrackingEnabled(false), false);
+  assert.equal(remoteTrackingEnabled('true'), false);
+  assert.equal(remoteTrackingEnabled(true), true);
+
+  assert.equal(
+    locationSharingAvailability({ native: true, build: '1019', remoteEnabled: false }).trackingEnabled,
+    false,
+  );
+  assert.equal(
+    locationSharingAvailability({ native: true, build: MIN_IOS_LOCATION_BUILD, remoteEnabled: true }).logConsent,
+    true,
+  );
+  assert.equal(
+    locationSharingAvailability({ native: true, build: 'not-a-build', remoteEnabled: true }).showConsentSheet,
+    false,
+  );
+  assert.equal(
+    locationSharingAvailability({ native: false, build: '1018', remoteEnabled: true }).showSettingsToggle,
+    true,
+  );
+  assert.equal(
+    locationSharingAvailability({ native: false, build: null, remoteEnabled: false }).trackingEnabled,
+    false,
   );
 });
 

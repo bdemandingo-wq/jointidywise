@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useLocationConsent } from '@/hooks/useLocationConsent';
+import { useLocationSharingGate } from '@/hooks/useLocationSharingGate';
 import { useLocationPermission } from '@/hooks/useLocationPermission';
 import {
   LOCATION_CONSENT_TOGGLE_LABEL,
@@ -22,14 +23,15 @@ export function LocationSharingToggle({
   organizationId: string | null;
   businessName: string | null;
 }) {
-  const consent = useLocationConsent(staffId);
-  const loc = useLocationPermission(staffId);
+  const sharing = useLocationSharingGate();
+  const consent = useLocationConsent(sharing.showSettingsToggle ? staffId : undefined);
+  const loc = useLocationPermission(sharing.showSettingsToggle ? staffId : undefined);
   const [saving, setSaving] = useState(false);
   const checked = settingsToggleOn(consent.decision);
   const copy = formatLocationConsentCopy(businessName);
 
   const onToggle = async (nextOn: boolean) => {
-    if (!organizationId || saving) return;
+    if (!organizationId || saving || !sharing.logConsent) return;
     setSaving(true);
     try {
       const rows = consentLogsForAction({
@@ -66,6 +68,8 @@ export function LocationSharingToggle({
       setSaving(false);
     }
   };
+
+  if (sharing.pending || !sharing.showSettingsToggle) return null;
 
   return (
     <Card>

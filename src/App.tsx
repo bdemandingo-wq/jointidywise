@@ -335,6 +335,9 @@ const App = () => (
             // A cached "no consent row" would show the first-run location
             // sheet again after the cleaner already answered it.
             !JSON.stringify(q.queryKey).includes('cleaner-location-consent') &&
+            // The tracking switch defaults to off. A cached true would
+            // show the consent sheet after a remote kill.
+            !JSON.stringify(q.queryKey).includes('cleaner-location-tracking-enabled') &&
             // The archive is the long tail of booking history. It fills in
             // after the recent window and must not be parsed back into the
             // first paint.

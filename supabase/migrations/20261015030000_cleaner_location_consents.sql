@@ -1,8 +1,11 @@
 -- Cleaner location consent log for On My Way.
 -- Append-only. A cleaner inserts and reads their own rows. Org owners and
 -- admins read their org. Platform admins read all. No client update or delete.
--- Tracking coordinates are rejected unless the latest decision is granted
--- or toggled_on. Safe to run more than once.
+-- Tracking coordinates are rejected unless the remote switch
+-- cleaner_location_tracking_enabled is true and the latest decision is
+-- granted or toggled_on. The switch defaults to false. Safe to run more
+-- than once. Closing a session and the 30-day coordinate redaction live
+-- in the tracking map migration, not here.
 
 BEGIN;
 
@@ -131,8 +134,23 @@ REVOKE ALL ON FUNCTION public.stamp_cleaner_location_consent_created_at() FROM P
 -- this table, and a reject trigger would block that delete. Clients still
 -- cannot update or delete rows through the API.
 
--- Coordinate writes require a current yes. Stopping a session (is_active,
--- arrived_at) does not write a new point and stays allowed.
+-- Remote switch. Defaults off. Tracking also requires a current yes.
+-- Re-running this file does not turn a later manual flip back off.
+INSERT INTO public.platform_settings (key, value)
+VALUES ('cleaner_location_tracking_enabled', 'false'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+
+DROP POLICY IF EXISTS "Signed-in users can read location tracking switch" ON public.platform_settings;
+CREATE POLICY "Signed-in users can read location tracking switch"
+  ON public.platform_settings
+  FOR SELECT
+  TO authenticated
+  USING (key = 'cleaner_location_tracking_enabled');
+
+-- New On My Way points require the switch and a current yes.
+-- Stopping a session, and clearing coordinates on an inactive row
+-- (the 30-day redaction in PR #51), are not new shares.
+-- Job-photo GPS is stored on booking_photos, not this table.
 CREATE OR REPLACE FUNCTION public.enforce_cleaner_location_tracking_consent()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -141,6 +159,7 @@ SET search_path = public
 AS $$
 DECLARE
   latest_decision text;
+  tracking_enabled boolean;
 BEGIN
   IF TG_OP = 'UPDATE'
      AND NEW.latitude IS NOT DISTINCT FROM OLD.latitude
@@ -148,6 +167,24 @@ BEGIN
      AND NEW.recorded_at IS NOT DISTINCT FROM OLD.recorded_at
   THEN
     RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE'
+     AND NEW.is_active = false
+     AND NEW.latitude IS NULL
+     AND NEW.longitude IS NULL
+  THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT COALESCE((value #>> '{}') = 'true', false)
+    INTO tracking_enabled
+  FROM public.platform_settings
+  WHERE key = 'cleaner_location_tracking_enabled';
+
+  IF NOT COALESCE(tracking_enabled, false) THEN
+    RAISE EXCEPTION 'location tracking disabled'
+      USING ERRCODE = '42501';
   END IF;
 
   SELECT c.decision
@@ -173,25 +210,6 @@ CREATE TRIGGER trg_cleaner_location_require_consent
   BEFORE INSERT OR UPDATE ON public.cleaner_location_tracking
   FOR EACH ROW
   EXECUTE FUNCTION public.enforce_cleaner_location_tracking_consent();
-
--- The consent text says sharing ends when the job starts or is cancelled.
--- in_progress and completed were already covered. cancelled was not.
-CREATE OR REPLACE FUNCTION public.deactivate_tracking_on_status_change()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  IF NEW.status IN ('in_progress', 'completed', 'cancelled') AND OLD.status IS DISTINCT FROM NEW.status THEN
-    UPDATE public.cleaner_location_tracking
-    SET is_active = false
-    WHERE booking_id = NEW.id
-      AND is_active = true;
-  END IF;
-  RETURN NEW;
-END;
-$$;
 
 COMMENT ON TABLE public.cleaner_location_consents IS
   'Append-only On My Way location decisions. Latest row for a staff_id gates cleaner_location_tracking coordinate writes.';
