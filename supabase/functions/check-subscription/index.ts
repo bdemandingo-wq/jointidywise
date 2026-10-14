@@ -3,6 +3,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { stripeKeyMode } from "../_shared/stripe-key-mode.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
+import { resolveCardFreeTrial } from "../_shared/trial-end.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -338,16 +339,30 @@ serve(async (req) => {
       logBranch("stripe_customer_not_found");
     }
 
-    // ── Step 2: No active Stripe subscription — check organization-based 60-day trial ──
-    // Look up the user's organization via org_memberships
-    const { data: membership, error: membershipError } = await supabaseClient
+    // ── Step 2: No active Stripe subscription ──
+    // The billing account often has no customer yet. That is not an
+    // expired trial. limit(1) with no order, and an embed that comes
+    // back as an array, used to miss plan_type and fall through to the
+    // post-2026-04-06 cutoff, which denies every new org.
+    const { data: membershipRows, error: membershipError } = await supabaseClient
       .from("org_memberships")
-      .select("organization_id, organizations(created_at, plan_type)")
+      .select("organization_id, role, created_at, organizations(id, created_at, plan_type)")
       .eq("user_id", user.id)
-      .limit(1)
-      .single();
+      .order("created_at", { ascending: true });
 
-    if (membershipError || !membership) {
+    type OrgShape = { id?: string; created_at?: string | null; plan_type?: string | null };
+    const orgFrom = (value: unknown): OrgShape | null => {
+      if (!value) return null;
+      if (Array.isArray(value)) return (value[0] as OrgShape) ?? null;
+      return value as OrgShape;
+    };
+    const memberships = (membershipRows ?? []) as Array<{
+      organization_id?: string;
+      role?: string;
+      organizations?: OrgShape | OrgShape[] | null;
+    }>;
+
+    if (membershipError || memberships.length === 0) {
       logBranch("organization_membership_missing_access_denied", { userId: user.id, error: membershipError?.message });
       return new Response(JSON.stringify({ stripe_mode: stripeMode,
         subscribed: false,
@@ -362,49 +377,89 @@ serve(async (req) => {
       });
     }
 
-    const orgData = membership.organizations as any;
+    const trialMembership = memberships.find((row) => orgFrom(row.organizations)?.plan_type === "trial");
+    const ownerMembership = memberships.find((row) => row.role === "owner" || row.role === "admin");
+    const membership = trialMembership ?? ownerMembership ?? memberships[0];
+    const orgData = orgFrom(membership.organizations);
+    const orgId = orgData?.id ?? membership.organization_id ?? null;
+    const planType = orgData?.plan_type ?? null;
 
-    // ── Step 1.5: Profile-backed Pro trial (plan_type = 'trial') ──
-    // New signups are 30 days. The end timestamp on the profile is the
-    // access boundary, so an older 14-day trial still ends on its own date.
-    if (orgData?.plan_type === "trial") {
-      const { data: trialProfile, error: trialProfileError } = await supabaseClient
-        .from("profiles")
-        .select("trial_ends_at")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (trialProfileError) {
-        logStep("ERROR reading profile trial_ends_at", { message: trialProfileError.message });
+    const { data: trialProfile, error: trialProfileError } = await supabaseClient
+      .from("profiles")
+      .select("trial_ends_at, created_at")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (trialProfileError) {
+      logStep("ERROR reading profile trial_ends_at", { message: trialProfileError.message });
+    }
+
+    const orgAgeMs = orgData?.created_at ? Date.now() - Date.parse(orgData.created_at) : NaN;
+    const youngOrg = Number.isFinite(orgAgeMs) && orgAgeMs >= 0 && orgAgeMs < 30 * 24 * 60 * 60 * 1000;
+    // trial/null, or a brand-new org whose default plan_type was not trial.
+    // A future stored trial_ends_at is honored for any plan that has no
+    // Stripe subscription. An old free/paid plan with no stamp is not
+    // given a fresh 30 days.
+    const mayStampTrial = planType === "trial" || planType == null || planType === "" || (planType === "free" && youngOrg);
+    const storedTrialMs = trialProfile?.trial_ends_at ? Date.parse(trialProfile.trial_ends_at) : NaN;
+    const futureStoredTrial = Number.isFinite(storedTrialMs) && Date.now() < storedTrialMs;
+
+    if (mayStampTrial || futureStoredTrial) {
+      const resolved = resolveCardFreeTrial({
+        trialEndsAt: trialProfile?.trial_ends_at,
+        createdAt: trialProfile?.created_at ?? orgData?.created_at ?? null,
+      });
+
+      if (resolved.stampMissing && resolved.active && resolved.trialEndIso && mayStampTrial) {
+        const { error: stampError } = await supabaseClient
+          .from("profiles")
+          .update({ trial_ends_at: resolved.trialEndIso })
+          .eq("id", user.id)
+          .is("trial_ends_at", null);
+        if (stampError) {
+          logStep("ERROR stamping profile trial_ends_at", { message: stampError.message });
+        }
       }
 
-      const trialEndsAt = trialProfile?.trial_ends_at ?? null;
-      const trialActive = !!trialEndsAt && Date.now() < Date.parse(trialEndsAt);
-
-      logBranch(trialActive ? "profile_trial_active" : "profile_trial_expired", {
-        orgId: membership.organization_id,
-        trialEndsAt,
+      logBranch(resolved.active ? "profile_trial_active" : "profile_trial_expired", {
+        orgId,
+        planType,
+        trialEndsAt: resolved.trialEndIso,
+        stampMissing: resolved.stampMissing,
       });
 
-      return new Response(JSON.stringify(
-        trialActive
-          ? {
-              stripe_mode: stripeMode,
-              subscribed: true,
-              trial_active: true,
-              trial_end: trialEndsAt,
-              product_id: "org_trial",
-            }
-          : {
-              stripe_mode: stripeMode,
-              subscribed: false,
-              trial_active: false,
-              trial_end: trialEndsAt,
-              message: "Your free trial has ended. Subscribe to keep using TidyWise.",
-            }
-      ), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      });
+      if (resolved.active && resolved.trialEndIso) {
+        if (orgId && (planType == null || planType === "" || planType === "free")) {
+          const planQuery = planType === "free"
+            ? supabaseClient.from("organizations").update({ plan_type: "trial" }).eq("id", orgId).eq("plan_type", "free")
+            : supabaseClient.from("organizations").update({ plan_type: "trial" }).eq("id", orgId).is("plan_type", null);
+          const { error: planError } = await planQuery;
+          if (planError) logStep("ERROR setting plan_type trial", { message: planError.message });
+        }
+        return new Response(JSON.stringify({
+          stripe_mode: stripeMode,
+          subscribed: true,
+          trial_active: true,
+          trial_end: resolved.trialEndIso,
+          product_id: "org_trial",
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200,
+        });
+      }
+
+      if (planType === "trial" || mayStampTrial) {
+        return new Response(JSON.stringify({
+          stripe_mode: stripeMode,
+          subscribed: false,
+          trial_active: false,
+          trial_end: resolved.trialEndIso,
+          product_id: null,
+          message: "Your free trial has ended. Subscribe to keep using TidyWise.",
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 200,
+        });
+      }
     }
 
 
