@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AdminSidebar } from './AdminSidebar';
 import { AdminHeader } from './AdminHeader';
@@ -16,6 +16,7 @@ import { useBodyPointerEventsRecovery } from '@/hooks/useBodyPointerEventsRecove
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { PullToRefreshIndicator } from '@/components/admin/PullToRefreshIndicator';
 import { Capacitor } from '@capacitor/core';
+import { isSampleDemoOn, subscribeDemoMode } from '@/lib/demo/session';
 
 const LIST_PULL_PREFIXES = [
   '/dashboard/customers',
@@ -70,6 +71,7 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
   // Apply org branding colors to entire CRM theme
   useBrandingColors();
   const isMobileView = useIsMobile();
+  const demoOn = useSyncExternalStore(subscribeDemoMode, isSampleDemoOn, () => false);
 
   // Insurance against a Radix modal stranding pointer-events:none on <body>,
   // which makes the whole app unclickable with nothing on screen to explain it.
@@ -180,10 +182,17 @@ export function AdminLayout({ children, title, subtitle, actions }: AdminLayoutP
         "pl-0 md:pl-16",
         sidebarOpen && "md:pl-64"
       )}>
-        <div className="sticky top-0 z-40 pt-[env(safe-area-inset-top)]">
-          <DemoModeBanner />
-          {!hideHeader && <AdminHeader title={title} subtitle={subtitle} actions={actions} />}
-        </div>
+        <DemoModeBanner />
+        {!hideHeader && (
+          <div
+            className={cn(
+              'sticky z-30 top-[var(--demo-banner-h,0px)]',
+              !demoOn && 'pt-[env(safe-area-inset-top)]',
+            )}
+          >
+            <AdminHeader title={title} subtitle={subtitle} actions={actions} />
+          </div>
+        )}
 
         <main
           className={cn(

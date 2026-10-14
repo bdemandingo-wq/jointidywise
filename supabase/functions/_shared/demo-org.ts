@@ -42,6 +42,17 @@ export function isKnownDemoOrganization(organizationId: string | null | undefine
   return organizationId === DEMO_ORG_ID;
 }
 
+/**
+ * Stripe payouts, manual charges, invoices, and subscription create/cancel
+ * must run for a real organization even when demo mode is on. The in-app
+ * banner already stops those clicks in the browser. The server blocks only
+ * the public preview org id, which has no Stripe account.
+ */
+export function stripeClientBlockReason(organizationId?: string | null): string | null {
+  if (isKnownDemoOrganization(organizationId)) return "demo_org";
+  return null;
+}
+
 /** True while a cached demo-flag lookup is still inside its TTL. */
 export function demoFlagCacheFresh(storedAt: number, now: number, ttlMs = DEMO_FLAG_TTL_MS): boolean {
   if (!Number.isFinite(storedAt) || !Number.isFinite(now) || ttlMs <= 0) return false;

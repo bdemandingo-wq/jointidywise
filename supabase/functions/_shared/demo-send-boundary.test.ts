@@ -18,6 +18,7 @@ import {
   isDemoSendBlocked,
   isSampleSendTarget,
   shouldRecordDeliveryAsSent,
+  stripeClientBlockReason,
 } from './demo-org.ts';
 
 const functionsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -64,7 +65,6 @@ const GUARDED_HELPERS = [
   '_shared/send-openphone.ts',
   '_shared/send-resend.ts',
   '_shared/apns-deliver.ts',
-  '_shared/stripe-client.ts',
   '_shared/make-subscription-webhook.ts',
   '_shared/gmail-send-core.ts',
   '_shared/send-org-email.ts',
@@ -199,6 +199,17 @@ test('a phone suppression is written only for a real opt-out', () => {
   const beforeOptOut = webhook.slice(0, optOutAt);
   assert.match(beforeOptOut, /optOutClassification\.needsReview/);
   assert.doesNotMatch(beforeOptOut, /sms_suppressions/);
+});
+
+test('Stripe still runs for a real org with demo mode on', () => {
+  assert.equal(stripeClientBlockReason('real-org'), null);
+  assert.equal(stripeClientBlockReason(null), null);
+  assert.equal(stripeClientBlockReason(DEMO_ORG_ID), 'demo_org');
+  assert.equal(demoSendBlockReason({ demoModeEnabled: true, organizationId: 'real-org' }), 'demo_mode_enabled');
+  const stripe = fs.readFileSync(path.join(functionsRoot, '_shared/stripe-client.ts'), 'utf8');
+  assert.match(stripe, /stripeClientBlockReason/);
+  assert.match(stripe, /throw new DemoSendBlocked\("stripe"\)/);
+  assert.doesNotMatch(stripe, /demoSendShouldSkip|demoModeEnabledForOrg|demo_mode_enabled/);
 });
 
 test('demo orgs and sample recipients are not send targets', () => {
