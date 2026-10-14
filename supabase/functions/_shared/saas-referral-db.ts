@@ -467,6 +467,8 @@ export async function recordReferralInvoicePaid(
 export interface ReversalInput {
   chargeId: string | null;
   invoiceId: string | null;
+  /** Basil invoice.parent.subscription_details.subscription, else invoice.subscription. */
+  subscriptionId?: string | null;
   eventAt: string;
   reason: "refund" | "dispute";
 }
@@ -494,6 +496,23 @@ export async function recordReferralReversal(
       .maybeSingle();
     if (error) throw error;
     referral = data;
+  }
+  if (!referral && input.subscriptionId) {
+    const { data: sub, error: subErr } = await admin
+      .from("stripe_subscriptions")
+      .select("organization_id")
+      .eq("stripe_subscription_id", input.subscriptionId)
+      .maybeSingle();
+    if (subErr) throw subErr;
+    if (sub?.organization_id) {
+      const { data, error } = await admin
+        .from("referral_signups")
+        .select("id, status, paid_at, referrer_org_id")
+        .eq("referred_org_id", sub.organization_id)
+        .maybeSingle();
+      if (error) throw error;
+      referral = data;
+    }
   }
   if (!referral) return;
   if (!shouldReverseReferral({ status: referral.status, paidAt: referral.paid_at, eventAt: input.eventAt })) {

@@ -9,6 +9,8 @@ import { spawnSync } from "node:child_process";
 import {
   classifySaasRefund,
   incomingBillingIsNewer,
+  invoiceIdOf,
+  subscriptionIdFromInvoice,
   normalizeMonthlyBilledCents,
   replaySubscriptionEvents,
   replayTestModeBillingEvents,
@@ -444,6 +446,90 @@ test("connected-account and unlinked refunds are ignored, and lifetime is not a 
   assert.equal(classifySaasRefund({
     charge: { invoice: { id: "in_ads", subscription: "sub_ads", metadata: { purpose: "tidywise_ad_management" } } },
   }), null);
+
+  const basilInvoice = {
+    id: "in_basil",
+    parent: { subscription_details: { subscription: "sub_basil" } },
+  };
+  assert.equal(subscriptionIdFromInvoice(basilInvoice), "sub_basil");
+  assert.equal(invoiceIdOf(basilInvoice), "in_basil");
+  assert.deepEqual(classifySaasRefund({
+    charge: { invoice: basilInvoice, payment_intent: "pi_basil" },
+  }), { kind: "subscription", subscriptionId: "sub_basil" });
+  assert.deepEqual(classifySaasRefund({
+    charge: {
+      invoice: {
+        id: "in_both",
+        parent: { subscription_details: { subscription: { id: "sub_parent" } } },
+        subscription: "sub_legacy",
+      },
+      payment_intent: "pi_both",
+    },
+  }), { kind: "subscription", subscriptionId: "sub_parent" });
+  assert.equal(subscriptionIdFromInvoice({
+    id: "in_legacy",
+    parent: { subscription_details: { subscription: null } },
+    subscription: "sub_legacy",
+  }), "sub_legacy");
+});
+
+test("a deleted subscription does not set a lifetime org to free", () => {
+  const invoice = readFileSync(
+    new URL("../../supabase/functions/stripe-invoice-webhook/index.ts", import.meta.url),
+    "utf8",
+  );
+  const deletedAt = invoice.indexOf('event.type === "customer.subscription.deleted"');
+  const failedAt = invoice.indexOf("PAYMENT FAILED", deletedAt);
+  const deleted = invoice.slice(deletedAt, failedAt);
+  assert.match(deleted, /downgradeOrgOnSubscriptionDeleted\(/);
+  assert.doesNotMatch(deleted, /\.update\(\{ plan_type: "free" \}\)/);
+
+  const helper = readFileSync(
+    new URL("../../supabase/functions/_shared/subscription-deleted-plan.ts", import.meta.url),
+    "utf8",
+  );
+  const updateAt = helper.indexOf('.update({ plan_type: "free" })');
+  assert.ok(updateAt > 0);
+  const guard = helper.slice(updateAt, updateAt + 500);
+  assert.match(guard, /\.neq\("plan_type", "lifetime"\)/);
+  // Null grandfathered_lifetime still matches. .not(..., "is", true) would
+  // drop those rows because NULL is not true is unknown in SQL.
+  assert.match(guard, /grandfathered_lifetime\.is\.null,grandfathered_lifetime\.eq\.false/);
+});
+
+test("a failed refund write releases the claim so the retry stores the refund", async () => {
+  const invoice = readFileSync(
+    new URL("../../supabase/functions/stripe-invoice-webhook/index.ts", import.meta.url),
+    "utf8",
+  );
+  const persistAt = invoice.indexOf("const saved = await persistSaasRefunds(");
+  const flagAt = invoice.indexOf("if (!saved) subscriptionStateFailed = true", persistAt);
+  const releaseAt = invoice.indexOf('from("stripe_webhook_events")\n          .delete()', persistAt);
+  assert.ok(persistAt > 0);
+  assert.ok(flagAt > persistAt);
+  assert.ok(releaseAt > flagAt);
+
+  const claims = new Set<string>();
+  const stored: string[] = [];
+  const deliver = async (writeFails: boolean) => {
+    const eventId = "evt_refund";
+    if (claims.has(eventId)) return { status: 200, duplicate: true };
+    claims.add(eventId);
+    if (writeFails) {
+      if (subscriptionPersistReleasesIdempotency("failed")) claims.delete(eventId);
+      return { status: subscriptionPersistHttpStatus("failed"), duplicate: false };
+    }
+    stored.push(eventId);
+    return { status: subscriptionPersistHttpStatus("wrote"), duplicate: false };
+  };
+
+  const first = await deliver(true);
+  assert.equal(first.status, 500);
+  assert.equal(first.duplicate, false);
+  const retry = await deliver(false);
+  assert.equal(retry.duplicate, false);
+  assert.equal(retry.status, 200);
+  assert.deepEqual(stored, ["evt_refund"]);
 });
 
 test("a paying non-lifetime org is not demo, and is_test still applies", () => {

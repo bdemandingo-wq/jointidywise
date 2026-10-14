@@ -86,6 +86,7 @@ export function subscriptionBillingSnapshot(sub: {
   items?: {
     data?: Array<{
       quantity?: number | null;
+      current_period_end?: number | null;
       price?: {
         unit_amount?: number | null;
         recurring?: { interval?: string | null; interval_count?: number | null } | null;
@@ -344,7 +345,9 @@ export async function replaySubscriptionEvents(
         authoritative = false;
       }
     }
-    const stored = row ? { billing_event_at: row.billing_event_at, updated_at: null } : null;
+    const stored: BillingGuardRow | null = row
+      ? { billing_event_at: row.billing_event_at, updated_at: null }
+      : null;
     if (!shouldWriteSubscriptionState(authoritative, stored, event.created)) continue;
     const snap = subscriptionBillingSnapshot(source);
     const state = subscriptionStateFields(source);
@@ -512,6 +515,25 @@ function textId(value: unknown): string | null {
   return null;
 }
 
+/**
+ * Basil (2025-08-27) puts the subscription on
+ * invoice.parent.subscription_details.subscription. Older payloads still
+ * use invoice.subscription. Parent wins when both are present.
+ */
+export function subscriptionIdFromInvoice(invoice: unknown): string | null {
+  if (!invoice || typeof invoice !== "object") return null;
+  const record = invoice as {
+    subscription?: unknown;
+    parent?: { subscription_details?: { subscription?: unknown } | null } | null;
+  };
+  return textId(record.parent?.subscription_details?.subscription) ?? textId(record.subscription);
+}
+
+export function invoiceIdOf(invoice: unknown): string | null {
+  if (typeof invoice === "string") return invoice || null;
+  return textId(invoice);
+}
+
 function purposeOf(value: unknown): string | null {
   if (!value || typeof value !== "object" || !("metadata" in value)) return null;
   const metadata = (value as { metadata?: unknown }).metadata;
@@ -551,9 +573,7 @@ export function classifySaasRefund(input: {
   if (purpose === "tidywise_ad_management") return null;
 
   const invoice = input.charge.invoice;
-  const subscriptionId = (invoice && typeof invoice === "object"
-    ? textId((invoice as { subscription?: unknown }).subscription)
-    : null) ?? (input.resolvedSubscriptionId || null);
+  const subscriptionId = subscriptionIdFromInvoice(invoice) ?? (input.resolvedSubscriptionId || null);
   const paymentIntent = textId(input.charge.payment_intent);
   const lifetime = input.linkedLifetimePurchase === true
     || planOf(input.charge.metadata) === "lifetime"
@@ -592,7 +612,7 @@ export function saasRefundDrafts(charge: {
     : (charge.customer && typeof charge.customer === "object" && "id" in charge.customer && typeof (charge.customer as { id?: unknown }).id === "string"
       ? (charge.customer as { id: string }).id
       : null);
-  const invoiceId = typeof charge.invoice === "string" ? charge.invoice : null;
+  const invoiceId = invoiceIdOf(charge.invoice);
   const currency = typeof charge.currency === "string" ? charge.currency.toLowerCase() : null;
   const eventIso = unixToIso(eventCreatedSec) ?? new Date(0).toISOString();
   const listed = charge.refunds?.data ?? [];

@@ -14,9 +14,11 @@ import {
 import {
   classifySaasRefund,
   guardedBillingWrite,
+  invoiceIdOf,
   isMissingBillingColumn,
   laterBillingEventAt,
   saasRefundDrafts,
+  subscriptionIdFromInvoice,
   shouldWriteSubscriptionState,
   stripeSubscriptionBillingPatch,
   subscriptionBillingSnapshot,
@@ -1269,17 +1271,19 @@ const handler = async (req: Request): Promise<Response> => {
     // lands inside 30 days. The balance transaction is a debit of the credit
     // already given — it does not create a new charge.
     if (event.type === "charge.refunded") {
+      const refundedCharge = event.data.object as Stripe.Charge;
       try {
-        const refundedCharge = event.data.object as Stripe.Charge;
         const balance: BalanceClient = {
           createBalanceTransaction: (customerId, body, options) =>
             stripe.customers.createBalanceTransaction(customerId, body, {
               idempotencyKey: options.idempotencyKey,
             }),
         };
+        const refundInvoice = refundedCharge.invoice;
         await recordReferralReversal(supabase, {
           chargeId: refundedCharge.id,
-          invoiceId: typeof refundedCharge.invoice === "string" ? refundedCharge.invoice : null,
+          invoiceId: invoiceIdOf(refundInvoice),
+          subscriptionId: subscriptionIdFromInvoice(refundInvoice),
           eventAt: new Date(event.created * 1000).toISOString(),
           reason: "refund",
         }, balance);
@@ -1288,11 +1292,15 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       // Store the refund date for the account-metrics view. The charge
-      // object is already on the event. This does not call Stripe.
+      // object is already on the event. A failed insert must not ack the
+      // event: the idempotency row is released below so Stripe's retry
+      // writes the refund.
       try {
-        await persistSaasRefunds(supabase, refundedCharge, event.created, event.account);
+        const saved = await persistSaasRefunds(supabase, refundedCharge, event.created, event.account);
+        if (!saved) subscriptionStateFailed = true;
       } catch (e) {
-        console.error("[stripe-invoice-webhook] saas refund persist failed (swallowed):", e);
+        console.error("[stripe-invoice-webhook] saas refund persist failed:", e);
+        subscriptionStateFailed = true;
       }
     }
 
@@ -1313,7 +1321,8 @@ const handler = async (req: Request): Promise<Response> => {
             };
             await recordReferralReversal(supabase, {
               chargeId: typeof dispute.charge === "string" ? dispute.charge : charge.id,
-              invoiceId: typeof charge.invoice === "string" ? charge.invoice : null,
+              invoiceId: invoiceIdOf(charge.invoice),
+              subscriptionId: subscriptionIdFromInvoice(charge.invoice),
               eventAt: new Date(event.created * 1000).toISOString(),
               reason: "dispute",
             }, balance);
@@ -2220,23 +2229,22 @@ async function persistSaasRefunds(
   charge: Stripe.Charge,
   eventCreatedSec: number,
   eventAccount: string | null | undefined,
-): Promise<void> {
+): Promise<boolean> {
   if (typeof eventAccount === "string" && eventAccount.trim() !== "") {
     console.log("[stripe-invoice-webhook] skipping connected-account refund", { account: eventAccount, charge: charge.id });
-    return;
+    return true;
   }
 
   let resolvedSubscriptionId: string | null = null;
   let purpose: string | null = null;
-  const invoice = charge.invoice as { subscription?: unknown; metadata?: { purpose?: string } } | string | null;
+  const invoice = charge.invoice as { metadata?: { purpose?: string } } | string | null;
   if (invoice && typeof invoice === "object") {
     purpose = invoice.metadata?.purpose ?? null;
+    resolvedSubscriptionId = subscriptionIdFromInvoice(invoice);
   } else if (typeof invoice === "string" && invoice) {
     try {
       const loaded = await billingStripe().invoices.retrieve(invoice);
-      resolvedSubscriptionId = typeof loaded.subscription === "string"
-        ? loaded.subscription
-        : loaded.subscription?.id ?? null;
+      resolvedSubscriptionId = subscriptionIdFromInvoice(loaded);
       purpose = loaded.metadata?.purpose ?? null;
     } catch (err) {
       console.error("[stripe-invoice-webhook] invoice retrieve failed; refund counts only if it is a lifetime purchase:", err);
@@ -2269,10 +2277,10 @@ async function persistSaasRefunds(
     resolvedSubscriptionId,
     purpose,
   });
-  if (!classification) return;
+  if (!classification) return true;
 
   const drafts = saasRefundDrafts(charge, eventCreatedSec);
-  if (drafts.length === 0) return;
+  if (drafts.length === 0) return true;
 
   const customerId = drafts[0].stripeCustomerId;
   let organizationId: string | null = lifetimeOrgId;
@@ -2314,12 +2322,15 @@ async function persistSaasRefunds(
       .upsert(withoutKind, { onConflict: "stripe_refund_id" });
     if (fallbackError && !isMissingBillingColumn(fallbackError)) {
       console.error("[stripe-invoice-webhook] platform_subscription_refunds upsert failed:", fallbackError);
+      return false;
     }
-    return;
+    return true;
   }
   if (error) {
     console.error("[stripe-invoice-webhook] platform_subscription_refunds upsert failed:", error);
+    return false;
   }
+  return true;
 }
 
 // Resolve the active TidyWise plan tier ("basic" | "pro" | "custom") from
