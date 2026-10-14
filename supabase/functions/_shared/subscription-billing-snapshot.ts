@@ -194,6 +194,162 @@ export function guardedBillingWrite(
   };
 }
 
+/** Keep the newer event time. A retrieved snapshot must not rewind it. */
+export function laterBillingEventAt(
+  stored: BillingGuardRow | null | undefined,
+  incomingCreatedSec: number | null | undefined,
+): string | null {
+  const incoming = billingEventIso(incomingCreatedSec);
+  const storedAt = stored?.billing_event_at ?? null;
+  if (!storedAt) return incoming;
+  if (!incoming) return storedAt;
+  return Date.parse(incoming) > Date.parse(storedAt) ? incoming : storedAt;
+}
+
+/**
+ * Status and period columns. A duplicate or older event may write these
+ * only when subscriptions.retrieve failed and this event is strictly newer.
+ * A successful retrieve is current Stripe state and may be written as-is.
+ */
+export function shouldWriteSubscriptionState(
+  authoritative: boolean,
+  stored: BillingGuardRow | null | undefined,
+  incomingCreatedSec: number | null | undefined,
+): boolean {
+  if (authoritative) return true;
+  return incomingBillingIsNewer(stored, incomingCreatedSec);
+}
+
+export interface SubscriptionStateFields {
+  status: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  trial_end: string | null;
+}
+
+/** Status and billing period off a subscription object. No Stripe call. */
+export function subscriptionStateFields(sub: {
+  status?: string | null;
+  cancel_at_period_end?: boolean | null;
+  trial_end?: number | null;
+  current_period_end?: number | null;
+  items?: { data?: Array<{ current_period_end?: number | null } | null> | null } | null;
+}): SubscriptionStateFields {
+  const itemEnd = sub.items?.data?.[0]?.current_period_end;
+  const endSec = typeof itemEnd === "number"
+    ? itemEnd
+    : (typeof sub.current_period_end === "number" ? sub.current_period_end : null);
+  return {
+    status: typeof sub.status === "string" ? sub.status : null,
+    current_period_end: endSec && endSec > 0 ? new Date(endSec * 1000).toISOString() : null,
+    cancel_at_period_end: sub.cancel_at_period_end === true,
+    trial_end: typeof sub.trial_end === "number" && sub.trial_end > 0
+      ? new Date(sub.trial_end * 1000).toISOString()
+      : null,
+  };
+}
+
+export interface SubscriptionEventPayload {
+  id?: string;
+  status?: string | null;
+  cancel_at_period_end?: boolean | null;
+  trial_end?: number | null;
+  current_period_end?: number | null;
+  canceled_at?: number | null;
+  ended_at?: number | null;
+  items?: Parameters<typeof subscriptionBillingSnapshot>[0]["items"];
+  discount?: unknown;
+  discounts?: unknown;
+}
+
+export interface ReplaySubscriptionEvent {
+  livemode: boolean;
+  created: number;
+  type: string;
+  subscription: SubscriptionEventPayload;
+}
+
+export interface SubscriptionReader {
+  subscriptions: {
+    retrieve: (id: string) => Promise<SubscriptionEventPayload>;
+  };
+}
+
+export interface ReplayedSubscriptionRow {
+  status: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  trial_end: string | null;
+  billing_event_at: string | null;
+  unit_amount_cents: number | null;
+  canceled_at: string | null;
+  mrr_cents: number | null;
+  counts_toward_mrr: boolean;
+}
+
+function mrrForStatus(status: string | null, snap: SubscriptionBillingSnapshot): { mrrCents: number | null; counts: boolean } {
+  if (status !== "active" && status !== "past_due") return { mrrCents: null, counts: false };
+  if (!snap.discountKnown) return { mrrCents: null, counts: false };
+  const priced = normalizeMonthlyBilledCents({
+    unitAmountCents: snap.unitAmountCents,
+    quantity: snap.quantity,
+    billingInterval: snap.billingInterval,
+    intervalCount: snap.intervalCount,
+    discountPercent: snap.discountPercent,
+    discountAmountCents: snap.discountAmountCents,
+  });
+  if (priced.monthlyAmountCents == null) return { mrrCents: null, counts: false };
+  return { mrrCents: priced.monthlyAmountCents, counts: true };
+}
+
+/**
+ * Replay customer.subscription.* events in arrival order.
+ * Test mode only. retrieve is the caller's mock — this function does not
+ * use the network. A successful retrieve is persisted as the current
+ * subscription. If retrieve throws, status and period change only when
+ * event.created is strictly newer than billing_event_at.
+ */
+export async function replaySubscriptionEvents(
+  events: ReplaySubscriptionEvent[],
+  stripe: SubscriptionReader,
+): Promise<ReplayedSubscriptionRow | null> {
+  let row: ReplayedSubscriptionRow | null = null;
+  for (const event of events) {
+    if (event.livemode !== false) {
+      throw new Error("replay accepts test-mode payloads only");
+    }
+    let source = event.subscription;
+    let authoritative = false;
+    if (event.subscription.id) {
+      try {
+        source = await stripe.subscriptions.retrieve(event.subscription.id);
+        authoritative = true;
+      } catch {
+        authoritative = false;
+      }
+    }
+    const stored = row ? { billing_event_at: row.billing_event_at, updated_at: null } : null;
+    if (!shouldWriteSubscriptionState(authoritative, stored, event.created)) continue;
+    const snap = subscriptionBillingSnapshot(source);
+    const state = subscriptionStateFields(source);
+    const mrr = mrrForStatus(state.status, snap);
+    row = {
+      status: state.status,
+      current_period_end: state.current_period_end,
+      cancel_at_period_end: state.cancel_at_period_end,
+      trial_end: state.trial_end,
+      billing_event_at: authoritative
+        ? laterBillingEventAt(stored, event.created)
+        : billingEventIso(event.created),
+      unit_amount_cents: snap.unitAmountCents,
+      canceled_at: snap.canceledAt,
+      mrr_cents: mrr.mrrCents,
+      counts_toward_mrr: mrr.counts,
+    };
+  }
+  return row;
+}
+
 export interface TestModeBillingEvent {
   livemode: boolean;
   created: number;
@@ -248,7 +404,7 @@ export function replayTestModeBillingEvents(events: TestModeBillingEvent[]): Rep
 export function isMissingBillingColumn(error: { message?: string } | null | undefined): boolean {
   const message = error?.message ?? "";
   if (!message) return false;
-  return /unit_amount_cents|discount_known|discount_amount_cents|discount_percent|interval_count|canceled_at|ended_at|billing_event_at|platform_subscription_refunds|schema cache|PGRST204|42703/i.test(message);
+  return /unit_amount_cents|discount_known|discount_amount_cents|discount_percent|interval_count|canceled_at|ended_at|billing_event_at|refund_kind|platform_subscription_refunds|schema cache|PGRST204|42703/i.test(message);
 }
 
 function intervalMonths(interval: string | null, intervalCount: number | null): number | null {
@@ -322,6 +478,74 @@ export function normalizeMonthlyBilledCents(input: {
     monthlyAmountCents: Math.max(0, monthly),
     amountBasis: basis,
   };
+}
+
+export type SaasRefundKind = "subscription" | "lifetime";
+
+export interface SaasRefundClassification {
+  kind: SaasRefundKind;
+  subscriptionId: string | null;
+}
+
+function textId(value: unknown): string | null {
+  if (typeof value === "string" && value) return value;
+  if (value && typeof value === "object" && "id" in value && typeof (value as { id?: unknown }).id === "string") {
+    const id = (value as { id: string }).id;
+    return id || null;
+  }
+  return null;
+}
+
+function purposeOf(value: unknown): string | null {
+  if (!value || typeof value !== "object" || !("metadata" in value)) return null;
+  const metadata = (value as { metadata?: unknown }).metadata;
+  if (!metadata || typeof metadata !== "object") return null;
+  const purpose = (metadata as { purpose?: unknown }).purpose;
+  return typeof purpose === "string" ? purpose : null;
+}
+
+function planOf(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const raw = metadata as { plan?: unknown; tidywise_plan?: unknown };
+  if (typeof raw.tidywise_plan === "string" && raw.tidywise_plan) return raw.tidywise_plan;
+  if (typeof raw.plan === "string" && raw.plan) return raw.plan;
+  return null;
+}
+
+/**
+ * Platform SaaS refunds only. A connected-account event (event.account),
+ * an ad-management charge, and a charge with no subscription invoice and
+ * no Lifetime purchase are ignored. No Stripe call.
+ */
+export function classifySaasRefund(input: {
+  account?: string | null;
+  charge: {
+    invoice?: unknown;
+    payment_intent?: unknown;
+    metadata?: Record<string, unknown> | null;
+  };
+  /** lifetime_access_purchases already has this payment intent. */
+  linkedLifetimePurchase?: boolean;
+  /** Set when a bare invoice id was resolved to a subscription. */
+  resolvedSubscriptionId?: string | null;
+  purpose?: string | null;
+}): SaasRefundClassification | null {
+  if (typeof input.account === "string" && input.account.trim() !== "") return null;
+  const purpose = input.purpose ?? purposeOf(input.charge) ?? purposeOf(input.charge.invoice);
+  if (purpose === "tidywise_ad_management") return null;
+
+  const invoice = input.charge.invoice;
+  const subscriptionId = (invoice && typeof invoice === "object"
+    ? textId((invoice as { subscription?: unknown }).subscription)
+    : null) ?? (input.resolvedSubscriptionId || null);
+  const paymentIntent = textId(input.charge.payment_intent);
+  const lifetime = input.linkedLifetimePurchase === true
+    || planOf(input.charge.metadata) === "lifetime"
+    || planOf(paymentIntent && typeof input.charge.payment_intent === "object" ? (input.charge.payment_intent as { metadata?: unknown }).metadata : null) === "lifetime";
+
+  if (subscriptionId) return { kind: "subscription", subscriptionId };
+  if (lifetime) return { kind: "lifetime", subscriptionId: null };
+  return null;
 }
 
 export interface SaasRefundDraft {

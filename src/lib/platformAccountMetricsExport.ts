@@ -45,6 +45,8 @@ export interface AccountMetricsRow {
   cancel_at_period_end: boolean | null;
   cancel_scheduled_for: string | null;
   refund_dates: string[] | null;
+  subscription_refund_dates?: string[] | null;
+  lifetime_refund_dates?: string[] | null;
   is_demo_or_test: boolean;
 }
 
@@ -176,6 +178,7 @@ export function buildAccountMetricsCsv(rows: AccountMetricsRow[], generatedAt: D
     csvRow(["Subscription status is the raw Stripe status, including past_due."]),
     csvRow(["Activation milestone columns are not revenue. milestone_first_payment_received, when present, means a cleaning client paid that business. It is not TidyWise revenue and it is not included in MRR ($)."]),
     csvRow(["Loyalty discount stored ($) is the loyalty coupon last written for that organization. It is not added again when Monthly amount source is stripe_subscription or billing_subscription_period. Source stripe_subscription_loyalty_discount means that stored amount was the only discount applied."]),
+    csvRow(["Subscription refund dates are plan-invoice refunds. Lifetime refund dates are Lifetime purchases. They are reported apart from each other. Connected-account charges are not included."]),
     "",
     csvRow([
       "Organization id",
@@ -211,6 +214,8 @@ export function buildAccountMetricsCsv(rows: AccountMetricsRow[], generatedAt: D
       "Cancel at period end",
       "Cancel scheduled for (UTC)",
       "Refund dates (UTC)",
+      "Subscription refund dates (UTC)",
+      "Lifetime refund dates (UTC)",
       "Is demo or test",
       "Stripe subscription id",
     ]),
@@ -253,6 +258,8 @@ export function buildAccountMetricsCsv(rows: AccountMetricsRow[], generatedAt: D
       yesNo(row.cancel_at_period_end),
       stamp(row.cancel_scheduled_for),
       refunds.join("; "),
+      (Array.isArray(row.subscription_refund_dates) ? row.subscription_refund_dates : []).map((value) => stamp(value)).filter(Boolean).join("; "),
+      (Array.isArray(row.lifetime_refund_dates) ? row.lifetime_refund_dates : []).map((value) => stamp(value)).filter(Boolean).join("; "),
       yesNo(row.is_demo_or_test),
       row.stripe_subscription_id ?? "",
     ]));

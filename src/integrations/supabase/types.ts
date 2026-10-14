@@ -13255,8 +13255,10 @@ export type Database = {
           owner_email: string | null
           plan: string | null
           referrer: string | null
+          lifetime_refund_dates: string[] | null
           refund_dates: string[] | null
           signup_at: string
+          subscription_refund_dates: string[] | null
           subscription_status: string | null
           stripe_subscription_id: string | null
           stripe_subscription_status: string | null

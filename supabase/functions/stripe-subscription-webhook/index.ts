@@ -10,6 +10,15 @@ import { subscriptionToPlanTier, updateOrgPlanTier, PlanTier } from "../_shared/
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 import { syncLoyaltySubscription } from "../_shared/loyalty-pricing-sync.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
+import {
+  guardedBillingWrite,
+  incomingBillingIsNewer,
+  isMissingBillingColumn,
+  laterBillingEventAt,
+  stripeSubscriptionBillingPatch,
+  subscriptionBillingSnapshot,
+  subscriptionStateFields,
+} from "../_shared/subscription-billing-snapshot.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -85,25 +94,93 @@ serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, skipped: "no_org" }), { status: 200, headers: corsHeaders });
     }
 
-    // Decide tier: if this event is delete or the subscription is not active/trialing,
-    // check if the customer still has ANY other active/trialing sub. Otherwise -> trial.
-    let tier: PlanTier = "trial";
-    const isTerminal =
-      event.type === "customer.subscription.deleted" ||
-      !(sub.status === "active" || sub.status === "trialing");
-
-    if (isTerminal) {
-      const all = await stripe.subscriptions.list({ customer: customerId, limit: 10 });
-      const other = all.data.find(
-        (s: Stripe.Subscription) => s.id !== sub.id && (s.status === "active" || s.status === "trialing"),
-      );
-      if (other) tier = subscriptionToPlanTier(other) ?? "trial";
-    } else {
-      tier = subscriptionToPlanTier(sub) ?? "trial";
+    // Current SaaS subscription. Retrieve only — no update and no charge.
+    // If it fails, status and period follow the event only when event.created
+    // is strictly newer than the stored billing_event_at.
+    let source: Stripe.Subscription = sub;
+    let authoritative = false;
+    try {
+      source = await stripe.subscriptions.retrieve(sub.id);
+      authoritative = true;
+    } catch (err) {
+      log("subscriptions.retrieve failed; status falls back to the event guard", { message: (err as Error).message });
     }
 
-    const result = await updateOrgPlanTier(supabase, membership.organization_id, tier);
-    log("Updated plan_tier", { orgId: membership.organization_id, tier, ...result });
+    let existingBilling: { billing_event_at?: string | null; updated_at?: string | null } | null = null;
+    let billingReadErr: { message?: string } | null = null;
+    try {
+      const read = await supabase
+        .from("stripe_subscriptions")
+        .select("billing_event_at, updated_at")
+        .eq("stripe_subscription_id", sub.id)
+        .maybeSingle();
+      existingBilling = read.data;
+      billingReadErr = read.error;
+    } catch (err) {
+      billingReadErr = { message: (err as Error).message };
+    }
+
+    const columnsMissing = !!billingReadErr && isMissingBillingColumn(billingReadErr);
+    const applyState = columnsMissing
+      ? true
+      : authoritative
+        ? !billingReadErr
+        : !billingReadErr && incomingBillingIsNewer(existingBilling, event.created);
+
+    if (!applyState) {
+      log("older or duplicate subscription event; plan, status, and period left unchanged", { subId: sub.id });
+    } else {
+      // Decide tier from the subscription we are willing to trust.
+      let tier: PlanTier = "trial";
+      const isTerminal = authoritative
+        ? !(source.status === "active" || source.status === "trialing")
+        : event.type === "customer.subscription.deleted" ||
+          !(source.status === "active" || source.status === "trialing");
+
+      if (isTerminal) {
+        const all = await stripe.subscriptions.list({ customer: customerId, limit: 10 });
+        const other = all.data.find(
+          (s: Stripe.Subscription) => s.id !== source.id && (s.status === "active" || s.status === "trialing"),
+        );
+        if (other) tier = subscriptionToPlanTier(other) ?? "trial";
+      } else {
+        tier = subscriptionToPlanTier(source) ?? "trial";
+      }
+
+      const result = await updateOrgPlanTier(supabase, membership.organization_id, tier);
+      log("Updated plan_tier", { orgId: membership.organization_id, tier, ...result });
+    }
+
+    // Do not insert. A new row would change the paywall mirror. Status,
+    // period, price, and cancel date are written only for current Stripe
+    // state, or for a strictly newer event when retrieve failed.
+    try {
+      if (columnsMissing) {
+        log("billing columns are not migrated yet; subscription row left unchanged");
+      } else if (billingReadErr) {
+        log("billing guard read failed; not writing status or period", { message: billingReadErr.message });
+      } else if (!existingBilling) {
+        log("no stripe_subscriptions row yet; not inserting from the subscription webhook", { subId: sub.id });
+      } else if (!applyState) {
+        log("keeping stored status and period", { subId: sub.id });
+      } else {
+        const snap = subscriptionBillingSnapshot(source);
+        const state = subscriptionStateFields(source);
+        const billing = authoritative
+          ? {
+            ...stripeSubscriptionBillingPatch(snap),
+            billing_event_at: laterBillingEventAt(existingBilling, event.created),
+          }
+          : guardedBillingWrite(existingBilling, snap, event.created);
+        const { error: writeErr } = await supabase
+          .from("stripe_subscriptions")
+          .update({ ...state, ...billing })
+          .eq("stripe_subscription_id", sub.id);
+        if (writeErr) log("billing column update failed", { message: writeErr.message });
+      }
+    } catch (billingErr) {
+      log("subscription billing snapshot failed (non-fatal)", { message: (billingErr as Error).message });
+    }
 
     // --- Trial -> paid conversion notification -------------------------------
     // Non-fatal by construction: everything below is inside its own try/catch
@@ -111,7 +188,7 @@ serve(async (req) => {
     // block the plan_tier sync this webhook exists to perform.
     const previousStatus =
       (event.data.previous_attributes as { status?: string } | undefined)?.status;
-    const converted = previousStatus === "trialing" && sub.status === "active";
+    const converted = applyState && previousStatus === "trialing" && source.status === "active";
 
     if (converted) {
       try {

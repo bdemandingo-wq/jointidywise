@@ -7,11 +7,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import {
+  classifySaasRefund,
   incomingBillingIsNewer,
   normalizeMonthlyBilledCents,
+  replaySubscriptionEvents,
   replayTestModeBillingEvents,
   saasRefundDrafts,
   subscriptionBillingSnapshot,
+  type ReplaySubscriptionEvent,
+  type SubscriptionEventPayload,
   type TestModeBillingEvent,
 } from "../../supabase/functions/_shared/subscription-billing-snapshot.ts";
 import {
@@ -336,6 +340,108 @@ test("the metrics view is not granted to org users and does not name milestone k
     .find((line) => line.includes("WHEN 'stripe' THEN COALESCE(p.sub_discount_amount_cents, 0)"));
   assert.ok(stripeDiscountArm);
   assert.doesNotMatch(stripeDiscountArm, /loyalty_discount_cents/);
+});
+
+function subscriptionPayload(
+  status: string,
+  periodEnd: number | null,
+  unit: number,
+): SubscriptionEventPayload {
+  return {
+    id: "sub_1",
+    status,
+    cancel_at_period_end: false,
+    trial_end: null,
+    current_period_end: periodEnd,
+    canceled_at: status === "canceled" ? 1_700_000_000 : null,
+    items: {
+      data: [{
+        quantity: 1,
+        current_period_end: periodEnd,
+        price: { unit_amount: unit, recurring: { interval: "month", interval_count: 1 } },
+      }],
+    },
+    discounts: [],
+  };
+}
+
+test("a deleted subscription stays canceled when an older update is replayed", async () => {
+  const calls: string[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    calls.push("fetch");
+    throw new Error("network");
+  }) as typeof fetch;
+  const canceled = subscriptionPayload("canceled", 1_700_100_000, 9700);
+  const olderActive = subscriptionPayload("active", 1_600_000_000, 4900);
+  const events: ReplaySubscriptionEvent[] = [
+    { livemode: false, created: 300, type: "customer.subscription.deleted", subscription: canceled },
+    { livemode: false, created: 100, type: "customer.subscription.updated", subscription: olderActive },
+  ];
+  try {
+    const retrieved: string[] = [];
+    const row = await replaySubscriptionEvents(events, {
+      subscriptions: {
+        retrieve: async (id) => {
+          retrieved.push(id);
+          return canceled;
+        },
+      },
+    });
+    assert.deepEqual(retrieved, ["sub_1", "sub_1"]);
+    assert.equal(calls.length, 0);
+    assert.equal(row?.status, "canceled");
+    assert.equal(row?.current_period_end, new Date(1_700_100_000 * 1000).toISOString());
+    assert.equal(row?.unit_amount_cents, 9700);
+    assert.equal(row?.mrr_cents, null);
+    assert.equal(row?.counts_toward_mrr, false);
+
+    const fallback = await replaySubscriptionEvents(events, {
+      subscriptions: {
+        retrieve: async () => {
+          throw new Error("stripe unavailable");
+        },
+      },
+    });
+    assert.equal(fallback?.status, "canceled");
+    assert.equal(fallback?.current_period_end, new Date(1_700_100_000 * 1000).toISOString());
+    assert.equal(fallback?.mrr_cents, null);
+    assert.equal(fallback?.counts_toward_mrr, false);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("connected-account and unlinked refunds are ignored, and lifetime is not a subscription refund", () => {
+  assert.equal(classifySaasRefund({
+    account: "acct_connected",
+    charge: { invoice: { id: "in_1", subscription: "sub_1" }, payment_intent: "pi_1" },
+  }), null);
+  assert.equal(classifySaasRefund({
+    account: null,
+    charge: { invoice: null, payment_intent: "pi_one_off", metadata: {} },
+  }), null);
+  assert.equal(classifySaasRefund({
+    charge: { invoice: { id: "in_credits", subscription: null }, payment_intent: "pi_credits" },
+  }), null);
+  assert.deepEqual(classifySaasRefund({
+    charge: { invoice: { id: "in_plan", subscription: "sub_1" }, payment_intent: "pi_plan" },
+  }), { kind: "subscription", subscriptionId: "sub_1" });
+  assert.deepEqual(classifySaasRefund({
+    charge: { invoice: "in_plan", payment_intent: "pi_plan" },
+    resolvedSubscriptionId: "sub_1",
+  }), { kind: "subscription", subscriptionId: "sub_1" });
+  assert.deepEqual(classifySaasRefund({
+    charge: { invoice: null, payment_intent: "pi_life", metadata: { plan: "lifetime" } },
+  }), { kind: "lifetime", subscriptionId: null });
+  assert.deepEqual(classifySaasRefund({
+    charge: { invoice: null, payment_intent: "pi_life" },
+    linkedLifetimePurchase: true,
+  }), { kind: "lifetime", subscriptionId: null });
+  assert.equal(classifySaasRefund({
+    charge: { invoice: { id: "in_ads", subscription: "sub_ads", metadata: { purpose: "tidywise_ad_management" } } },
+  }), null);
 });
 
 test("an org owner and a cleaner are rejected with 42501", () => {

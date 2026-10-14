@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS public.platform_subscription_refunds (
   amount_cents bigint,
   currency text,
   refunded_at timestamptz NOT NULL,
+  refund_kind text,
   source text NOT NULL DEFAULT 'charge.refunded',
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT platform_subscription_refunds_refund_key UNIQUE (stripe_refund_id),
@@ -115,8 +116,27 @@ CREATE INDEX IF NOT EXISTS platform_subscription_refunds_org_idx
 CREATE INDEX IF NOT EXISTS platform_subscription_refunds_customer_idx
   ON public.platform_subscription_refunds (stripe_customer_id);
 
+ALTER TABLE public.platform_subscription_refunds
+  ADD COLUMN IF NOT EXISTS refund_kind text;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'platform_subscription_refunds_kind_chk'
+      AND conrelid = 'public.platform_subscription_refunds'::regclass
+  ) THEN
+    ALTER TABLE public.platform_subscription_refunds
+      ADD CONSTRAINT platform_subscription_refunds_kind_chk
+      CHECK (refund_kind IS NULL OR refund_kind IN ('subscription', 'lifetime'));
+  END IF;
+END $$;
+
+COMMENT ON COLUMN public.platform_subscription_refunds.refund_kind IS
+  'subscription = a TidyWise plan invoice. lifetime = a Lifetime purchase. Null on rows written before this column. Connected-account charges are not stored.';
+
 COMMENT ON TABLE public.platform_subscription_refunds IS
-  'TidyWise subscription refunds copied from the platform charge.refunded webhook. Cleaning-client refunds on Connect are not written here. Historical refunds that predate this table are read from billing_events when that ledger has them.';
+  'TidyWise subscription and Lifetime refunds copied from the platform charge.refunded webhook. refund_kind separates Lifetime refunds from subscription churn. Cleaning-client refunds on Connect are not written here. Historical refunds that predate this table are read from billing_events when that ledger has them.';
 
 ALTER TABLE public.platform_subscription_refunds ENABLE ROW LEVEL SECURITY;
 
@@ -294,11 +314,15 @@ feedback_cancel AS (
   GROUP BY f.organization_id
 ),
 refund_rows AS (
-  SELECT organization_id, refunded_at
+  SELECT organization_id, refunded_at, refund_kind
   FROM (
     SELECT
       COALESCE(r.organization_id, linked.organization_id) AS organization_id,
-      r.refunded_at
+      r.refunded_at,
+      CASE
+        WHEN r.refund_kind IN ('subscription', 'lifetime') THEN r.refund_kind
+        ELSE NULL
+      END AS refund_kind
     FROM public.platform_subscription_refunds r
     LEFT JOIN LATERAL (
       SELECT s.organization_id
@@ -310,7 +334,13 @@ refund_rows AS (
       LIMIT 1
     ) linked ON true
     UNION ALL
-    SELECT be.organization_id, be.occurred_at
+    SELECT
+      be.organization_id,
+      be.occurred_at,
+      CASE
+        WHEN COALESCE(be.revenue_stream_corrected, be.revenue_stream) = 'lifetime' THEN 'lifetime'
+        ELSE 'subscription'
+      END
     FROM public.billing_events be
     WHERE be.event_type = 'charge.refunded'
       AND be.organization_id IS NOT NULL
@@ -322,9 +352,11 @@ refund_rows AS (
 refunds AS (
   SELECT
     d.organization_id,
-    array_agg(d.refunded_at ORDER BY d.refunded_at) AS refund_dates
+    array_agg(d.refunded_at ORDER BY d.refunded_at) AS refund_dates,
+    COALESCE(array_agg(d.refunded_at ORDER BY d.refunded_at) FILTER (WHERE d.refund_kind = 'subscription'), ARRAY[]::timestamptz[]) AS subscription_refund_dates,
+    COALESCE(array_agg(d.refunded_at ORDER BY d.refunded_at) FILTER (WHERE d.refund_kind = 'lifetime'), ARRAY[]::timestamptz[]) AS lifetime_refund_dates
   FROM (
-    SELECT DISTINCT organization_id, refunded_at FROM refund_rows
+    SELECT DISTINCT organization_id, refunded_at, refund_kind FROM refund_rows
   ) d
   GROUP BY d.organization_id
 ),
@@ -380,6 +412,8 @@ org_core AS (
     latest.latest_milestone,
     latest.latest_milestone_at,
     COALESCE(rf.refund_dates, ARRAY[]::timestamptz[]) AS refund_dates,
+    COALESCE(rf.subscription_refund_dates, ARRAY[]::timestamptz[]) AS subscription_refund_dates,
+    COALESCE(rf.lifetime_refund_dates, ARRAY[]::timestamptz[]) AS lifetime_refund_dates,
     (
       public.activation_subject_is_demo(o.id)
       OR public.jsonb_flag_true(to_jsonb(o), 'is_test')
@@ -537,6 +571,8 @@ SELECT
     ELSE NULL
   END AS cancel_scheduled_for,
   p.refund_dates,
+  p.subscription_refund_dates,
+  p.lifetime_refund_dates,
   p.is_demo_or_test
 FROM priced p
 JOIN LATERAL public.platform_monthly_billed_cents(

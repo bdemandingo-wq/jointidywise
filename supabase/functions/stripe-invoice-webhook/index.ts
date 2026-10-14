@@ -5,12 +5,23 @@ import { REFUND_POLICY, CANCELLATION_POLICY, POLICY_DISCLOSURE, TOS_VERSION } fr
 import { rejectReason, isVested } from "../_shared/referral-eligibility.ts";
 import { recordReferralInvoicePaid, recordReferralReversal, type BalanceClient } from "../_shared/saas-referral-db.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
-import { verifyStripeWebhook } from "../_shared/billing-stripe.ts";
+import { billingStripe, verifyStripeWebhook } from "../_shared/billing-stripe.ts";
 import {
   cascadeCancelAdSubscriptionsIfDowngraded,
   downgradeOrgOnSubscriptionDeleted,
   subscriptionDeletedPlanFailure,
 } from "../_shared/subscription-deleted-plan.ts";
+import {
+  classifySaasRefund,
+  guardedBillingWrite,
+  isMissingBillingColumn,
+  laterBillingEventAt,
+  saasRefundDrafts,
+  shouldWriteSubscriptionState,
+  stripeSubscriptionBillingPatch,
+  subscriptionBillingSnapshot,
+  subscriptionStateFields,
+} from "../_shared/subscription-billing-snapshot.ts";
 
 /**
  * Count a redeemed referral month.
@@ -347,7 +358,14 @@ const handler = async (req: Request): Promise<Response> => {
       try {
         const resolved = await resolveOrgIdForSubscription(supabase, stripe, subscription);
         if (resolved.orgId) {
-          await upsertStripeSubscription(supabase, resolved.orgId, subscription);
+          const current = await readCurrentSaasSubscription(subscription.id);
+          await upsertStripeSubscription(
+            supabase,
+            resolved.orgId,
+            current ?? subscription,
+            event.created,
+            current != null,
+          );
         } else {
           await logSubscriptionOrphan(
             supabase, supabaseUrl, supabaseServiceKey,
@@ -375,8 +393,15 @@ const handler = async (req: Request): Promise<Response> => {
         }
         const resolved = await resolveOrgIdForSubscription(supabase, stripe, subscription);
         if (resolved.orgId) {
-          await upsertStripeSubscription(supabase, resolved.orgId, subscription);
-          await syncOrgPlanFromSubscription(supabase, resolved.orgId, subscription);
+          const current = await readCurrentSaasSubscription(subscription.id);
+          const wrote = await upsertStripeSubscription(
+            supabase,
+            resolved.orgId,
+            current ?? subscription,
+            event.created,
+            current != null,
+          );
+          if (wrote) await syncOrgPlanFromSubscription(supabase, resolved.orgId, current ?? subscription);
         } else {
           await logSubscriptionOrphan(
             supabase, supabaseUrl, supabaseServiceKey,
@@ -858,7 +883,7 @@ const handler = async (req: Request): Promise<Response> => {
                   .maybeSingle();
                 orgId = mem?.organization_id ?? null;
               }
-              if (orgId) await upsertStripeSubscription(supabase, orgId, fullSub);
+              if (orgId) await upsertStripeSubscription(supabase, orgId, fullSub, event.created, true);
             }
           } catch (mirrorErr) {
             console.error("[stripe-invoice-webhook] checkout mirror failed:", mirrorErr);
@@ -1243,6 +1268,14 @@ const handler = async (req: Request): Promise<Response> => {
       } catch (e) {
         console.error("[saas-referral] refund reversal failed (swallowed):", e);
       }
+
+      // Store the refund date for the account-metrics view. The charge
+      // object is already on the event. This does not call Stripe.
+      try {
+        await persistSaasRefunds(supabase, refundedCharge, event.created, event.account);
+      } catch (e) {
+        console.error("[stripe-invoice-webhook] saas refund persist failed (swallowed):", e);
+      }
     }
 
     // ── DISPUTE / CHARGEBACK HANDLING (Visa CE 3.0, reason 10.4) ────────────
@@ -1619,20 +1652,72 @@ const handler = async (req: Request): Promise<Response> => {
               .maybeSingle();
 
             if (membership?.organization_id) {
-              // Mark the org's subscription row canceled so the paywall
-              // gate kicks back in immediately.
-              await supabase
+              // Mark the org's subscription row from the SaaS subscription
+              // as it is now. An older delete must not rewind a newer
+              // status. retrieve is read-only; the event guard is the fallback.
+              const current = await readCurrentSaasSubscription(sub.id);
+              const authoritative = current != null;
+              const source = current ?? sub;
+              const snap = subscriptionBillingSnapshot(source);
+              const state = subscriptionStateFields(source);
+              const { data: existingBilling, error: billingReadErr } = await supabase
                 .from("stripe_subscriptions")
-                .update({
-                  status: sub.status || "canceled",
-                  cancel_at_period_end: !!sub.cancel_at_period_end,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq("stripe_subscription_id", sub.id);
+                .select("billing_event_at, updated_at")
+                .eq("stripe_subscription_id", sub.id)
+                .maybeSingle();
+              const billingColumnsMissing = !!billingReadErr && isMissingBillingColumn(billingReadErr);
+              const applyState = billingColumnsMissing
+                ? true
+                : shouldWriteSubscriptionState(
+                  authoritative,
+                  billingReadErr ? null : existingBilling,
+                  event.created,
+                ) && !billingReadErr;
+              const stateUpdate = {
+                status: state.status || "canceled",
+                current_period_end: state.current_period_end,
+                cancel_at_period_end: state.cancel_at_period_end,
+                trial_end: state.trial_end,
+                updated_at: new Date().toISOString(),
+              };
+              if (!applyState) {
+                console.log("[stripe-invoice-webhook] older or duplicate delete; status and period left unchanged", sub.id);
+              } else {
+                const billingPatch = billingColumnsMissing
+                  ? {}
+                  : authoritative
+                    ? {
+                      ...stripeSubscriptionBillingPatch(snap),
+                      billing_event_at: laterBillingEventAt(existingBilling, event.created),
+                    }
+                    : guardedBillingWrite(existingBilling, snap, event.created);
+                const { error: cancelWriteErr } = await supabase
+                  .from("stripe_subscriptions")
+                  .update({ ...stateUpdate, ...billingPatch })
+                  .eq("stripe_subscription_id", sub.id);
+                if (cancelWriteErr && isMissingBillingColumn(cancelWriteErr)) {
+                  await supabase
+                    .from("stripe_subscriptions")
+                    .update({
+                      status: stateUpdate.status,
+                      cancel_at_period_end: stateUpdate.cancel_at_period_end,
+                      updated_at: stateUpdate.updated_at,
+                    })
+                    .eq("stripe_subscription_id", sub.id);
+                } else if (cancelWriteErr) {
+                  console.error("[stripe-invoice-webhook] subscription cancel mirror failed:", cancelWriteErr);
+                }
+              }
 
-              // Guard is on the UPDATE: .neq(plan_type, lifetime) and a
-              // null-safe exclusion of grandfathered_lifetime true. A normal
-              // cancel, including grandfathered_lifetime null, still matches.
+              // An older delete must not downgrade the plan or cancel ads.
+              // When the write applies, main's helper still refuses lifetime
+              // and grandfathered orgs, and a failed plan write returns 500
+              // so Stripe retries.
+              const sourceIsEnded = state.status === "canceled"
+                || state.status === "cancelled"
+                || state.status === "incomplete_expired"
+                || state.status === "unpaid";
+              if (applyState && (!authoritative || sourceIsEnded)) {
               const { error: planErr, downgraded } = await downgradeOrgOnSubscriptionDeleted(
                 supabase,
                 membership.organization_id,
@@ -1677,6 +1762,7 @@ const handler = async (req: Request): Promise<Response> => {
                   "[stripe-invoice-webhook] Subscription deleted, left plan unchanged (lifetime or grandfathered):",
                   membership.organization_id,
                 );
+              }
               }
             }
           }
@@ -1971,11 +2057,27 @@ async function logSubscriptionOrphan(
  * bookings / customers / invoices. Called on subscription created/updated/
  * deleted and on invoice.paid.
  */
+/**
+ * Read the subscription from the SaaS billing account. Retrieve only —
+ * no update, invoice, or refund. Null when Stripe cannot be read; the
+ * caller then keeps the event payload behind the billing_event_at guard.
+ */
+async function readCurrentSaasSubscription(id: string): Promise<Stripe.Subscription | null> {
+  try {
+    return await billingStripe().subscriptions.retrieve(id);
+  } catch (err) {
+    console.error("[stripe-invoice-webhook] subscriptions.retrieve failed; status falls back to the event guard:", err);
+    return null;
+  }
+}
+
 async function upsertStripeSubscription(
   supabase: any,
   orgId: string,
   subscription: Stripe.Subscription,
-): Promise<void> {
+  eventCreatedSec: number | null,
+  authoritative: boolean,
+): Promise<boolean> {
   const item = subscription.items?.data?.[0];
   const price = item?.price;
   const meta = (subscription.metadata ?? {}) as Record<string, string>;
@@ -1987,34 +2089,192 @@ async function upsertStripeSubscription(
     ((subscription as any).current_period_end as number | undefined);
   const trialEndSec = (subscription as any).trial_end as number | undefined;
 
-  const row = {
+  const snap = subscriptionBillingSnapshot(subscription);
+  const state = subscriptionStateFields(subscription);
+  const legacyRow = {
     organization_id: orgId,
     stripe_subscription_id: subscription.id,
     stripe_customer_id: subscription.customer as string,
     stripe_price_id: price?.id ?? null,
-    status: subscription.status,
+    status: state.status,
     plan: (meta.tidywise_plan as string | undefined) ?? null,
-    billing_interval: price?.recurring?.interval ?? null,
+    billing_interval: snap.billingInterval ?? price?.recurring?.interval ?? null,
     current_period_end: currentPeriodEndSec
       ? new Date(currentPeriodEndSec * 1000).toISOString()
-      : null,
-    cancel_at_period_end: !!subscription.cancel_at_period_end,
-    trial_end: trialEndSec ? new Date(trialEndSec * 1000).toISOString() : null,
+      : state.current_period_end,
+    cancel_at_period_end: state.cancel_at_period_end,
+    trial_end: trialEndSec ? new Date(trialEndSec * 1000).toISOString() : state.trial_end,
     metadata: meta,
     updated_at: new Date().toISOString(),
   };
 
+  const { data: existingBilling, error: billingReadErr } = await supabase
+    .from("stripe_subscriptions")
+    .select("billing_event_at, updated_at")
+    .eq("stripe_subscription_id", subscription.id)
+    .maybeSingle();
+  if (billingReadErr && isMissingBillingColumn(billingReadErr)) {
+    const { error: fallbackError } = await supabase
+      .from("stripe_subscriptions")
+      .upsert(legacyRow, { onConflict: "stripe_subscription_id" });
+    if (fallbackError) {
+      console.error("[stripe-invoice-webhook] stripe_subscriptions upsert failed:", fallbackError);
+      return false;
+    }
+    return true;
+  }
+  if (billingReadErr) {
+    console.error("[stripe-invoice-webhook] billing guard read failed; status and period left unchanged:", billingReadErr);
+    return false;
+  }
+  if (!shouldWriteSubscriptionState(authoritative, existingBilling, eventCreatedSec)) {
+    console.log("[stripe-invoice-webhook] older or duplicate subscription event; status and period left unchanged", {
+      subId: subscription.id,
+    });
+    return false;
+  }
+
+  const billingPatch = authoritative
+    ? {
+      ...stripeSubscriptionBillingPatch(snap),
+      billing_event_at: laterBillingEventAt(existingBilling, eventCreatedSec),
+    }
+    : guardedBillingWrite(existingBilling, snap, eventCreatedSec);
   const { error } = await supabase
     .from("stripe_subscriptions")
-    .upsert(row, { onConflict: "stripe_subscription_id" });
+    .upsert({ ...legacyRow, ...billingPatch }, { onConflict: "stripe_subscription_id" });
+  if (error && isMissingBillingColumn(error)) {
+    const { error: fallbackError } = await supabase
+      .from("stripe_subscriptions")
+      .upsert(legacyRow, { onConflict: "stripe_subscription_id" });
+    if (fallbackError) {
+      console.error("[stripe-invoice-webhook] stripe_subscriptions upsert failed:", fallbackError);
+      return false;
+    }
+    return true;
+  }
   if (error) {
     console.error("[stripe-invoice-webhook] stripe_subscriptions upsert failed:", error);
-  } else {
-    console.log("[stripe-invoice-webhook] stripe_subscriptions upserted", {
-      orgId,
-      subId: subscription.id,
-      status: subscription.status,
-    });
+    return false;
+  }
+  console.log("[stripe-invoice-webhook] stripe_subscriptions upserted", {
+    orgId,
+    subId: subscription.id,
+    status: state.status,
+    authoritative,
+  });
+  return true;
+}
+
+/**
+ * Writes charge.refunded onto platform_subscription_refunds.
+ * Org linkage is a lookup on stripe_subscriptions, not a Stripe call.
+ * A missing table (migration not applied) is logged and ignored.
+ */
+async function persistSaasRefunds(
+  supabase: any,
+  charge: Stripe.Charge,
+  eventCreatedSec: number,
+  eventAccount: string | null | undefined,
+): Promise<void> {
+  if (typeof eventAccount === "string" && eventAccount.trim() !== "") {
+    console.log("[stripe-invoice-webhook] skipping connected-account refund", { account: eventAccount, charge: charge.id });
+    return;
+  }
+
+  let resolvedSubscriptionId: string | null = null;
+  let purpose: string | null = null;
+  const invoice = charge.invoice as { subscription?: unknown; metadata?: { purpose?: string } } | string | null;
+  if (invoice && typeof invoice === "object") {
+    purpose = invoice.metadata?.purpose ?? null;
+  } else if (typeof invoice === "string" && invoice) {
+    try {
+      const loaded = await billingStripe().invoices.retrieve(invoice);
+      resolvedSubscriptionId = typeof loaded.subscription === "string"
+        ? loaded.subscription
+        : loaded.subscription?.id ?? null;
+      purpose = loaded.metadata?.purpose ?? null;
+    } catch (err) {
+      console.error("[stripe-invoice-webhook] invoice retrieve failed; refund counts only if it is a lifetime purchase:", err);
+    }
+  }
+
+  const paymentIntentId = typeof charge.payment_intent === "string"
+    ? charge.payment_intent
+    : charge.payment_intent?.id ?? null;
+  let linkedLifetimePurchase = false;
+  let lifetimeOrgId: string | null = null;
+  if (paymentIntentId) {
+    const { data, error } = await supabase
+      .from("lifetime_access_purchases")
+      .select("organization_id")
+      .eq("stripe_payment_intent_id", paymentIntentId)
+      .limit(1);
+    if (error) {
+      console.error("[stripe-invoice-webhook] lifetime purchase lookup failed:", error);
+    } else if (data && data.length > 0) {
+      linkedLifetimePurchase = true;
+      lifetimeOrgId = data[0].organization_id ?? null;
+    }
+  }
+
+  const classification = classifySaasRefund({
+    account: eventAccount,
+    charge,
+    linkedLifetimePurchase,
+    resolvedSubscriptionId,
+    purpose,
+  });
+  if (!classification) return;
+
+  const drafts = saasRefundDrafts(charge, eventCreatedSec);
+  if (drafts.length === 0) return;
+
+  const customerId = drafts[0].stripeCustomerId;
+  let organizationId: string | null = lifetimeOrgId;
+  if (!organizationId && customerId) {
+    const { data, error } = await supabase
+      .from("stripe_subscriptions")
+      .select("organization_id")
+      .eq("stripe_customer_id", customerId)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+    if (error) {
+      console.error("[stripe-invoice-webhook] refund org lookup failed:", error);
+    } else {
+      organizationId = data?.[0]?.organization_id ?? null;
+    }
+  }
+
+  const rows = drafts.map((draft) => ({
+    organization_id: organizationId,
+    stripe_refund_id: draft.stripeRefundId,
+    stripe_charge_id: draft.stripeChargeId,
+    stripe_customer_id: draft.stripeCustomerId,
+    stripe_invoice_id: draft.stripeInvoiceId,
+    stripe_subscription_id: classification.subscriptionId,
+    amount_cents: draft.amountCents,
+    currency: draft.currency,
+    refunded_at: draft.refundedAt,
+    refund_kind: classification.kind,
+    source: "charge.refunded",
+  }));
+
+  const { error } = await supabase
+    .from("platform_subscription_refunds")
+    .upsert(rows, { onConflict: "stripe_refund_id" });
+  if (error && isMissingBillingColumn(error)) {
+    const withoutKind = rows.map(({ refund_kind: _kind, ...rest }) => rest);
+    const { error: fallbackError } = await supabase
+      .from("platform_subscription_refunds")
+      .upsert(withoutKind, { onConflict: "stripe_refund_id" });
+    if (fallbackError && !isMissingBillingColumn(fallbackError)) {
+      console.error("[stripe-invoice-webhook] platform_subscription_refunds upsert failed:", fallbackError);
+    }
+    return;
+  }
+  if (error) {
+    console.error("[stripe-invoice-webhook] platform_subscription_refunds upsert failed:", error);
   }
 }
 
