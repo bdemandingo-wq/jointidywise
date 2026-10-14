@@ -6,9 +6,11 @@
 //   node --experimental-strip-types --test src/lib/utmAttribution.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   UTM_STORAGE_KEY,
   UTM_TTL_MS,
+  attributionSaveSucceeded,
   captureUtmFromLocation,
   clearCapturedUtm,
   countWithAttribution,
@@ -19,6 +21,8 @@ import {
   normalizeUtmValue,
   parseStoredAttribution,
   readCapturedUtm,
+  referrerDomain,
+  sanitizeLandingPath,
   shouldCaptureLanding,
   signupAttributionArgs,
   summariseUtm,
@@ -50,8 +54,11 @@ test("a real campaign is captured raw and readable", () => {
   assert.equal(captured?.utm_source, "TikTok");
   assert.equal(captured?.utm_medium, "Carousel");
   assert.equal(captured?.utm_campaign, "Onboarding");
-  assert.equal(captured?.referrer, "https://www.tiktok.com/");
-  assert.equal(captured?.landing_page, landing.href);
+  assert.equal(captured?.referrer, "www.tiktok.com");
+  assert.equal(captured?.landing_page, "/");
+  const stored = storage.getItem(UTM_STORAGE_KEY) ?? "";
+  assert.equal(stored.includes("utm_source=TikTok"), false);
+  assert.equal(stored.includes("https://"), false);
 });
 
 test("a different campaign stays distinct", () => {
@@ -81,7 +88,7 @@ test("first touch wins, including a direct landing before a later campaign", () 
   captureUtmFromLocation(landing, "https://www.tiktok.com/", storage, 20);
   const captured = readCapturedUtm(storage, 20);
   assert.equal(captured?.utm_source, null);
-  assert.equal(captured?.landing_page, "https://jointidywise.com/");
+  assert.equal(captured?.landing_page, "/");
   assert.equal(captured?.capturedAt, 10);
 });
 
@@ -151,11 +158,19 @@ test("hash-router query params are captured", () => {
   );
   assert.equal(readCapturedUtm(storage)?.utm_source, "meta");
   assert.equal(readCapturedUtm(storage)?.utm_medium, "cpc");
+  assert.equal(readCapturedUtm(storage)?.landing_page, "/signup");
+  assert.equal((storage.getItem(UTM_STORAGE_KEY) ?? "").includes("#"), false);
+  assert.equal((storage.getItem(UTM_STORAGE_KEY) ?? "").includes("?"), false);
 });
 
 test("a dashboard visit does not become the first touch", () => {
   assert.equal(shouldCaptureLanding("/dashboard"), false);
   assert.equal(shouldCaptureLanding("/dashboard/customers"), false);
+  assert.equal(shouldCaptureLanding("/set-password"), false);
+  assert.equal(shouldCaptureLanding("/auth"), false);
+  assert.equal(shouldCaptureLanding("/auth/callback"), false);
+  assert.equal(shouldCaptureLanding("/accept-invite"), false);
+  assert.equal(shouldCaptureLanding("/reset-password"), false);
   assert.equal(shouldCaptureLanding("/"), true);
   assert.equal(shouldCaptureLanding("/signup"), true);
   const storage = memoryStorage();
@@ -173,6 +188,136 @@ test("a dashboard visit does not become the first touch", () => {
   assert.equal(readCapturedUtm(storage)?.utm_source, "winback");
 });
 
+const TOKEN = "invite-secret-value";
+
+test("auth links are not stored, including token hashes", () => {
+  for (const path of ["/set-password", "/auth", "/auth/confirm", "/accept-invite", "/reset-password"]) {
+    const storage = memoryStorage();
+    let cookie: string | null = null;
+    const jar: UtmCookieJar = {
+      get: () => cookie,
+      set: (value) => { cookie = value; },
+      clear: () => { cookie = null; },
+    };
+    captureUtmFromLocation(
+      {
+        href: `https://jointidywise.com${path}?token=${TOKEN}&code=${TOKEN}&type=recovery#access_token=${TOKEN}&refresh_token=${TOKEN}`,
+        origin: "https://jointidywise.com",
+        pathname: path,
+        search: `?token=${TOKEN}&code=${TOKEN}&type=recovery`,
+        hash: `#access_token=${TOKEN}&refresh_token=${TOKEN}`,
+      },
+      `https://mail.google.com/mail/u/0/?token=${TOKEN}`,
+      storage,
+      5,
+      jar,
+    );
+    assert.equal(readCapturedUtm(storage, 5, jar), null);
+    assert.equal(storage.getItem(UTM_STORAGE_KEY), null);
+    assert.equal(cookie, null);
+  }
+});
+
+test("a campaign on an auth url keeps utm values, the path, and the referrer domain", () => {
+  const storage = memoryStorage();
+  let cookie: string | null = null;
+  const jar: UtmCookieJar = {
+    get: () => cookie,
+    set: (value) => { cookie = value; },
+    clear: () => { cookie = null; },
+  };
+  captureUtmFromLocation(
+    {
+      href: `https://jointidywise.com/set-password?utm_source=email&utm_medium=lifecycle&token=${TOKEN}&code=${TOKEN}&type=recovery#access_token=${TOKEN}&refresh_token=${TOKEN}`,
+      pathname: "/set-password",
+      search: `?utm_source=email&utm_medium=lifecycle&token=${TOKEN}&code=${TOKEN}&type=recovery`,
+      hash: `#access_token=${TOKEN}&refresh_token=${TOKEN}`,
+    },
+    `https://mail.google.com/mail/u/0/?token=${TOKEN}`,
+    storage,
+    5,
+    jar,
+  );
+  const captured = readCapturedUtm(storage, 5, jar);
+  assert.equal(captured?.utm_source, "email");
+  assert.equal(captured?.utm_medium, "lifecycle");
+  assert.equal(captured?.utm_campaign, null);
+  assert.equal(captured?.utm_term, null);
+  assert.equal(captured?.utm_content, null);
+  assert.equal(captured?.landing_page, "/set-password");
+  assert.equal(captured?.referrer, "mail.google.com");
+  const blob = `${storage.getItem(UTM_STORAGE_KEY) ?? ""}\n${cookie ?? ""}`;
+  assert.equal(blob.includes(TOKEN), false);
+  assert.equal(blob.includes("access_token"), false);
+  assert.equal(blob.includes("refresh_token"), false);
+  assert.equal(blob.includes("https://"), false);
+  assert.equal(blob.includes("?"), false);
+  assert.equal(blob.includes("#"), false);
+  const args = signupAttributionArgs(captured, 5);
+  assert.equal(args.p_utm_source, "email");
+  assert.equal(args.p_landing_page, "/set-password");
+  assert.equal(args.p_referrer, "mail.google.com");
+  assert.equal(JSON.stringify(args).includes(TOKEN), false);
+});
+
+test("signup args and a poisoned capture drop the query, hash, and referrer path", () => {
+  assert.equal(sanitizeLandingPath(`https://jointidywise.com/pricing?utm_source=TikTok#access_token=${TOKEN}`), "/pricing");
+  assert.equal(sanitizeLandingPath(`https://jointidywise.com/#/signup?utm_source=meta&access_token=${TOKEN}`), "/signup");
+  assert.equal(referrerDomain(`https://user:pass@www.tiktok.com:443/tag/clean?x=${TOKEN}#frag`), "www.tiktok.com");
+  const args = signupAttributionArgs({
+    utm_source: "TikTok",
+    utm_medium: null,
+    utm_campaign: null,
+    utm_term: null,
+    utm_content: null,
+    referrer: `https://www.tiktok.com/tag/clean?x=${TOKEN}`,
+    landing_page: `https://jointidywise.com/set-password?token=${TOKEN}&type=recovery#access_token=${TOKEN}&refresh_token=${TOKEN}`,
+    capturedAt: 10,
+  });
+  assert.equal(args.p_utm_source, "TikTok");
+  assert.equal(args.p_landing_page, "/set-password");
+  assert.equal(args.p_referrer, "www.tiktok.com");
+  assert.equal(JSON.stringify(args).includes(TOKEN), false);
+
+  const poisoned = JSON.stringify({
+    utm_source: "google",
+    utm_medium: null,
+    utm_campaign: null,
+    utm_term: null,
+    utm_content: null,
+    referrer: `https://mail.google.com/mail/u/0/?token=${TOKEN}`,
+    landing_page: `https://jointidywise.com/pricing?code=${TOKEN}#access_token=${TOKEN}&refresh_token=${TOKEN}`,
+    capturedAt: 10,
+    expiresAt: 10 + UTM_TTL_MS,
+  });
+  const storage = memoryStorage({ [UTM_STORAGE_KEY]: poisoned });
+  let cookie: string | null = poisoned;
+  const jar: UtmCookieJar = {
+    get: () => cookie,
+    set: (value) => { cookie = value; },
+    clear: () => { cookie = null; },
+  };
+  const captured = readCapturedUtm(storage, 10, jar);
+  assert.equal(captured?.landing_page, "/pricing");
+  assert.equal(captured?.referrer, "mail.google.com");
+  assert.equal(captured?.utm_source, "google");
+  const blob = `${storage.getItem(UTM_STORAGE_KEY) ?? ""}\n${cookie ?? ""}`;
+  assert.equal(blob.includes(TOKEN), false);
+  assert.equal(blob.includes("access_token"), false);
+  assert.equal(blob.includes("refresh_token"), false);
+});
+
+test("a successful attribution save is what clears the capture", () => {
+  assert.equal(attributionSaveSucceeded(null), true);
+  assert.equal(attributionSaveSucceeded(undefined), true);
+  assert.equal(attributionSaveSucceeded({ message: "permission denied" }), false);
+  const source = readFileSync(new URL("./persistSignupAttribution.ts", import.meta.url), "utf8");
+  const guardAt = source.indexOf("if (!attributionSaveSucceeded(error))");
+  const clearAt = source.indexOf("clearCapturedUtm()");
+  assert.ok(guardAt > 0);
+  assert.ok(clearAt > guardAt);
+});
+
 test("the cookie is a fallback when localStorage is empty", () => {
   let cookie: string | null = null;
   const jar: UtmCookieJar = {
@@ -181,8 +326,11 @@ test("the cookie is a fallback when localStorage is empty", () => {
     clear: () => { cookie = null; },
   };
   const storage = memoryStorage();
-  captureUtmFromLocation(landing, "https://instagram.com/", storage, 50, jar);
+  captureUtmFromLocation(landing, "https://instagram.com/reels/123?ref=1", storage, 50, jar);
   assert.ok(cookie?.includes("TikTok"));
+  assert.equal(cookie?.includes("https://"), false);
+  assert.equal(cookie?.includes("/reels/"), false);
+  assert.equal(readCapturedUtm(storage, 50, jar)?.referrer, "instagram.com");
   const empty = memoryStorage();
   assert.equal(readCapturedUtm(empty, 50, jar)?.utm_campaign, "Onboarding");
   clearCapturedUtm(storage, jar);

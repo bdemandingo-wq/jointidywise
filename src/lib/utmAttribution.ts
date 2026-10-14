@@ -11,6 +11,14 @@
  * including a visit that had no UTM parameters, so a later campaign link does
  * not overwrite the original landing.
  *
+ * What is stored, and nothing else from the URL:
+ *   utm_source, utm_medium, utm_campaign, utm_term, utm_content
+ *   the landing path, with no origin, query string, or hash
+ *   the referrer's domain, with no path or query
+ * Invite and reset links put access_token and refresh_token in the hash.
+ * Those fragments are never written to localStorage, the cookie, or
+ * account_signup_attribution.
+ *
  * Keep normalizeUtmValue in sync with public.normalize_utm_value in
  * supabase/migrations/20261014230000_activation_tracking_and_signup_utm.sql.
  */
@@ -30,9 +38,19 @@ export const UTM_COOKIE_NAME = "tw_utm";
 export const UTM_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 export const UTM_TTL_SECONDS = 90 * 24 * 60 * 60;
 
-/** App shells are not a marketing landing. A direct visit there must not
- * become the first touch and block a real campaign link captured later. */
-const APP_PREFIXES = ["/dashboard", "/staff", "/portal", "/admin"];
+/** App shells and auth links are not a marketing landing. A direct visit
+ * there must not become the first touch and block a real campaign link
+ * captured later. Invite and reset URLs also carry session tokens. */
+const NO_CAPTURE_PREFIXES = [
+  "/dashboard",
+  "/staff",
+  "/portal",
+  "/admin",
+  "/set-password",
+  "/auth",
+  "/accept-invite",
+  "/reset-password",
+];
 
 export interface UtmStorage {
   getItem(key: string): string | null;
@@ -208,17 +226,67 @@ export function hasAnyUtm(fields: Pick<CapturedUtm, UtmParamKey>): boolean {
   return UTM_PARAM_KEYS.some((key) => fields[key] != null);
 }
 
-/** True for marketing and signup URLs. False for the logged-in app shells. */
+/** True for marketing and signup URLs. False for app shells and auth links. */
 export function shouldCaptureLanding(pathname: string): boolean {
   const path = pathname.length > 0 ? pathname : "/";
-  return !APP_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+  return !NO_CAPTURE_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
 }
 
 function hashRoutePath(hash: string): string | null {
   if (!hash.startsWith("#/")) return null;
   const raw = hash.slice(1);
-  const queryAt = raw.indexOf("?");
-  return queryAt >= 0 ? raw.slice(0, queryAt) : raw;
+  let cut = raw.length;
+  for (const mark of ["?", "&", "#"]) {
+    const at = raw.indexOf(mark);
+    if (at >= 0) cut = Math.min(cut, at);
+  }
+  return raw.slice(0, cut) || "/";
+}
+
+/**
+ * Path only. A full URL is reduced to its pathname. A client route in the
+ * hash (`#/signup`) contributes that path. A token fragment
+ * (`#access_token=`) is dropped. Query strings are dropped.
+ */
+export function sanitizeLandingPath(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  let path = value.trim();
+  if (path.length === 0) return null;
+  if (path.includes("://")) {
+    try {
+      const url = new URL(path);
+      path = hashRoutePath(url.hash) ?? url.pathname;
+    } catch {
+      // Not a URL. The query and hash strip below still applies.
+    }
+  }
+  const hashAt = path.indexOf("#");
+  if (hashAt >= 0) {
+    const route = hashRoutePath(path.slice(hashAt));
+    path = route ?? path.slice(0, hashAt);
+  }
+  const queryAt = path.indexOf("?");
+  if (queryAt >= 0) path = path.slice(0, queryAt);
+  const ampAt = path.indexOf("&");
+  if (ampAt >= 0) path = path.slice(0, ampAt);
+  path = path.trim();
+  if (path.length === 0) return "/";
+  if (!path.startsWith("/")) path = `/${path}`;
+  return cap(path, 2000);
+}
+
+/** Hostname only. Path, query, hash, userinfo, and port are dropped. */
+export function referrerDomain(value: string | null | undefined): string | null {
+  const raw = rawOrNull(value);
+  if (!raw) return null;
+  try {
+    const url = new URL(raw.includes("://") ? raw : `https://${raw}`);
+    const host = url.hostname.trim().toLowerCase();
+    if (host.length === 0) return null;
+    return cap(host, 253);
+  } catch {
+    return null;
+  }
 }
 
 function cap(value: string | null, max: number): string | null {
@@ -226,10 +294,8 @@ function cap(value: string | null, max: number): string | null {
   return value.length > max ? value.slice(0, max) : value;
 }
 
-function landingFromLocation(loc: { href?: string; origin?: string; pathname: string; search: string; hash?: string }): string {
-  if (typeof loc.href === "string" && loc.href.length > 0) return cap(loc.href, 2000) ?? "";
-  const origin = loc.origin ?? "";
-  return cap(`${origin}${loc.pathname}${loc.search}${loc.hash ?? ""}`, 2000) ?? "";
+function landingFromLocation(loc: { pathname: string; hash?: string }): string | null {
+  return sanitizeLandingPath(hashRoutePath(loc.hash ?? "") ?? (loc.pathname || "/"));
 }
 
 function parseStored(raw: string | null, now: number): CapturedUtm | null {
@@ -300,7 +366,7 @@ export function captureUtmFromLocation(
 
     const capture: CapturedUtm = {
       ...fields,
-      referrer: cap(rawOrNull(referrer), 2000),
+      referrer: referrerDomain(referrer),
       landing_page: landingFromLocation(loc),
       capturedAt: now,
     };
@@ -310,6 +376,30 @@ export function captureUtmFromLocation(
   }
 }
 
+function scrubCaptured(capture: CapturedUtm): CapturedUtm {
+  return {
+    ...capture,
+    referrer: referrerDomain(capture.referrer),
+    landing_page: sanitizeLandingPath(capture.landing_page),
+  };
+}
+
+/** A capture written before the path/domain limit is rewritten in place. */
+function presentCapture(
+  parsed: CapturedUtm,
+  storage: UtmStorage,
+  cookies: UtmCookieJar | undefined,
+): CapturedUtm {
+  const clean = scrubCaptured(parsed);
+  if (clean.referrer === parsed.referrer && clean.landing_page === parsed.landing_page) return clean;
+  try {
+    remember(clean, storage, parsed.capturedAt, cookies);
+  } catch {
+    // The in-memory value is already reduced. A failed rewrite must not throw.
+  }
+  return clean;
+}
+
 export function readCapturedUtm(
   storage: UtmStorage = defaultStorage(),
   now: number = Date.now(),
@@ -317,13 +407,15 @@ export function readCapturedUtm(
 ): CapturedUtm | null {
   try {
     const stored = parseStored(storage.getItem(UTM_STORAGE_KEY), now);
-    if (stored) return stored;
+    if (stored) return presentCapture(stored, storage, cookies ?? defaultCookies());
   } catch {
     // Fall through to the cookie.
   }
   try {
     const jar = cookies ?? defaultCookies();
-    return parseStored(jar?.get() ?? null, now);
+    const stored = parseStored(jar?.get() ?? null, now);
+    if (!stored) return null;
+    return presentCapture(stored, storage, jar);
   } catch {
     return null;
   }
@@ -363,8 +455,8 @@ export function signupAttributionArgs(captured: CapturedUtm | null, now: number 
     p_utm_campaign: cap(fields.utm_campaign, 500),
     p_utm_term: cap(fields.utm_term, 500),
     p_utm_content: cap(fields.utm_content, 500),
-    p_referrer: cap(fields.referrer, 2000),
-    p_landing_page: cap(fields.landing_page, 2000),
+    p_referrer: referrerDomain(fields.referrer),
+    p_landing_page: sanitizeLandingPath(fields.landing_page),
     p_captured_at: new Date(fields.capturedAt).toISOString(),
   };
 }
@@ -430,6 +522,14 @@ export function describeUtm(raw: unknown): UtmDetailLine[] {
   if (row.referrer) lines.push({ label: "Referrer", value: row.referrer });
   if (row.landing_page) lines.push({ label: "Landing page", value: row.landing_page });
   return lines;
+}
+
+/** True when save_signup_attribution accepted the call. An error keeps the
+ * capture so the next signed-in page can retry. A skipped insert (account
+ * already had a row, or the landing was too late) still counts: the database
+ * did not ask for another try. */
+export function attributionSaveSucceeded(error: { message?: string } | null | undefined): boolean {
+  return error == null;
 }
 
 export function countWithAttribution(rows: Array<{ attribution?: unknown }>): number {

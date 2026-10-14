@@ -146,5 +146,8 @@ test("follow-up guards are in the migration and can be re-applied", () => {
   assert.match(migration, /interval '90 days'/);
   assert.match(migration, /cron\.unschedule\('activation-trigger-log-purge'\)/);
   assert.match(migration, /pg_cron/);
-  assert.equal(migration.trimEnd().endsWith("COMMIT;") || migration.includes("\nCOMMIT;\n"), true);
+  assert.doesNotMatch(migration, /^BEGIN;\s*$/m);
+  assert.doesNotMatch(migration, /^COMMIT;\s*$/m);
+  assert.match(migration, /public\.signup_landing_path\(p_landing_page\)/);
+  assert.match(migration, /public\.signup_referrer_domain\(p_referrer\)/);
 });

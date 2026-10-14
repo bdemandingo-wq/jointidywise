@@ -1,8 +1,8 @@
 -- Activation milestones and first-touch signup attribution.
 --
 -- The owner runs this by hand in the SQL editor. It does not call Stripe.
--- The whole file is one transaction. If the SQL editor already opened one,
--- BEGIN is a warning and this COMMIT still commits that transaction.
+-- This file does not open or commit its own transaction. The SQL editor
+-- wraps the script. An extra BEGIN/COMMIT would commit that wrapper early.
 --
 -- Milestone keys (one row per organization, the first time it happens).
 -- Keep this list identical to ACTIVATION_MILESTONES in
@@ -49,6 +49,12 @@
 -- When a signup has no utm_source, the normalized column is 'direct'.
 -- The raw column stays null. 'direct' is never written into utm_source_raw.
 --
+-- The only URL pieces stored are the utm_* values, the landing path (no
+-- origin, query string, or hash), and the referrer's domain (no path or
+-- query). save_signup_attribution applies that reduction even if the client
+-- sends a full URL. Invite hashes (access_token, refresh_token) are not
+-- columns and are not kept.
+--
 -- Demo orgs never keep a milestone row. A row is demo when any of these
 -- is true:
 --   organization_pricing_settings.demo_mode_enabled
@@ -61,8 +67,6 @@
 -- Turning demo mode on deletes that org's milestone rows. Reads also hide
 -- demo orgs, so a trial_signup written before the demo flag existed does
 -- not show up.
-
-BEGIN;
 
 -- ---------------------------------------------------------------------------
 -- Columns on existing tables
@@ -255,9 +259,9 @@ COMMENT ON COLUMN public.account_signup_attribution.utm_content_raw IS
 COMMENT ON COLUMN public.account_signup_attribution.utm_content IS
   'Trimmed, lowercased utm_content. Null when absent.';
 COMMENT ON COLUMN public.account_signup_attribution.referrer IS
-  'document.referrer from the first captured landing. Not lowercased.';
+  'Hostname of the first captured referrer. No scheme, path, query, or hash. Lowercased.';
 COMMENT ON COLUMN public.account_signup_attribution.landing_page IS
-  'First landing URL. Not lowercased.';
+  'Path of the first captured landing. No origin, query string, or hash.';
 
 -- ---------------------------------------------------------------------------
 -- Helpers
@@ -1158,9 +1162,90 @@ REVOKE ALL ON FUNCTION public.touch_my_last_login() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.touch_my_last_login() TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- Save attribution at signup. First write wins. The client sends raw values;
--- this function stores null for whitespace-only and computes the normalized
--- copies, including direct.
+-- Save attribution at signup. First write wins. The client sends raw utm
+-- values; this function stores null for whitespace-only and computes the
+-- normalized copies, including direct. Referrer is reduced to a domain and
+-- landing page to a path, so a full URL cannot land in the table.
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.signup_landing_path(p_value text)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  v text := btrim(COALESCE(p_value, ''));
+  v_hash text;
+BEGIN
+  IF v = '' THEN
+    RETURN NULL;
+  END IF;
+  IF position('://' in v) > 0 THEN
+    v := regexp_replace(v, '^[^:]+://[^/?#]*', '');
+    IF v = '' THEN
+      v := '/';
+    END IF;
+  END IF;
+  IF position('#' in v) > 0 THEN
+    v_hash := substring(v from position('#' in v));
+    IF v_hash ~ '^#/' THEN
+      v := substring(v_hash from 2);
+    ELSE
+      v := substring(v from 1 for position('#' in v) - 1);
+    END IF;
+  END IF;
+  IF position('?' in v) > 0 THEN
+    v := substring(v from 1 for position('?' in v) - 1);
+  END IF;
+  IF position('&' in v) > 0 THEN
+    v := substring(v from 1 for position('&' in v) - 1);
+  END IF;
+  v := btrim(v);
+  IF v = '' THEN
+    RETURN '/';
+  END IF;
+  IF left(v, 1) <> '/' THEN
+    v := '/' || v;
+  END IF;
+  RETURN NULLIF(left(v, 2000), '');
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.signup_landing_path(text) FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.signup_referrer_domain(p_value text)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+DECLARE
+  v text := btrim(COALESCE(p_value, ''));
+BEGIN
+  IF v = '' THEN
+    RETURN NULL;
+  END IF;
+  v := regexp_replace(v, '^[a-zA-Z][a-zA-Z0-9+.-]*://', '');
+  IF position('@' in v) > 0 THEN
+    v := substring(v from position('@' in v) + 1);
+  END IF;
+  v := split_part(split_part(split_part(v, '/', 1), '?', 1), '#', 1);
+  IF v ~ '^\[[0-9a-fA-F:]+\]' THEN
+    v := substring(v from 2 for position(']' in v) - 2);
+  ELSE
+    v := split_part(v, ':', 1);
+  END IF;
+  v := lower(btrim(v));
+  IF v = '' OR position(' ' in v) > 0 THEN
+    RETURN NULL;
+  END IF;
+  RETURN NULLIF(left(v, 253), '');
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.signup_referrer_domain(text) FROM PUBLIC, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Save attribution at signup.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.save_signup_attribution(
@@ -1242,8 +1327,8 @@ BEGIN
       public.normalize_utm_value(v_term_raw),
       v_content_raw,
       public.normalize_utm_value(v_content_raw),
-      NULLIF(left(btrim(COALESCE(p_referrer, '')), 2000), ''),
-      NULLIF(left(btrim(COALESCE(p_landing_page, '')), 2000), ''),
+      public.signup_referrer_domain(p_referrer),
+      public.signup_landing_path(p_landing_page),
       v_landing
     )
     ON CONFLICT (user_id) DO NOTHING;
@@ -1464,11 +1549,9 @@ BEGIN
   );
 END $$;
 
-COMMIT;
-
 -- ---------------------------------------------------------------------------
 -- Post-deploy verification. These statements are comments so applying the
--- file does not depend on them. Run them in the SQL editor after COMMIT.
+-- file does not depend on them. Run them in the SQL editor after this file.
 -- A growing activation_trigger_log means a trigger is failing quietly.
 -- The business write still succeeded; the milestone did not.
 --
