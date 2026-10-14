@@ -481,8 +481,17 @@ Deno.serve(async (req) => {
       return json({ error: `resource must be one of ${RESOURCES.join(", ")}` }, 400);
     }
 
-    const key = Deno.env.get("STRIPE_BACKFILL_READ_KEY");
-    if (!key) return json({ error: "STRIPE_BACKFILL_READ_KEY is not set" }, 500);
+    // New billing account when STRIPE_BILLING_SECRET_KEY is set. Until then
+    // keep STRIPE_BACKFILL_READ_KEY, the restricted key this job already
+    // uses. STRIPE_SECRET_KEY is the last fallback. A restricted key on the
+    // new account can be stored as STRIPE_BILLING_SECRET_KEY.
+    const key = (
+      Deno.env.get("STRIPE_BILLING_SECRET_KEY")
+      || Deno.env.get("STRIPE_BACKFILL_READ_KEY")
+      || Deno.env.get("STRIPE_SECRET_KEY")
+      || ""
+    ).trim();
+    if (!key) return json({ error: "STRIPE_BILLING_SECRET_KEY is not set" }, 500);
     const stripe = new Stripe(key, { apiVersion: "2025-08-27.basil" });
 
     // --- job row

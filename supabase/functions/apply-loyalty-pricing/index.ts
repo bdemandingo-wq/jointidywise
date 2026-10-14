@@ -5,8 +5,9 @@
 // does not collect a payment for the current period. This function never
 // creates a charge, invoice, checkout session, or PaymentIntent.
 //
-// STRIPE_SECRET_KEY may be live. That is the key the renewal coupon has to
-// use. Do not point a test-card script at this function.
+// STRIPE_BILLING_SECRET_KEY (or STRIPE_SECRET_KEY until that is set) may be
+// live. That is the key the renewal coupon has to use. Do not point a
+// test-card script at this function.
 // Set LOYALTY_PRICING_DRY_RUN=1 to write the clock and skip the coupon update.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
@@ -14,6 +15,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { stripeKeyMode } from "../_shared/stripe-key-mode.ts";
 import { syncLoyaltySubscription } from "../_shared/loyalty-pricing-sync.ts";
+import { billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -31,9 +33,9 @@ function rankStatus(status: string | null): number {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+  const stripeKey = billingSecretKey();
   if (!stripeKey) {
-    return new Response(JSON.stringify({ error: "STRIPE_SECRET_KEY is not set" }), {
+    return new Response(JSON.stringify({ error: "STRIPE_BILLING_SECRET_KEY is not set" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

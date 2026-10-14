@@ -1,11 +1,12 @@
 // Self-serve cancellation for a TidyWise CRM (platform SaaS) subscription.
 // - Sets cancel_at_period_end = true on the user's Stripe subscription.
 // - Writes a cancellation_feedback row capturing the reason.
-// - Does NOT touch Stripe Connect (cleaner-payout) flow — uses the platform STRIPE_SECRET_KEY only.
+// - Does NOT touch Stripe Connect (cleaner-payout) flow — uses the billing account key only.
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { authenticateUser } from "../_shared/auth-org.ts";
+import { billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -76,8 +77,8 @@ serve(async (req) => {
       );
     }
 
-    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
-    if (!stripeKey) throw new Error("STRIPE_SECRET_KEY is not set");
+    const stripeKey = billingSecretKey();
+    if (!stripeKey) throw new Error("STRIPE_BILLING_SECRET_KEY is not set");
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
 
     // Find the platform customer + subscription for this user (by email)

@@ -4,6 +4,8 @@
 // when the session finishes. Do not also send success_url or cancel_url —
 // Stripe rejects that combination.
 
+import { billingPublishableKey } from "./billing-stripe.ts";
+
 export function embeddedCheckoutParams(origin: string): {
   ui_mode: "embedded";
   return_url: string;
@@ -17,11 +19,13 @@ export function embeddedCheckoutParams(origin: string): {
   };
 }
 
-/** Platform publishable key. Public by design; must match STRIPE_SECRET_KEY's account. */
+/**
+ * Billing-account publishable key. Public by design.
+ * STRIPE_BILLING_PUBLISHABLE_KEY, then STRIPE_PUBLISHABLE_KEY.
+ * Must be the same Stripe account as the billing secret.
+ */
 export function readPublishableKey(): string | null {
-  const key = Deno.env.get("STRIPE_PUBLISHABLE_KEY") ?? "";
-  if (key.startsWith("pk_test_") || key.startsWith("pk_live_")) return key;
-  return null;
+  return billingPublishableKey();
 }
 
 export function embeddedCheckoutBody(

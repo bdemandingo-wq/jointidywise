@@ -5,6 +5,7 @@ import { REFUND_POLICY, CANCELLATION_POLICY, POLICY_DISCLOSURE, TOS_VERSION } fr
 import { rejectReason, isVested } from "../_shared/referral-eligibility.ts";
 import { recordReferralInvoicePaid, recordReferralReversal, type BalanceClient } from "../_shared/saas-referral-db.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
+import { verifyStripeWebhook } from "../_shared/billing-stripe.ts";
 
 /**
  * Count a redeemed referral month.
@@ -119,54 +120,41 @@ const handler = async (req: Request): Promise<Response> => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-  const stripeWebhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
 
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const body = await req.text();
     const signature = req.headers.get("stripe-signature");
 
-    let event: Stripe.Event;
-
-    // Verify signature. Fail closed if the webhook secret isn't
-    // configured — silently processing unsigned events would let any
-    // caller who can reach the function URL forge subscription /
-    // dispute state.
-    if (!stripeWebhookSecret) {
-      console.error("[stripe-invoice-webhook] STRIPE_WEBHOOK_SECRET not configured — refusing to process unsigned events");
-      return new Response(
-        JSON.stringify({ error: "Webhook secret not configured" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    // Either account may post here. The secret that verifies the body
+    // chooses the Stripe client for every later API call in this request.
+    // STRIPE_WEBHOOK_SECRET is the Connect platform. STRIPE_BILLING_WEBHOOK_SECRET
+    // is TidyWise's own billing account. Fail closed if neither is set.
     if (!signature) {
       return new Response(
         JSON.stringify({ error: "Missing stripe-signature header" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    const tempStripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "sk_placeholder", {
-      apiVersion: "2025-08-27.basil",
-    });
+    let event: Stripe.Event;
+    let stripe: Stripe;
+    let stripeAccount: "connect" | "billing";
     try {
-      // Deno's Web Crypto (SubtleCrypto) is async-only, so the
-      // synchronous constructEvent() throws "SubtleCryptoProvider
-      // cannot be used in a synchronous context". constructEventAsync
-      // is the Deno-compatible version. Same signature, just await it.
-      event = await tempStripe.webhooks.constructEventAsync(
-        body,
-        signature,
-        stripeWebhookSecret,
-      );
+      const verified = await verifyStripeWebhook(body, signature);
+      event = verified.event;
+      stripe = verified.stripe;
+      stripeAccount = verified.account;
     } catch (err: any) {
-      console.error("[stripe-invoice-webhook] Webhook signature verification failed:", err.message);
+      const message = err?.message || "Webhook signature verification failed";
+      const status = message === "Webhook secret not configured" ? 500 : 400;
+      console.error("[stripe-invoice-webhook]", message);
       return new Response(
-        JSON.stringify({ error: `Webhook signature verification failed: ${err.message}` }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({ error: message }),
+        { status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log("[stripe-invoice-webhook] Received Stripe event:", event.type, event.id);
+    console.log("[stripe-invoice-webhook] Received Stripe event:", event.type, event.id, stripeAccount);
 
     // ── IDEMPOTENCY CHECK ───────────────────────────────────────────────────
     // Stripe may retry events; ensure we only process each event once.
@@ -284,9 +272,6 @@ const handler = async (req: Request): Promise<Response> => {
 
       // Get customer details from Stripe
       try {
-        const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
-          apiVersion: "2025-08-27.basil"
-        });
         const customer = await stripe.customers.retrieve(customerId);
         const email = (customer as Stripe.Customer).email || "Unknown";
         
@@ -355,9 +340,6 @@ const handler = async (req: Request): Promise<Response> => {
       // If we can't resolve an org, log an orphan + admin SMS instead of
       // silently dropping (see jigdahifash incident).
       try {
-        const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
-          apiVersion: "2025-08-27.basil",
-        });
         const resolved = await resolveOrgIdForSubscription(supabase, stripe, subscription);
         if (resolved.orgId) {
           await upsertStripeSubscription(supabase, resolved.orgId, subscription);
@@ -386,9 +368,6 @@ const handler = async (req: Request): Promise<Response> => {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
-          apiVersion: "2025-08-27.basil",
-        });
         const resolved = await resolveOrgIdForSubscription(supabase, stripe, subscription);
         if (resolved.orgId) {
           await upsertStripeSubscription(supabase, resolved.orgId, subscription);
@@ -680,9 +659,6 @@ const handler = async (req: Request): Promise<Response> => {
                 claimErr.message,
               );
               if (session.payment_intent) {
-                const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
-                  apiVersion: "2025-08-27.basil",
-                });
                 await stripe.refunds.create({
                   payment_intent: session.payment_intent as string,
                   reason: "duplicate",
@@ -866,9 +842,6 @@ const handler = async (req: Request): Promise<Response> => {
               ? session.subscription
               : (session.subscription as any)?.id;
             if (stripeSubId) {
-              const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
-                apiVersion: "2025-08-27.basil",
-              });
               const fullSub = await stripe.subscriptions.retrieve(stripeSubId);
               let orgId: string | null = null;
               if (userId) {
@@ -1008,7 +981,6 @@ const handler = async (req: Request): Promise<Response> => {
 
       if (combined.purpose === "tidywise_saas_subscription" || invAny.subscription) {
         try {
-          const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", { apiVersion: "2025-08-27.basil" });
           if (!invAny.payment_intent && (inv.amount_paid ?? 0) > 0) {
             try {
               const full = await stripe.invoices.retrieve(inv.id, { expand: ["payments"] }) as any;
@@ -1251,9 +1223,6 @@ const handler = async (req: Request): Promise<Response> => {
     if (event.type === "charge.refunded") {
       try {
         const refundedCharge = event.data.object as Stripe.Charge;
-        const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
-          apiVersion: "2025-08-27.basil",
-        });
         const balance: BalanceClient = {
           createBalanceTransaction: (customerId, body, options) =>
             stripe.customers.createBalanceTransaction(customerId, body, {
@@ -1275,9 +1244,6 @@ const handler = async (req: Request): Promise<Response> => {
     if (event.type === "charge.dispute.created" || event.type === "charge.dispute.updated") {
       try {
         const dispute = event.data.object as Stripe.Dispute;
-        const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
-          apiVersion: "2025-08-27.basil",
-        });
 
         const charge = await stripe.charges.retrieve(dispute.charge as string);
 
@@ -1595,9 +1561,6 @@ const handler = async (req: Request): Promise<Response> => {
       try {
         const sub = event.data.object as Stripe.Subscription;
         const subMeta = (sub.metadata ?? {}) as Record<string, string>;
-        const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") || "", {
-          apiVersion: "2025-08-27.basil",
-        });
 
         // Branch 1: ad-management retainer cancelled (its own Stripe sub).
         // Just mark the row inactive; no cascade or plan-type change.
