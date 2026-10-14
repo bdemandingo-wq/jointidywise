@@ -168,9 +168,20 @@ serve(async (req) => {
         if (!value) return null;
         return Array.isArray(value) ? (value[0] ?? null) : value;
       };
+      const requestedOrgId = typeof bodyData.organization_id === "string"
+        ? bodyData.organization_id.trim()
+        : typeof bodyData.organizationId === "string"
+          ? bodyData.organizationId.trim()
+          : "";
+      // The active org the client is looking at wins when this user is a
+      // member of it. Otherwise keep the previous fallback: a trial org,
+      // then an owner/admin membership, then the first row.
+      const requestedMembership = requestedOrgId
+        ? memberships.find((row) => orgFrom(row)?.id === requestedOrgId)
+        : undefined;
       const trialMembership = memberships.find((row) => orgFrom(row)?.plan_type === "trial");
       const ownerMembership = memberships.find((row) => row.role === "owner" || row.role === "admin");
-      const chosen = trialMembership ?? ownerMembership ?? memberships[0];
+      const chosen = requestedMembership ?? trialMembership ?? ownerMembership ?? memberships[0];
       const org = chosen ? orgFrom(chosen) : null;
       referredOrgId = org?.id ?? null;
       orgPlanType = org?.plan_type ?? null;

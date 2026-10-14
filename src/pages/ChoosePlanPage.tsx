@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { useOrganization } from '@/contexts/OrganizationContext';
 import { useSubscription } from '@/hooks/useSubscription';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -112,6 +113,7 @@ export default function ChoosePlanPage() {
   const location = useLocation();
   const upgradeRequested = new URLSearchParams(location.search).get('upgrade') === '1';
   const { user, loading: authLoading, signOut, checkSubscription } = useAuth();
+  const { organization } = useOrganization();
   const { hasFullAccess, isLoading: subLoading } = useSubscription();
   const [billingInterval, setBillingInterval] = useState<Interval>('monthly');
   const [checkoutBusy, setCheckoutBusy] = useState<string | null>(null);
@@ -202,7 +204,11 @@ export default function ChoosePlanPage() {
       const { data, error } = planId === 'lifetime'
         ? await supabase.functions.invoke('buy-lifetime', { body: {} })
         : await supabase.functions.invoke('create-subscription', {
-            body: { plan: planId, interval: billingInterval },
+            body: {
+              plan: planId,
+              interval: billingInterval,
+              ...(organization?.id ? { organization_id: organization.id } : {}),
+            },
           });
       // Was a hand-rolled copy of readEdgeFunctionError. Folded into the shared
       // helper so the sold-out and already-subscribed messages buy-lifetime and

@@ -30,6 +30,7 @@ import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { usePublicGrowth } from '@/hooks/usePublicGrowth';
 import { GrowthUpgradeCard } from '@/components/growth/GrowthUpgradeCard';
 import { ActivityFeedCard } from '@/components/growth/ActivityFeedCard';
+import { rowsForCurrentOrg } from '@/lib/sameOrgPlaceholder';
 
 
 // Lazy load the heavy ReportsOverview component
@@ -101,15 +102,26 @@ function getGreeting() {
 }
 
 export default function AdminDashboard() {
-  const { data: bookings = [], isLoading: bookingsLoading } = useDashboardUpcoming();
+  const { organization } = useOrganization();
+  const orgId = organization?.id;
+  const upcoming = useDashboardUpcoming();
+  // isPlaceholderData is the previous query. Keep it only when its org id
+  // matches. A switch to another org clears the rows and shows the skeleton.
+  const upcomingView = rowsForCurrentOrg(upcoming.data, orgId, upcoming.isPlaceholderData);
+  const bookings = upcomingView.rows;
+  const bookingsLoading = upcoming.isLoading || upcomingView.blocked;
   const upcomingReady = !bookingsLoading;
   const chart = useDashboardChart(upcomingReady);
   const dashboardCustomers = useDashboardCustomers(upcomingReady);
-  const chartBookings = chart.data;
-  const customers = useMemo(() => dashboardCustomers.data ?? [], [dashboardCustomers.data]);
-  const chartsReady = chartBookings != null && (dashboardCustomers.data != null || dashboardCustomers.isError);
+  const chartView = rowsForCurrentOrg(chart.data, orgId, chart.isPlaceholderData);
+  const customerView = rowsForCurrentOrg(dashboardCustomers.data, orgId, dashboardCustomers.isPlaceholderData);
+  const chartBookings = chartView.blocked ? undefined : chart.data;
+  const customers = useMemo(() => customerView.rows, [customerView.rows]);
+  const chartsReady = !chartView.blocked
+    && !customerView.blocked
+    && chart.data != null
+    && (dashboardCustomers.data != null || dashboardCustomers.isError);
   const queryClient = useQueryClient();
-  const { organization } = useOrganization();
   const { isTrialActive, hasFullAccess, isLoading: subscriptionLoading } = useSubscription();
   const lifetime = useLifetimeCounter(upcomingReady);
   const growth = usePublicGrowth(upcomingReady);

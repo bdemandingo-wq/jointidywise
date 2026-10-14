@@ -175,7 +175,7 @@ export function PlanSwitcher() {
     }
     setCheckoutBusy(plan.id);
     try {
-      await startSubscriptionCheckout(plan.id, "monthly");
+      await startSubscriptionCheckout(plan.id, "monthly", organizationId);
     } catch (err) {
       if (err instanceof AlreadyLifetimeCheckout) {
         toast.success(ALREADY_LIFETIME_MESSAGE);

@@ -6,21 +6,7 @@ import { componentTagger } from "lovable-tagger";
 import { ViteImageOptimizer } from "vite-plugin-image-optimizer";
 import { mcpPlugin } from "@lovable.dev/mcp-js/stacks/supabase/vite";
 import { VitePWA } from "vite-plugin-pwa";
-
-function resolveAppBuildId(): string {
-  const fromEnv = process.env.GITHUB_SHA
-    || process.env.VERCEL_GIT_COMMIT_SHA
-    || process.env.CF_PAGES_COMMIT_SHA
-    || "";
-  if (fromEnv.trim()) return fromEnv.trim();
-  try {
-    const sha = execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
-    if (sha) return sha;
-  } catch {
-    /* no git metadata in this build */
-  }
-  return `build-${Date.now()}`;
-}
+import { resolveAppBuildId } from "./scripts/appBuildId";
 
 const APP_BUILD_ID = resolveAppBuildId();
 

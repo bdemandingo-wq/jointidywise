@@ -1,8 +1,10 @@
 import {
+  AUTOMATION_DEFAULTS,
   resolveTemplate,
   resolveSubject,
   type AutomationKey,
 } from "../_shared/automation-templates.ts";
+import { winbackParagraphHtml, winbackTemplateHasMarkup } from "../_shared/winbackBody.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -137,7 +139,21 @@ serve(async (req) => {
             company_name: companyName,
             offer_percent: String(offerPercent),
           };
-          const wbResolved = resolveTemplate(wbKey, wbSettings.templates?.[wbKey] ?? null, wbTokens);
+          const storedTemplate = wbSettings.templates?.[wbKey] ?? null;
+          const wbResolved = resolveTemplate(wbKey, storedTemplate, wbTokens);
+          const templateUsed = wbResolved.usedDefault
+            ? AUTOMATION_DEFAULTS[wbKey].sms_body
+            : (storedTemplate ?? "").trim() || AUTOMATION_DEFAULTS[wbKey].sms_body;
+          // Shipped steps are plain sentences. The Book Now link is the shell.
+          // A template that actually contains a tag or href keeps that markup;
+          // only the name and company tokens are escaped.
+          const bodyHtml = winbackTemplateHasMarkup(templateUsed)
+            ? resolveTemplate(wbKey, storedTemplate, {
+                customer_name: escapeHtml(wbTokens.customer_name),
+                company_name: escapeHtml(wbTokens.company_name),
+                offer_percent: escapeHtml(wbTokens.offer_percent),
+              }).text
+            : winbackParagraphHtml(templateUsed, wbResolved.text);
           if (wbResolved.warning) {
             console.warn(`[run-winback-drip] org=${org.id} ${wbKey}: ${wbResolved.warning}`);
           }
@@ -153,7 +169,7 @@ serve(async (req) => {
             offerPercent,
             bookingUrl: `${baseUrl}/book`,
             step,
-            bodyText: wbResolved.text,
+            bodyHtml,
           });
 
           const { sendOrgEmail } = await import("../_shared/send-org-email.ts");
@@ -233,10 +249,10 @@ async function getWinbackCandidatesDirect(
   return results;
 }
 
-function buildWinbackEmail({ customerName, companyName, offerPercent, bookingUrl, step, bodyText }: {
+function buildWinbackEmail({ customerName, companyName, offerPercent, bookingUrl, step, bodyHtml }: {
   customerName: string; companyName: string; offerPercent: number; bookingUrl: string; step: number;
-  /** Already resolved by the caller (org copy or shipped default). */
-  bodyText?: string;
+  /** Paragraph HTML. Plain templates are escaped by the caller. Markup templates keep their tags. */
+  bodyHtml?: string;
 }) {
   // Kept only as a last-resort fallback for callers that pass no bodyText.
   // The live path always supplies it via resolveTemplate.
@@ -257,13 +273,13 @@ function buildWinbackEmail({ customerName, companyName, offerPercent, bookingUrl
   <tr><td style="padding:40px 30px;text-align:center;">
     <div style="font-size:48px;margin-bottom:16px;">🏠</div>
     <h2 style="color:#1e5bb0;margin:0 0 16px;">Hi ${escapeHtml(customerName)}!</h2>
-    <p style="font-size:16px;color:#555;margin:0 0 24px;">${escapeHtml(bodyText || messages[step])}</p>
+    <p style="font-size:16px;color:#555;margin:0 0 24px;">${bodyHtml ?? escapeHtml(messages[step])}</p>
     <div style="background:#f0f7ff;border-radius:8px;padding:20px;margin-bottom:24px;">
       <p style="font-size:14px;color:#777;margin:0 0 8px;">Special offer just for you</p>
       <p style="font-size:36px;font-weight:bold;color:#1e5bb0;margin:0;">${offerPercent}% OFF</p>
       <p style="font-size:13px;color:#999;margin:8px 0 0;">Your next cleaning service</p>
     </div>
-    <a href="${bookingUrl}" style="display:inline-block;background:#1e5bb0;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:bold;">Book Now — ${offerPercent}% Off</a>
+    <a href="${escapeHtml(bookingUrl)}" style="display:inline-block;background:#1e5bb0;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:bold;">Book Now — ${offerPercent}% Off</a>
     <p style="font-size:12px;color:#aaa;margin-top:20px;">Just reply to this email and mention this offer when booking.</p>
   </td></tr>
   <tr><td style="background:#333;padding:20px;text-align:center;">

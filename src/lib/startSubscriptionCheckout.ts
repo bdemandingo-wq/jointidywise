@@ -24,9 +24,14 @@ export class AlreadyLifetimeCheckout extends Error {
 export async function startSubscriptionCheckout(
   planId: CheckoutPlanId,
   interval: CheckoutInterval = "monthly",
+  organizationId?: string | null,
 ): Promise<void> {
   const { data, error } = await supabase.functions.invoke("create-subscription", {
-    body: { plan: planId, interval },
+    body: {
+      plan: planId,
+      interval,
+      ...(organizationId ? { organization_id: organizationId } : {}),
+    },
   });
 
   if (error) {

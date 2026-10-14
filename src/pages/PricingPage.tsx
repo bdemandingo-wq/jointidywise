@@ -13,6 +13,7 @@ import {
   type AdServiceType,
 } from '@/components/pricing/AdManagementRequestDialog';
 import { useAuth } from '@/hooks/useAuth';
+import { useOrganization } from '@/contexts/OrganizationContext';
 import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { usePublicGrowth } from '@/hooks/usePublicGrowth';
 import { GrowthCounters } from '@/components/growth/GrowthCounters';
@@ -157,6 +158,7 @@ function priceFor(tier: Tier, interval: Interval): { display: string; sub: strin
 export default function PricingPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { organization } = useOrganization();
   const [searchParams, setSearchParams] = useSearchParams();
   // billingInterval / setBillingInterval — NOT named "setInterval" so it
   // doesn't shadow the global timer function. Renaming because the prior
@@ -307,7 +309,11 @@ export default function PricingPage() {
     }
     try {
       const { data, error } = await supabase.functions.invoke('create-subscription', {
-        body: { plan: planId, interval: billingInterval },
+        body: {
+          plan: planId,
+          interval: billingInterval,
+          ...(organization?.id ? { organization_id: organization.id } : {}),
+        },
       });
       if (error) {
         if (await isAlreadyLifetimeError(error)) {

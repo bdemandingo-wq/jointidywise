@@ -733,7 +733,7 @@ Deno.serve(async (req) => {
       <strong>${name}</strong> · ${formatTime(b.scheduled_at)}<br/>
       <span style="color:#6b7280;">👤 ${staffName} · 🧹 ${serviceName}</span><br/>
       <span style="color:#6b7280;">📍 ${escapeHtml(b.address || "No address")}</span><br/>
-      <span style="color:${statusColor};">${b.status}</span> · <span style="color:${payColor};">💳 ${b.payment_status}</span> · ${fmt(Number(b.total_amount) || 0)}
+      <span style="color:${statusColor};">${escapeHtml(String(b.status || ""))}</span> · <span style="color:${payColor};">💳 ${escapeHtml(String(b.payment_status || ""))}</span> · ${fmt(Number(b.total_amount) || 0)}
     </div>`;
   });
 

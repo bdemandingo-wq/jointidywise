@@ -34,9 +34,9 @@ import { CustomPriceMissing, isCustomPriceMissing } from "@/lib/priceNotConfigur
  * picked. The card form is on Stripe. Returns true when that handoff started
  * or when they already have lifetime access.
  */
-async function startCheckout(planId: CheckoutPlanId): Promise<boolean> {
+async function startCheckout(planId: CheckoutPlanId, organizationId: string | null): Promise<boolean> {
   try {
-    await startSubscriptionCheckout(planId, "monthly");
+    await startSubscriptionCheckout(planId, "monthly", organizationId);
     return true;
   } catch (err) {
     if (err instanceof AlreadyLifetimeCheckout) {
@@ -147,7 +147,7 @@ export function UpgradePlanDialog({
     setConfirming(true);
     try {
       if (needsCheckout) {
-        const started = await startCheckout(targetPlan.id);
+        const started = await startCheckout(targetPlan.id, organizationId);
         if (started) return;
         throw new Error("Could not start checkout. Nothing was charged.");
       }
@@ -163,7 +163,7 @@ export function UpgradePlanDialog({
       if (error) {
         const body = await readEdgeFunctionErrorBody(error);
         if (body?.code === "no_subscription") {
-          const started = await startCheckout(targetPlan.id);
+          const started = await startCheckout(targetPlan.id, organizationId);
           if (started) return;
           throw new Error("Could not start checkout. Nothing was charged.");
         }
