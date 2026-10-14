@@ -95,7 +95,7 @@ serve(async (req) => {
     if (isTerminal) {
       const all = await stripe.subscriptions.list({ customer: customerId, limit: 10 });
       const other = all.data.find(
-        (s) => s.id !== sub.id && (s.status === "active" || s.status === "trialing"),
+        (s: Stripe.Subscription) => s.id !== sub.id && (s.status === "active" || s.status === "trialing"),
       );
       if (other) tier = subscriptionToPlanTier(other) ?? "trial";
     } else {
@@ -195,7 +195,13 @@ serve(async (req) => {
     // The daily apply-loyalty-pricing job repeats this and is what attaches
     // the renewal coupon. proration_behavior is none inside the sync.
     try {
-      await syncLoyaltySubscription(supabase, stripe, {
+      // Cast: the real client is a structural superset of LoyaltyDb (its
+      // PostgrestBuilder is thenable but not literally a Promise), and the
+      // generic client's deep types overflow TS2589 at this call site.
+      await syncLoyaltySubscription(
+        supabase as unknown as Parameters<typeof syncLoyaltySubscription>[0],
+        stripe,
+        {
         organizationId: membership.organization_id,
         subscriptionId: sub.id,
       });
