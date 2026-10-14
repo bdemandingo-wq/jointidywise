@@ -14,9 +14,13 @@ export const LOCATION_SHARING_OFF_NOTE = 'Location sharing is off. Turn on in Se
 /**
  * Owner's final approval of this wording is pending.
  * `{businessName}` is filled from the organization's name.
+ *
+ * Not now and the in-app toggle control only live On My Way sharing.
+ * Clock-in and photo coordinates follow the OS or browser location
+ * permission, which the last sentence tells the cleaner.
  */
 export const LOCATION_CONSENT_COPY =
-  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings. If you allow location, your location is also recorded when you clock in or out. If you allow location, job photos you take will also record where they were taken.";
+  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings. Separately, if location is turned on for TidyWise in your phone or browser settings, your location is recorded when you clock in or out and when you take job photos.";
 
 /**
  * Both NSLocationWhenInUseUsageDescription and

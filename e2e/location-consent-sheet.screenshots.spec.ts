@@ -66,8 +66,9 @@ test("consent sheet keeps Allow and Not now on screen", async ({ page }) => {
     expect(measured.notNowOpacity).toBe("1");
     expect(Number.parseFloat(measured.notNowBorder)).toBeGreaterThanOrEqual(2);
     expect(measured.copyFont).toBe("16px");
-    expect(measured.copyText).toContain("If you allow location, your location is also recorded when you clock in or out.");
-    expect(measured.copyText).toContain("If you allow location, job photos you take will also record where they were taken.");
+    expect(measured.copyText).toContain(
+      "Separately, if location is turned on for TidyWise in your phone or browser settings, your location is recorded when you clock in or out and when you take job photos.",
+    );
 
     await page.screenshot({
       path: path.join("e2e", "artifacts", `location-consent-sheet-${viewport.width}x${viewport.height}.png`),

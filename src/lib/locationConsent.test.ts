@@ -22,7 +22,7 @@ import {
 } from './locationConsent.ts';
 
 const APPROVED_COPY =
-  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings. If you allow location, your location is also recorded when you clock in or out. If you allow location, job photos you take will also record where they were taken.";
+  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings. Separately, if location is turned on for TidyWise in your phone or browser settings, your location is recorded when you clock in or out and when you take job photos.";
 
 test('consent copy is version v1 and fills the business name', () => {
   assert.equal(CONSENT_COPY_VERSION, 'v1');
