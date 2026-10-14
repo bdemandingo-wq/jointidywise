@@ -19,8 +19,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const PRO_MONTHLY_PRICE_ID = "price_1SihrVJv857o86noT8NIIfrq";
-
 // Below this many lifetime bookings we skip the stats block entirely — a
 // handful of bookings isn't a compelling "look what you built" story.
 const MIN_BOOKINGS_FOR_STATS = 5;
@@ -382,10 +380,21 @@ serve(async (req) => {
     const ctx = await buildContext(admin, customerEmail);
     log("Context", { firstName: ctx.firstName, hasStats: !!ctx.stats });
 
-    // --- Create Stripe payment link (unchanged) ---
+    // Price must be on the billing account. The old hard-coded price id
+    // belongs to the previous Stripe account and is rejected there.
+    const proMonthlyPriceId = (Deno.env.get("STRIPE_PRO_MONTHLY_PRICE_ID") || "").trim();
+    if (!proMonthlyPriceId) {
+      return new Response(
+        JSON.stringify({
+          error: "Resubscribe checkout is not configured. STRIPE_PRO_MONTHLY_PRICE_ID is missing. No email was sent.",
+        }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
     const paymentLink = await stripe.paymentLinks.create({
-      line_items: [{ price: PRO_MONTHLY_PRICE_ID, quantity: 1 }],
+      line_items: [{ price: proMonthlyPriceId, quantity: 1 }],
       metadata: {
         purpose: "admin_resubscribe",
         target_email: customerEmail,

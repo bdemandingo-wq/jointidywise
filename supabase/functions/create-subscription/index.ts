@@ -26,7 +26,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { ensureOnboardingCoupon, type OnboardingCouponOffer } from "../_shared/onboarding-coupons.ts";
 import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
 import { stripeTrialEndUnix } from "../_shared/trial-end.ts";
-import { billingSecretKey } from "../_shared/billing-stripe.ts";
+import { billingPaymentMethodConfiguration, billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -375,6 +375,7 @@ serve(async (req) => {
       subscriptionData.trial_period_days = 30;
     }
 
+    const paymentMethodConfiguration = billingPaymentMethodConfiguration();
     const publishableKey = readPublishableKey();
     if (!publishableKey) {
       return new Response(
@@ -396,17 +397,15 @@ serve(async (req) => {
       line_items: [{ price: priceId, quantity: 1 }],
       mode: "subscription",
       ...embeddedCheckoutParams(origin),
-      // Subscription checkout uses the Billing Payments configuration, not the
-      // account Default. Link and Cash App are disabled inside that config:
-      // they accounted for 14 of 36 SaaS payment failures (partner_insufficient_funds,
-      // link_connection_closed, cashapp_payment_declined), while cards failed
-      // once in a year. Cards, Apple Pay and Google Pay stay on.
-      //
-      // Scoped here deliberately. Twelve other functions create Checkout
-      // sessions for booking and merchant flows and still use the account
-      // Default, where those methods are wanted. Do not "simplify" this by
-      // changing the account-wide setting instead — that would hit all of them.
-      payment_method_configuration: "pmc_1Q0IjxJv857o86nohXqYdISA",
+      // When STRIPE_BILLING_PMC_ID is set, checkout uses that billing-account
+      // payment method configuration instead of the account default. Link and
+      // Cash App were disabled in the old account's config because they
+      // accounted for 14 of 36 SaaS payment failures. The id is omitted when
+      // the secret is unset: a pmc_ from the old account is not valid here.
+      // Booking and merchant Checkout sessions do not set this parameter.
+      ...(paymentMethodConfiguration
+        ? { payment_method_configuration: paymentMethodConfiguration }
+        : {}),
       payment_method_collection: paymentMethodCollection,
       payment_method_options: {
         card: { request_three_d_secure: "automatic" },
