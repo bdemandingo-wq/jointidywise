@@ -513,7 +513,7 @@ test("a failed subscription write returns 500 and releases the idempotency claim
     "utf8",
   );
   const subscription = readFileSync(
-    new URL("../../supabase/functions/stripe-subscription-webhook/index.ts", import.meta.url),
+    new URL("../../supabase/functions/_shared/subscription-webhook-event.ts", import.meta.url),
     "utf8",
   );
   assert.match(invoice, /subscriptionPersistHttpStatus\("failed"\)/);
