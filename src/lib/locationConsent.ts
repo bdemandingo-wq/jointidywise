@@ -32,11 +32,9 @@ export const PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION =
 
 /**
  * Native builds below this never share On My Way location.
- * TODO: set this to the CFBundleVersion that ships the updated
- * NSLocation usage strings. 1018 must stay dark; this sits above it
- * until that shipping build number is known.
+ * PR #54 shipped the updated NSLocation usage strings in build 1008.
  */
-export const MIN_IOS_LOCATION_BUILD = 1019;
+export const MIN_IOS_LOCATION_BUILD = 1008;
 
 /** platform_settings key. Stored false until someone turns tracking on. */
 export const LOCATION_TRACKING_SWITCH_KEY = 'cleaner_location_tracking_enabled';
