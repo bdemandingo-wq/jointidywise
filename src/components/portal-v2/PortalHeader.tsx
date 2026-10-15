@@ -28,7 +28,7 @@ export function PortalHeader({
   const badge = notifications > 9 ? '9+' : String(notifications);
 
   return (
-    <header className="flex items-center gap-3 px-5 pb-3 pt-4">
+    <header className="flex items-center gap-3 px-5 pb-3 pt-[calc(env(safe-area-inset-top,0px)+1rem)]">
       <div className="min-w-0 flex-1">
         <Eyebrow>{eyebrow}</Eyebrow>
         <h1 className="truncate text-[19px] font-extrabold leading-tight text-[hsl(var(--pv-ink))]">

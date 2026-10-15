@@ -459,7 +459,7 @@ export default function MessagesPage() {
     if (showSpinner && !initialLoadDone.current) setLoading(true);
     try {
       const [convsRes, customersRes, staffRes, leadsRes] = await Promise.all([
-        supabase.from('sms_conversations').select('*').eq('organization_id', organizationId).order('last_message_at', { ascending: false }),
+        supabase.from('sms_conversations').select('*').eq('organization_id', organizationId).order('last_message_at', { ascending: false }).limit(100),
         supabase.from('customers').select('phone, first_name, last_name').eq('organization_id', organizationId).not('phone', 'is', null),
         supabase.from('staff').select('phone, name').eq('organization_id', organizationId).not('phone', 'is', null),
         supabase.from('leads').select('phone, name').eq('organization_id', organizationId).not('phone', 'is', null),
@@ -500,7 +500,7 @@ export default function MessagesPage() {
         if (convs.length > 0) {
           const { data: previews } = await supabase
             .from('sms_messages').select('conversation_id, content')
-            .in('conversation_id', convs.map(c => c.id)).order('sent_at', { ascending: false });
+            .in('conversation_id', convs.map(c => c.id)).order('sent_at', { ascending: false }).limit(200);
           if (previews) {
             const previewMap = new Map<string, string>();
             for (const p of previews) { if (!previewMap.has(p.conversation_id)) previewMap.set(p.conversation_id, p.content); }
@@ -516,9 +516,10 @@ export default function MessagesPage() {
   };
 
   const fetchMessages = async (conversationId: string) => {
-    const { data, error } = await supabase.from('sms_messages').select('*').eq('conversation_id', conversationId).order('sent_at', { ascending: true }).order('id', { ascending: true });
+    const { data, error } = await supabase.from('sms_messages').select('*').eq('conversation_id', conversationId).order('sent_at', { ascending: false }).order('id', { ascending: false }).limit(50);
     if (!error) {
-      setMessages((data || []).map(msg => ({ ...msg, direction: msg.direction as 'inbound' | 'outbound' })));
+      const sorted = (data || []).slice().reverse();
+      setMessages(sorted.map(msg => ({ ...msg, direction: msg.direction as 'inbound' | 'outbound' })));
       await supabase.from('sms_conversations').update({ unread_count: 0 }).eq('id', conversationId);
       // Immediately update local state so the blue dot disappears
       setConversations(prev => prev.map(c => c.id === conversationId ? { ...c, unread_count: 0 } : c));

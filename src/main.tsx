@@ -3,9 +3,12 @@ import { HelmetProvider } from "react-helmet-async";
 import App from "./App.tsx";
 import "./index.css";
 import { setupDeepLinkListener } from "@/lib/nativeOAuth";
+import { installEscapeGuard } from "@/lib/escapeGuard";
 import { initSentry, Sentry } from "@/lib/sentry";
 import { SUPPORT_EMAIL } from "@/lib/supportEmail";
 import { initSitePong } from "@/lib/sitepong";
+
+installEscapeGuard();
 
 // Initialize observability before anything renders — earlier init means
 // the bootstrap error path (e.g. the chunk-load recovery below) is also
