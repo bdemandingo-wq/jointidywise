@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +29,17 @@ import { hasChangeableStripeSubscription, isActiveOrgTrial, planSectionLabel } f
 import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from "@/lib/startSubscriptionCheckout";
 import { ALREADY_LIFETIME_MESSAGE } from "@/lib/alreadyLifetime";
 import { CustomPriceMissing } from "@/lib/priceNotConfigured";
+import { lifetimeSpotsLabel } from "@/lib/publicActivity";
+import { usePublicGrowth } from "@/hooks/usePublicGrowth";
+import { trialDaysLeft } from "@/lib/trialClock";
+import {
+  lifetimeSpotsToShow,
+  planBillingAction,
+  renewalDisclosure,
+  trialStatusLine,
+} from "@/lib/planBillingCopy";
+
+const planButtonClass = "h-11 min-h-[44px] w-full px-3 md:h-11";
 
 const PLANS: PlanInfo[] = [
   {
@@ -99,6 +110,11 @@ export function PlanSwitcher() {
   const [downgradeTarget, setDowngradeTarget] = useState<PlanInfo | null>(null);
   const [downgrade, setDowngrade] = useState<DowngradeState>({ to: null, date: null });
   const [cancellingDowngrade, setCancellingDowngrade] = useState(false);
+  const growth = usePublicGrowth();
+  const lifetimeSpots = lifetimeSpotsToShow(
+    growth.counters?.lifetimeRemaining,
+    growth.counters?.lifetimeTotal,
+  );
 
   // Billing UI must reflect the plan the org is actually ON, not the tier
   // effective_plan grants them. effective_plan returns 'lifetime' for
@@ -137,6 +153,7 @@ export function PlanSwitcher() {
   }, [organizationId]);
 
   function action(plan: PlanInfo) {
+    if (planBillingAction(plan.id) !== "checkout") return;
     const targetRank = RANK[plan.id] ?? 0;
     const curRank = RANK[currentPlanId] ?? 0;
     if (targetRank > curRank) setUpgradeTarget(plan);
@@ -167,14 +184,17 @@ export function PlanSwitcher() {
     !!downgrade.to && !!targetDowngradePlan && !isLifetime;
   const canChangePlan = hasChangeableStripeSubscription(subscription);
   const choosingFirstPlan = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
+  const showOrgTrialStatus = isActiveOrgTrial(subscription) || (currentPlanId === "trial" && subscription?.trial_active === true);
+  const trialDays = showOrgTrialStatus ? trialDaysLeft(subscription?.trial_end) : null;
 
   async function subscribe(plan: PlanInfo) {
-    if (!canShowPaymentFlows) {
-      window.open("https://jointidywise.com/choose-plan?upgrade=1", "_blank", "noopener,noreferrer");
-      return;
-    }
+    // Native builds do not start checkout in the app. The button for that
+    // case is disabled below, so this is a second guard.
+    if (!canShowPaymentFlows || planBillingAction(plan.id) !== "checkout") return;
     setCheckoutBusy(plan.id);
     try {
+      // Monthly only. Yearly Stripe price ids are not present in this app,
+      // so there is no yearly toggle here.
       await startSubscriptionCheckout(plan.id, "monthly", organizationId);
     } catch (err) {
       if (err instanceof AlreadyLifetimeCheckout) {
@@ -189,6 +209,7 @@ export function PlanSwitcher() {
   }
 
   async function openPortal() {
+    if (!canShowPaymentFlows) return;
     setCheckoutBusy("portal");
     try {
       const { data, error } = await supabase.functions.invoke("customer-portal", { body: {} });
@@ -215,7 +236,7 @@ export function PlanSwitcher() {
     <Card className="p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <h3 className="text-base font-semibold">Plan</h3>
+          <h3 className="text-base font-semibold">Current plan</h3>
           <p className="text-sm text-muted-foreground">
             {isLifetime ? (
               <span className="inline-flex items-center gap-1">
@@ -230,6 +251,14 @@ export function PlanSwitcher() {
               })}</span> plan.</>
             )}
           </p>
+          {showOrgTrialStatus && (
+            <p className="mt-1 text-sm text-muted-foreground">{trialStatusLine(trialDays)}</p>
+          )}
+          {lifetimeSpots && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {lifetimeSpotsLabel(lifetimeSpots.remaining, lifetimeSpots.total)}
+            </p>
+          )}
         </div>
         {isLifetime && (
           <Badge variant="secondary" className="gap-1">
@@ -258,11 +287,10 @@ export function PlanSwitcher() {
               .
             </span>
             <Button
-              size="sm"
               variant="outline"
               onClick={cancelDowngrade}
               disabled={cancellingDowngrade}
-              className="self-start sm:self-auto"
+              className="h-11 min-h-[44px] self-start px-3 md:h-11 sm:self-auto"
             >
               {cancellingDowngrade && <Loader2 className="mr-2 h-3 w-3 animate-spin" />}
               Cancel downgrade
@@ -271,7 +299,7 @@ export function PlanSwitcher() {
         </Alert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         {PLANS.map((plan) => {
           const Icon = ICONS[plan.id];
           const isCurrent = plan.id === currentPlanId;
@@ -279,6 +307,97 @@ export function PlanSwitcher() {
           const curRank = RANK[currentPlanId] ?? 0;
           const isUpgrade = targetRank > curRank;
           const isPendingTarget = downgrade.to === plan.id;
+          const contactPlan = planBillingAction(plan.id) === "contact";
+
+          const talkToUs = (
+            <Button asChild variant="outline" className={planButtonClass}>
+              <Link to="/contact">Talk to us</Link>
+            </Button>
+          );
+          const onTheWebsite = (
+            <Button variant="outline" className={planButtonClass} disabled>
+              On the website
+            </Button>
+          );
+
+          let planButton: ReactNode;
+          if (choosingFirstPlan && contactPlan) {
+            planButton = talkToUs;
+          } else if (choosingFirstPlan && !canShowPaymentFlows) {
+            planButton = onTheWebsite;
+          } else if (choosingFirstPlan) {
+            planButton = (
+              <Button
+                variant="premium"
+                className={planButtonClass}
+                onClick={() => void subscribe(plan)}
+                disabled={checkoutBusy !== null}
+              >
+                {checkoutBusy === plan.id && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                {`Choose ${plan.name}`}
+              </Button>
+            );
+          } else if (isLifetime) {
+            planButton = (
+              <Button variant="outline" className={planButtonClass} disabled>
+                <Lock className="mr-1 h-3 w-3" /> Locked
+              </Button>
+            );
+          } else if (isCurrent) {
+            planButton = (
+              <Button variant="outline" className={planButtonClass} disabled>
+                Current plan
+              </Button>
+            );
+          } else if (!canChangePlan && subscription?.payment_failed && canShowPaymentFlows && !contactPlan) {
+            planButton = (
+              <Button
+                className={planButtonClass}
+                onClick={() => void openPortal()}
+                disabled={checkoutBusy !== null}
+              >
+                {checkoutBusy === "portal" && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                Update payment method
+              </Button>
+            );
+          } else if (!canChangePlan && contactPlan) {
+            planButton = talkToUs;
+          } else if (!canChangePlan && !canShowPaymentFlows) {
+            planButton = onTheWebsite;
+          } else if (!canChangePlan) {
+            planButton = (
+              <Button
+                variant="premium"
+                className={planButtonClass}
+                onClick={() => void subscribe(plan)}
+                disabled={checkoutBusy !== null}
+              >
+                {checkoutBusy === plan.id && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                {`Choose ${plan.name}`}
+              </Button>
+            );
+          } else if (isPendingTarget) {
+            planButton = (
+              <Button variant="outline" className={planButtonClass} disabled>
+                Pending downgrade
+              </Button>
+            );
+          } else if (contactPlan) {
+            planButton = talkToUs;
+          } else if (!canShowPaymentFlows) {
+            planButton = onTheWebsite;
+          } else {
+            planButton = (
+              <Button
+                variant={isUpgrade ? "default" : "outline"}
+                className={planButtonClass}
+                onClick={() => action(plan)}
+                disabled={hasScheduledDowngrade && !isUpgrade}
+              >
+                {isUpgrade ? `Upgrade to ${plan.name}` : `Downgrade to ${plan.name}`}
+              </Button>
+            );
+          }
 
           return (
             <div
@@ -306,7 +425,9 @@ export function PlanSwitcher() {
               </div>
               <div className="mb-3">
                 <span className="text-2xl font-bold">${plan.monthlyPrice}</span>
-                <span className="text-sm text-muted-foreground">/mo</span>
+                {plan.id !== "custom" && (
+                  <span className="text-sm text-muted-foreground">/mo</span>
+                )}
               </div>
               <ul className="mb-4 space-y-1.5 text-xs text-muted-foreground">
                 {plan.features.slice(0, 4).map((f) => (
@@ -317,73 +438,31 @@ export function PlanSwitcher() {
                 ))}
               </ul>
 
-              {choosingFirstPlan ? (
-                <Button
-                  size="sm"
-                  variant="premium"
-                  className="w-full"
-                  onClick={() => void subscribe(plan)}
-                  disabled={checkoutBusy !== null}
-                >
-                  {checkoutBusy === plan.id && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-                  {canShowPaymentFlows ? `Choose ${plan.name}` : "Subscribe on the web"}
-                </Button>
-              ) : isLifetime ? (
-                <Button variant="outline" size="sm" disabled className="w-full">
-                  <Lock className="mr-1 h-3 w-3" /> Locked
-                </Button>
-              ) : isCurrent ? (
-                <Button variant="outline" size="sm" disabled className="w-full">
-                  Current plan
-                </Button>
-              ) : !canChangePlan && subscription?.payment_failed ? (
-                <Button
-                  size="sm"
-                  className="w-full"
-                  onClick={() => void openPortal()}
-                  disabled={checkoutBusy !== null}
-                >
-                  {checkoutBusy === "portal" && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-                  Update payment method
-                </Button>
-              ) : !canChangePlan ? (
-                <Button
-                  size="sm"
-                  className="w-full"
-                  onClick={() => void subscribe(plan)}
-                  disabled={checkoutBusy !== null}
-                >
-                  {checkoutBusy === plan.id && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
-                  {canShowPaymentFlows ? `Choose ${plan.name}` : "Subscribe on the web"}
-                </Button>
-              ) : isPendingTarget ? (
-                <Button variant="outline" size="sm" disabled className="w-full">
-                  Pending downgrade
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant={isUpgrade ? "default" : "outline"}
-                  className="w-full"
-                  onClick={() => action(plan)}
-                  disabled={hasScheduledDowngrade && !isUpgrade}
-                >
-                  {isUpgrade ? `Upgrade to ${plan.name}` : `Downgrade to ${plan.name}`}
-                </Button>
+              {planButton}
+              {planBillingAction(plan.id) === "checkout" && (
+                <p className="mt-2 text-center text-xs text-muted-foreground">
+                  {renewalDisclosure(plan.monthlyPrice)}
+                </p>
               )}
             </div>
           );
         })}
       </div>
 
+      {canChangePlan && !isLifetime && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Upgrades take effect now, with proration. Downgrades take effect at renewal.
+        </p>
+      )}
+
       {!isLifetime && !canChangePlan && (
         <p className="mt-3 text-xs text-muted-foreground">
           {subscription?.payment_failed
             ? "The last payment failed. Update payment method opens Stripe's billing portal."
             : isActiveOrgTrial(subscription)
-              ? "Your trial is active. Choosing a plan opens Stripe Checkout when you want to upgrade. The card is entered on Stripe, and your trial stays in place until that checkout finishes."
+              ? "Your trial is active. Choosing Basic or Pro opens Stripe Checkout when you want to upgrade. The card is entered on Stripe, and your trial stays in place until that checkout finishes."
               : canShowPaymentFlows
-                ? "There is no card on file, so these open Stripe Checkout. The card is entered on Stripe, not in this screen."
+                ? "There is no card on file, so Basic and Pro open Stripe Checkout. The card is entered on Stripe, not in this screen."
                 : "Subscriptions are managed at jointidywise.com. This app cannot take a card."}
         </p>
       )}

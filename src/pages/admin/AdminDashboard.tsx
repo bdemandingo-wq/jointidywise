@@ -1,7 +1,7 @@
 import { useMemo, useEffect, useCallback, lazy, Suspense } from 'react';
 import { isOrgToday } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { TodayStats } from '@/components/admin/TodayStats';
 import { UpcomingBookings } from '@/components/admin/UpcomingBookings';
@@ -23,10 +23,7 @@ import { SEOHead } from '@/components/SEOHead';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { PullToRefreshIndicator } from '@/components/admin/PullToRefreshIndicator';
 import { requestAdminNotificationRefresh } from '@/lib/adminNotificationRefresh';
-import { useSubscription } from '@/hooks/useSubscription';
-import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { usePublicGrowth } from '@/hooks/usePublicGrowth';
-import { GrowthUpgradeCard } from '@/components/growth/GrowthUpgradeCard';
 import { ActivityFeedCard } from '@/components/growth/ActivityFeedCard';
 import { rowsForCurrentOrg } from '@/lib/sameOrgPlaceholder';
 import { DASHBOARD_ACTIVITY_FEED_ENABLED } from '@/lib/dashboardActivityFeed';
@@ -123,19 +120,15 @@ export default function AdminDashboard() {
     && chart.data != null
     && (dashboardCustomers.data != null || dashboardCustomers.isError);
   const queryClient = useQueryClient();
-  const { isTrialActive, hasFullAccess, isLoading: subscriptionLoading } = useSubscription();
-  const showUpgrade = !subscriptionLoading && (isTrialActive || !hasFullAccess);
-  // public-growth is an edge function whose feed RPC scans recent bookings
-  // across orgs. The upgrade card is the only dashboard surface that paints
-  // those numbers while the activity feed is off, so a paid dashboard skips both.
+  // The plan box moved to Settings. Lifetime spots are read there, so this
+  // page does not show the upgrade card. public-growth still waits until the
+  // jobs list is ready, and it stays off while the activity feed is off.
   const sideReads = dashboardSideReads({
     upcomingReady,
-    showUpgrade,
+    showUpgrade: false,
     feedEnabled: DASHBOARD_ACTIVITY_FEED_ENABLED,
   });
-  const lifetime = useLifetimeCounter(sideReads.lifetime);
   const growth = usePublicGrowth(sideReads.growth);
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Handle return from Stripe Checkout
@@ -242,17 +235,6 @@ export default function AdminDashboard() {
       <PullToRefreshIndicator pullDistance={pullDistance} refreshing={refreshing} />
       <div data-tour-id="dashboard-home">
       <OnboardingChecklist />
-      {showUpgrade && (
-        <GrowthUpgradeCard
-          lifetime={lifetime}
-          counters={growth.counters}
-          href="/dashboard/settings?tab=subscription"
-          title={isTrialActive ? 'You have full Pro access' : 'Pick a plan to unlock the dashboard'}
-          detail={isTrialActive
-            ? 'Every Pro feature is included until the trial date already on your account. Add a card only if you want a paid plan to continue.'
-            : 'Basic is $49, Pro is $97, and Lifetime is $300. Nothing here extends a trial that has already ended.'}
-        />
-      )}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 animate-fade-in">
         <div className="xl:col-span-2 space-y-6">
           <TodayStats 
