@@ -8487,6 +8487,7 @@ export type Database = {
           plan_tier: string
           plan_type: string | null
           referred_by: string | null
+          show_customer_phone_to_staff: boolean
           slug: string | null
           stripe_schedule_id: string | null
           trial_started_pixel_at: string | null
@@ -8509,6 +8510,7 @@ export type Database = {
           plan_tier?: string
           plan_type?: string | null
           referred_by?: string | null
+          show_customer_phone_to_staff?: boolean
           slug?: string | null
           stripe_schedule_id?: string | null
           trial_started_pixel_at?: string | null
@@ -8531,6 +8533,7 @@ export type Database = {
           plan_tier?: string
           plan_type?: string | null
           referred_by?: string | null
+          show_customer_phone_to_staff?: boolean
           slug?: string | null
           stripe_schedule_id?: string | null
           trial_started_pixel_at?: string | null
@@ -13042,6 +13045,18 @@ export type Database = {
           review_text: string
           staff_id: string
           status: string
+        }[]
+      }
+      get_staff_customers: {
+        Args: { p_customer_ids: string[] }
+        Returns: {
+          email: string
+          first_name: string
+          has_phone: boolean
+          id: string
+          last_name: string
+          organization_id: string
+          phone: string
         }[]
       }
       get_staff_sensitive_fields: {
