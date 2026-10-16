@@ -38,7 +38,7 @@ import {
 import { PLATFORM_OWNER_EMAIL } from "./platformOwner.ts";
 
 const migration = readFileSync(
-  new URL("../../supabase/migrations/20261016050000_platform_account_metrics.sql", import.meta.url),
+  new URL("../../supabase/migrations/20261016050200_platform_account_metrics.sql", import.meta.url),
   "utf8",
 );
 
@@ -847,7 +847,7 @@ test("metrics function returns the view and the claim key is per source", () => 
   assert.match(claim, /DROP CONSTRAINT %I/);
   assert.match(migration, /DROP VIEW IF EXISTS public\.platform_account_metrics_v CASCADE/);
   const admin = "20261016040000_platform_admin_support_only.sql";
-  const metrics = "20261016050000_platform_account_metrics.sql";
+  const metrics = "20261016050200_platform_account_metrics.sql";
   const afterMain = "20261015040000_sms_message_opt_out_review.sql";
   assert.ok(admin > afterMain);
   assert.ok(metrics > afterMain);
