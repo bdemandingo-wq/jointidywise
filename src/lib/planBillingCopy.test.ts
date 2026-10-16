@@ -13,7 +13,6 @@ import {
   planChoicesFooter,
   renewalDisclosure,
   showPlanChoices,
-  trialChargesOnSelection,
   trialFirstChargeLine,
   trialEndDateLabel,
 } from "./planBillingCopy.ts";
@@ -41,7 +40,7 @@ test("renewal disclosure names the real price and how to cancel", () => {
   assert.equal(renewalDisclosure(0), "");
 });
 
-test("a trial names the org-local end as the first charge, and the last 48 hours bill today", () => {
+test("a trial always names the org-local end as the first charge", () => {
   // Nov 13, 11:00pm Eastern is already Nov 14 in UTC.
   const elevenPmEastern = "2026-11-14T04:00:00.000Z";
   const now = Date.parse("2026-10-16T12:00:00.000Z");
@@ -50,68 +49,27 @@ test("a trial names the org-local end as the first charge, and the last 48 hours
   assert.equal(trialEndDateLabel(null, "America/New_York"), null);
   assert.equal(trialEndDateLabel("not-a-date", "America/New_York"), null);
   assert.equal(trialEndDateLabel(elevenPmEastern, ""), null);
-  assert.equal(trialChargesOnSelection(elevenPmEastern, now), false);
+  const eastern = trialFirstChargeLine({
+    trialEndIso: elevenPmEastern,
+    timeZone: "America/New_York",
+  });
+  assert.equal(eastern, "Your first charge is Nov 13, 2026.");
   assert.equal(
-    trialFirstChargeLine({
-      trialEndIso: elevenPmEastern,
-      timeZone: "America/New_York",
-      price: 49,
-      nowMs: now,
-    }),
-    "If you choose a plan now, your first charge is Nov 13, 2026.",
+    trialFirstChargeLine({ trialEndIso: elevenPmEastern, timeZone: "UTC" }),
+    "Your first charge is Nov 14, 2026.",
   );
-  assert.equal(
-    trialFirstChargeLine({
-      trialEndIso: elevenPmEastern,
-      timeZone: "UTC",
-      price: 97,
-      nowMs: now,
-    }),
-    "If you choose a plan now, your first charge is Nov 14, 2026.",
-  );
-
+  // Inside 48 hours the line still names the trial end. It does not switch to "today".
   const soon = new Date(now + 36 * 60 * 60 * 1000).toISOString();
-  assert.equal(trialChargesOnSelection(soon, now), true);
-  assert.equal(
-    trialFirstChargeLine({
-      trialEndIso: soon,
-      timeZone: "America/New_York",
-      price: 97,
-      nowMs: now,
-    }),
-    "You'll be charged $97 today.",
-  );
-  const exactly48h = new Date(now + 48 * 60 * 60 * 1000).toISOString();
-  assert.equal(trialChargesOnSelection(exactly48h, now), false);
-  const justUnder = new Date(now + 48 * 60 * 60 * 1000 - 1000).toISOString();
-  assert.equal(trialChargesOnSelection(justUnder, now), true);
-  assert.equal(
-    trialFirstChargeLine({
-      trialEndIso: null,
-      timeZone: "America/New_York",
-      price: 49,
-      nowMs: now,
-    }),
-    null,
-  );
-  assert.equal(
-    trialFirstChargeLine({
-      trialEndIso: "not-a-date",
-      timeZone: "America/New_York",
-      price: 49,
-      nowMs: now,
-    }),
-    null,
-  );
-  assert.equal(
-    trialFirstChargeLine({
-      trialEndIso: elevenPmEastern,
-      timeZone: "Not/AZone",
-      price: 49,
-      nowMs: now,
-    }),
-    null,
-  );
+  const soonLine = trialFirstChargeLine({ trialEndIso: soon, timeZone: "America/New_York" });
+  assert.equal(soonLine, "Your first charge is Oct 17, 2026.");
+  assert.equal(soonLine?.includes("today"), false);
+  assert.equal(trialFirstChargeLine({ trialEndIso: null, timeZone: "America/New_York" }), null);
+  assert.equal(trialFirstChargeLine({ trialEndIso: "not-a-date", timeZone: "America/New_York" }), null);
+  assert.equal(trialFirstChargeLine({ trialEndIso: elevenPmEastern, timeZone: "Not/AZone" }), null);
+  // text-xs (~6.6px) inside a 375px phone after 16px page padding and 20px card padding.
+  const innerPx = 375 - 32 - 40;
+  assert.ok(eastern);
+  assert.ok(eastern.length * 6.6 <= innerPx);
 });
 
 test("the lifetime cap is one shared constant at 100", () => {

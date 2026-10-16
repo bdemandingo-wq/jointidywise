@@ -1,6 +1,9 @@
 import { Check, X, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
+import { PUBLIC_TIERS } from "@/lib/publicPlans";
+
+const basicMonthly = PUBLIC_TIERS.find((tier) => tier.id === "basic")?.monthlyPrice ?? 49;
 
 interface Feature {
   name: string;
@@ -105,7 +108,7 @@ export function CompetitorComparison() {
             TIDYWISE vs Booking Koala vs Jobber: Which Cleaning Software Wins?
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Looking for Booking Koala alternatives or Jobber alternatives? Compare the best cleaning business software side by side. Plans from $49/mo vs $197/mo for Booking Koala.
+            {`Looking for Booking Koala alternatives or Jobber alternatives? Compare the best cleaning business software side by side. Plans from $${basicMonthly}/mo.`}
           </p>
         </div>
 

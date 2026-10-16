@@ -1,6 +1,5 @@
 import { formatInOrgTz } from "./orgDateRange.ts";
 import { LIFETIME_PRICE } from "./publicPlans.ts";
-import { stripeTrialEndUnix } from "../../supabase/functions/_shared/trial-end.ts";
 
 // orgDateRange.ts and publicPlans.ts have zero imports, so node:test can
 // load this file without Vite or the @/ alias.
@@ -52,38 +51,19 @@ export function trialEndDateLabel(
 }
 
 /**
- * True when checkout will bill on completion. Stripe rejects a trial_end
- * inside 48 hours, and create-subscription then charges immediately.
- * A missing or invalid timestamp is not treated as "charge today".
- */
-export function trialChargesOnSelection(
-  trialEndIso: string | null | undefined,
-  nowMs = Date.now(),
-): boolean {
-  if (!trialEndIso || !Number.isFinite(Date.parse(trialEndIso))) return false;
-  return stripeTrialEndUnix(trialEndIso, nowMs) == null;
-}
-
-/**
- * Trial users choosing a plan. The date is the org-local trial end already
+ * One line for an active trial. The date is the org-local trial end already
  * stored on the subscription (profiles.trial_ends_at via check-subscription).
- * Inside 48 hours the first charge is today, at this plan's price.
+ * Short on purpose: text-xs of this sentence stays on one line at 375px.
+ * A missing or invalid timestamp does not invent a date.
  */
 export function trialFirstChargeLine(opts: {
   trialEndIso: string | null | undefined;
   timeZone: string;
-  price: number;
-  nowMs?: number;
 }): string | null {
-  const nowMs = opts.nowMs ?? Date.now();
   if (!opts.trialEndIso || !Number.isFinite(Date.parse(opts.trialEndIso))) return null;
-  if (trialChargesOnSelection(opts.trialEndIso, nowMs)) {
-    if (!(opts.price > 0)) return null;
-    return `You'll be charged $${opts.price} today.`;
-  }
   const date = trialEndDateLabel(opts.trialEndIso, opts.timeZone, true);
   if (!date) return null;
-  return `If you choose a plan now, your first charge is ${date}.`;
+  return `Your first charge is ${date}.`;
 }
 
 /** Dashboard home copy when the account cannot use the product. */
