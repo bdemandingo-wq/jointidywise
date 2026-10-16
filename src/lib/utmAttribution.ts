@@ -13,8 +13,11 @@
  *
  * What is stored, and nothing else from the URL:
  *   utm_source, utm_medium, utm_campaign, utm_term, utm_content
+ *   gclid, fbclid, ttclid
+ *   channel, channel_source, detected_via — labels only
  *   the landing path, with no origin, query string, or hash
  *   the referrer's domain, with no path or query
+ * The user agent is read to name an in-app browser and is never stored.
  * Invite and reset links put access_token and refresh_token in the hash.
  * Those fragments are never written to localStorage, the cookie, or
  * account_signup_attribution.
@@ -73,6 +76,12 @@ export interface CapturedUtm {
   utm_content: string | null;
   referrer: string | null;
   landing_page: string | null;
+  gclid: string | null;
+  fbclid: string | null;
+  ttclid: string | null;
+  channel: string | null;
+  channel_source: string | null;
+  detected_via: string | null;
   capturedAt: number;
 }
 
@@ -85,6 +94,35 @@ export interface SignupAttributionArgs {
   p_referrer: string | null;
   p_landing_page: string | null;
   p_captured_at: string | null;
+  p_channel: string | null;
+  p_channel_source: string | null;
+  p_detected_via: string | null;
+  p_gclid: string | null;
+  p_fbclid: string | null;
+  p_ttclid: string | null;
+}
+
+export type DetectedVia = "utm" | "click_id" | "user_agent" | "referrer" | "native" | "direct";
+
+export interface ChannelClassification {
+  channel: string;
+  channel_source: string | null;
+  detected_via: DetectedVia;
+}
+
+export interface ClassifyChannelInput {
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_term?: string | null;
+  utm_content?: string | null;
+  gclid?: string | null;
+  fbclid?: string | null;
+  ttclid?: string | null;
+  /** Read to classify an in-app browser. Never written to storage or the database. */
+  userAgent?: string | null;
+  referrer?: string | null;
+  native?: boolean;
 }
 
 /** What the database stores. Normalized source is never null. */
@@ -104,6 +142,41 @@ export interface NormalizedUtm {
 export interface StoredSignupAttribution extends NormalizedUtm {
   referrer: string | null;
   landing_page: string | null;
+  channel: string | null;
+  channel_source: string | null;
+  detected_via: string | null;
+  gclid: string | null;
+  fbclid: string | null;
+  ttclid: string | null;
+}
+
+const CHANNEL_LABELS: Record<string, string> = {
+  tiktok: "TikTok",
+  instagram: "Instagram",
+  facebook: "Facebook",
+  reddit: "Reddit",
+  google: "Google",
+  google_ads: "Google Ads",
+  organic_search: "Organic search",
+  x: "X",
+  direct: "Direct",
+  referral: "Referral",
+  ios_app: "iOS app",
+};
+
+const DETECTED_VIA_LABELS: Record<string, string> = {
+  utm: "UTM",
+  click_id: "Click id",
+  user_agent: "In-app browser",
+  referrer: "Referrer",
+  native: "iOS app",
+  direct: "Direct",
+};
+
+const PAID_MEDIUMS = new Set(["cpc", "ppc", "paid", "paidsocial", "paid_social", "cpm", "cpa", "display", "ads"]);
+
+export function channelLabel(channel: string): string {
+  return CHANNEL_LABELS[channel] ?? channel;
 }
 
 interface StoredCapture extends CapturedUtm {
@@ -294,6 +367,190 @@ function cap(value: string | null, max: number): string | null {
   return value.length > max ? value.slice(0, max) : value;
 }
 
+function presentText(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function bareHost(host: string): string {
+  return host.startsWith("www.") ? host.slice(4) : host;
+}
+
+function hostIs(host: string, pattern: RegExp): boolean {
+  return pattern.test(bareHost(host));
+}
+
+function isOwnHost(host: string): boolean {
+  const bare = bareHost(host);
+  return bare === "jointidywise.com" || bare.endsWith(".jointidywise.com");
+}
+
+function channelFromUtm(source: string | null, medium: string | null): { channel: string; channel_source: string | null } {
+  const paid = medium != null && PAID_MEDIUMS.has(medium);
+  let channel = "utm";
+  if (source === "tiktok" || source === "tt") channel = "tiktok";
+  else if (source === "instagram" || source === "ig") channel = "instagram";
+  else if (source === "facebook" || source === "fb" || source === "meta") channel = "facebook";
+  else if (source === "reddit") channel = "reddit";
+  else if (source === "google") channel = paid ? "google_ads" : "google";
+  else if (source === "adwords" || source === "google_ads") channel = "google_ads";
+  else if (source === "bing" || source === "duckduckgo" || source === "yahoo") channel = paid ? source : "organic_search";
+  else if (source === "twitter" || source === "x" || source === "t.co") channel = "x";
+  else if (source && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(source)) channel = source;
+  return { channel, channel_source: cap(source ?? medium, 120) };
+}
+
+function channelFromUserAgent(userAgent: string): ChannelClassification | null {
+  if (/musical_ly|BytedanceWebview|TikTok/i.test(userAgent)) {
+    return { channel: "tiktok", channel_source: "TikTok", detected_via: "user_agent" };
+  }
+  if (/Instagram/i.test(userAgent)) {
+    return { channel: "instagram", channel_source: "Instagram", detected_via: "user_agent" };
+  }
+  if (/FBAN|FBAV|FB_IAB/i.test(userAgent)) {
+    return { channel: "facebook", channel_source: "Facebook", detected_via: "user_agent" };
+  }
+  if (/Reddit/i.test(userAgent)) {
+    return { channel: "reddit", channel_source: "Reddit", detected_via: "user_agent" };
+  }
+  return null;
+}
+
+function channelFromReferrer(host: string): ChannelClassification | null {
+  const bare = bareHost(host);
+  if (
+    /^google\.[a-z.]+$/.test(bare)
+    || hostIs(host, /(^|\.)bing\.com$/)
+    || hostIs(host, /(^|\.)duckduckgo\.com$/)
+    || /(^|\.)yahoo\.[a-z.]+$/.test(bare)
+  ) {
+    return { channel: "organic_search", channel_source: host, detected_via: "referrer" };
+  }
+  if (hostIs(host, /(^|\.)tiktok\.com$/)) {
+    return { channel: "tiktok", channel_source: host, detected_via: "referrer" };
+  }
+  if (hostIs(host, /(^|\.)instagram\.com$/)) {
+    return { channel: "instagram", channel_source: host, detected_via: "referrer" };
+  }
+  if (
+    bare === "facebook.com"
+    || bare === "l.facebook.com"
+    || bare === "lm.facebook.com"
+    || bare === "m.facebook.com"
+    || hostIs(host, /(^|\.)facebook\.com$/)
+  ) {
+    return { channel: "facebook", channel_source: host, detected_via: "referrer" };
+  }
+  if (
+    bare === "reddit.com"
+    || bare === "old.reddit.com"
+    || bare === "out.reddit.com"
+    || hostIs(host, /(^|\.)reddit\.com$/)
+  ) {
+    return { channel: "reddit", channel_source: host, detected_via: "referrer" };
+  }
+  if (host === "t.co" || bare === "x.com" || bare === "twitter.com" || hostIs(host, /(^|\.)(?:twitter|x)\.com$/)) {
+    return { channel: "x", channel_source: host, detected_via: "referrer" };
+  }
+  return null;
+}
+
+/**
+ * First match wins:
+ * UTM, then click id, then in-app user agent, then referrer, then
+ * iOS app when the visit would otherwise be direct, then direct or referral.
+ * The returned object is labels only. The user agent is not copied into it.
+ */
+export function classifyChannel(input: ClassifyChannelInput): ChannelClassification {
+  const source = normalizeUtmValue(input.utm_source);
+  const medium = normalizeUtmValue(input.utm_medium);
+  const campaign = normalizeUtmValue(input.utm_campaign);
+  const term = normalizeUtmValue(input.utm_term);
+  const content = normalizeUtmValue(input.utm_content);
+  if (source || medium || campaign || term || content) {
+    const named = channelFromUtm(source, medium);
+    return {
+      channel: named.channel,
+      channel_source: named.channel_source ?? cap(campaign ?? term ?? content, 120),
+      detected_via: "utm",
+    };
+  }
+
+  if (presentText(input.ttclid)) return { channel: "tiktok", channel_source: "ttclid", detected_via: "click_id" };
+  if (presentText(input.fbclid)) return { channel: "facebook", channel_source: "fbclid", detected_via: "click_id" };
+  if (presentText(input.gclid)) return { channel: "google_ads", channel_source: "gclid", detected_via: "click_id" };
+
+  const userAgent = presentText(input.userAgent);
+  if (userAgent) {
+    const fromAgent = channelFromUserAgent(userAgent);
+    if (fromAgent) return fromAgent;
+  }
+
+  const host = referrerDomain(input.referrer);
+  if (host) {
+    const fromReferrer = channelFromReferrer(host);
+    if (fromReferrer) return fromReferrer;
+  }
+
+  const native = input.native === true || (userAgent != null && /TidyWise-iOS/i.test(userAgent));
+  if (host && !isOwnHost(host)) {
+    return { channel: "referral", channel_source: host, detected_via: "referrer" };
+  }
+  if (native) return { channel: "ios_app", channel_source: "ios", detected_via: "native" };
+  return { channel: "direct", channel_source: null, detected_via: "direct" };
+}
+
+export interface ChannelSignals {
+  userAgent?: string | null;
+  native?: boolean;
+}
+
+function runtimeSignals(override?: ChannelSignals): { userAgent: string | null; native: boolean } {
+  if (override && (override.userAgent !== undefined || override.native !== undefined)) {
+    return { userAgent: presentText(override.userAgent), native: override.native === true };
+  }
+  let userAgent: string | null = null;
+  let native = false;
+  try {
+    if (typeof navigator !== "undefined") userAgent = presentText(navigator.userAgent);
+  } catch {
+    userAgent = null;
+  }
+  try {
+    const capBridge = (globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+    if (typeof capBridge?.isNativePlatform === "function") native = capBridge.isNativePlatform() === true;
+  } catch {
+    native = false;
+  }
+  return { userAgent, native };
+}
+
+function extractClickIds(search: string): Pick<CapturedUtm, "gclid" | "fbclid" | "ttclid"> {
+  const qs = search.startsWith("?") ? search.slice(1) : search;
+  const params = new URLSearchParams(qs);
+  return {
+    gclid: cap(readParam(params, "gclid"), 200),
+    fbclid: cap(readParam(params, "fbclid"), 200),
+    ttclid: cap(readParam(params, "ttclid"), 200),
+  };
+}
+
+function hasAnyClick(ids: Pick<CapturedUtm, "gclid" | "fbclid" | "ttclid">): boolean {
+  return ids.gclid != null || ids.fbclid != null || ids.ttclid != null;
+}
+
+function mergeClickIds(
+  primary: Pick<CapturedUtm, "gclid" | "fbclid" | "ttclid">,
+  fallback: Pick<CapturedUtm, "gclid" | "fbclid" | "ttclid">,
+): Pick<CapturedUtm, "gclid" | "fbclid" | "ttclid"> {
+  return {
+    gclid: primary.gclid ?? fallback.gclid,
+    fbclid: primary.fbclid ?? fallback.fbclid,
+    ttclid: primary.ttclid ?? fallback.ttclid,
+  };
+}
+
 function landingFromLocation(loc: { pathname: string; hash?: string }): string | null {
   return sanitizeLandingPath(hashRoutePath(loc.hash ?? "") ?? (loc.pathname || "/"));
 }
@@ -309,10 +566,18 @@ function parseStored(raw: string | null, now: number): CapturedUtm | null {
       const value = parsed[key];
       fields[key] = typeof value === "string" && value.length > 0 ? value : null;
     }
+    const click = (key: "gclid" | "fbclid" | "ttclid") =>
+      typeof parsed[key] === "string" && parsed[key].length > 0 ? parsed[key] : null;
     return {
       ...fields,
       referrer: typeof parsed.referrer === "string" && parsed.referrer.length > 0 ? parsed.referrer : null,
       landing_page: typeof parsed.landing_page === "string" ? parsed.landing_page : null,
+      gclid: click("gclid"),
+      fbclid: click("fbclid"),
+      ttclid: click("ttclid"),
+      channel: typeof parsed.channel === "string" && parsed.channel.length > 0 ? parsed.channel : null,
+      channel_source: typeof parsed.channel_source === "string" && parsed.channel_source.length > 0 ? parsed.channel_source : null,
+      detected_via: typeof parsed.detected_via === "string" && parsed.detected_via.length > 0 ? parsed.detected_via : null,
       capturedAt: parsed.capturedAt,
     };
   } catch {
@@ -348,6 +613,7 @@ export function captureUtmFromLocation(
   storage: UtmStorage = defaultStorage(),
   now: number = Date.now(),
   cookies?: UtmCookieJar,
+  signals?: ChannelSignals,
 ): void {
   try {
     if (readCapturedUtm(storage, now, cookies)) return;
@@ -355,19 +621,34 @@ export function captureUtmFromLocation(
     const fromSearch = extractUtmFromSearch(loc.search);
     const hash = loc.hash ?? "";
     const hashQueryAt = hash.indexOf("?");
-    const fromHash = hashQueryAt >= 0 ? extractUtmFromSearch(hash.slice(hashQueryAt)) : extractUtmFromSearch("");
+    const hashQuery = hashQueryAt >= 0 ? hash.slice(hashQueryAt) : "";
+    const fromHash = hashQuery ? extractUtmFromSearch(hashQuery) : extractUtmFromSearch("");
     const fields: Pick<CapturedUtm, UtmParamKey> = { ...fromSearch };
     for (const key of UTM_PARAM_KEYS) {
       if (fields[key] == null) fields[key] = fromHash[key];
     }
+    const clicks = mergeClickIds(extractClickIds(loc.search), extractClickIds(hashQuery));
 
     const route = hashRoutePath(hash) ?? loc.pathname ?? "/";
-    if (!hasAnyUtm(fields) && !shouldCaptureLanding(route)) return;
+    if (!hasAnyUtm(fields) && !hasAnyClick(clicks) && !shouldCaptureLanding(route)) return;
 
+    const live = runtimeSignals(signals);
+    const referrerHost = referrerDomain(referrer);
+    const classified = classifyChannel({
+      ...fields,
+      ...clicks,
+      referrer: referrerHost,
+      userAgent: live.userAgent,
+      native: live.native,
+    });
     const capture: CapturedUtm = {
       ...fields,
-      referrer: referrerDomain(referrer),
+      ...clicks,
+      referrer: referrerHost,
       landing_page: landingFromLocation(loc),
+      channel: classified.channel,
+      channel_source: classified.channel_source,
+      detected_via: classified.detected_via,
       capturedAt: now,
     };
     remember(capture, storage, now, cookies);
@@ -437,9 +718,13 @@ export function clearCapturedUtm(
   }
 }
 
-/** Arguments for public.save_signup_attribution. Raw values, capped. */
-export function signupAttributionArgs(captured: CapturedUtm | null, now: number = Date.now()): SignupAttributionArgs {
-  const fields = captured ?? {
+/** Arguments for public.save_signup_attribution. Raw values, capped. Labels only — never a user agent. */
+export function signupAttributionArgs(
+  captured: CapturedUtm | null,
+  now: number = Date.now(),
+  signals?: ChannelSignals,
+): SignupAttributionArgs {
+  const fields: CapturedUtm = captured ?? {
     utm_source: null,
     utm_medium: null,
     utm_campaign: null,
@@ -447,8 +732,21 @@ export function signupAttributionArgs(captured: CapturedUtm | null, now: number 
     utm_content: null,
     referrer: null,
     landing_page: null,
+    gclid: null,
+    fbclid: null,
+    ttclid: null,
+    channel: null,
+    channel_source: null,
+    detected_via: null,
     capturedAt: now,
   };
+  const classified = fields.channel && fields.detected_via
+    ? {
+      channel: fields.channel,
+      channel_source: fields.channel_source,
+      detected_via: fields.detected_via,
+    }
+    : classifyChannel({ ...fields, ...runtimeSignals(signals) });
   return {
     p_utm_source: cap(fields.utm_source, 500),
     p_utm_medium: cap(fields.utm_medium, 500),
@@ -457,7 +755,13 @@ export function signupAttributionArgs(captured: CapturedUtm | null, now: number 
     p_utm_content: cap(fields.utm_content, 500),
     p_referrer: referrerDomain(fields.referrer),
     p_landing_page: sanitizeLandingPath(fields.landing_page),
-    p_captured_at: new Date(fields.capturedAt).toISOString(),
+    p_captured_at: new Date(fields.capturedAt ?? now).toISOString(),
+    p_channel: cap(classified.channel, 64),
+    p_channel_source: cap(classified.channel_source, 120),
+    p_detected_via: cap(classified.detected_via, 32),
+    p_gclid: cap(fields.gclid ?? null, 200),
+    p_fbclid: cap(fields.fbclid ?? null, 200),
+    p_ttclid: cap(fields.ttclid ?? null, 200),
   };
 }
 
@@ -483,13 +787,45 @@ export function parseStoredAttribution(raw: unknown): StoredSignupAttribution | 
     utm_content: textOrNull(source.utm_content),
     referrer: textOrNull(source.referrer),
     landing_page: textOrNull(source.landing_page),
+    channel: textOrNull(source.channel),
+    channel_source: textOrNull(source.channel_source),
+    detected_via: textOrNull(source.detected_via),
+    gclid: textOrNull(source.gclid),
+    fbclid: textOrNull(source.fbclid),
+    ttclid: textOrNull(source.ttclid),
   };
 }
 
-/** Badge text. Normalized source, with medium when one was captured. */
+/** Stored channel, or a fresh classification that refuses to call a referred visit direct. */
+function detectedForRow(row: StoredSignupAttribution): ChannelClassification {
+  if (row.channel) {
+    return {
+      channel: row.channel,
+      channel_source: row.channel_source,
+      detected_via: (row.detected_via as DetectedVia | null) ?? "direct",
+    };
+  }
+  return classifyChannel({
+    utm_source: row.utm_source_raw ?? (row.utm_source !== "direct" ? row.utm_source : null),
+    utm_medium: row.utm_medium,
+    utm_campaign: row.utm_campaign,
+    utm_term: row.utm_term,
+    utm_content: row.utm_content,
+    referrer: row.referrer,
+    gclid: row.gclid,
+    fbclid: row.fbclid,
+    ttclid: row.ttclid,
+  });
+}
+
+/** Badge text. A stored or inferred channel wins over a bare "direct" when a referrer exists. */
 export function summariseUtm(raw: unknown): { primary: string } | null {
   const row = parseStoredAttribution(raw);
   if (!row) return null;
+  const detected = detectedForRow(row);
+  if (row.channel || (row.utm_source === "direct" && !row.utm_source_raw && detected.channel !== "direct")) {
+    return { primary: channelLabel(detected.channel) };
+  }
   return { primary: row.utm_medium ? `${row.utm_source} / ${row.utm_medium}` : row.utm_source };
 }
 
@@ -502,7 +838,15 @@ export interface UtmDetailLine {
 export function describeUtm(raw: unknown): UtmDetailLine[] {
   const row = parseStoredAttribution(raw);
   if (!row) return [];
-  const lines: UtmDetailLine[] = [{ label: "Source", value: row.utm_source }];
+  const detected = detectedForRow(row);
+  const lines: UtmDetailLine[] = [
+    { label: "Detected", value: channelLabel(detected.channel) },
+    { label: "Detected via", value: DETECTED_VIA_LABELS[detected.detected_via] ?? detected.detected_via },
+  ];
+  if (detected.channel_source && detected.channel_source !== detected.channel) {
+    lines.push({ label: "Matched", value: detected.channel_source });
+  }
+  lines.push({ label: "Source", value: row.utm_source });
   if (row.utm_source_raw && row.utm_source_raw !== row.utm_source) {
     lines.push({ label: "Source as received", value: row.utm_source_raw });
   }
@@ -521,6 +865,9 @@ export function describeUtm(raw: unknown): UtmDetailLine[] {
   }
   if (row.referrer) lines.push({ label: "Referrer", value: row.referrer });
   if (row.landing_page) lines.push({ label: "Landing page", value: row.landing_page });
+  if (row.ttclid) lines.push({ label: "ttclid", value: row.ttclid });
+  if (row.fbclid) lines.push({ label: "fbclid", value: row.fbclid });
+  if (row.gclid) lines.push({ label: "gclid", value: row.gclid });
   return lines;
 }
 

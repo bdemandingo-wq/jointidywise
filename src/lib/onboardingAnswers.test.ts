@@ -44,6 +44,14 @@ import {
   summariseSource,
   describeAnswers,
   countWithOnboardingData,
+  chosenHowHeard,
+  hasHowHeardAnswer,
+  howHeardAnsweredSummary,
+  isHowHeardComplete,
+  normalizeHowHeardOther,
+  readHowHeardOther,
+  shouldAskHowHeard,
+  HOW_HEARD_OTHER_MAX,
   type OnboardingAnswers,
 } from "./onboardingAnswers.ts";
 
@@ -101,11 +109,53 @@ test("howHeard is one of the five qualifying keys", () => {
   assert.equal(QUALIFYING_KEYS.length, 5);
 });
 
-test("howHeard offers the self-reported options, including instagram", () => {
+test("howHeard offers the single-choice options, with organic social first", () => {
   assert.deepEqual(
     [...HOW_HEARD_VALUES],
-    ["fb_ad", "fb_group", "instagram", "tiktok", "google", "referral", "other"],
+    ["tiktok", "instagram", "facebook", "reddit", "google", "referral", "other"],
   );
+});
+
+test("a legacy howHeard array is still read", () => {
+  const fromArray = normalizeAnswers({ howHeard: ["fb_ad", "tiktok"] });
+  assert.deepEqual(fromArray.howHeard, ["fb_ad", "tiktok"]);
+  const fromString = normalizeAnswers({ howHeard: "instagram" });
+  assert.deepEqual(fromString.howHeard, ["instagram"]);
+});
+
+test("legacy facebook slugs display as Facebook", () => {
+  assert.equal(labelForOption("howHeard", "fb_ad"), "Facebook");
+  assert.equal(labelForOption("howHeard", "fb_group"), "Facebook");
+  assert.equal(labelForOption("howHeard", "facebook"), "Facebook");
+  assert.equal(labelForOption("howHeard", "referral"), "Friend/referral");
+});
+
+test("other is required text, capped at 200 characters", () => {
+  assert.equal(isHowHeardComplete("tiktok", ""), true);
+  assert.equal(isHowHeardComplete("other", "  "), false);
+  assert.equal(isHowHeardComplete("other", "a podcast"), true);
+  assert.equal(isHowHeardComplete("", ""), false);
+  const long = "x".repeat(HOW_HEARD_OTHER_MAX + 40);
+  assert.equal(normalizeHowHeardOther(`  ${long}  `).length, HOW_HEARD_OTHER_MAX);
+  assert.equal(chosenHowHeard(["fb_group", "reddit"]), "facebook");
+  const payload = buildAnswersPayload(
+    normalizeAnswers({ howHeard: ["other", "tiktok"] }),
+    long,
+  );
+  assert.deepEqual(payload.howHeard, ["tiktok"]);
+  assert.equal(payload.howHeardOther, "");
+  const otherPayload = buildAnswersPayload(normalizeAnswers({ howHeard: ["other"] }), "  from a reel  ");
+  assert.deepEqual(otherPayload.howHeard, ["other"]);
+  assert.equal(otherPayload.howHeardOther, "from a reel");
+});
+
+test("the owner prompt asks only when howHeard is empty and we have not asked", () => {
+  assert.equal(shouldAskHowHeard(null), true);
+  assert.equal(shouldAskHowHeard({ howHeard: [] }), true);
+  assert.equal(shouldAskHowHeard({ howHeard: ["tiktok"] }), false);
+  assert.equal(shouldAskHowHeard({ howHeard: [], howHeardAskedAt: "2026-10-16T00:00:00.000Z" }), false);
+  assert.equal(hasHowHeardAnswer({ howHeard: "facebook" }), true);
+  assert.equal(readHowHeardOther({ howHeard: ["other"], howHeardOther: "podcast" }), "podcast");
 });
 
 // ─── recommendPlan: no silent change for existing behaviour ─────────────────
@@ -319,10 +369,11 @@ test("summariseSource returns null when there is no acquisition answer", () => {
 
 test("summariseSource names one source and counts the rest", () => {
   const s = summariseSource({ howHeard: ["fb_ad"] });
-  assert.deepEqual(s, { primary: "Facebook ad", extraCount: 0 });
-  const multi = summariseSource({ howHeard: ["fb_ad", "tiktok", "other"] });
-  assert.equal(multi?.primary, "Facebook ad");
+  assert.deepEqual(s, { primary: "Facebook", extraCount: 0, other: null });
+  const multi = summariseSource({ howHeard: ["fb_ad", "tiktok", "other"], howHeardOther: "a podcast" });
+  assert.equal(multi?.primary, "TikTok");
   assert.equal(multi?.extraCount, 2);
+  assert.equal(multi?.other, "a podcast");
 });
 
 test("summariseSource picks the primary by canonical order, not stored order", () => {
@@ -331,7 +382,7 @@ test("summariseSource picks the primary by canonical order, not stored order", (
   const a = summariseSource({ howHeard: ["other", "tiktok", "fb_ad"] });
   const b = summariseSource({ howHeard: ["fb_ad", "other", "tiktok"] });
   assert.deepEqual(a, b);
-  assert.equal(a?.primary, "Facebook ad");
+  assert.equal(a?.primary, "TikTok");
 });
 
 test("describeAnswers returns nothing to render when the column is null", () => {
@@ -367,6 +418,17 @@ test("countWithOnboardingData reports coverage over a list of signup rows", () =
 
 test("countWithOnboardingData is 0 for an empty list, not NaN", () => {
   assert.equal(countWithOnboardingData([]), 0);
+});
+
+test("the answered rate is the share of rows that named a source", () => {
+  const rows = [
+    { onboarding_answers: { howHeard: ["tiktok"] } },
+    { onboarding_answers: { howHeard: [] } },
+    { onboarding_answers: null },
+    { onboarding_answers: { howHeard: "reddit" } },
+  ];
+  assert.deepEqual(howHeardAnsweredSummary(rows), { answered: 2, total: 4, percent: 50 });
+  assert.deepEqual(howHeardAnsweredSummary([]), { answered: 0, total: 0, percent: 0 });
 });
 
 test("display helpers do not mutate what they are given", () => {

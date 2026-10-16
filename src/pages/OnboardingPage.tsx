@@ -33,10 +33,10 @@ import { detectBrowserCurrency } from '@/lib/currency';
 import { detectBrowserTimezone } from '@/lib/timezones';
 import {
   buildAnswersPayload,
-  HOW_HEARD_VALUES,
+  isHowHeardComplete,
   normalizeAnswers,
-  OPTION_LABELS,
 } from '@/lib/onboardingAnswers';
+import { HowHeardChoices } from '@/components/onboarding/HowHeardChoices';
 import {
   clearOnboardingDraft,
   readOnboardingDraft,
@@ -92,7 +92,8 @@ export default function OnboardingPage() {
   const [newServiceDescription, setNewServiceDescription] = useState('');
   const [currency, setCurrency] = useState<string>(() => detectBrowserCurrency());
   const [timezone, setTimezone] = useState<string>(() => detectBrowserTimezone());
-  const [howHeard, setHowHeard] = useState<string[]>([]);
+  const [howHeard, setHowHeard] = useState('');
+  const [howHeardOther, setHowHeardOther] = useState('');
   const baseSlug = useMemo(() => slugify(businessName), [businessName]);
   const requestedNewBusiness = new URLSearchParams(window.location.search).get('new') === 'true';
   const mayCreateAdditionalBusiness = Boolean(
@@ -117,6 +118,8 @@ export default function OnboardingPage() {
       if (draft.timezone) setTimezone(draft.timezone);
       setCustomServices(draft.customServices);
       setHowHeard(draft.howHeard);
+      setHowHeardOther(draft.howHeardOther);
+      if (!isHowHeardComplete(draft.howHeard, draft.howHeardOther)) setStep(1);
       setSelectedServices(new Set(
         draft.selectedServices.length > 0
           ? draft.selectedServices
@@ -153,8 +156,9 @@ export default function OnboardingPage() {
       selectedServices: [...selectedServices],
       customServices,
       howHeard,
+      howHeardOther,
     });
-  }, [draftReady, user, building, step, businessName, phoneNumber, currency, timezone, selectedServices, customServices, howHeard]);
+  }, [draftReady, user, building, step, businessName, phoneNumber, currency, timezone, selectedServices, customServices, howHeard, howHeardOther]);
 
   // If the user already belongs to a completed business, redirect. Business
   // onboarding is only for a confirmed membership-free account or the actual
@@ -269,7 +273,7 @@ export default function OnboardingPage() {
   const totalServicesCount = allServices.length;
 
   const handleSubmit = async () => {
-    if (!user || !businessName.trim()) return;
+    if (!user || !businessName.trim() || !isHowHeardComplete(howHeard, howHeardOther)) return;
 
     setLoading(true);
     try {
@@ -314,8 +318,8 @@ export default function OnboardingPage() {
       // Empty arrays keep "skipped" distinct from a null column.
       const onboardingAnswersPayload = buildAnswersPayload({
         ...normalizeAnswers(null),
-        howHeard: HOW_HEARD_VALUES.filter((value) => howHeard.includes(value)),
-      });
+        howHeard: howHeard ? [howHeard] : [],
+      }, howHeardOther);
 
       let orgData: any = null;
 
@@ -594,7 +598,8 @@ export default function OnboardingPage() {
 
   // Phone is optional (App Store 5.1.1). A value that isn't a phone is not.
   const phoneError = phoneNumber.trim() ? validatePhone(phoneNumber, false) : null;
-  const canProceedStep1 = businessName.trim().length >= 2 && !phoneError;
+  const howHeardReady = isHowHeardComplete(howHeard, howHeardOther);
+  const canProceedStep1 = businessName.trim().length >= 2 && !phoneError && howHeardReady;
   const canProceedServices = selectedServices.size > 0;
 
   // Show loading spinner while checking organization status
@@ -708,7 +713,7 @@ export default function OnboardingPage() {
             active={!building}
             readyToSync={draftReady}
             organizationId={organization?.id ?? null}
-            hasLocalDraft={Boolean(businessName || phoneNumber || step > 1)}
+            hasLocalDraft={Boolean(businessName || phoneNumber || howHeard || step > 1)}
             draft={{
               step: step === 2 || step === 3 ? step : 1,
               businessName,
@@ -718,15 +723,17 @@ export default function OnboardingPage() {
               selectedServices: [...selectedServices],
               customServices,
               howHeard,
+              howHeardOther,
             }}
             onRestore={(restored) => {
-              setStep(restored.step);
+              setStep(isHowHeardComplete(restored.howHeard, restored.howHeardOther) ? restored.step : 1);
               setBusinessName(restored.businessName);
               setPhoneNumber(restored.phoneNumber);
               if (restored.currency) setCurrency(restored.currency);
               if (restored.timezone) setTimezone(restored.timezone);
               setCustomServices(restored.customServices);
               setHowHeard(restored.howHeard);
+              setHowHeardOther(restored.howHeardOther);
               if (restored.selectedServices.length > 0) {
                 setSelectedServices(new Set(restored.selectedServices));
               }
@@ -738,6 +745,14 @@ export default function OnboardingPage() {
           {/* Step 1: Business Name & Phone */}
           {step === 1 && (
             <div className="space-y-4">
+              <HowHeardChoices
+                value={howHeard}
+                other={howHeardOther}
+                onChange={(next, nextOther) => {
+                  setHowHeard(next);
+                  setHowHeardOther(nextOther);
+                }}
+              />
               <div className="space-y-2">
                 <Label htmlFor="businessName">Business Name</Label>
                 <Input
@@ -786,6 +801,12 @@ export default function OnboardingPage() {
                 disabled={!canProceedStep1}
                 onClick={() => {
                   if (!canProceedStep1) {
+                    if (!howHeardReady) {
+                      toast.error(howHeard === 'other'
+                        ? 'Tell us where you heard about us.'
+                        : 'Choose how you heard about us.');
+                      return;
+                    }
                     toast.error(phoneError || 'Enter your business name to continue.');
                     return;
                   }
@@ -979,36 +1000,6 @@ export default function OnboardingPage() {
                 You can always add, edit, or remove services later from the Services page.
               </p>
 
-              <div className="space-y-2">
-                <Label>How did you hear about us?</Label>
-                <p className="text-xs text-muted-foreground">Optional. Pick any that apply.</p>
-                <div className="flex flex-wrap gap-2">
-                  {HOW_HEARD_VALUES.map((value) => {
-                    const selected = howHeard.includes(value);
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => setHowHeard((current) =>
-                          current.includes(value)
-                            ? current.filter((item) => item !== value)
-                            : [...current, value],
-                        )}
-                        className={cn(
-                          "rounded-full border px-3 py-1 text-sm transition-colors",
-                          selected
-                            ? "border-primary bg-primary/10 text-foreground"
-                            : "border-border text-muted-foreground hover:border-primary/50",
-                        )}
-                      >
-                        {OPTION_LABELS.howHeard[value]}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              
               <div className="flex gap-3">
                 <Button
                   variant="outline"
@@ -1020,7 +1011,7 @@ export default function OnboardingPage() {
                 <Button 
                   className="flex-1" 
                   variant="premium"
-                  disabled={loading || orgLoading || !canProceedServices}
+                  disabled={loading || orgLoading || !canProceedServices || !howHeardReady}
                   onClick={handleSubmit}
                 >
                   {loading ? (

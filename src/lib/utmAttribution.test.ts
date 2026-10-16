@@ -26,6 +26,7 @@ import {
   shouldCaptureLanding,
   signupAttributionArgs,
   summariseUtm,
+  classifyChannel,
   type UtmCookieJar,
   type UtmStorage,
 } from "./utmAttribution.ts";
@@ -399,4 +400,85 @@ test("analytics summary shows normalized source and medium together", () => {
 test("a corrupt stored value reads as nothing", () => {
   const storage = memoryStorage({ [UTM_STORAGE_KEY]: "{not json" });
   assert.equal(readCapturedUtm(storage), null);
+});
+
+test("classifyChannel checks UTM, then click id, then in-app browser, then referrer", () => {
+  const ua = "Mozilla/5.0 musical_ly_SECRETTOKEN Instagram FBAN";
+  assert.equal(classifyChannel({ userAgent: ua }).channel, "tiktok");
+  assert.equal(classifyChannel({ userAgent: ua }).detected_via, "user_agent");
+  assert.equal(JSON.stringify(classifyChannel({ userAgent: ua })).includes("SECRETTOKEN"), false);
+  assert.equal(JSON.stringify(classifyChannel({ userAgent: ua })).includes("Mozilla"), false);
+
+  assert.deepEqual(
+    classifyChannel({ utm_source: "TikTok", gclid: "g", userAgent: "Instagram", referrer: "https://google.com" }),
+    { channel: "tiktok", channel_source: "tiktok", detected_via: "utm" },
+  );
+  assert.equal(classifyChannel({ utm_source: "google", utm_medium: "cpc" }).channel, "google_ads");
+  assert.equal(classifyChannel({ utm_source: "google", utm_medium: "organic" }).channel, "google");
+  assert.equal(classifyChannel({ ttclid: "abc", fbclid: "def", referrer: "https://www.google.com/search?q=1" }).channel, "tiktok");
+  assert.equal(classifyChannel({ fbclid: "1" }).channel, "facebook");
+  assert.equal(classifyChannel({ gclid: "1" }).channel, "google_ads");
+  assert.equal(classifyChannel({ gclid: "1" }).detected_via, "click_id");
+
+  assert.equal(classifyChannel({ userAgent: "Something Instagram 1.0 FBAN/FBIOS" }).channel, "instagram");
+  assert.equal(classifyChannel({ userAgent: "FBAN/FBIOS FBAV/1" }).channel, "facebook");
+  assert.equal(classifyChannel({ userAgent: "FB_IAB" }).channel, "facebook");
+  assert.equal(classifyChannel({ userAgent: "Reddit/Version" }).channel, "reddit");
+  assert.equal(classifyChannel({ userAgent: "BytedanceWebview" }).channel, "tiktok");
+
+  assert.equal(classifyChannel({ referrer: "https://www.google.co.uk/search?q=clean" }).channel, "organic_search");
+  assert.equal(classifyChannel({ referrer: "https://www.bing.com/search" }).channel, "organic_search");
+  assert.equal(classifyChannel({ referrer: "https://duckduckgo.com/" }).channel, "organic_search");
+  assert.equal(classifyChannel({ referrer: "https://search.yahoo.com/search" }).channel, "organic_search");
+  assert.equal(classifyChannel({ referrer: "https://mail.google.com/mail" }).channel, "referral");
+  assert.equal(classifyChannel({ referrer: "https://www.tiktok.com/@tidy/video/1" }).channel, "tiktok");
+  assert.equal(classifyChannel({ referrer: "https://l.instagram.com/" }).channel, "instagram");
+  assert.equal(classifyChannel({ referrer: "https://instagram.com/reel/1" }).channel, "instagram");
+  assert.equal(classifyChannel({ referrer: "https://l.facebook.com/l.php" }).channel, "facebook");
+  assert.equal(classifyChannel({ referrer: "https://lm.facebook.com/" }).channel, "facebook");
+  assert.equal(classifyChannel({ referrer: "https://m.facebook.com/" }).channel, "facebook");
+  assert.equal(classifyChannel({ referrer: "https://www.facebook.com/" }).channel, "facebook");
+  assert.equal(classifyChannel({ referrer: "https://old.reddit.com/r/Cleaning" }).channel, "reddit");
+  assert.equal(classifyChannel({ referrer: "https://out.reddit.com/" }).channel, "reddit");
+  assert.equal(classifyChannel({ referrer: "https://t.co/abc" }).channel, "x");
+  assert.equal(classifyChannel({ referrer: "https://example.com/post" }).channel, "referral");
+  assert.equal(classifyChannel({ referrer: "https://example.com/post" }).detected_via, "referrer");
+  assert.equal(classifyChannel({ referrer: "https://jointidywise.com/pricing" }).channel, "direct");
+  assert.equal(classifyChannel({ referrer: "https://app.jointidywise.com/" }).channel, "direct");
+  assert.equal(classifyChannel({}).channel, "direct");
+  assert.equal(classifyChannel({ native: true }).channel, "ios_app");
+  assert.equal(classifyChannel({ native: true }).detected_via, "native");
+  assert.equal(classifyChannel({ userAgent: "TidyWise-iOS", referrer: "https://jointidywise.com" }).channel, "ios_app");
+  assert.equal(classifyChannel({ native: true, utm_source: "instagram" }).channel, "instagram");
+  assert.equal(classifyChannel({ native: true, referrer: "https://example.com" }).channel, "referral");
+});
+
+test("a referred visit is not summarized as direct, and the user agent is not stored", () => {
+  assert.equal(
+    summariseUtm({ utm_source: "direct", referrer: "www.tiktok.com" })?.primary,
+    "TikTok",
+  );
+  assert.equal(summariseUtm({ utm_source: "direct" })?.primary, "direct");
+  const ua = "Mozilla/5.0 (iPhone) Instagram SECRETTOKEN";
+  const storage = memoryStorage();
+  captureUtmFromLocation(
+    { href: "https://jointidywise.com/", pathname: "/", search: "?ttclid=click123", hash: "" },
+    null,
+    storage,
+    50,
+    undefined,
+    { userAgent: ua },
+  );
+  const stored = storage.getItem(UTM_STORAGE_KEY) ?? "";
+  assert.equal(stored.includes("SECRETTOKEN"), false);
+  assert.equal(stored.includes("Mozilla"), false);
+  assert.equal(stored.includes("userAgent"), false);
+  const captured = readCapturedUtm(storage, 50);
+  assert.equal(captured?.channel, "tiktok");
+  assert.equal(captured?.detected_via, "click_id");
+  assert.equal(captured?.ttclid, "click123");
+  const args = signupAttributionArgs(captured, 50);
+  assert.equal(args.p_channel, "tiktok");
+  assert.equal(args.p_ttclid, "click123");
+  assert.equal(JSON.stringify(args).includes("SECRETTOKEN"), false);
 });

@@ -184,7 +184,7 @@ serve(async (req) => {
       // A missing table (migration not applied yet) must not blank the page.
       const { data: attributionRows, error: attributionError } = await supabaseClient
         .from('account_signup_attribution')
-        .select('user_id, utm_source, utm_source_raw, utm_medium, utm_medium_raw, utm_campaign, utm_campaign_raw, utm_term, utm_term_raw, utm_content, utm_content_raw, referrer, landing_page')
+        .select('user_id, utm_source, utm_source_raw, utm_medium, utm_medium_raw, utm_campaign, utm_campaign_raw, utm_term, utm_term_raw, utm_content, utm_content_raw, referrer, landing_page, channel, channel_source, detected_via, gclid, fbclid, ttclid')
         .in('user_id', userIds);
       if (attributionError) {
         console.error('[PLATFORM-ANALYTICS] attribution lookup failed:', attributionError.message);
