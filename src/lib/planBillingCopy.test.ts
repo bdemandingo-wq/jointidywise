@@ -200,6 +200,8 @@ test("the charge preview uses the server clock and the discounted cents", () => 
 
   assert.equal(formatChargeDollars(4850), "$48.50");
   assert.equal(formatChargeDollars(9700), "$97");
+  assert.equal(formatChargeDollars(197000), "$1,970");
+  assert.equal(formatChargeDollars(197050), "$1,970.50");
   assert.equal(CHARGE_TODAY_NO_AMOUNT, "You'll be charged today.");
   assert.equal(visibleBillingLine(null), null);
   assert.equal(visibleBillingLine(""), null);

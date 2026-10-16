@@ -64,12 +64,14 @@ export function visibleBillingLine(line: string | null | undefined): string | nu
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/** Dollars for a server preview. Whole dollars stay "$97". A half stays "$48.50". */
+/** Dollars for a server preview. Whole dollars stay "$97". A half stays "$48.50". Thousands use a comma ("$1,970"). */
 export function formatChargeDollars(cents: number): string | null {
   if (!Number.isInteger(cents) || cents < 0) return null;
   const dollars = cents / 100;
-  if (Number.isInteger(dollars)) return `$${dollars}`;
-  return `$${dollars.toFixed(2)}`;
+  const formatted = Number.isInteger(dollars)
+    ? dollars.toLocaleString("en-US")
+    : dollars.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `$${formatted}`;
 }
 
 /**
