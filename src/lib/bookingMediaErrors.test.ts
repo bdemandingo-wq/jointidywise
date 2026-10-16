@@ -6,10 +6,8 @@ import {
   isVideoFile,
   MAX_MEDIA_PER_SELECTION,
   PHOTO_DECODE_ERROR,
-  PHOTO_UPLOAD_CONCURRENCY,
   SELECTION_LIMIT_MESSAGE,
   takeSelection,
-  UPLOAD_TIMEOUT_MS,
 } from './bookingMediaErrors.ts';
 
 const f = (name: string, type = '') => ({ name, type }) as File;
@@ -73,9 +71,4 @@ test('HEIC and HEIF are recognized without dropping them from the picker', () =>
   assert.equal(isHeicFile(f('IMG_1.heif', 'application/octet-stream')), true);
   assert.equal(isHeicFile(f('IMG_1.jpg', 'image/jpeg')), false);
   assert.equal(isVideoFile(f('clip.mp4', 'video/mp4')), true);
-});
-
-test('uploads stay serial and each one gets a minute before a retry', () => {
-  assert.equal(PHOTO_UPLOAD_CONCURRENCY, 1);
-  assert.equal(UPLOAD_TIMEOUT_MS, 60_000);
 });

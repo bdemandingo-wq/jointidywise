@@ -1,5 +1,5 @@
 import { Capacitor } from '@capacitor/core';
-import { getUploadErrorMessage, PHOTO_UPLOAD_CONCURRENCY, UPLOAD_TIMEOUT_ERROR, UPLOAD_TIMEOUT_MS } from '@/lib/bookingMediaErrors';
+import { getUploadErrorMessage } from '@/lib/bookingMediaErrors';
 import { uploadBookingMedia } from '@/lib/bookingMediaUpload';
 import {
   getPhotoQueueSnapshot,
@@ -13,7 +13,6 @@ import {
   markUploadStarted,
   pickNextUpload,
   subscribePhotoQueue,
-  withTimeout,
 } from '@/lib/photoUploadQueue';
 
 let active = false;
@@ -61,7 +60,7 @@ async function uploadOne(id: string) {
     ? blob
     : new File([blob], item.fileName, { type: mimeType });
   try {
-    const result = await withTimeout(uploadBookingMedia({
+    const result = await uploadBookingMedia({
       file,
       bookingId: item.bookingId,
       staffId: item.staffId,
@@ -70,7 +69,7 @@ async function uploadOne(id: string) {
       parsedExif: reviveCaptureExif(item.captureExif),
       liveCapture: item.liveCapture,
       idempotencyKey: item.id,
-    }), UPLOAD_TIMEOUT_MS, UPLOAD_TIMEOUT_ERROR);
+    });
     await markUploadFinished(id, result.filePath);
   } catch (error) {
     const isVideo = file.type.startsWith('video/') || file.name.toLowerCase().endsWith('.mov');
@@ -81,11 +80,7 @@ async function uploadOne(id: string) {
 
 async function drain() {
   await hydratePhotoQueue();
-  // Proof stamping decodes the photo a second time during upload. A second
-  // lane would put two bitmaps in the webview, so the cap stays at one.
-  if (PHOTO_UPLOAD_CONCURRENCY !== 1) {
-    console.warn('[photo-queue] uploads stay one at a time so only one photo is decoded');
-  }
+  // One photo at a time. The proof stamp decodes the photo again during upload.
   for (;;) {
     const now = Date.now();
     const next = pickNextUpload(getPhotoQueueSnapshot(), now);

@@ -17,7 +17,6 @@ import {
   recoverInterrupted,
   resetPhotoQueueForTests,
   retryDelayMs,
-  withTimeout,
   type PhotoQueueItem,
 } from './photoUploadQueue.ts';
 
@@ -100,12 +99,6 @@ test('the runner takes the oldest photo that is ready, one at a time', () => {
 
 test('a photo the phone cannot read is not retried on its own', () => {
   assert.equal(isRetryableUploadError(new Error(PHOTO_DECODE_ERROR)), false);
-  assert.equal(isRetryableUploadError(new Error('Upload timed out. Check your connection and try again.')), true);
-});
-
-test('a stalled upload rejects around the per-file budget', async () => {
-  await assert.rejects(withTimeout(new Promise(() => {}), 30), /timed out/i);
-  assert.equal(await withTimeout(Promise.resolve('sent'), 200), 'sent');
 });
 
 test('the long edge is capped at 1600', () => {

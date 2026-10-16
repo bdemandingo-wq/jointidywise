@@ -19,15 +19,6 @@ export const SELECTION_LIMIT_MESSAGE = 'Up to 30 at a time. Add the rest after t
 export const PHOTO_DECODE_ERROR = "Couldn't read this photo. Retake it with the camera button and try again.";
 export const PHOTO_TOO_LARGE_ERROR = 'Photo must be under 10MB.';
 export const VIDEO_TOO_LARGE_ERROR = 'Video must be under 100MB.';
-export const UPLOAD_TIMEOUT_MS = 60_000;
-export const UPLOAD_TIMEOUT_ERROR = 'Upload timed out. Check your connection and try again.';
-
-/**
- * One upload at a time. The proof stamp decodes the photo again while the
- * bytes are in flight, so a second upload would put two bitmaps in the
- * webview — the same pressure that kills a big batch.
- */
-export const PHOTO_UPLOAD_CONCURRENCY = 1;
 
 /** `.mov` files often arrive with an empty or non-video MIME type on iOS. */
 export function isVideoFile(file: { name: string; type: string }): boolean {

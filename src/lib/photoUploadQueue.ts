@@ -25,8 +25,6 @@ import {
   PHOTO_DECODE_ERROR,
   PHOTO_MAX_BYTES,
   PHOTO_TOO_LARGE_ERROR,
-  UPLOAD_TIMEOUT_ERROR,
-  UPLOAD_TIMEOUT_MS,
   VIDEO_MAX_BYTES,
   VIDEO_TOO_LARGE_ERROR,
 } from './bookingMediaErrors.ts';
@@ -264,22 +262,6 @@ export async function compressImageFile(file: File): Promise<File> {
     releaseCanvas(canvas);
     canvas = null;
   }
-}
-
-export function withTimeout<T>(work: Promise<T>, ms = UPLOAD_TIMEOUT_MS, message = UPLOAD_TIMEOUT_ERROR): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
-    work.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
 }
 
 type Listener = () => void;
