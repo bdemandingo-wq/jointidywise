@@ -53,6 +53,7 @@ function fakeDb(opts: {
       const api: {
         select: () => typeof api;
         eq: (column?: string, value?: string) => typeof api;
+        filter: () => typeof api;
         ilike: (column: string, pattern: string) => typeof api;
         in: () => typeof api;
         order: () => typeof api;
@@ -72,6 +73,7 @@ function fakeDb(opts: {
           if (typeof column === "string") filters.push({ column, value: String(value ?? "") });
           return api;
         },
+        filter() { return api; },
         ilike(_column: string, pattern: string) {
           ilikePatterns.push(pattern);
           return api;

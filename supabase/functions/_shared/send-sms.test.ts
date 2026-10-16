@@ -100,14 +100,21 @@ function mockDb(opts: {
           }
           return Promise.resolve({ error: null });
         },
-        upsert(values: Record<string, unknown>) {
+        filter(column: string, op: string, value: string) {
+          if (column === "phone" && op === "match") filters.phoneMatch = value;
+          return api;
+        },
+        upsert(values: Record<string, unknown>, options?: { ignoreDuplicates?: boolean }) {
           if (table === "sms_suppressions") {
             const row = values as unknown as Suppression;
             const idx = suppressions.findIndex((entry) =>
               entry.organization_id === row.organization_id && entry.phone === row.phone
             );
-            if (idx >= 0) suppressions[idx] = row;
-            else suppressions.push(row);
+            if (idx >= 0) {
+              if (!options?.ignoreDuplicates) suppressions[idx] = row;
+            } else {
+              suppressions.push(row);
+            }
           }
           return Promise.resolve({ error: null });
         },
@@ -140,6 +147,9 @@ function mockDb(opts: {
             }
             const rows = (opts.customers ?? []).filter((row) => {
               if (row.organization_id !== filters.organization_id) return false;
+              if (filters.marketing_status && row.marketing_status !== filters.marketing_status) return false;
+              if (filters.opted_out_method && row.opted_out_method !== filters.opted_out_method) return false;
+              if (filters.phoneMatch && !new RegExp(filters.phoneMatch).test(row.phone)) return false;
               if (phoneIn && !phoneIn.includes(row.phone)) return false;
               return true;
             });

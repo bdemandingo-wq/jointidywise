@@ -39,6 +39,7 @@ function clearOptOutDb(): OwnerAlertOrg["supabase"] {
       const api = {
         select() { return api; },
         eq() { return api; },
+        filter() { return api; },
         in() { return api; },
         not() { return api; },
         order() { return api; },
@@ -62,6 +63,7 @@ function suppressedOptOutDb(): OwnerAlertOrg["supabase"] {
       const api = {
         select() { return api; },
         eq() { return api; },
+        filter() { return api; },
         in() { return api; },
         not() { return api; },
         order() { return api; },

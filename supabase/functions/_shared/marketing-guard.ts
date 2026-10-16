@@ -147,6 +147,16 @@ function isSmsStop(row: { marketing_status: string | null; opted_out_method: str
   return row.marketing_status === OPTED_OUT && row.opted_out_method === SMS_STOP_METHOD;
 }
 
+/**
+ * POSIX regex for PostgREST `match`: the stored phone's digits end in this
+ * 10-digit key. Extra digits in front still match (a leading country code).
+ * A different tail does not.
+ */
+export function customerPhoneLast10Pattern(matchKey: string): string {
+  const body = matchKey.split("").join("[^0-9]*");
+  return `^([^0-9]*[0-9])*[^0-9]*${body}[^0-9]*$`;
+}
+
 export type PhoneOptOutStatus = "opted_out" | "clear" | "lookup_failed" | "invalid_phone";
 
 /**
@@ -184,8 +194,18 @@ export async function phoneOptOutStatus(
       if (suppressed.data) return "opted_out";
     }
 
-    const rows = customersForPhone(await loadOrgPhoneRows(supabase, organizationId), phone);
-    if (rows.some(isSmsStop)) return "opted_out";
+    const stopped = await supabase
+      .from("customers")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("marketing_status", OPTED_OUT)
+      .eq("opted_out_method", SMS_STOP_METHOD)
+      .filter("phone", "match", customerPhoneLast10Pattern(target))
+      .limit(1);
+    if (stopped.error) {
+      throw new Error(stopped.error.message ?? "customer stop lookup failed");
+    }
+    if ((stopped.data ?? []).length > 0) return "opted_out";
     return "clear";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

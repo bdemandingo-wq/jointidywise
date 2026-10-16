@@ -129,7 +129,8 @@ async function logBlockedSend(
 
 /**
  * Record the org + E.164 suppression for an inbound STOP.
- * An existing row with a source other than sms_stop is left as it is.
+ * ignoreDuplicates is ON CONFLICT DO NOTHING, so a second webhook delivery
+ * does not error and a row with another source is left as it is.
  * Returns false when the phone cannot be normalized or the write fails.
  */
 export async function recordSmsSuppression(
@@ -143,32 +144,20 @@ export async function recordSmsSuppression(
     return false;
   }
   try {
-    const existing = await supabase
-      .from("sms_suppressions")
-      .select("source")
-      .eq("organization_id", organizationId)
-      .eq("phone", e164)
-      .maybeSingle();
-    if (existing.error) {
-      console.error(
-        `[send-sms] sms_suppressions read failed org=${organizationId}: ${existing.error.message ?? "unknown"}`,
-      );
-      return false;
-    }
-    if (existing.data) return true;
-    const written = await supabase.from("sms_suppressions").insert(
+    const written = await supabase.from("sms_suppressions").upsert(
       { organization_id: organizationId, phone: e164, source: "sms_stop" },
+      { onConflict: "organization_id,phone", ignoreDuplicates: true },
     );
     if (written.error) {
       console.error(
-        `[send-sms] sms_suppressions insert failed org=${organizationId}: ${written.error.message ?? "unknown"}`,
+        `[send-sms] sms_suppressions upsert failed org=${organizationId}: ${written.error.message ?? "unknown"}`,
       );
       return false;
     }
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[send-sms] sms_suppressions insert threw org=${organizationId}: ${message}`);
+    console.error(`[send-sms] sms_suppressions upsert threw org=${organizationId}: ${message}`);
     return false;
   }
 }
