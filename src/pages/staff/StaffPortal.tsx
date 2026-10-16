@@ -5,6 +5,7 @@ import { QueryError } from '@/components/QueryError';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
+import { withStaffCustomers, withStaffCustomer } from '@/lib/staffCustomers';
 import { supabase } from '@/lib/supabase';
 import { mustAffectRows } from '@/lib/mustAffectRows';
 import { describeJobComplete, type JobNotifyResult } from '@/lib/jobNotifyResult';
@@ -365,7 +366,6 @@ export default function StaffPortal() {
           cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
           cleaner_checkin_at, cleaner_checkout_at, notes, customer_notes,
           cleaners_needed, pay_per_cleaner, pay_type,
-          customer:customers(first_name, last_name, phone),
           service:services(name)
         `)
         .eq('staff_id', staffInfo.id)
@@ -387,7 +387,6 @@ export default function StaffPortal() {
             cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
             cleaner_checkin_at, cleaner_checkout_at, notes, customer_notes,
             cleaners_needed, pay_per_cleaner, pay_type,
-            customer:customers(first_name, last_name, phone),
             service:services(name)
           )
         `)
@@ -411,7 +410,7 @@ export default function StaffPortal() {
       const bookingMap = new Map<string, Booking>();
       
       for (const b of directBookings || []) {
-        bookingMap.set(b.id, b as Booking);
+        bookingMap.set(b.id, b as unknown as Booking);
       }
       
       for (const b of teamBookings) {
@@ -419,7 +418,9 @@ export default function StaffPortal() {
         bookingMap.set(b.id, b as Booking);
       }
 
-      const allBookings = Array.from(bookingMap.values()).sort(
+      const allBookings = ((await withStaffCustomers(
+        Array.from(bookingMap.values()) as unknown as { customer_id: string | null }[],
+      )) as unknown as Booking[]).sort(
         (a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
       );
 
@@ -524,8 +525,7 @@ export default function StaffPortal() {
           cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
           cleaner_checkin_at, cleaner_checkout_at,
           square_footage, bedrooms, bathrooms, notes, customer_notes,
-          staff_id, cleaners_needed, pay_per_cleaner, pay_type,
-          customer:customers(first_name, last_name, phone),
+          staff_id, cleaners_needed, pay_per_cleaner, pay_type, customer_id,
           service:services(name)
         `)
         .eq('organization_id', staffInfo.organization_id)
@@ -540,7 +540,7 @@ export default function StaffPortal() {
 
       if (error) throw error;
       setNewJobAlert(false);
-      const rows = (data ?? []) as unknown as (Booking & { staff_id: string | null; cleaners_needed: number | null })[];
+      const rows = (await withStaffCustomers((data ?? []) as unknown as { customer_id: string | null }[])) as unknown as (Booking & { staff_id: string | null; cleaners_needed: number | null })[];
       const teamIds = rows.filter((r) => isTeamJob(r)).map((r) => r.id);
       const counts = new Map<string, { claimed: number; mine: boolean }>();
       if (teamIds.length) {
@@ -636,8 +636,7 @@ export default function StaffPortal() {
           total_amount, subtotal, discount_amount, cleaner_wage, cleaner_wage_type,
           cleaner_actual_payment, cleaner_pay_expected, pay_locked, cleaner_override_hours,
           cleaner_checkin_at, cleaner_checkout_at, completed_at,
-          payment_status, payroll_locked_week,
-          customer:customers(first_name, last_name),
+          payment_status, payroll_locked_week, customer_id,
           service:services(name)
         `)
         .eq('staff_id', staffInfo.id)
@@ -646,7 +645,7 @@ export default function StaffPortal() {
         .limit(50);
 
       if (error) throw error;
-      return data as Booking[];
+      return (await withStaffCustomers(data)) as unknown as Booking[];
     },
     enabled: !!staffInfo?.id && currentTab === 'history',
   });
@@ -677,14 +676,14 @@ export default function StaffPortal() {
         .select(`
           booking_number,
           scheduled_at,
-          service:services(name),
-          customer:customers(first_name, last_name)
+          customer_id,
+          service:services(name)
         `)
         .eq('id', bookingId)
         .maybeSingle();
       if (error) throw error;
       if (!data) throw new Error('Job was already claimed by someone else');
-      return data;
+      return (await withStaffCustomer(data))!;
     },
     onSuccess: (data) => {
       setClaimingBookingId(null);
@@ -902,11 +901,12 @@ export default function StaffPortal() {
             .select(`
               id,
               organization_id,
-              customer:customers(id, email, first_name, last_name),
+              customer_id,
               service:services(name)
             `)
             .eq('id', bookingId)
-            .single();
+            .single()
+            .then(async (r) => ({ ...r, data: await withStaffCustomer(r.data) }));
 
           if (bookingData?.customer?.email && bookingData?.organization_id) {
             const reviewResult = await supabase.functions.invoke('send-review-request', {

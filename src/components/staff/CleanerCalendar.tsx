@@ -1,6 +1,7 @@
 import { formatDuration } from '@/lib/formatDuration';
 import { useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { withStaffCustomers, withStaffCustomer, fetchStaffCustomers } from '@/lib/staffCustomers';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -69,7 +70,7 @@ export function CleanerCalendar({ staffId, organizationId }: Props) {
         .select(`
           id, booking_number, scheduled_at, duration, status, address, city,
           service:services(name),
-          customer:customers(first_name, last_name)
+          customer_id
         `)
         .eq('staff_id', staffId)
         .gte('scheduled_at', monthStart.toISOString())
@@ -77,7 +78,7 @@ export function CleanerCalendar({ staffId, organizationId }: Props) {
         .order('scheduled_at', { ascending: true });
 
       if (error) throw error;
-      return data as Booking[];
+      return (await withStaffCustomers(data)) as unknown as Booking[];
     },
     enabled: !!staffId,
   });

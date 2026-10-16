@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { withStaffCustomers, withStaffCustomer, fetchStaffCustomers } from '@/lib/staffCustomers';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Star, MessageSquare, Calendar, TrendingUp } from 'lucide-react';
@@ -38,7 +39,7 @@ export function CleanerReviews({ staffId }: CleanerReviewsProps) {
         .select(`
           id, rating, review_text, responded_at, created_at,
           booking:bookings(booking_number, scheduled_at, service:services(name)),
-          customer:customers(first_name, last_name)
+          customer_id
         `)
         .eq('staff_id', staffId)
         .gte('rating', 4)
@@ -46,7 +47,7 @@ export function CleanerReviews({ staffId }: CleanerReviewsProps) {
         .order('responded_at', { ascending: false });
 
       if (error) throw error;
-      return data as Review[];
+      return (await withStaffCustomers(data)) as unknown as Review[];
     },
     enabled: !!staffId,
   });
