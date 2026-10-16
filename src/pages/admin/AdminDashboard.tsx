@@ -10,9 +10,6 @@ import {
   useDashboardUpcoming,
   useDashboardChart,
   useDashboardCustomers,
-  fetchRecentOrgBookings,
-  fetchOrgCustomers,
-  bookingsRecentKey,
   BookingWithDetails,
 } from '@/hooks/useBookings';
 import { QueryError } from '@/components/QueryError';
@@ -32,6 +29,8 @@ import { usePublicGrowth } from '@/hooks/usePublicGrowth';
 import { GrowthUpgradeCard } from '@/components/growth/GrowthUpgradeCard';
 import { ActivityFeedCard } from '@/components/growth/ActivityFeedCard';
 import { rowsForCurrentOrg } from '@/lib/sameOrgPlaceholder';
+import { DASHBOARD_ACTIVITY_FEED_ENABLED } from '@/lib/dashboardActivityFeed';
+import { dashboardSideReads } from '@/lib/dashboardLoad';
 
 
 // Lazy load the heavy ReportsOverview component
@@ -125,9 +124,17 @@ export default function AdminDashboard() {
     && (dashboardCustomers.data != null || dashboardCustomers.isError);
   const queryClient = useQueryClient();
   const { isTrialActive, hasFullAccess, isLoading: subscriptionLoading } = useSubscription();
-  const lifetime = useLifetimeCounter(upcomingReady);
-  const growth = usePublicGrowth(upcomingReady);
   const showUpgrade = !subscriptionLoading && (isTrialActive || !hasFullAccess);
+  // public-growth is an edge function whose feed RPC scans recent bookings
+  // across orgs. The upgrade card is the only dashboard surface that paints
+  // those numbers while the activity feed is off, so a paid dashboard skips both.
+  const sideReads = dashboardSideReads({
+    upcomingReady,
+    showUpgrade,
+    feedEnabled: DASHBOARD_ACTIVITY_FEED_ENABLED,
+  });
+  const lifetime = useLifetimeCounter(sideReads.lifetime);
+  const growth = usePublicGrowth(sideReads.growth);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -141,36 +148,52 @@ export default function AdminDashboard() {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
+    if (!orgId) return;
+    // Imports and recurring generation emit a change per row. Invalidating
+    // on each one refetches the 1,500-row chart once per row. One refetch
+    // after the burst settles shows the same rows.
+    let bookingsTimer = 0;
+    let customersTimer = 0;
+    const schedule = (which: 'bookings' | 'customers') => {
+      if (which === 'bookings') {
+        window.clearTimeout(bookingsTimer);
+        bookingsTimer = window.setTimeout(() => {
+          void queryClient.invalidateQueries({ queryKey: ['bookings'] });
+        }, 400);
+      } else {
+        window.clearTimeout(customersTimer);
+        customersTimer = window.setTimeout(() => {
+          void queryClient.invalidateQueries({ queryKey: ['customers'] });
+        }, 400);
+      }
+    };
     const channel = supabase
-      .channel('dashboard-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => {
-        queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      .channel(`dashboard-realtime-${orgId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'bookings',
+        filter: `organization_id=eq.${orgId}`,
+      }, () => {
+        schedule('bookings');
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, () => {
-        queryClient.invalidateQueries({ queryKey: ['customers'] });
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'customers',
+        filter: `organization_id=eq.${orgId}`,
+      }, () => {
+        schedule('customers');
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  }, [queryClient]);
+    return () => {
+      window.clearTimeout(bookingsTimer);
+      window.clearTimeout(customersTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, [orgId, queryClient]);
   const { timezone: orgTimezone } = useOrgTimezone();
-
-  // Bookings and Customers pages read these keys. Start them with the
-  // dashboard so the next navigation is already in cache.
-  useEffect(() => {
-    const orgId = organization?.id;
-    if (!orgId || bookingsLoading) return;
-    void queryClient.prefetchQuery({
-      queryKey: bookingsRecentKey(orgId),
-      queryFn: () => fetchRecentOrgBookings(orgId),
-      staleTime: 1000 * 60 * 2,
-    });
-    void queryClient.prefetchQuery({
-      queryKey: ['customers', orgId],
-      queryFn: () => fetchOrgCustomers(orgId),
-      staleTime: 1000 * 60 * 5,
-    });
-  }, [organization?.id, bookingsLoading, queryClient]);
 
   const handlePullRefresh = useCallback(async () => {
     await Promise.all([

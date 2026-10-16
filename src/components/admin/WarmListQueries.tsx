@@ -65,10 +65,18 @@ export function WarmListQueries() {
     // wait until the upcoming window has landed so they do not compete with
     // the query the first paint is blocked on.
     const upcomingKey = dashboardUpcomingKey(orgId);
+    const chartKey = ['bookings', 'dashboard-chart', orgId] as const;
     let started = false;
     let timer = 0;
-    const startHeavy = () => {
+    const startHeavy = (force = false) => {
       if (started) return;
+      // The chart is up to 1,500 booking rows. The full booking and customer
+      // lists are for the next page, so they wait until that read is idle.
+      // The 12s fallback still starts them if the chart never runs.
+      if (!force && queryClient.getQueryState(chartKey)?.fetchStatus === 'fetching') {
+        timer = window.setTimeout(() => startHeavy(false), 500);
+        return;
+      }
       started = true;
       void queryClient.prefetchQuery({
         queryKey: bookingsRecentKey(orgId),
@@ -89,10 +97,11 @@ export function WarmListQueries() {
       const key = event?.query?.queryKey;
       if (!key || key[0] !== upcomingKey[0] || key[1] !== upcomingKey[1] || key[2] !== upcomingKey[2]) return;
       if (event.query.state.status === 'success') {
+        window.clearTimeout(timer);
         timer = window.setTimeout(startHeavy, 1500);
       }
     });
-    const fallback = window.setTimeout(startHeavy, 12_000);
+    const fallback = window.setTimeout(() => startHeavy(true), 12_000);
     return () => {
       window.clearTimeout(timer);
       window.clearTimeout(fallback);

@@ -11,7 +11,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
-import { formatInTimezone } from '@/lib/timezoneUtils';
 import { useNavigate } from 'react-router-dom';
 import { useOrgId } from '@/hooks/useOrgId';
 import { showBrowserNotification } from '@/hooks/usePushNotifications';
@@ -40,6 +39,418 @@ interface AdminNotification {
   link?: string;
 }
 
+type NotificationListener = (orgId: string, list: AdminNotification[]) => void;
+
+const notificationListeners = new Set<NotificationListener>();
+const notificationCache = new Map<string, AdminNotification[]>();
+const notificationInflight = new Map<string, Promise<AdminNotification[]>>();
+
+let notificationChannel: ReturnType<typeof supabase.channel> | null = null;
+let notificationChannelOrg: string | null = null;
+let notificationChannelHolders = 0;
+let notificationTimezone = 'America/New_York';
+let notificationPushAllowed: (typeKey?: string) => boolean = () => false;
+
+function publishNotifications(orgId: string, list: AdminNotification[]) {
+  notificationCache.set(orgId, list);
+  for (const listener of notificationListeners) listener(orgId, list);
+}
+
+function updateStoredNotifications(
+  orgId: string,
+  update: (prev: AdminNotification[]) => AdminNotification[],
+) {
+  publishNotifications(orgId, update(notificationCache.get(orgId) ?? []));
+}
+
+function deliverAdminBrowserNotification(notification: Pick<AdminNotification, 'id' | 'title' | 'message'>) {
+  if (
+    typeof window !== 'undefined' &&
+    'Notification' in window &&
+    !isIosAppShell() &&
+    Notification.permission === 'default'
+  ) {
+    Notification.requestPermission().catch(() => {});
+  }
+  showBrowserNotification({
+    title: notification.title,
+    body: notification.message,
+    tag: notification.id,
+  });
+}
+
+/**
+ * The header mounts this bell twice (desktop row and mobile row). One load
+ * serves both. The three reads used to run one after another, and the Monday
+ * reminder downloaded every booking id in the week to count them.
+ */
+async function loadAdminNotifications(organizationId: string, orgTimezone: string): Promise<AdminNotification[]> {
+  const today = new Date();
+  const dayOfWeek = orgDayOfWeek(today, orgTimezone);
+  const todayKey = orgDateKey(today, orgTimezone);
+  const weeklyKey = `weekly-reminder-dismissed-${organizationId}-${todayKey}`;
+  const wantWeekly = dayOfWeek === 1 && localStorage.getItem(weeklyKey) !== 'true';
+  const weekEnd = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const requestsQuery = supabase
+    .from('admin_booking_request_notifications')
+    .select(`
+      id,
+      is_read,
+      created_at,
+      booking_request:client_booking_requests(
+        id,
+        requested_date,
+        customer:customers(first_name, last_name),
+        service:services(name)
+      )
+    `)
+    .eq('organization_id', organizationId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(10);
+
+  const bookingsQuery = supabase
+    .from('bookings')
+    .select(`
+      id,
+      booking_number,
+      status,
+      created_at,
+      payment_status,
+      scheduled_at,
+      customers:customer_id (first_name, last_name),
+      services:service_id (name)
+    `)
+    .eq('organization_id', organizationId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(10);
+
+  const systemQuery = supabase
+    .from('admin_system_notifications')
+    .select('id, type, title, message, link, is_read, created_at')
+    .eq('organization_id', organizationId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(15);
+
+  const weeklyQuery = wantWeekly
+    ? supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', organizationId)
+      .in('status', ['pending', 'confirmed'])
+      .gte('scheduled_at', today.toISOString())
+      .lte('scheduled_at', weekEnd)
+    : Promise.resolve({ count: 0, error: null });
+
+  const [requestResult, bookingResult, systemResult, weeklyResult] = await Promise.all([
+    requestsQuery,
+    bookingsQuery,
+    systemQuery,
+    weeklyQuery,
+  ]);
+
+  type RequestRow = {
+    id: string;
+    is_read: boolean;
+    created_at: string;
+    booking_request?: {
+      id?: string;
+      requested_date?: string | null;
+      customer?: { first_name?: string | null; last_name?: string | null } | null;
+      service?: { name?: string | null } | null;
+    } | null;
+  };
+  type BookingRow = {
+    id: string;
+    status?: string | null;
+    created_at: string;
+    payment_status?: string | null;
+    scheduled_at?: string | null;
+    customers?: { first_name?: string | null; last_name?: string | null } | null;
+    services?: { name?: string | null } | null;
+  };
+  type SystemRow = {
+    id: string;
+    type: string;
+    title: string;
+    message: string;
+    link?: string | null;
+    is_read: boolean | null;
+    created_at: string;
+  };
+
+  const requestRows = (requestResult.data ?? []) as RequestRow[];
+  const bookingRows = (bookingResult.error ? [] : (bookingResult.data ?? [])) as BookingRow[];
+  const systemRows = (systemResult.data ?? []) as SystemRow[];
+
+  const bookingRequestNotifs: AdminNotification[] = requestRows.map((n) => {
+    const customerName = n.booking_request?.customer
+      ? `${n.booking_request.customer.first_name} ${n.booking_request.customer.last_name}`
+      : 'Customer';
+    const serviceName = n.booking_request?.service?.name || 'Service';
+    const requestDate = n.booking_request?.requested_date
+      ? format(new Date(n.booking_request.requested_date), 'MMM d, yyyy')
+      : 'TBD';
+    return {
+      id: `request-${n.id}`,
+      type: 'customer' as const,
+      typeKey: 'client.portal_request',
+      title: 'New Booking Request',
+      message: `${customerName} requested ${serviceName} on ${requestDate}`,
+      is_read: n.is_read,
+      created_at: n.created_at,
+      resource_id: n.booking_request?.id,
+      resource_type: 'booking_request',
+    };
+  });
+
+  const bookingNotifications: AdminNotification[] = bookingRows.map((booking) => {
+    const customerName = booking.customers
+      ? `${booking.customers.first_name} ${booking.customers.last_name}`
+      : 'Unknown Customer';
+    const serviceName = booking.services?.name || 'Service';
+    const cleanDate = booking.scheduled_at
+      ? format(new Date(booking.scheduled_at), 'MMM d, yyyy')
+      : 'TBD';
+    return {
+      id: `booking-${booking.id}`,
+      type: 'booking' as const,
+      typeKey: 'booking.new',
+      title: customerName,
+      message: `${serviceName} • ${cleanDate}`,
+      is_read: true,
+      created_at: booking.created_at,
+      resource_id: booking.id,
+      resource_type: 'booking',
+    };
+  });
+
+  const weeklyReminders: AdminNotification[] = [];
+  const weeklyCount = weeklyResult.error ? 0 : (weeklyResult.count ?? 0);
+  if (wantWeekly && weeklyCount > 0) {
+    weeklyReminders.push({
+      id: `weekly-reminder-${todayKey}`,
+      type: 'system',
+      title: '📅 Weekly Booking Reminders',
+      message: `You have ${weeklyCount} upcoming booking${weeklyCount > 1 ? 's' : ''} this week. Send reminders to your customers!`,
+      is_read: false,
+      created_at: today.toISOString(),
+      resource_type: 'reminder',
+    });
+  }
+
+  const systemNotifications: AdminNotification[] = systemRows.map((n) => ({
+    id: `system-${n.id}`,
+    type: 'system' as const,
+    typeKey: systemNotificationCatalogKey(n.type),
+    title: n.title,
+    message: n.message,
+    is_read: !!n.is_read,
+    created_at: n.created_at,
+    resource_id: n.id,
+    resource_type: n.type,
+    link: n.link || undefined,
+  }));
+
+  return [...bookingRequestNotifs, ...bookingNotifications, ...weeklyReminders, ...systemNotifications]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
+
+function loadAdminNotificationsShared(organizationId: string, orgTimezone: string, force: boolean) {
+  if (!force) {
+    const pending = notificationInflight.get(organizationId);
+    if (pending) return pending;
+  }
+  const promise = loadAdminNotifications(organizationId, orgTimezone);
+  if (!force) notificationInflight.set(organizationId, promise);
+  return promise.finally(() => {
+    if (notificationInflight.get(organizationId) === promise) {
+      notificationInflight.delete(organizationId);
+    }
+  });
+}
+
+function bookingCustomerName(value: { first_name?: string | null; last_name?: string | null } | null | undefined) {
+  if (!value) return null;
+  const name = `${value.first_name ?? ''} ${value.last_name ?? ''}`.trim();
+  return name || null;
+}
+
+function ensureNotificationChannel(organizationId: string) {
+  if (notificationChannel && notificationChannelOrg === organizationId) return;
+  if (notificationChannel) {
+    void supabase.removeChannel(notificationChannel);
+    notificationChannel = null;
+  }
+  notificationChannelOrg = organizationId;
+  notificationChannel = supabase
+    .channel(`admin-notifications-${organizationId}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'admin_booking_request_notifications',
+        filter: `organization_id=eq.${organizationId}`,
+      },
+      () => {
+        void loadAdminNotificationsShared(organizationId, notificationTimezone, true).then((list) => {
+          publishNotifications(organizationId, list);
+        });
+        if (notificationPushAllowed('client.portal_request')) {
+          deliverAdminBrowserNotification({
+            id: `request-${Date.now()}`,
+            title: 'New Booking Request',
+            message: 'A new booking request is waiting for review.',
+          });
+        }
+      },
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'bookings',
+        filter: `organization_id=eq.${organizationId}`,
+      },
+      (payload) => {
+        const newBooking = payload.new as {
+          id?: string;
+          scheduled_at?: string;
+          created_at?: string;
+        };
+        if (!newBooking.id) return;
+        const newNotification: AdminNotification = {
+          id: `booking-${newBooking.id}`,
+          type: 'booking',
+          typeKey: 'booking.new',
+          title: 'New Booking Created',
+          message: `Scheduled for ${newBooking.scheduled_at ? format(new Date(newBooking.scheduled_at), 'MMM d') : 'TBD'}`,
+          is_read: false,
+          created_at: newBooking.created_at ?? new Date().toISOString(),
+          resource_id: newBooking.id,
+          resource_type: 'booking',
+        };
+        updateStoredNotifications(organizationId, (prev) => (
+          prev.some((entry) => entry.id === newNotification.id) ? prev : [newNotification, ...prev]
+        ));
+        if (notificationPushAllowed('booking.new')) deliverAdminBrowserNotification(newNotification);
+      },
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'bookings',
+        filter: `organization_id=eq.${organizationId}`,
+      },
+      async (payload) => {
+        const updatedBooking = payload.new as {
+          id?: string;
+          status?: string;
+          payment_status?: string;
+        };
+        const oldBooking = payload.old as {
+          status?: string;
+          payment_status?: string;
+        };
+        if (!updatedBooking.id) return;
+        const statusChanged = Object.prototype.hasOwnProperty.call(oldBooking, 'status')
+          && oldBooking.status !== updatedBooking.status;
+        const paymentChanged = Object.prototype.hasOwnProperty.call(oldBooking, 'payment_status')
+          && oldBooking.payment_status !== updatedBooking.payment_status;
+        if (!statusChanged && !paymentChanged) return;
+
+        let customerName = 'Customer';
+        let scheduledDate = '';
+        const { data: bookingDetails } = await supabase
+          .from('bookings')
+          .select('customers:customer_id(first_name, last_name), scheduled_at')
+          .eq('id', updatedBooking.id)
+          .single();
+        if (bookingDetails) {
+          const named = bookingCustomerName(
+            bookingDetails.customers as { first_name?: string | null; last_name?: string | null } | null,
+          );
+          if (named) customerName = named;
+          if (bookingDetails.scheduled_at) scheduledDate = format(new Date(bookingDetails.scheduled_at), 'MMM d, yyyy');
+        }
+
+        const statusKey =
+          paymentChanged && updatedBooking.payment_status === 'failed' ? 'booking.payment_failed' :
+          statusChanged && updatedBooking.status === 'cancelled' ? 'booking.cancelled' :
+          statusChanged && updatedBooking.status === 'completed' ? 'booking.completed' :
+          statusChanged && updatedBooking.status === 'confirmed' ? 'booking.confirmed' :
+          statusChanged ? 'booking.rescheduled' :
+          null;
+        if (!statusKey) return;
+        const newNotification: AdminNotification = {
+          id: `booking-update-${updatedBooking.id}-${Date.now()}`,
+          type: 'booking',
+          typeKey: statusKey,
+          title: `${customerName}${scheduledDate ? ` • ${scheduledDate}` : ''}`,
+          message: statusKey === 'booking.payment_failed'
+            ? 'Payment failed'
+            : `Status changed to ${updatedBooking.status}`,
+          is_read: false,
+          created_at: new Date().toISOString(),
+          resource_id: updatedBooking.id,
+          resource_type: 'booking',
+        };
+        updateStoredNotifications(organizationId, (prev) => [newNotification, ...prev]);
+        if (notificationPushAllowed(statusKey)) deliverAdminBrowserNotification(newNotification);
+      },
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'admin_system_notifications',
+        filter: `organization_id=eq.${organizationId}`,
+      },
+      () => {
+        void loadAdminNotificationsShared(organizationId, notificationTimezone, true).then((list) => {
+          publishNotifications(organizationId, list);
+        });
+      },
+    )
+    .subscribe();
+}
+
+function onNotificationPullRefresh() {
+  const orgId = notificationChannelOrg;
+  if (!orgId) return;
+  void loadAdminNotificationsShared(orgId, notificationTimezone, true)
+    .then((list) => publishNotifications(orgId, list))
+    .catch((error) => {
+      console.error('Error fetching notifications:', error);
+    });
+}
+
+function holdNotificationChannel(organizationId: string) {
+  notificationChannelHolders += 1;
+  if (notificationChannelHolders === 1) {
+    window.addEventListener(ADMIN_NOTIFICATION_REFRESH, onNotificationPullRefresh);
+  }
+  ensureNotificationChannel(organizationId);
+  return () => {
+    notificationChannelHolders -= 1;
+    if (notificationChannelHolders <= 0) {
+      notificationChannelHolders = 0;
+      window.removeEventListener(ADMIN_NOTIFICATION_REFRESH, onNotificationPullRefresh);
+      if (notificationChannel) void supabase.removeChannel(notificationChannel);
+      notificationChannel = null;
+      notificationChannelOrg = null;
+    }
+  };
+}
+
 export function AdminNotificationBell() {
   // The weekly reminder is about the BUSINESS's week and is dismissed per
   // business day, so both come from the org's clock.
@@ -49,7 +460,6 @@ export function AdminNotificationBell() {
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
-  const [hasFetched, setHasFetched] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => {
     if (typeof window === 'undefined') return new Set();
@@ -74,14 +484,9 @@ export function AdminNotificationBell() {
     );
   };
 
-  const prependNotification = (prev: AdminNotification[], item: AdminNotification) => {
-    if (prev.some((entry) => entry.id === item.id)) return prev;
-    return [item, ...prev];
-  };
-
-  const persistDismissed = (set: Set<string>) => {
-    setDismissedIds(new Set(set));
-    try { localStorage.setItem('admin-notif-dismissed', JSON.stringify([...set])); } catch {}
+  const persistDismissed = (next: Set<string>) => {
+    setDismissedIds(new Set(next));
+    try { localStorage.setItem('admin-notif-dismissed', JSON.stringify([...next])); } catch { /* quota */ }
   };
 
   // One-time prompt for browser notification permission so desktop notifications
@@ -101,339 +506,78 @@ export function AdminNotificationBell() {
     return () => window.clearTimeout(t);
   }, []);
 
-  const deliverBrowserNotification = (notification: Pick<AdminNotification, 'id' | 'title' | 'message'>) => {
-    // Best-effort: if permission was never granted, request it lazily on first event
-    if (
-      typeof window !== 'undefined' &&
-      'Notification' in window &&
-      !isIosAppShell() &&
-      Notification.permission === 'default'
-    ) {
-      Notification.requestPermission().catch(() => {});
-    }
-    showBrowserNotification({
-      title: notification.title,
-      body: notification.message,
-      tag: notification.id,
-    });
-  };
-
-  // Simulated notifications based on recent activity
-  const fetchNotifications = async (force = false) => {
-    if (!organizationId) return;
-    if (hasFetched && !force) return;
-
-    try {
-      // Fetch recent booking request notifications
-      const { data: requestNotifications, error: reqError } = await supabase
-        .from('admin_booking_request_notifications')
-        .select(`
-          id,
-          is_read,
-          created_at,
-          booking_request:client_booking_requests(
-            id,
-            requested_date,
-            customer:customers(first_name, last_name),
-            service:services(name)
-          )
-        `)
-        .eq('organization_id', organizationId)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      const bookingRequestNotifs: AdminNotification[] = (requestNotifications || []).map((n: any) => {
-        const customerName = n.booking_request?.customer 
-          ? `${n.booking_request.customer.first_name} ${n.booking_request.customer.last_name}`
-          : 'Customer';
-        const serviceName = n.booking_request?.service?.name || 'Service';
-        const requestDate = n.booking_request?.requested_date 
-          ? format(new Date(n.booking_request.requested_date), 'MMM d, yyyy')
-          : 'TBD';
-        
-        return {
-          id: `request-${n.id}`,
-          type: 'customer' as const,
-          typeKey: 'client.portal_request',
-          title: `New Booking Request`,
-          message: `${customerName} requested ${serviceName} on ${requestDate}`,
-          is_read: n.is_read,
-          created_at: n.created_at,
-          resource_id: n.booking_request?.id,
-          resource_type: 'booking_request',
-        };
-      });
-
-      // Fetch recent bookings with customer and service info
-      const { data: recentBookings, error } = await supabase
-        .from('bookings')
-        .select(`
-          id, 
-          booking_number, 
-          status, 
-          created_at, 
-          payment_status,
-          scheduled_at,
-          customers:customer_id (first_name, last_name),
-          services:service_id (name)
-        `)
-        .eq('organization_id', organizationId)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      const bookingNotifications: AdminNotification[] = [];
-      if (!error && recentBookings) {
-        recentBookings.forEach((booking: any) => {
-          const customerName = booking.customers 
-            ? `${booking.customers.first_name} ${booking.customers.last_name}` 
-            : 'Unknown Customer';
-          const serviceName = booking.services?.name || 'Service';
-          const cleanDate = booking.scheduled_at 
-            ? format(new Date(booking.scheduled_at), 'MMM d, yyyy')
-            : 'TBD';
-          
-          bookingNotifications.push({
-            id: `booking-${booking.id}`,
-            type: 'booking' as const,
-            typeKey: 'booking.new',
-            title: customerName,
-            message: `${serviceName} • ${cleanDate}`,
-            is_read: true,
-            created_at: booking.created_at,
-            resource_id: booking.id,
-            resource_type: 'booking',
-          });
-        });
-      }
-
-      // Add weekly booking reminder notification (Monday) — only if not dismissed
-      const today = new Date();
-      /*
-        "Is it Monday?" is a question about the BUSINESS's week — the reminder
-        is about the business's upcoming bookings. Read from the device, an
-        admin in Manila got it on the org's Sunday evening and an admin in
-        Hawaii missed Monday entirely.
-
-        The dismissal key was toISOString().split('T') — a UTC date, which
-        rolls over mid-afternoon for the Americas. Dismiss the reminder after
-        that rollover and it returned the same business day under a new key.
-      */
-      const dayOfWeek = orgDayOfWeek(today, orgTimezone); // 0=Sunday, 1=Monday
-      const todayKey = orgDateKey(today, orgTimezone);
-      const weeklyReminders: AdminNotification[] = [];
-      const weeklyKey = `weekly-reminder-dismissed-${organizationId}-${todayKey}`;
-      const wasDismissed = localStorage.getItem(weeklyKey) === 'true';
-      
-      if (dayOfWeek === 1 && !wasDismissed) { // Monday and not dismissed
-        // Check how many upcoming bookings this week
-        // A DURATION — "bookings in the next seven days" — not a calendar
-        // boundary, so elapsed time is the right measure.
-        const weekEnd = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
-        
-        const { data: upcomingBookings } = await supabase
-          .from('bookings')
-          .select('id')
-          .eq('organization_id', organizationId)
-          .in('status', ['pending', 'confirmed'])
-          .gte('scheduled_at', today.toISOString())
-          .lte('scheduled_at', weekEnd.toISOString());
-        
-        const count = upcomingBookings?.length || 0;
-        if (count > 0) {
-          weeklyReminders.push({
-            id: `weekly-reminder-${todayKey}`,
-            type: 'system',
-            title: '📅 Weekly Booking Reminders',
-            message: `You have ${count} upcoming booking${count > 1 ? 's' : ''} this week. Send reminders to your customers!`,
-            is_read: false,
-            created_at: today.toISOString(),
-            resource_type: 'reminder',
-          });
-        }
-      }
-
-      // Fetch admin system notifications (e.g., month-end P&L reminder)
-      const { data: systemNotifs } = await supabase
-        .from('admin_system_notifications')
-        .select('id, type, title, message, link, is_read, created_at')
-        .eq('organization_id', organizationId)
-        .order('created_at', { ascending: false })
-        .limit(15);
-
-      const systemNotifications: AdminNotification[] = (systemNotifs || []).map((n: any) => ({
-        id: `system-${n.id}`,
-        type: 'system' as const,
-        typeKey: systemNotificationCatalogKey(n.type),
-        title: n.title,
-        message: n.message,
-        is_read: !!n.is_read,
-        created_at: n.created_at,
-        resource_id: n.id,
-        resource_type: n.type,
-        link: n.link || undefined,
-      }));
-
-      // Combine and sort by created_at
-      const allNotifications = [...bookingRequestNotifs, ...bookingNotifications, ...weeklyReminders, ...systemNotifications]
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-      setNotifications(allNotifications);
-      setUnreadCount(allNotifications.filter((n) => !n.is_read).length);
-      setHasFetched(true);
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
-    }
-  };
+  notificationTimezone = orgTimezone;
+  notificationPushAllowed = browserPushAllowed;
 
   useEffect(() => {
+    const listener = (orgId: string, list: AdminNotification[]) => {
+      if (orgId !== organizationId) return;
+      setNotifications(list);
+      setUnreadCount(list.filter((n) => !n.is_read).length);
+    };
+    notificationListeners.add(listener);
     if (organizationId) {
-      fetchNotifications();
-
-      // Subscribe to realtime booking changes
-      const channel = supabase
-        .channel('admin-notifications')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'admin_booking_request_notifications',
-            filter: `organization_id=eq.${organizationId}`,
-          },
-          () => {
-            // Refresh notifications when a new booking request comes in
-            fetchNotifications(true);
-            if (browserPushAllowed('client.portal_request')) {
-              deliverBrowserNotification({
-                id: `request-${Date.now()}`,
-                title: 'New Booking Request',
-                message: 'A new booking request is waiting for review.',
-              });
-            }
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'bookings',
-            filter: `organization_id=eq.${organizationId}`,
-          },
-          (payload) => {
-            const newBooking = payload.new as any;
-            // Fetch full booking details for better notification
-            fetchNotifications();
-            const newNotification: AdminNotification = {
-              id: `booking-${newBooking.id}`,
-              type: 'booking',
-              typeKey: 'booking.new',
-              title: 'New Booking Created',
-              message: `Scheduled for ${newBooking.scheduled_at ? format(new Date(newBooking.scheduled_at), 'MMM d') : 'TBD'}`,
-              is_read: false,
-              created_at: newBooking.created_at,
-              resource_id: newBooking.id,
-              resource_type: 'booking',
-            };
-            setNotifications((prev) => prependNotification(prev, newNotification));
-            setUnreadCount((prev) => prev + 1);
-            if (browserPushAllowed('booking.new')) deliverBrowserNotification(newNotification);
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'UPDATE',
-            schema: 'public',
-            table: 'bookings',
-            filter: `organization_id=eq.${organizationId}`,
-          },
-          async (payload) => {
-            const updatedBooking = payload.new as any;
-            const oldBooking = payload.old as any;
-
-            // Realtime sends `old` with only the columns that changed unless
-            // the table uses REPLICA IDENTITY FULL. Comparing a missing status
-            // (`undefined !== 'confirmed'`) used to treat every booking edit
-            // as a reschedule and fire a browser notification.
-            const statusChanged = Object.prototype.hasOwnProperty.call(oldBooking, 'status')
-              && oldBooking.status !== updatedBooking.status;
-            const paymentChanged = Object.prototype.hasOwnProperty.call(oldBooking, 'payment_status')
-              && oldBooking.payment_status !== updatedBooking.payment_status;
-            if (statusChanged || paymentChanged) {
-              // Fetch customer name for the notification
-              let customerName = 'Customer';
-              let scheduledDate = '';
-              const { data: bookingDetails } = await supabase
-                .from('bookings')
-                .select('customers:customer_id(first_name, last_name), scheduled_at')
-                .eq('id', updatedBooking.id)
-                .single();
-              if (bookingDetails) {
-                const c = bookingDetails.customers as any;
-                if (c) customerName = `${c.first_name} ${c.last_name}`;
-                if (bookingDetails.scheduled_at) scheduledDate = format(new Date(bookingDetails.scheduled_at), 'MMM d, yyyy');
-              }
-
-              const statusKey =
-                paymentChanged && updatedBooking.payment_status === 'failed' ? 'booking.payment_failed' :
-                statusChanged && updatedBooking.status === 'cancelled' ? 'booking.cancelled' :
-                statusChanged && updatedBooking.status === 'completed' ? 'booking.completed' :
-                statusChanged && updatedBooking.status === 'confirmed' ? 'booking.confirmed' :
-                statusChanged ? 'booking.rescheduled' :
-                null;
-              if (!statusKey) return;
-              const newNotification: AdminNotification = {
-                id: `booking-update-${updatedBooking.id}-${Date.now()}`,
-                type: 'booking',
-                typeKey: statusKey,
-                title: `${customerName}${scheduledDate ? ` • ${scheduledDate}` : ''}`,
-                message: statusKey === 'booking.payment_failed'
-                  ? 'Payment failed'
-                  : `Status changed to ${updatedBooking.status}`,
-                is_read: false,
-                created_at: new Date().toISOString(),
-                resource_id: updatedBooking.id,
-                resource_type: 'booking',
-              };
-              setNotifications((prev) => prependNotification(prev, newNotification));
-              setUnreadCount((prev) => prev + 1);
-              if (browserPushAllowed(statusKey)) deliverBrowserNotification(newNotification);
-            }
-          }
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'admin_system_notifications',
-            filter: `organization_id=eq.${organizationId}`,
-          },
-          () => {
-            fetchNotifications();
-          }
-        )
-        .subscribe();
-
-      const onPullRefresh = () => { fetchNotifications(); };
-      window.addEventListener(ADMIN_NOTIFICATION_REFRESH, onPullRefresh);
-
-      return () => {
-        window.removeEventListener(ADMIN_NOTIFICATION_REFRESH, onPullRefresh);
-        supabase.removeChannel(channel);
-      };
+      const cached = notificationCache.get(organizationId);
+      if (cached) listener(organizationId, cached);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchNotifications is recreated each render; runs once per org
+    return () => { notificationListeners.delete(listener); };
   }, [organizationId]);
+
+  useEffect(() => {
+    if (!organizationId) return;
+    let cancelled = false;
+    const start = () => {
+      if (cancelled) return;
+      void loadAdminNotificationsShared(organizationId, orgTimezone, false)
+        .then((list) => {
+          if (!cancelled) publishNotifications(organizationId, list);
+        })
+        .catch((error) => {
+          console.error('Error fetching notifications:', error);
+        });
+    };
+    // A cached list is already on screen. A cold read waits so it does not
+    // sit on the same connection as the jobs query the skeleton is blocked on.
+    const wait = notificationCache.has(organizationId) ? 0 : 1200;
+    const timer = window.setTimeout(start, wait);
+    const release = holdNotificationChannel(organizationId);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      release();
+    };
+  // The zone is whatever this render has. The previous effect did not
+  // re-subscribe when business_settings returned the real timezone.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organizationId]);
+
+  // Opening the bell before the deferred read should not show an empty list.
+  useEffect(() => {
+    if (!isOpen || !organizationId) return;
+    let cancelled = false;
+    void loadAdminNotificationsShared(organizationId, notificationTimezone, false)
+      .then((list) => {
+        if (!cancelled) publishNotifications(organizationId, list);
+      })
+      .catch((error) => {
+        console.error('Error fetching notifications:', error);
+      });
+    return () => { cancelled = true; };
+  }, [isOpen, organizationId]);
 
   const queryClient = useQueryClient();
 
   const markAsRead = async (notificationId: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === notificationId ? { ...n, is_read: true } : n))
-    );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
+    if (organizationId) {
+      updateStoredNotifications(organizationId, (prev) =>
+        prev.map((n) => (n.id === notificationId ? { ...n, is_read: true } : n))
+      );
+    } else {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === notificationId ? { ...n, is_read: true } : n))
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    }
 
     // If it's a booking request notification, also mark it as read in the database
     if (notificationId.startsWith('request-')) {
@@ -454,8 +598,12 @@ export function AdminNotificationBell() {
 
   const markAllAsRead = async () => {
     if (unreadCount > 0) {
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-      setUnreadCount(0);
+      if (organizationId) {
+        updateStoredNotifications(organizationId, (prev) => prev.map((n) => ({ ...n, is_read: true })));
+      } else {
+        setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+        setUnreadCount(0);
+      }
       
       // Also mark all booking request notifications as read in the database
       if (organizationId) {
@@ -477,7 +625,8 @@ export function AdminNotificationBell() {
       localStorage.setItem(`weekly-reminder-dismissed-${organizationId}-${today}`, 'true');
     } else {
       // Clear all notifications if all are already read
-      setNotifications([]);
+      if (organizationId) updateStoredNotifications(organizationId, () => []);
+      else setNotifications([]);
       
       // Also dismiss weekly reminder on clear all
       // Must match the key built above, which is the ORG's day.
@@ -510,7 +659,11 @@ export function AdminNotificationBell() {
     const next = new Set(dismissedIds);
     selected.forEach(id => next.add(id));
     persistDismissed(next);
-    setNotifications(prev => prev.map(n => selected.has(n.id) ? { ...n, is_read: true } : n));
+    if (organizationId) {
+      updateStoredNotifications(organizationId, (prev) => prev.map((n) => selected.has(n.id) ? { ...n, is_read: true } : n));
+    } else {
+      setNotifications(prev => prev.map(n => selected.has(n.id) ? { ...n, is_read: true } : n));
+    }
     setSelected(new Set());
     refreshBadges(queryClient);
   };

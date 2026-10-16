@@ -14,18 +14,22 @@ import { useOrganization } from '@/contexts/OrganizationContext';
 const HIDE_CHECKLIST_EMAILS = ['support@tidywisecleaning.com', 'applereview@tidywise.com'];
 
 export function OnboardingChecklist() {
-  const { data: items = [], isLoading, isError, refetch } = useOnboardingChecklist(true);
   const navigate = useNavigate();
   const { user } = useAuth();
   const { organization } = useOrganization();
-
   // This checklist belongs only to the person who created the business.
   // An invited teammate can hold an owner-level membership without being the
   // organization's actual owner and must never be asked to onboard it.
-  if (!user || !organization || organization.owner_id !== user.id) return null;
+  // The seven live checks stay disabled for everyone else so they are not
+  // part of the dashboard's first wave of requests.
+  const email = user?.email?.toLowerCase() ?? '';
+  const showChecklist = !!user
+    && !!organization
+    && organization.owner_id === user.id
+    && !HIDE_CHECKLIST_EMAILS.includes(email);
+  const { data: items = [], isLoading, isError, refetch } = useOnboardingChecklist(showChecklist);
 
-  // Hide for internal/free accounts
-  if (user?.email && HIDE_CHECKLIST_EMAILS.includes(user.email.toLowerCase())) return null;
+  if (!showChecklist) return null;
 
   if (isLoading) return null;
 
