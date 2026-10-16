@@ -82,6 +82,7 @@ export function SubscriptionPanel() {
   }
 
   async function openBillingPortal() {
+    if (!canShowPaymentFlows || nextStep !== "portal") return;
     setOpeningPortal(true);
     try {
       const { data, error } = await supabase.functions.invoke("customer-portal", { body: {} });
@@ -129,7 +130,7 @@ export function SubscriptionPanel() {
               </p>
             )}
           </div>
-          {canShowPaymentFlows && (
+          {canShowPaymentFlows && nextStep === "portal" && (
             <Button
               variant="outline"
               onClick={() => void openBillingPortal()}
@@ -147,7 +148,7 @@ export function SubscriptionPanel() {
         </div>
         <StripeModeBadge />
         <PlanSwitcher />
-        <RedeemAccessCodeCard />
+        {canShowPaymentFlows && <RedeemAccessCodeCard />}
 
         <Card>
           <CardHeader>
@@ -214,7 +215,7 @@ export function SubscriptionPanel() {
                       Choose a plan
                     </Button>
                   ) : null}
-                  {showPauseOrCancel && (
+                  {canShowPaymentFlows && showPauseOrCancel && (
                     <Button
                       variant="ghost"
                       onClick={() => setCancelOpen(true)}

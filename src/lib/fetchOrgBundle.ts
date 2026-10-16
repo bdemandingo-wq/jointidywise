@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { writeStartupSection } from '@/lib/startupCache';
+import { ORG_BUNDLE_SELECT, ORG_MEMBERSHIP_SELECT } from '@/lib/orgBundleFields';
 
 export interface Organization {
   id: string;
@@ -98,7 +99,7 @@ function bundleFrom(allOrgs: OrgWithRole[]): OrgBundle {
 async function loadViaEmbed(userId: string): Promise<OrgWithRole[] | null> {
   const { data, error } = await supabase
     .from('org_memberships')
-    .select('organization_id, role, organizations(*)')
+    .select(ORG_MEMBERSHIP_SELECT)
     .eq('user_id', userId);
   if (error || !data) return null;
   const rows = data as unknown as MembershipEmbed[];
@@ -116,7 +117,7 @@ async function loadViaTwoSteps(userId: string): Promise<OrgWithRole[]> {
   const [membershipsResult, savedOrgResult] = await Promise.all([
     supabase.from('org_memberships').select('organization_id, role').eq('user_id', userId),
     savedOrgId
-      ? supabase.from('organizations').select('*').eq('id', savedOrgId).maybeSingle()
+      ? supabase.from('organizations').select(ORG_BUNDLE_SELECT).eq('id', savedOrgId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
   ]);
   if (membershipsResult.error) throw membershipsResult.error;
@@ -131,7 +132,7 @@ async function loadViaTwoSteps(userId: string): Promise<OrgWithRole[]> {
   }
 
   const orgIds = memberships.map((m) => m.organization_id);
-  const { data: orgs, error: orgError } = await supabase.from('organizations').select('*').in('id', orgIds);
+  const { data: orgs, error: orgError } = await supabase.from('organizations').select(ORG_BUNDLE_SELECT).in('id', orgIds);
   if (orgError || !orgs) throw orgError ?? new Error('Could not load organizations');
   const all: OrgWithRole[] = [];
   for (const m of memberships) {

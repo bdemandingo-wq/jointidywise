@@ -2,6 +2,9 @@ import { useMemo, useEffect, useCallback, lazy, Suspense } from 'react';
 import { isOrgToday } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { useSearchParams } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
+import { useSubscription } from '@/hooks/useSubscription';
+import { ExpiredTrialNudge } from '@/components/subscription/ExpiredTrialNudge';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { TodayStats } from '@/components/admin/TodayStats';
 import { UpcomingBookings } from '@/components/admin/UpcomingBookings';
@@ -99,6 +102,32 @@ function getGreeting() {
 }
 
 export default function AdminDashboard() {
+  const { hasFullAccess, isLoading } = useSubscription();
+  const { subscription } = useAuth();
+  // Plan-tier loading must not blank a paid dashboard. The nudge waits
+  // until access is known, so a slow check does not flash "trial ended".
+  if (isLoading && !hasFullAccess) {
+    return (
+      <AdminLayout title="Dashboard" subtitle="Loading your data...">
+        <SEOHead title="Dashboard | TidyWise" description="Manage your cleaning business from one dashboard" noIndex />
+        <DashboardSkeleton />
+      </AdminLayout>
+    );
+  }
+  if (!hasFullAccess) {
+    return (
+      <AdminLayout title="Dashboard" subtitle="Pick a plan to continue">
+        <SEOHead title="Dashboard | TidyWise" description="Manage your cleaning business from one dashboard" noIndex />
+        <div className="portal-v2">
+          <ExpiredTrialNudge trialEnd={subscription?.trial_end ?? null} />
+        </div>
+      </AdminLayout>
+    );
+  }
+  return <DashboardHome />;
+}
+
+function DashboardHome() {
   const { organization } = useOrganization();
   const orgId = organization?.id;
   useTidyWiseTrialStarted(organization);

@@ -21,6 +21,8 @@ import {
 } from "./PlanChangeDialogs";
 import { useAuth } from "@/hooks/useAuth";
 import { useOrganization } from "@/contexts/OrganizationContext";
+import { useOrgTimezone } from "@/hooks/useOrgTimezone";
+import { readGrandfatheredLifetime } from "@/lib/orgBundleFields";
 import { useOrgId } from "@/hooks/useOrgId";
 import { usePlatform } from "@/hooks/usePlatform";
 import { supabase } from "@/integrations/supabase/client";
@@ -110,6 +112,7 @@ export function PlanSwitcher() {
   const { organization } = useOrganization();
   const { organizationId } = useOrgId();
   const { canShowPaymentFlows } = usePlatform();
+  const { timezone: orgTimezone } = useOrgTimezone();
   const [upgradeTarget, setUpgradeTarget] = useState<PlanInfo | null>(null);
   const [checkoutBusy, setCheckoutBusy] = useState<string | null>(null);
   const [downgradeTarget, setDowngradeTarget] = useState<PlanInfo | null>(null);
@@ -128,7 +131,7 @@ export function PlanSwitcher() {
   // and hid the plan switcher that would have converted them.
   const currentPlanId = planState.rawPlanType;
   const isLifetime = currentPlanId === "lifetime";
-  const isGrandfathered = organization?.grandfathered_lifetime === true;
+  const isGrandfathered = readGrandfatheredLifetime(organization?.grandfathered_lifetime);
   const planChoicesVisible = showPlanChoices({ lifetime: isLifetime, grandfathered: isGrandfathered });
 
   const currentPlan = useMemo(
@@ -197,7 +200,7 @@ export function PlanSwitcher() {
   const trialDays = showOrgTrialStatus ? trialDaysLeft(subscription?.trial_end) : null;
   const trialCharge = showOrgTrialStatus
     ? trialChargeLine({
-        chargeDate: trialEndDateLabel(subscription?.trial_end),
+        endDate: trialEndDateLabel(subscription?.trial_end, orgTimezone),
         daysLeft: trialDays,
       })
     : null;
@@ -351,12 +354,6 @@ export function PlanSwitcher() {
               >
                 {checkoutBusy === plan.id && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
                 {`Choose ${plan.name}`}
-              </Button>
-            );
-          } else if (isLifetime) {
-            planButton = (
-              <Button variant="outline" className={planButtonClass} disabled>
-                <Lock className="mr-1 h-3 w-3" /> Locked
               </Button>
             );
           } else if (isCurrent) {

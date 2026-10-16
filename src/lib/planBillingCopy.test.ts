@@ -1,7 +1,12 @@
+// Runner (this file is executed; vitest is not installed and reports no suite):
+//   node --experimental-strip-types --test src/lib/planBillingCopy.test.ts
+// tsconfig.app.json sets allowImportingTsExtensions and excludes *.test.ts,
+// so `tsc -p tsconfig.app.json` does not typecheck this import. Node does.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DOWNGRADE_EFFECT_NOTE,
+  expiredTrialNudgeCopy,
   lifetimeSpotsToShow,
   planBillingAction,
   renewalDisclosure,
@@ -21,26 +26,35 @@ test("renewal disclosure names the monthly price", () => {
   assert.equal(renewalDisclosure(97), "Renews monthly at $97 until you cancel.");
 });
 
-test("a trial names the real end date as the first charge and keeps days left", () => {
-  assert.equal(trialEndDateLabel("2026-11-13T23:00:00.000Z"), "Nov 13");
-  assert.equal(trialEndDateLabel(null), null);
-  assert.equal(trialEndDateLabel("not-a-date"), null);
+test("a trial names the org-local end date and does not promise a charge date", () => {
+  // Nov 13, 11:00pm Eastern is already Nov 14 in UTC.
+  const elevenPmEastern = "2026-11-14T04:00:00.000Z";
+  assert.equal(trialEndDateLabel(elevenPmEastern, "America/New_York"), "Nov 13");
+  assert.equal(trialEndDateLabel(elevenPmEastern, "UTC"), "Nov 14");
+  assert.equal(trialEndDateLabel(null, "America/New_York"), null);
+  assert.equal(trialEndDateLabel("not-a-date", "America/New_York"), null);
+  assert.equal(trialEndDateLabel(elevenPmEastern, ""), null);
+  const line = trialChargeLine({ endDate: "Nov 13", daysLeft: 12 });
+  assert.equal(line, "Free trial of Pro until Nov 13. 12 days left.");
+  assert.equal(line.includes("first charge"), false);
   assert.equal(
-    trialChargeLine({ chargeDate: "Nov 13", daysLeft: 12 }),
-    "Free trial of Pro until Nov 13. Add a card and your first charge is Nov 13. 12 days left.",
+    trialChargeLine({ endDate: "Nov 13", daysLeft: 1 }),
+    "Free trial of Pro until Nov 13. 1 day left.",
   );
   assert.equal(
-    trialChargeLine({ chargeDate: "Nov 13", daysLeft: 1 }),
-    "Free trial of Pro until Nov 13. Add a card and your first charge is Nov 13. 1 day left.",
+    trialChargeLine({ endDate: "Nov 13", daysLeft: null }),
+    "Free trial of Pro until Nov 13.",
   );
   assert.equal(
-    trialChargeLine({ chargeDate: "Nov 13", daysLeft: null }),
-    "Free trial of Pro until Nov 13. Add a card and your first charge is Nov 13.",
-  );
-  assert.equal(
-    trialChargeLine({ chargeDate: null, daysLeft: 4 }),
+    trialChargeLine({ endDate: null, daysLeft: 4 }),
     "Free trial of Pro. 4 days left.",
   );
+});
+
+test("an ended trial and a never-subscribed account get different dashboard nudges", () => {
+  assert.equal(expiredTrialNudgeCopy("2026-10-01T00:00:00.000Z").title, "Your trial has ended");
+  assert.match(expiredTrialNudgeCopy(null).title, /Pick a plan/);
+  assert.match(expiredTrialNudgeCopy("not-a-date").detail, /\$49/);
 });
 
 test("downgrade buttons say the change waits for renewal", () => {
@@ -60,5 +74,7 @@ test("lifetime spots stay hidden unless both the count and the cap are real", ()
   assert.equal(lifetimeSpotsToShow(1.5, 100), null);
   assert.equal(lifetimeSpotsToShow(-1, 100), null);
   assert.equal(lifetimeSpotsToShow(0, 0), null);
+  assert.equal(lifetimeSpotsToShow(150, 100), null);
+  assert.deepEqual(lifetimeSpotsToShow(97, 100), { remaining: 97, total: 100 });
   assert.deepEqual(lifetimeSpotsToShow(88, 100), { remaining: 88, total: 100 });
 });

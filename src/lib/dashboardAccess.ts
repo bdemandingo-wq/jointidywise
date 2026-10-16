@@ -7,13 +7,22 @@
  * profiles.trial_ends_at still in the future — product_id "org_trial"),
  * the pre-2026-04-06 60-day org trial (also product_id "org_trial"),
  * lifetime, and comped access. An expired trial, or an org with no plan
- * and no lifetime access, comes back subscribed=false and stays out.
+ * and no lifetime access, comes back subscribed=false and stays out of
+ * every admin route except the dashboard home, which shows an upgrade nudge.
  *
  * product_id "org_trial" is a valid trial, not a missing plan. Treating it
  * as unpaid sent every existing web trial org to /choose-plan.
  *
  * Zero imports so node:test can load this file with --experimental-strip-types.
  */
+
+/**
+ * Expired-trial and no-plan accounts stay on the dashboard home so the
+ * upgrade nudge can render. Every other admin route still redirects.
+ */
+export function dashboardHomeKeepsExpiredTrial(pathname: string): boolean {
+  return pathname === "/dashboard" || pathname === "/dashboard/";
+}
 
 export function hasPaidDashboardAccess(opts: {
   isFreeAccount: boolean;

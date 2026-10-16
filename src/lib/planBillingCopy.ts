@@ -1,3 +1,5 @@
+import { formatInOrgTz } from "./orgDateRange.ts";
+
 /**
  * Settings plan cards. Basic and Pro reuse the existing monthly checkout
  * and plan-change calls. Custom has no in-app checkout on this screen.
@@ -16,27 +18,30 @@ export function renewalDisclosure(monthlyPrice: number): string {
 export const DOWNGRADE_EFFECT_NOTE = "Takes effect at your next renewal.";
 
 /**
- * Calendar date of a stored trial end. UTC so the label matches the
- * timestamp's date and does not shift with the device timezone.
+ * Calendar date of a stored trial end, in the organisation timezone.
+ * A trial that ends Nov 13 at 11pm Eastern is Nov 13 there and Nov 14 in UTC.
+ * A missing or invalid timestamp does not invent a date.
  */
-export function trialEndDateLabel(trialEndIso: string | null | undefined): string | null {
-  if (!trialEndIso) return null;
+export function trialEndDateLabel(
+  trialEndIso: string | null | undefined,
+  timeZone: string,
+): string | null {
+  if (!trialEndIso || !timeZone) return null;
   const end = Date.parse(trialEndIso);
   if (!Number.isFinite(end)) return null;
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(end));
+  return formatInOrgTz(new Date(end), timeZone, { month: "short", day: "numeric" });
 }
 
 /**
- * Trial copy names the real end date twice: when Pro access ends, and
- * when the first charge happens if they add a card. daysLeft stays.
- * A missing timestamp does not invent a date.
+ * Trial copy names when Pro access ends. It does not name a first charge.
+ *
+ * create-subscription already sets Stripe trial_end to profiles.trial_ends_at
+ * only when that instant is at least 48 hours away. Inside 48 hours it bills
+ * on completion. Promising "your first charge is {trial end}" would be wrong
+ * for that case, so this line never says it.
  */
 export function trialChargeLine(opts: {
-  chargeDate: string | null;
+  endDate: string | null;
   daysLeft: number | null;
 }): string {
   const days = opts.daysLeft == null
@@ -44,8 +49,26 @@ export function trialChargeLine(opts: {
     : opts.daysLeft === 1
       ? " 1 day left."
       : ` ${opts.daysLeft} days left.`;
-  if (!opts.chargeDate) return `Free trial of Pro.${days}`;
-  return `Free trial of Pro until ${opts.chargeDate}. Add a card and your first charge is ${opts.chargeDate}.${days}`;
+  if (!opts.endDate) return `Free trial of Pro.${days}`;
+  return `Free trial of Pro until ${opts.endDate}.${days}`;
+}
+
+/** Dashboard home copy when the account cannot use the product. */
+export function expiredTrialNudgeCopy(trialEndIso: string | null | undefined): {
+  title: string;
+  detail: string;
+} {
+  const ended = !!trialEndIso && Number.isFinite(Date.parse(trialEndIso));
+  if (ended) {
+    return {
+      title: "Your trial has ended",
+      detail: "Pick a plan to keep using the dashboard. Nothing here extends a trial that has already ended.",
+    };
+  }
+  return {
+    title: "Pick a plan to unlock the dashboard",
+    detail: "Basic is $49 a month and Pro is $97 a month.",
+  };
 }
 
 /** Lifetime and grandfathered accounts see the current plan only. */
@@ -55,7 +78,8 @@ export function showPlanChoices(opts: { lifetime: boolean; grandfathered: boolea
 
 /**
  * Lifetime spots render only when both the remaining count and the cap
- * are real numbers. A missing read stays hidden. This does not invent a cap.
+ * are real numbers, and the remaining count does not exceed the cap.
+ * A missing or impossible read stays hidden. This does not invent a cap.
  */
 export function lifetimeSpotsToShow(
   remaining: number | null | undefined,
@@ -63,6 +87,6 @@ export function lifetimeSpotsToShow(
 ): { remaining: number; total: number } | null {
   if (typeof remaining !== "number" || typeof total !== "number") return null;
   if (!Number.isInteger(remaining) || !Number.isInteger(total)) return null;
-  if (total < 1 || remaining < 0) return null;
+  if (total < 1 || remaining < 0 || remaining > total) return null;
   return { remaining, total };
 }
