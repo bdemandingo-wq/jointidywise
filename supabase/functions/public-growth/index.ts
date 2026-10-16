@@ -4,12 +4,12 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 /**
  * Public snapshot of lifetime spots, weekly signups, and the anonymous
  * activity feed. The SQL functions are the source of truth and already
- * return only aggregates or sanitized city-level fields. This wrapper
+ * return only aggregates or sanitized state-level fields. This wrapper
  * adds a 45s response cache and a per-IP limit so the marketing pages
  * are not a way to hammer the bookings table.
  *
  * Intentionally unauthenticated (verify_jwt = false). It never reads a
- * caller identity and never returns a name, address, or id.
+ * caller identity and never returns a name, city, address, or id.
  */
 
 const corsHeaders = {
