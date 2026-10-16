@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { isServiceRoleRequest } from "../_shared/require-caller-org.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
+import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -61,22 +63,33 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log('Sending help inquiry SMS to admin:', ADMIN_PHONE);
 
-    // OpenPhone expects the raw API key in the Authorization header
-    const authHeader = openPhoneApiKey.trim().replace(/^Bearer\s+/i, '');
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('Supabase credentials not configured');
+      return new Response(
+        JSON.stringify({ error: 'SMS service not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Send SMS via OpenPhone
-    const openPhoneResponse = await fetch('https://api.openphone.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Authorization': authHeader,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        content: smsMessage,
-        from: openPhoneNumberId,
-        to: [ADMIN_PHONE],
-      }),
+    const sent = await sendOpenPhoneMessage({
+      supabase,
+      organizationId: TIDYWISE_PLATFORM_ORG_ID,
+      to: ADMIN_PHONE,
+      content: smsMessage,
+      from: openPhoneNumberId,
+      apiKey: openPhoneApiKey,
+      tag: "send-help-inquiry-sms",
     });
+    if (sent.skipped) {
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: "opted_out" }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    const openPhoneResponse = sent.response;
 
     if (!openPhoneResponse.ok) {
       const errorText = await openPhoneResponse.text();

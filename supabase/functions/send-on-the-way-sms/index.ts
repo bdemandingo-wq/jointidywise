@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
+import { sendOpenPhoneMessage } from '../_shared/send-sms.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { notifyOwner } from "../_shared/owner-alert.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
@@ -112,7 +113,13 @@ const handler = async (req: Request): Promise<Response> => {
 
     // Caller must be this cleaner, or an owner/admin/manager, and the staff
     // row must be assigned to this booking in this organization.
-    const auth = await assertAssignedStaffEvent(req, supabase as any, booking.organization_id, staffId, bookingId);
+    const auth = await assertAssignedStaffEvent(
+      req,
+      supabase as unknown as Parameters<typeof assertAssignedStaffEvent>[1],
+      booking.organization_id,
+      staffId,
+      bookingId,
+    );
     if (!auth.ok) {
       return new Response(
         JSON.stringify({ success: false, error: auth.error }),
@@ -258,21 +265,20 @@ const handler = async (req: Request): Promise<Response> => {
     const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
     // Helper function to send SMS
-    const sendSms = async (to: string, content: string, label: string): Promise<{ success: boolean; messageId?: string; error?: string }> => {
+    const sendSms = async (to: string, content: string, label: string): Promise<{ success: boolean; skipped?: boolean; messageId?: string; error?: string }> => {
       console.log(`[send-on-the-way-sms] Sending ${label} SMS to ${to}`);
-      
-      const response = await fetch("https://api.openphone.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Authorization": authHeader,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: phoneNumberId,
-          to: [to],
-          content,
-        }),
+
+      const sent = await sendOpenPhoneMessage({
+        supabase,
+        organizationId: booking.organization_id,
+        to,
+        content,
+        from: phoneNumberId,
+        apiKey: authHeader,
+        tag: `send-on-the-way-sms:${label}`,
       });
+      if (sent.skipped) return { success: false, skipped: true };
+      const response = sent.response;
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -303,7 +309,9 @@ const handler = async (req: Request): Promise<Response> => {
       const customerResult = await sendSms(formattedCustomerPhone, customerMessage, 'customer');
       customerSms = customerResult.success;
       messageId = customerResult.messageId;
-      if (!customerResult.success) {
+      if (customerResult.skipped) {
+        smsSkippedReason = "This number opted out by texting STOP";
+      } else if (!customerResult.success) {
         customerSmsError = customerResult.error || "The text to the customer didn't go through.";
         console.warn("[send-on-the-way-sms] Customer SMS failed — continuing to admin alert:", customerSmsError);
       }

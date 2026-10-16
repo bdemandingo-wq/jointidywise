@@ -90,8 +90,10 @@ const handler = async (req: Request): Promise<Response> => {
         });
 
         const result = await response.json();
-        
-        if (result.success) {
+
+        if (result.skipped) {
+          console.log(`[quote-expiry-reminder] Skipped opted_out quote ${quote.id}`);
+        } else if (result.success) {
           sentReminders.push({ quoteId: quote.id, customer: customerName });
           console.log(`[quote-expiry-reminder] Sent reminder for quote ${quote.id}`);
         } else {

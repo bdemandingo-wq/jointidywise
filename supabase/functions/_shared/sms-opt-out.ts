@@ -250,6 +250,11 @@ export function isExactResubscribe(content: string | null | undefined): boolean 
   return token !== null && RESUBSCRIBE_SET.has(token);
 }
 
+/** Whole-message HELP. The inbound webhook is the only sender of the reply. */
+export function isExactHelp(content: string | null | undefined): boolean {
+  return exactSmsToken(content) === "HELP";
+}
+
 /** One-word CANCEL or END. "Cancel my Friday cleaning" is not this. */
 export function isExactCancelOrEnd(content: string | null | undefined): boolean {
   const token = exactSmsToken(content);
@@ -314,6 +319,18 @@ export function classifySmsOptOut(content: string | null | undefined): SmsOptOut
 }
 
 /**
+ * How the suppression backfill should read one inbound message.
+ * "start" is a whole-message START/UNSTOP. "stop" is what classifySmsOptOut
+ * treats as an automatic opt-out. Anything else, including a keyword buried
+ * in a sentence, is null.
+ */
+export function historyConsentKeyword(content: string | null | undefined): "stop" | "start" | null {
+  if (isExactResubscribe(content)) return "start";
+  if (classifySmsOptOut(content).optOut) return "stop";
+  return null;
+}
+
+/**
  * Customer consent columns the webhook reads and writes.
  * marketing_status_before_sms_stop is the value to put back on START.
  * It is null for opt-outs recorded before that column existed.
@@ -333,9 +350,9 @@ export interface SmsConsentStep {
   /** Automatic opt-out. One confirmation text, and no AI reply. */
   optOut: boolean;
   sendConfirmation: boolean;
-  /** Inbox flag: keyword in a sentence, or START while opted out another way. */
+  /** Inbox flag: keyword in a sentence. */
   optOutReview: boolean;
-  /** START/UNSTOP cleared an sms_stop opt-out. No second text. */
+  /** START/UNSTOP cleared an SMS STOP. No second text. */
   smsResubscribed: boolean;
   /** Skip the AI auto-reply. */
   suppressAi: boolean;
@@ -366,11 +383,10 @@ function applySmsStop(state: SmsConsentState, now: string, campaignId: string | 
 
 function restoreSmsStop(state: SmsConsentState): SmsConsentState {
   const saved = state.marketing_status_before_sms_stop;
-  // No stored prior consent: leave marketing_status alone. Never invent opted-in.
-  const marketingStatus = saved == null || saved === "" ? state.marketing_status : saved;
+  const restoreStatus = Boolean(saved && saved !== "opted_out");
   return {
-    marketing_status: marketingStatus,
-    opted_out_at: null,
+    marketing_status: restoreStatus ? saved! : state.marketing_status,
+    opted_out_at: restoreStatus ? null : state.opted_out_at,
     opted_out_method: null,
     opted_out_campaign_id: null,
     marketing_status_before_sms_stop: null,
@@ -397,25 +413,19 @@ export function nextSmsConsent(
   };
 
   if (isExactResubscribe(content)) {
-    if (state.opted_out_method === SMS_STOP_METHOD) {
-      return {
-        state: restoreSmsStop(state),
-        persist: true,
-        optOut: false,
-        sendConfirmation: false,
-        optOutReview: false,
-        smsResubscribed: true,
-        suppressAi: false,
-      };
-    }
-    if (optedOutAnotherWay(state)) {
-      return {
-        ...unchanged,
-        optOutReview: true,
-        suppressAi: true,
-      };
-    }
-    return unchanged;
+    // START/UNSTOP clears an SMS STOP only. Email, manual, and admin
+    // opt-outs stay as they are. The previous status is restored when it
+    // was saved. A missing snapshot is not turned into "subscribed".
+    if (state.opted_out_method !== SMS_STOP_METHOD) return unchanged;
+    return {
+      state: restoreSmsStop(state),
+      persist: true,
+      optOut: false,
+      sendConfirmation: false,
+      optOutReview: false,
+      smsResubscribed: true,
+      suppressAi: false,
+    };
   }
 
   const classified = classifySmsOptOut(content);
@@ -491,6 +501,21 @@ function usablePhone(raw: string | null | undefined): string {
 function usableName(raw: string | null | undefined): string {
   const cleaned = collapse(sanitizeToGsm7Basic(typeof raw === "string" ? raw : ""));
   return cleaned || NAME_FALLBACK;
+}
+
+/**
+ * One HELP reply. No marketing. GSM-7 basic, one segment.
+ */
+export function renderHelpReply(
+  businessName: string | null | undefined,
+  businessPhone: string | null | undefined,
+): string {
+  const name = usableName(businessName);
+  const phone = usablePhone(businessPhone);
+  const text = phone
+    ? `${name}: For help call ${phone}. Reply STOP to unsubscribe.`
+    : `${name}: Reply STOP to unsubscribe. Reply START to resubscribe.`;
+  return truncateWithAsciiEllipsis(text, GSM_7_SINGLE_SEGMENT);
 }
 
 /**

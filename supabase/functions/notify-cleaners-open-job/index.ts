@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -170,20 +171,20 @@ const handler = async (req: Request): Promise<Response> => {
             `Log in to the Staff Portal to claim it.\n- ${companyName}`;
 
           try {
-            // OpenPhone expects the raw API key without "Bearer" prefix
-            const authHeader = orgOpenPhoneApiKey.trim().replace(/^Bearer\s+/i, '');
-            const response = await fetch("https://api.openphone.com/v1/messages", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: authHeader,
-              },
-              body: JSON.stringify({
-                from: orgPhoneNumberId,
-                to: [phone],
-                content: smsBody,
-              }),
+            const sent = await sendOpenPhoneMessage({
+              supabase,
+              organizationId,
+              to: phone,
+              content: smsBody,
+              from: orgPhoneNumberId,
+              apiKey: orgOpenPhoneApiKey,
+              tag: "notify-cleaners-open-job",
             });
+            if (sent.skipped) {
+              console.log(`SMS skipped opted_out for staff ${staff.name} (${phone})`);
+              return { success: false, skipped: true };
+            }
+            const response = sent.response;
 
             if (response.ok) {
               console.log(`SMS sent to staff ${staff.name} (${phone})`);
@@ -201,7 +202,7 @@ const handler = async (req: Request): Promise<Response> => {
 
       const results = await Promise.all(smsPromises);
       smsSent = results.filter((r) => r.success).length;
-      smsFailed = results.filter((r) => !r.success).length;
+      smsFailed = results.filter((r) => !r.success && !r.skipped).length;
       console.log(`SMS sent: ${smsSent}, failed: ${smsFailed}`);
     } else {
       console.log("OpenPhone not configured for this org — skipping SMS, in-app notifications still created");

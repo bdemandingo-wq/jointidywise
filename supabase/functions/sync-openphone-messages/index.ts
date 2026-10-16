@@ -3,6 +3,7 @@
 // intentionally not used.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { fetchOpenPhoneMessages } from "../_shared/openphone-messages-read.ts";
 import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 
@@ -257,14 +258,11 @@ async function syncOrganization(
     if (participants.length === 0) continue;
 
     try {
-      const msgUrl = new URL("https://api.openphone.com/v1/messages");
-      msgUrl.searchParams.set("phoneNumberId", phoneNumberId);
-      for (const participant of participants) msgUrl.searchParams.append("participants", participant);
-      msgUrl.searchParams.set("createdAfter", createdAfter);
-      msgUrl.searchParams.set("maxResults", "100");
-
-      const msgResponse = await fetch(msgUrl.toString(), {
-        headers: { Authorization: apiKey, "Content-Type": "application/json" },
+      const msgResponse = await fetchOpenPhoneMessages(apiKey, (params) => {
+        params.set("phoneNumberId", phoneNumberId);
+        for (const participant of participants) params.append("participants", participant);
+        params.set("createdAfter", createdAfter);
+        params.set("maxResults", "100");
       });
       if (!msgResponse.ok) {
         await msgResponse.text();

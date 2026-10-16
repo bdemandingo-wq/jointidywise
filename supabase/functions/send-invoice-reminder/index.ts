@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -162,18 +163,21 @@ const handler = async (req: Request): Promise<Response> => {
         const smsContent = `Hi ${customerName}! 📋 Friendly reminder: Your invoice #${invoice.invoice_number} for $${invoice.total_amount.toFixed(2)} from ${companyName} is now ${daysAfterDue} day${daysAfterDue > 1 ? 's' : ''} past due.\n\n${paymentUrl ? `Pay now: ${paymentUrl}` : 'Please contact us to arrange payment.'}`;
 
         try {
-          const smsResponse = await fetch("https://api.openphone.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "Authorization": smsSettings.openphone_api_key,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              content: smsContent,
-              from: smsSettings.openphone_phone_number_id,
-              to: [formattedPhone],
-            }),
+          const sent = await sendOpenPhoneMessage({
+            supabase,
+            organizationId,
+            to: formattedPhone,
+            content: smsContent,
+            from: smsSettings.openphone_phone_number_id,
+            apiKey: smsSettings.openphone_api_key,
+            tag: "send-invoice-reminder",
           });
+          if (sent.skipped) {
+            console.log(`[send-invoice-reminder] Skipped opted-out number for invoice #${invoice.invoice_number}`);
+            skippedCount++;
+            continue;
+          }
+          const smsResponse = sent.response;
 
           if (smsResponse.ok) {
             console.log(`[send-invoice-reminder] SMS sent for invoice #${invoice.invoice_number} to ${formattedPhone}`);

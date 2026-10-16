@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
+import { sendOpenPhoneMessage } from '../_shared/send-sms.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
 import { notifyOwner } from "../_shared/owner-alert.ts";
@@ -54,7 +55,13 @@ const handler = async (req: Request): Promise<Response> => {
     // owner/admin/manager of this org, or the service-role key (timing-safe
     // compare). A membership-only check is not used: cleaners often have no
     // org_memberships row, and that check would reject the person at the job.
-    const auth = await assertAssignedStaffEvent(req, supabase, booking.organization_id, staffId, bookingId);
+    const auth = await assertAssignedStaffEvent(
+      req,
+      supabase as unknown as Parameters<typeof assertAssignedStaffEvent>[1],
+      booking.organization_id,
+      staffId,
+      bookingId,
+    );
     if (!auth.ok) {
       return new Response(JSON.stringify({ success: false, error: auth.error }),
         { status: auth.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -136,21 +143,30 @@ const handler = async (req: Request): Promise<Response> => {
     const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
     const sendSms = async (to: string, content: string, label: string) => {
-      const r = await fetch("https://api.openphone.com/v1/messages", {
-        method: "POST",
-        headers: { "Authorization": authHeader, "Content-Type": "application/json" },
-        body: JSON.stringify({ from: phoneNumberId, to: [to], content }),
+      const sent = await sendOpenPhoneMessage({
+        supabase,
+        organizationId: booking.organization_id,
+        to,
+        content,
+        from: phoneNumberId,
+        apiKey: authHeader,
+        tag: `send-arrival-sms:${label}`,
       });
-      if (!r.ok) {
-        console.error(`[send-arrival-sms] ${label} SMS failed:`, r.status, await r.text());
-        return false;
+      if (sent.skipped) return "skipped" as const;
+      if (!sent.response.ok) {
+        console.error(`[send-arrival-sms] ${label} SMS failed:`, sent.response.status, await sent.response.text());
+        return "failed" as const;
       }
-      return true;
+      return "sent" as const;
     };
 
     if (notifyClient && customer?.phone && copy.customerSms) {
       const msg = copy.customerSms;
-      clientSent = await sendSms(formatPhoneNumber(customer.phone), msg, 'customer');
+      const outcome = await sendSms(formatPhoneNumber(customer.phone), msg, 'customer');
+      if (outcome === "sent") clientSent = true;
+      else if (outcome === "skipped" && !smsSkippedReason) {
+        smsSkippedReason = "This number opted out by texting STOP";
+      }
     }
     }
 

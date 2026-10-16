@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
+import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -69,33 +71,58 @@ const handler = async (req: Request): Promise<Response> => {
       `Time: ${timestamp}\n\n` +
       `View in admin panel.`;
 
-    const response = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Authorization": openphoneApiKey.startsWith('Bearer ') ? openphoneApiKey : `Bearer ${openphoneApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: openphonePhoneNumberId,
-        to: ADMIN_PHONES,
-        content: message,
-      }),
-    });
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Server configuration error" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[notify-platform-admin-subscription] OpenPhone API error: ${response.status} - ${errorText}`);
+    let anySent = false;
+    let anyFailed = false;
+    let messageId: string | undefined;
+    for (const phone of ADMIN_PHONES) {
+      const sent = await sendOpenPhoneMessage({
+        supabase,
+        organizationId: TIDYWISE_PLATFORM_ORG_ID,
+        to: phone,
+        content: message,
+        from: openphonePhoneNumberId,
+        apiKey: openphoneApiKey,
+        tag: "notify-platform-admin-subscription",
+      });
+      if (sent.skipped) continue;
+      const response = sent.response;
+      if (!response.ok) {
+        anyFailed = true;
+        const errorText = await response.text();
+        console.error(`[notify-platform-admin-subscription] OpenPhone API error: ${response.status} - ${errorText}`);
+        continue;
+      }
+      anySent = true;
+      const result = await response.json() as { data?: { id?: string } };
+      messageId = messageId ?? result.data?.id;
+      console.log(`[notify-platform-admin-subscription] SMS sent successfully:`, result.data?.id);
+    }
+
+    if (!anySent && !anyFailed) {
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: "opted_out" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    if (!anySent) {
       return new Response(
         JSON.stringify({ success: false, error: "Failed to send SMS" }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const result = await response.json();
-    console.log(`[notify-platform-admin-subscription] SMS sent successfully:`, result?.data?.id);
-
     return new Response(
-      JSON.stringify({ success: true, messageId: result.data?.id }),
+      JSON.stringify({ success: true, messageId }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 

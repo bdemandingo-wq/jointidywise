@@ -9,7 +9,7 @@ import { sendPushToOrg } from "./send-push.ts";
 
 type AdminClient = {
   from: (table: string) => {
-    insert: (values: Record<string, unknown>) => Promise<{ error: { message?: string } | null }>;
+    insert: (values: Record<string, unknown>) => PromiseLike<{ error: { message?: string } | null }>;
   };
 };
 
