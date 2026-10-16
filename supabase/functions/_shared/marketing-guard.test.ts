@@ -3,6 +3,12 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { customerPhoneLast10Pattern, isPhoneOptedOut, phoneOptOutStatus } from "./marketing-guard.ts";
 import { toE164 } from "./phone.ts";
+import {
+  SMS_OPT_OUT_KEYWORDS,
+  SMS_OPT_OUT_PHRASES,
+  SMS_RESUBSCRIBE_KEYWORDS,
+  historyConsentKeyword,
+} from "./sms-opt-out.ts";
 
 const ORG = "org-1";
 const OTHER_ORG = "org-2";
@@ -212,14 +218,67 @@ test("the suppression migration backfills sms_stop customers and inbound STOP hi
   const fn = sql.slice(fnStart, fnEnd);
   assert.match(fn, /length\(digits\) = 10/);
   assert.doesNotMatch(fn, /right\(digits, 10\)/);
+  const consentStart = sql.indexOf("CREATE OR REPLACE FUNCTION public.sms_history_consent");
+  const consentEnd = sql.indexOf("$$;", consentStart);
+  const consentFn = sql.slice(consentStart, consentEnd);
+  for (const word of SMS_OPT_OUT_KEYWORDS) {
+    assert.equal(historyConsentKeyword(word), "stop", word);
+    assert.match(consentFn, new RegExp(`'${word}'`));
+  }
+  for (const word of SMS_RESUBSCRIBE_KEYWORDS) {
+    assert.equal(historyConsentKeyword(word), "start", word);
+    assert.equal(historyConsentKeyword(`${word}.`), "start", `${word}.`);
+    assert.match(consentFn, new RegExp(`'${word}'`));
+  }
+  for (const phrase of SMS_OPT_OUT_PHRASES) {
+    assert.equal(historyConsentKeyword(phrase), "stop", phrase);
+    const sqlPhrase = phrase.replace(/'/g, "''");
+    assert.match(consentFn, new RegExp(sqlPhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  const shortRule = consentFn.slice(consentFn.indexOf("n <= 3"));
+  assert.doesNotMatch(shortRule, /'CANCEL'/);
+  assert.doesNotMatch(shortRule, /'END'/);
+
+  const samples: Array<[string, "stop" | "start" | null]> = [
+    ["Stop.", "stop"],
+    ["STOP!", "stop"],
+    ["stop \u{1F6D1}", "stop"],
+    ["REVOKE", "stop"],
+    ["OPTOUT", "stop"],
+    ["Opt out", "stop"],
+    ["opt-out", "stop"],
+    ["stop all", "stop"],
+    ["Please stop", "stop"],
+    ["STOP texting me", "stop"],
+    ["unsubscribe me", "stop"],
+    ["cancel", "stop"],
+    ["END", "stop"],
+    ["please don't text me anymore", "stop"],
+    ["Please don\u2019t text me", "stop"],
+    ["opt me out", "stop"],
+    ["no more texts", "stop"],
+    ["Start.", "start"],
+    ["UNSTOP!", "start"],
+    ["Cancel my Friday cleaning", null],
+    ["End time is 3?", null],
+    ["stop by at 2", null],
+    ["don't stop", null],
+    ["please cancel", null],
+    ["please opt me out of the weekly marketing list", null],
+  ];
+  for (const [text, expected] of samples) {
+    assert.equal(historyConsentKeyword(text), expected, text);
+  }
+
   const backfill = sql.slice(sql.indexOf("INSERT INTO public.sms_suppressions"));
   assert.match(backfill, /opted_out_method = 'sms_stop'/);
   assert.doesNotMatch(backfill, /opted_out_method = 'manual'/);
   assert.doesNotMatch(backfill, /2026-05-14/);
   assert.match(backfill, /public\.sms_messages/);
   assert.match(backfill, /public\.to_e164/);
-  assert.match(backfill, /'STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'/);
-  assert.match(backfill, /'START', 'UNSTOP'/);
+  assert.match(backfill, /public\.sms_history_consent/);
+  assert.match(backfill, /sent_at DESC NULLS LAST/);
+  assert.match(backfill, /max\(e164\)/);
   assert.match(backfill, /source\)\s*\nSELECT/);
   assert.match(backfill, /ON CONFLICT DO NOTHING/);
   assert.equal(backfill.match(/ON CONFLICT DO NOTHING/g)?.length, 2);

@@ -319,6 +319,18 @@ export function classifySmsOptOut(content: string | null | undefined): SmsOptOut
 }
 
 /**
+ * How the suppression backfill should read one inbound message.
+ * "start" is a whole-message START/UNSTOP. "stop" is what classifySmsOptOut
+ * treats as an automatic opt-out. Anything else, including a keyword buried
+ * in a sentence, is null.
+ */
+export function historyConsentKeyword(content: string | null | undefined): "stop" | "start" | null {
+  if (isExactResubscribe(content)) return "start";
+  if (classifySmsOptOut(content).optOut) return "stop";
+  return null;
+}
+
+/**
  * Customer consent columns the webhook reads and writes.
  * marketing_status_before_sms_stop is the value to put back on START.
  * It is null for opt-outs recorded before that column existed.
