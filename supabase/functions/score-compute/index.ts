@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import { generateObject } from "https://esm.sh/ai@4";
 import { createAnthropic } from "https://esm.sh/@ai-sdk/anthropic@1";
 import { z } from "npm:zod@3.25.76";
+import { checkAndRecord } from "../_shared/rate-limit.ts";
 
 // Narrow wrapper: the ai SDK generics + zod schema hit TS2589 (too deep).
 const genObject = generateObject as unknown as <T>(opts: {
@@ -289,53 +290,38 @@ Tasks:
   return object;
 }
 
-// ---- In-memory IP rate limiter: 10 requests / 3600s sliding window ----
-// enforceAiRateLimit (../_shared/ai-rate-limit.ts) doesn't fit here: this
-// function is publicly callable (verify_jwt=false) with no org or user
-// context, and that helper's only scopes are org and user. Note the Map is
-// per-instance and resets on cold start — it blunts burst abuse; the
-// per-company cooldown and 7-day cache below remain the cost backstop.
-const RATE_LIMIT_MAX = 10;
-const RATE_LIMIT_WINDOW_MS = 3600 * 1000;
-const ipHits = new Map<string, number[]>();
+// ---- DB-backed IP rate limiter: 10 requests / 3600s sliding window ----
+// Uses public.abuse_throttle via _shared/rate-limit.ts so the count persists
+// across cold starts. enforceAiRateLimit can't take a synthetic key: its
+// RPC scope_id is a uuid and its org limit is fixed at 200/hour.
+const RATE_LIMIT = { maxPerWindow: 10, windowSeconds: 3600 };
 
-function rateLimit(ip: string): { allowed: boolean; retryAfterSeconds: number } {
-  const now = Date.now();
-  const hits = (ipHits.get(ip) ?? []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
-  if (hits.length >= RATE_LIMIT_MAX) {
-    ipHits.set(ip, hits); // drop expired entries so the window truly slides
-    const retryAfterSeconds = Math.max(1, Math.ceil((RATE_LIMIT_WINDOW_MS - (now - hits[0])) / 1000));
-    return { allowed: false, retryAfterSeconds };
-  }
-  hits.push(now);
-  ipHits.set(ip, hits);
-  // Opportunistic sweep so the map can't grow unbounded across IPs.
-  if (ipHits.size > 10000) {
-    for (const [key, times] of ipHits) {
-      if (times.every((t) => now - t >= RATE_LIMIT_WINDOW_MS)) ipHits.delete(key);
-    }
-  }
-  return { allowed: true, retryAfterSeconds: 0 };
+async function hashIp(ip: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(ip));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const ip = (req.headers.get("x-forwarded-for") ?? "unknown").split(",")[0].trim() || "unknown";
-  const rl = rateLimit(ip);
-  if (!rl.allowed) {
+  const rlClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const rl = await checkAndRecord(rlClient, "score_compute", `ip:${await hashIp(ip)}`, RATE_LIMIT);
+  if (rl.error) console.error("[score-compute] rate-limit DB error:", rl.error);
+  if (rl.blocked) {
     return new Response(
-      JSON.stringify({ error: "rate_limited", retryAfterSeconds: rl.retryAfterSeconds }),
+      JSON.stringify({ error: "rate_limited", retryAfterSeconds: RATE_LIMIT.windowSeconds }),
       {
         status: 429,
         headers: {
           ...corsHeaders,
           "Content-Type": "application/json",
-          "Retry-After": String(rl.retryAfterSeconds),
+          "Retry-After": String(RATE_LIMIT.windowSeconds),
         },
       },
     );
   }
+
 
   try {
     const { company_id, force = false } = await req.json();
