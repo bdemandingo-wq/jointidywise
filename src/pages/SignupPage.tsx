@@ -29,6 +29,7 @@ import { ReferredSignupBanner } from '@/components/ReferredSignupBanner';
 import { persistSignupAttribution } from '@/lib/persistSignupAttribution';
 import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 import { trackTidyWiseConversion } from '@/lib/tidywiseTags';
+import { LIFETIME_SPOT_CAP } from '@/lib/publicPlans';
 
 // Plan metadata for the "you're signing up to start X" banner. Kept
 // inline so the signup page doesn't have to import the full features.ts
@@ -364,7 +365,7 @@ export default function SignupPage() {
 
   return (
     <div className="portal-v2 portal-v2-scroll min-h-screen overflow-x-hidden bg-background flex flex-col">
-      <SEOHead title="Sign Up | TidyWise – Cleaning Business Software" description="Create your TidyWise account. Pick a plan from $49/mo (Basic), $97/mo (Pro), $197/mo (Custom), or grab one of 100 lifetime spots at $300." canonical="/signup" noIndex />
+      <SEOHead title="Sign Up | TidyWise – Cleaning Business Software" description={`Create your TidyWise account. Pick a plan from $49/mo (Basic), $97/mo (Pro), $197/mo (Custom), or grab one of ${LIFETIME_SPOT_CAP} lifetime spots at $300.`} canonical="/signup" noIndex />
       <div className="flex-1 flex items-center justify-center p-4 w-full">
       <div className="w-full max-w-md">
         

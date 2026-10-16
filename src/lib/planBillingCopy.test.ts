@@ -104,12 +104,35 @@ test("trial charge copy follows stripeTrialEndUnix, the same rule as create-subs
 
 test("the lifetime cap is one shared constant at 100", () => {
   assert.equal(LIFETIME_SPOT_CAP, 100);
-  const seo = readFileSync(new URL("../components/seo/AuthSEOContent.tsx", import.meta.url), "utf8");
-  const counter = readFileSync(new URL("../hooks/useLifetimeCounter.ts", import.meta.url), "utf8");
+  const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const cap = read("../../supabase/functions/_shared/lifetime-cap.ts");
+  const plans = read("./publicPlans.ts");
+  const seo = read("../components/seo/AuthSEOContent.tsx");
+  const counter = read("../hooks/useLifetimeCounter.ts");
+  const signup = read("../pages/SignupPage.tsx");
+  const consumers = [
+    "../../supabase/functions/create-lifetime-checkout/index.ts",
+    "../../supabase/functions/get-lifetime-spots/index.ts",
+    "../../supabase/functions/buy-lifetime/index.ts",
+    "../../supabase/functions/generate-daily-blogs/index.ts",
+    "../../supabase/functions/stripe-invoice-webhook/index.ts",
+  ].map(read);
+  assert.match(cap, /export const LIFETIME_SPOT_CAP = 100/);
+  assert.match(plans, /lifetime-cap\.ts/);
+  assert.doesNotMatch(plans, /LIFETIME_SPOT_CAP = 100/);
   assert.match(seo, /LIFETIME_SPOT_CAP/);
   assert.doesNotMatch(seo, /first 50 customers/);
   assert.match(counter, /LIFETIME_SPOT_CAP/);
-  assert.doesNotMatch(counter, /TOTAL_SPOTS\s*=\s*100/);
+  assert.match(signup, /LIFETIME_SPOT_CAP/);
+  assert.doesNotMatch(signup, /one of 100 lifetime/);
+  for (const source of consumers) {
+    assert.match(source, /LIFETIME_SPOT_CAP/);
+    assert.doesNotMatch(source, /TOTAL_SPOTS\s*=\s*100/);
+    assert.doesNotMatch(source, /\?\?\s*100/);
+    assert.doesNotMatch(source, /first 100 customers/);
+    assert.doesNotMatch(source, /all 100 lifetime/);
+    assert.doesNotMatch(source, /Spot #51/);
+  }
 });
 
 test("an ended trial and a never-subscribed account get different dashboard nudges", () => {

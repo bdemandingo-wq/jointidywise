@@ -3,13 +3,12 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
+import { LIFETIME_SPOT_CAP } from "../_shared/lifetime-cap.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-const TOTAL_SPOTS = 100;
 
 const logStep = (step: string, details?: any) => {
   console.log(`[CREATE-LIFETIME-CHECKOUT] ${step}${details ? ` - ${JSON.stringify(details)}` : ""}`);
@@ -49,9 +48,9 @@ serve(async (req) => {
     if (countError) throw countError;
     const used = count ?? 0;
 
-    if (used >= TOTAL_SPOTS) {
+    if (used >= LIFETIME_SPOT_CAP) {
       return new Response(
-        JSON.stringify({ error: "Sorry — all 100 lifetime spots have been claimed." }),
+        JSON.stringify({ error: `Sorry — all ${LIFETIME_SPOT_CAP} lifetime spots have been claimed.` }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
       );
     }
@@ -122,12 +121,12 @@ serve(async (req) => {
     };
 
     const session = await stripe.checkout.sessions.create(sessionParams);
-    logStep("Lifetime checkout session created", { sessionId: session.id, spotsLeft: TOTAL_SPOTS - used - 1 });
+    logStep("Lifetime checkout session created", { sessionId: session.id, spotsLeft: LIFETIME_SPOT_CAP - used - 1 });
 
     return new Response(
       JSON.stringify({
         ...embeddedCheckoutBody(session.client_secret, publishableKey),
-        spotsRemaining: TOTAL_SPOTS - used,
+        spotsRemaining: LIFETIME_SPOT_CAP - used,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
     );

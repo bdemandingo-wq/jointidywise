@@ -1,12 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { LIFETIME_SPOT_CAP } from "../_shared/lifetime-cap.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const TOTAL_SPOTS = 100;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -27,15 +26,15 @@ serve(async (req) => {
     if (error) throw error;
 
     const used = count ?? 0;
-    const remaining = Math.max(0, TOTAL_SPOTS - used);
+    const remaining = Math.max(0, LIFETIME_SPOT_CAP - used);
 
     return new Response(
-      JSON.stringify({ total: TOTAL_SPOTS, used, remaining, available: remaining > 0 }),
+      JSON.stringify({ total: LIFETIME_SPOT_CAP, used, remaining, available: remaining > 0 }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
     );
   } catch (error: any) {
     return new Response(
-      JSON.stringify({ error: error.message, total: 100, used: 0, remaining: 100, available: true }),
+      JSON.stringify({ error: error.message, total: LIFETIME_SPOT_CAP, used: 0, remaining: LIFETIME_SPOT_CAP, available: true }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
     );
   }
