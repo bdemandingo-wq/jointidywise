@@ -305,8 +305,10 @@ test("the charge preview uses the server clock and the discounted cents", () => 
   assert.doesNotMatch(choose, /isActiveOrgTrial/);
   assert.doesNotMatch(dialogs, /isActiveOrgTrial/);
   assert.match(switcher, /visibleBillingLine/);
-  assert.match(pricing, /planBillingAction\(tier\.id\) === "contact" \? null : renewalDisclosure/);
-  assert.match(choose, /planBillingAction\(tier\.id\) === "contact" \? null : renewalDisclosure/);
+  assert.match(pricing, /orgTrialCheckout && !contactPlan \? todayChargeCopy/);
+  assert.match(pricing, /contactPlan \? null : renewalDisclosure/);
+  assert.match(choose, /orgTrialCheckout && !contactPlan \? todayChargeCopy/);
+  assert.match(choose, /contactPlan \? null : renewalDisclosure/);
   assert.match(dialogs, /contactPlan \? null : renewalDisclosure/);
   assert.match(dialogs, /if \(!targetPlan \|\| !canShowPaymentFlows\) return/);
   assert.match(dialogs, /This app cannot take a card/);
@@ -383,7 +385,11 @@ test("the lifetime cap is one shared constant at 100", () => {
   ].map(read);
   const schema = read("./seo/schemas.ts");
   const webhook = read("../../supabase/functions/stripe-invoice-webhook/index.ts");
-  assert.doesNotMatch(webhook, /from "\.\.\/_shared\/lifetime-cap\.ts"/);
+  assert.match(webhook, /from "\.\.\/_shared\/lifetime-cap\.ts"/);
+  assert.match(webhook, /offerRow\?\.total_spots \?\? LIFETIME_SPOT_CAP/);
+  assert.doesNotMatch(webhook, /50 spots/);
+  assert.doesNotMatch(webhook, /51st/);
+  assert.doesNotMatch(webhook, /Spot #51/);
   const dialog = read("../components/admin/SubscriptionDialog.tsx");
   assert.match(dialog, /LIFETIME_PRICE/);
   assert.match(dialog, /PUBLIC_TIERS\.find/);

@@ -440,11 +440,12 @@ export default function ChoosePlanPage() {
                   </Button>
                   {(() => {
                     const preview = chargePreview.data?.previews[chargePreviewKey(tier.id, billingInterval)];
+                    const contactPlan = planBillingAction(tier.id) === "contact";
                     const todayLine = visibleBillingLine(
-                      orgTrialCheckout ? todayChargeCopy(preview, orgTimezone) : null,
+                      orgTrialCheckout && !contactPlan ? todayChargeCopy(preview, orgTimezone) : null,
                     );
                     const renewal = visibleBillingLine(
-                      planBillingAction(tier.id) === "contact" ? null : renewalDisclosure(chargePrice, billingInterval),
+                      contactPlan ? null : renewalDisclosure(chargePrice, billingInterval),
                     );
                     return (
                       <>

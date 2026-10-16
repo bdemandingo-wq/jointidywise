@@ -662,11 +662,12 @@ export default function PricingPage() {
                   <div className="mb-6 space-y-1 text-center">
                     {(() => {
                       const preview = chargePreview.data?.previews[chargePreviewKey(tier.id, billingInterval)];
+                      const contactPlan = planBillingAction(tier.id) === "contact";
                       const todayLine = visibleBillingLine(
-                        orgTrialCheckout ? todayChargeCopy(preview, orgTimezone) : null,
+                        orgTrialCheckout && !contactPlan ? todayChargeCopy(preview, orgTimezone) : null,
                       );
                       const renewal = visibleBillingLine(
-                        planBillingAction(tier.id) === "contact" ? null : renewalDisclosure(chargePrice, billingInterval),
+                        contactPlan ? null : renewalDisclosure(chargePrice, billingInterval),
                       );
                       return (
                         <>
