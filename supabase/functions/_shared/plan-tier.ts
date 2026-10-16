@@ -41,7 +41,8 @@ export async function updateOrgPlanTier(
     .select("id, plan_type, grandfathered_lifetime")
     .eq("id", organizationId)
     .maybeSingle();
-  if (error || !org) return { updated: false, skipped: "org_not_found" };
+  if (error) return { updated: false, skipped: error.message || "org_read_failed" };
+  if (!org) return { updated: false, skipped: "org_not_found" };
   if (org.grandfathered_lifetime || org.plan_type === "lifetime") {
     return { updated: false, skipped: "lifetime_locked" };
   }

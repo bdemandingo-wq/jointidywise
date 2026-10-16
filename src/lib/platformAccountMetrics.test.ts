@@ -7,16 +7,21 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import {
+  billingTimestampRelation,
   classifySaasRefund,
+  escapeIlikeExact,
   incomingBillingIsNewer,
   invoiceIdOf,
+  isMissingBillingColumn,
   subscriptionIdFromInvoice,
   normalizeMonthlyBilledCents,
   replaySubscriptionEvents,
   replayTestModeBillingEvents,
   refundDraftsToStore,
   saasRefundDrafts,
+  saasRefundInsertRows,
   subscriptionBillingSnapshot,
+  subscriptionDeleteShouldDowngrade,
   subscriptionPersistHttpStatus,
   subscriptionPersistReleasesIdempotency,
   type ReplaySubscriptionEvent,
@@ -31,7 +36,7 @@ import {
 } from "./platformAccountMetricsExport.ts";
 
 const migration = readFileSync(
-  new URL("../../supabase/migrations/20261015010000_platform_account_metrics.sql", import.meta.url),
+  new URL("../../supabase/migrations/20261016050000_platform_account_metrics.sql", import.meta.url),
   "utf8",
 );
 
@@ -663,6 +668,143 @@ test("platform admin is the support address only", () => {
   );
   assert.match(access, /SET LOCAL ROLE authenticated/);
   assert.match(access, /SET LOCAL ROLE anon/);
+});
+
+test("a missing billing column is only 42703 or PGRST204", () => {
+  assert.equal(isMissingBillingColumn({ code: "42703", message: "column billing_event_at does not exist" }), true);
+  assert.equal(isMissingBillingColumn({ code: "PGRST204", message: "Could not find the 'refund_kind' column of 'platform_subscription_refunds' in the schema cache" }), true);
+  assert.equal(isMissingBillingColumn({ message: "column billing_event_at does not exist" }), false);
+  assert.equal(isMissingBillingColumn({ code: "42P01", message: "relation platform_subscription_refunds does not exist" }), false);
+  assert.equal(isMissingBillingColumn(null), false);
+});
+
+test("an equal-timestamp terminal delete still downgrades when retrieve failed", () => {
+  const storedAt = new Date(1_700_000_000 * 1000).toISOString();
+  const stored = { billing_event_at: storedAt, updated_at: storedAt };
+  assert.equal(billingTimestampRelation(stored, 1_700_000_000), "equal");
+  assert.equal(incomingBillingIsNewer(stored, 1_700_000_000), false);
+  assert.equal(subscriptionDeleteShouldDowngrade({
+    authoritative: false,
+    status: "canceled",
+    stored,
+    incomingCreatedSec: 1_700_000_000,
+    blocked: false,
+  }), true);
+  assert.equal(subscriptionDeleteShouldDowngrade({
+    authoritative: false,
+    status: "canceled",
+    stored,
+    incomingCreatedSec: 1_699_000_000,
+    blocked: false,
+  }), false);
+  assert.equal(subscriptionDeleteShouldDowngrade({
+    authoritative: true,
+    status: "active",
+    stored,
+    incomingCreatedSec: 1_700_000_000,
+    blocked: false,
+  }), false);
+  assert.equal(subscriptionDeleteShouldDowngrade({
+    authoritative: false,
+    status: "canceled",
+    stored,
+    incomingCreatedSec: 1_700_000_100,
+    blocked: false,
+  }), true);
+});
+
+test("invoice delete uses the downgrade helper and checkout notifies after the mirror", () => {
+  const invoice = readFileSync(
+    new URL("../../supabase/functions/stripe-invoice-webhook/index.ts", import.meta.url),
+    "utf8",
+  );
+  const deletedAt = invoice.indexOf('event.type === "customer.subscription.deleted"');
+  const failedAt = invoice.indexOf("PAYMENT FAILED", deletedAt);
+  const deleted = invoice.slice(deletedAt, failedAt);
+  assert.match(deleted, /subscriptionDeleteShouldDowngrade\(/);
+  assert.match(deleted, /downgradeOrgOnSubscriptionDeleted\(/);
+  assert.doesNotMatch(deleted, /if \(applyState && !subscriptionStateFailed/);
+  const reader = invoice.slice(
+    invoice.indexOf("async function readCurrentSaasSubscription"),
+    invoice.indexOf("async function upsertStripeSubscription"),
+  );
+  assert.match(reader, /stripe\.subscriptions\.retrieve/);
+  assert.doesNotMatch(reader, /billingStripe\(/);
+
+  const checkoutAt = invoice.indexOf('event.type === "checkout.session.completed"');
+  const paidAt = invoice.indexOf('event.type === "invoice.paid"', checkoutAt);
+  const checkout = invoice.slice(checkoutAt, paidAt);
+  const mirrorAt = checkout.indexOf("upsertStripeSubscription(");
+  const adminAt = checkout.indexOf('subscriptionType: "New Subscription"');
+  const emailAt = checkout.indexOf("hook.us2.make.com");
+  assert.ok(mirrorAt > 0);
+  assert.ok(adminAt > mirrorAt);
+  assert.ok(emailAt > adminAt);
+
+  const refundAt = invoice.indexOf('event.type === "charge.refunded"');
+  const disputeAt = invoice.indexOf("DISPUTE", refundAt);
+  const refund = invoice.slice(refundAt, disputeAt);
+  assert.match(refund, /persistSaasRefunds\(/);
+  assert.match(refund, /if \(!saved\) subscriptionStateFailed = true/);
+  const persist = invoice.slice(invoice.indexOf("async function persistSaasRefunds"));
+  assert.match(persist, /saasRefundInsertRows\(/);
+  assert.match(persist, /return false/);
+});
+
+test("a subscription refund persists kind and replaces the placeholder row", () => {
+  const drafts = saasRefundDrafts({
+    id: "ch_sub",
+    customer: "cus_1",
+    invoice: "in_1",
+    currency: "usd",
+    refunds: { data: [{ id: "re_9", amount: 9700, created: 1_700_000_100 }] },
+  }, 1_700_000_000);
+  const stored = saasRefundInsertRows({
+    drafts,
+    storedRefundIds: ["ch_sub:unitemized"],
+    organizationId: "org-1",
+    kind: "subscription",
+    subscriptionId: "sub_1",
+  });
+  assert.equal(stored.dropUnitemized, true);
+  assert.equal(stored.rows.length, 1);
+  assert.equal(stored.rows[0].stripe_refund_id, "re_9");
+  assert.equal(stored.rows[0].refund_kind, "subscription");
+  assert.equal(stored.rows[0].stripe_subscription_id, "sub_1");
+  assert.equal(stored.rows[0].organization_id, "org-1");
+  assert.equal(stored.rows[0].source, "charge.refunded");
+
+  const lifetime = saasRefundInsertRows({
+    drafts: saasRefundDrafts({ id: "ch_life", refunds: { data: [] } }, 1_700_000_000),
+    storedRefundIds: [],
+    organizationId: "org-life",
+    kind: "lifetime",
+    subscriptionId: null,
+  });
+  assert.equal(lifetime.rows[0].stripe_refund_id, "ch_life:unitemized");
+  assert.equal(lifetime.rows[0].refund_kind, "lifetime");
+  assert.equal(lifetime.dropUnitemized, false);
+});
+
+test("exact email matches escape LIKE wildcards", () => {
+  assert.equal(escapeIlikeExact("owner_name@example.com"), "owner\\_name@example.com");
+  assert.equal(escapeIlikeExact("100%@example.com"), "100\\%@example.com");
+  assert.equal(escapeIlikeExact("a\\b@example.com"), "a\\\\b@example.com");
+});
+
+test("metrics function returns the view and the claim key is per source", () => {
+  assert.match(migration, /RETURNS SETOF public\.platform_account_metrics_v/);
+  const claim = readFileSync(
+    new URL("../../supabase/migrations/20261016050100_stripe_webhook_events_source_key.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(claim, /PRIMARY KEY \(event_id, source\)/);
+  const admin = "20261016040000_platform_admin_support_only.sql";
+  const metrics = "20261016050000_platform_account_metrics.sql";
+  const afterMain = "20261015040000_sms_message_opt_out_review.sql";
+  assert.ok(admin > afterMain);
+  assert.ok(metrics > afterMain);
+  assert.ok(metrics > admin);
 });
 
 test("an org owner and a cleaner are rejected with 42501", () => {

@@ -3,6 +3,7 @@
 // import Deno or call Stripe itself. The caller verifies the webhook signature.
 
 import {
+  escapeIlikeExact,
   guardedBillingWrite,
   incomingBillingIsNewer,
   isMissingBillingColumn,
@@ -71,6 +72,7 @@ export async function handleSubscriptionWebhookEvent(deps: {
   } = deps;
   const doFetch = deps.fetchImpl ?? fetch;
   const corsHeaders = subscriptionWebhookCorsHeaders;
+  let claimedEventId: string | undefined;
 
   try {
     if (
@@ -116,6 +118,7 @@ export async function handleSubscriptionWebhookEvent(deps: {
           { status: subscriptionPersistHttpStatus("failed"), headers: corsHeaders },
         );
       }
+      claimedEventId = eventId;
     }
 
     // Current SaaS subscription. Retrieve only — no update and no charge.
@@ -341,6 +344,13 @@ export async function handleSubscriptionWebhookEvent(deps: {
     });
   } catch (err) {
     log("ERROR", { message: (err as Error).message });
+    if (claimedEventId) {
+      try {
+        await releaseSubscriptionWebhookEvent(supabase, claimedEventId);
+      } catch (releaseErr) {
+        log("failed to release idempotency claim", { message: (releaseErr as Error).message });
+      }
+    }
     return new Response(JSON.stringify({ error: (err as Error).message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -378,6 +388,8 @@ async function releaseSubscriptionWebhookEvent(supabase: any, eventId: string | 
 
 /**
  * Org for this subscription, not "the first membership of this email".
+ * Same order as the invoice webhook's deleted-subscription resolver:
+ * the stored stripe_subscriptions row, then metadata, then email.
  * A missing profile or membership is reported by returning null so the
  * caller can ask Stripe to retry instead of acknowledging the event.
  */
@@ -386,9 +398,6 @@ async function resolveWebhookOrganization(
   sub: { id?: string; metadata?: Record<string, string> },
   email: string,
 ): Promise<string | null> {
-  const metaOrg = sub.metadata?.organization_id;
-  if (typeof metaOrg === "string" && metaOrg.trim()) return metaOrg.trim();
-
   if (sub.id) {
     const { data, error } = await supabase
       .from("stripe_subscriptions")
@@ -402,10 +411,13 @@ async function resolveWebhookOrganization(
     }
   }
 
+  const metaOrg = sub.metadata?.organization_id;
+  if (typeof metaOrg === "string" && metaOrg.trim()) return metaOrg.trim();
+
   const { data: profile, error: profileErr } = await supabase
     .from("profiles")
     .select("id")
-    .ilike("email", email)
+    .ilike("email", escapeIlikeExact(email))
     .maybeSingle();
   if (profileErr) throw profileErr;
   if (!profile?.id) {

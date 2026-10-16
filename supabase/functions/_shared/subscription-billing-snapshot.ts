@@ -160,6 +160,27 @@ export function billingEventIso(createdSec: number | null | undefined): string |
 }
 
 /**
+ * newer: this event is strictly after the stored snapshot, or nothing is
+ * stored yet. equal: the same second. older: the stored snapshot is later,
+ * or the incoming time is missing.
+ */
+export function billingTimestampRelation(
+  stored: BillingGuardRow | null | undefined,
+  incomingCreatedSec: number | null | undefined,
+): "newer" | "equal" | "older" {
+  if (!stored) return "newer";
+  const storedAt = stored.billing_event_at || stored.updated_at || null;
+  if (!storedAt) return "newer";
+  const storedMs = Date.parse(storedAt);
+  if (!Number.isFinite(storedMs)) return "newer";
+  if (typeof incomingCreatedSec !== "number" || !Number.isFinite(incomingCreatedSec)) return "older";
+  const incomingMs = incomingCreatedSec * 1000;
+  if (incomingMs > storedMs) return "newer";
+  if (incomingMs === storedMs) return "equal";
+  return "older";
+}
+
+/**
  * True only when this event is strictly newer than the stored snapshot.
  * Compares event.created to billing_event_at, then to updated_at when the
  * event time has not been stored yet. An equal timestamp is a duplicate
@@ -170,13 +191,46 @@ export function incomingBillingIsNewer(
   stored: BillingGuardRow | null | undefined,
   incomingCreatedSec: number | null | undefined,
 ): boolean {
-  if (!stored) return true;
-  const storedAt = stored.billing_event_at || stored.updated_at || null;
-  if (!storedAt) return true;
-  const storedMs = Date.parse(storedAt);
-  if (!Number.isFinite(storedMs)) return true;
-  if (typeof incomingCreatedSec !== "number" || !Number.isFinite(incomingCreatedSec)) return false;
-  return incomingCreatedSec * 1000 > storedMs;
+  return billingTimestampRelation(stored, incomingCreatedSec) === "newer";
+}
+
+const TERMINAL_SUBSCRIPTION_STATUSES = new Set([
+  "canceled",
+  "cancelled",
+  "incomplete_expired",
+  "unpaid",
+]);
+
+export function isTerminalSubscriptionStatus(status: string | null | undefined): boolean {
+  return TERMINAL_SUBSCRIPTION_STATUSES.has((status ?? "").toLowerCase());
+}
+
+/** LIKE wildcards in an email must not widen an exact profile match. */
+export function escapeIlikeExact(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/**
+ * Plan downgrade for customer.subscription.deleted.
+ * Billing columns stay behind the strict-newer guard. The free-plan write
+ * still runs when the trusted status is terminal and the event is not a
+ * strictly older replay. An equal timestamp is that case: retrieve failed,
+ * so the event is the only status, and it must not be skipped just because
+ * it shares a second with the stored row. A retrieve that says the
+ * subscription is still active is not terminal and does not downgrade.
+ */
+export function subscriptionDeleteShouldDowngrade(input: {
+  authoritative: boolean;
+  status: string | null | undefined;
+  stored: BillingGuardRow | null | undefined;
+  incomingCreatedSec: number | null | undefined;
+  blocked: boolean;
+}): boolean {
+  if (input.blocked) return false;
+  if (!isTerminalSubscriptionStatus(input.status)) return false;
+  if (input.authoritative) return true;
+  const relation = billingTimestampRelation(input.stored, input.incomingCreatedSec);
+  return relation === "newer" || relation === "equal";
 }
 
 /**
@@ -419,11 +473,14 @@ export function replayTestModeBillingEvents(events: TestModeBillingEvent[]): Rep
   return row;
 }
 
-/** True when the database has not had the billing columns or refund table applied yet. */
-export function isMissingBillingColumn(error: { message?: string } | null | undefined): boolean {
-  const message = error?.message ?? "";
-  if (!message) return false;
-  return /unit_amount_cents|discount_known|discount_amount_cents|discount_percent|interval_count|canceled_at|ended_at|billing_event_at|refund_kind|platform_subscription_refunds|schema cache|PGRST204|42703/i.test(message);
+/**
+ * True only when Postgres or PostgREST says a column is missing.
+ * 42703 is undefined_column. PGRST204 is the schema-cache miss for a
+ * column. A message that merely names a column is not that error.
+ */
+export function isMissingBillingColumn(error: { code?: string; message?: string } | null | undefined): boolean {
+  const code = error?.code;
+  return code === "42703" || code === "PGRST204";
 }
 
 function intervalMonths(interval: string | null, intervalCount: number | null): number | null {
@@ -663,4 +720,45 @@ export function refundDraftsToStore(
   const storedReal = storedRefundIdsForCharge.some((id) => !isUnitemizedRefundId(id));
   if (storedReal) return { rows: [], dropUnitemized: false };
   return { rows: [...drafts], dropUnitemized: false };
+}
+
+export interface SaasRefundInsertRow {
+  organization_id: string | null;
+  stripe_refund_id: string;
+  stripe_charge_id: string;
+  stripe_customer_id: string | null;
+  stripe_invoice_id: string | null;
+  stripe_subscription_id: string | null;
+  amount_cents: number | null;
+  currency: string | null;
+  refunded_at: string;
+  refund_kind: "subscription" | "lifetime";
+  source: "charge.refunded";
+}
+
+/** Rows persistSaasRefunds upserts. No Stripe call and no database write. */
+export function saasRefundInsertRows(input: {
+  drafts: readonly SaasRefundDraft[];
+  storedRefundIds: readonly string[];
+  organizationId: string | null;
+  kind: "subscription" | "lifetime";
+  subscriptionId: string | null;
+}): { rows: SaasRefundInsertRow[]; dropUnitemized: boolean } {
+  const decision = refundDraftsToStore(input.drafts, input.storedRefundIds);
+  return {
+    dropUnitemized: decision.dropUnitemized,
+    rows: decision.rows.map((draft) => ({
+      organization_id: input.organizationId,
+      stripe_refund_id: draft.stripeRefundId,
+      stripe_charge_id: draft.stripeChargeId,
+      stripe_customer_id: draft.stripeCustomerId,
+      stripe_invoice_id: draft.stripeInvoiceId,
+      stripe_subscription_id: input.subscriptionId,
+      amount_cents: draft.amountCents,
+      currency: draft.currency,
+      refunded_at: draft.refundedAt,
+      refund_kind: input.kind,
+      source: "charge.refunded",
+    })),
+  };
 }

@@ -13,15 +13,17 @@ import {
 } from "../_shared/subscription-deleted-plan.ts";
 import {
   classifySaasRefund,
+  escapeIlikeExact,
   guardedBillingWrite,
   invoiceIdOf,
   isMissingBillingColumn,
   laterBillingEventAt,
-  refundDraftsToStore,
   saasRefundDrafts,
+  saasRefundInsertRows,
   unitemizedRefundId,
   subscriptionIdFromInvoice,
   shouldWriteSubscriptionState,
+  subscriptionDeleteShouldDowngrade,
   stripeSubscriptionBillingPatch,
   subscriptionBillingSnapshot,
   subscriptionPersistHttpStatus,
@@ -306,7 +308,7 @@ const handler = async (req: Request): Promise<Response> => {
       try {
         const resolved = await resolveOrgIdForSubscription(supabase, stripe, subscription);
         if (resolved.orgId) {
-          const current = await readCurrentSaasSubscription(subscription.id);
+          const current = await readCurrentSaasSubscription(stripe, subscription.id);
           const outcome = await upsertStripeSubscription(
             supabase,
             resolved.orgId,
@@ -405,7 +407,7 @@ const handler = async (req: Request): Promise<Response> => {
         }
         const resolved = await resolveOrgIdForSubscription(supabase, stripe, subscription);
         if (resolved.orgId) {
-          const current = await readCurrentSaasSubscription(subscription.id);
+          const current = await readCurrentSaasSubscription(stripe, subscription.id);
           const outcome = await upsertStripeSubscription(
             supabase,
             resolved.orgId,
@@ -442,71 +444,10 @@ const handler = async (req: Request): Promise<Response> => {
       organizationId = session.metadata?.organization_id || null;
       const invoiceId = session.metadata?.invoice_id;
       
-      // If this is a subscription checkout (not invoice payment), notify admin
-      if (session.mode === 'subscription' && session.subscription) {
-        try {
-          const customerEmail = session.customer_email || "Unknown";
-          
-          // Find the organization for this user
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('id')
-            .eq('email', customerEmail)
-            .maybeSingle();
-            
-          let orgName = "New Business";
-          if (profile?.id) {
-            const { data: membership } = await supabase
-              .from('org_memberships')
-              .select('organization:organizations(name)')
-              .eq('user_id', profile.id)
-              .maybeSingle();
-              
-            if (membership?.organization) {
-              const org = membership.organization as unknown as { name: string };
-              if (org?.name) {
-                orgName = org.name;
-              }
-            }
-          }
-          
-          // Send SMS notification to platform admin
-          await sendAdminNotification(supabaseUrl, supabaseServiceKey, {
-            organizationName: orgName,
-            ownerEmail: customerEmail,
-            subscriptionType: 'New Subscription',
-          });
+      // Subscription checkout SMS and the Make email run after the mirror
+      // further down. Sending them first meant a failed mirror released the
+      // idempotency claim and the Stripe retry sent both again.
 
-          // Trigger Make subscription confirmation email
-          try {
-            const makeSubWebhookUrl = "https://hook.us2.make.com/1dcdsn08refadbtlbj1v1j8uxel4dwil";
-            const profileData = await supabase
-              .from('profiles')
-              .select('full_name')
-              .eq('email', customerEmail)
-              .maybeSingle();
-
-            await fetch(makeSubWebhookUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                email: customerEmail,
-                full_name: profileData?.data?.full_name || orgName,
-                organization_name: orgName,
-                subscription_status: 'New Subscription',
-                subscribed_at: new Date().toISOString(),
-              }),
-            });
-            console.log("[stripe-invoice-webhook] Make subscription confirmation webhook triggered (checkout)");
-          } catch (makeErr) {
-            console.error("[stripe-invoice-webhook] Make webhook failed (non-critical):", makeErr);
-          }
-
-        } catch (notifyError) {
-          console.error("[stripe-invoice-webhook] Failed to notify admin on checkout:", notifyError);
-        }
-      }
-      
       // ── Lifetime access purchase ──────────────────────────────────────────
       if (session.mode === "payment" && session.metadata?.plan === "lifetime") {
         const email = (
@@ -529,7 +470,7 @@ const handler = async (req: Request): Promise<Response> => {
           const { data: profile } = await supabase
             .from("profiles")
             .select("id")
-            .ilike("email", email)
+            .ilike("email", escapeIlikeExact(email))
             .maybeSingle();
           if (profile?.id) {
             userId = profile.id;
@@ -774,7 +715,7 @@ const handler = async (req: Request): Promise<Response> => {
           const { data: profile } = await supabase
             .from("profiles")
             .select("id")
-            .ilike("email", checkoutEmail)
+            .ilike("email", escapeIlikeExact(checkoutEmail))
             .maybeSingle();
           if (profile?.id) {
             userId = profile.id;
@@ -884,7 +825,9 @@ const handler = async (req: Request): Promise<Response> => {
 
           // Mirror the new/upgraded subscription into stripe_subscriptions
           // so the paywall gate opens immediately, without waiting for the
-          // separate customer.subscription.created event.
+          // separate customer.subscription.created event. Admin SMS and the
+          // Make email run only after this write succeeds.
+          let checkoutMirrored = false;
           try {
             const stripeSubId = typeof session.subscription === "string"
               ? session.subscription
@@ -897,6 +840,7 @@ const handler = async (req: Request): Promise<Response> => {
                   .from("org_memberships")
                   .select("organization_id")
                   .eq("user_id", userId)
+                  .order("organization_id", { ascending: true })
                   .limit(1)
                   .maybeSingle();
                 orgId = mem?.organization_id ?? null;
@@ -904,11 +848,64 @@ const handler = async (req: Request): Promise<Response> => {
               if (orgId) {
                 const outcome = await upsertStripeSubscription(supabase, orgId, fullSub, event.created, true);
                 if (outcome === "failed") subscriptionStateFailed = true;
+                else checkoutMirrored = true;
               }
             }
           } catch (mirrorErr) {
             console.error("[stripe-invoice-webhook] checkout mirror failed:", mirrorErr);
             subscriptionStateFailed = true;
+          }
+
+          if (checkoutMirrored) {
+            try {
+              const { data: profile } = await supabase
+                .from("profiles")
+                .select("id, full_name")
+                .eq("email", checkoutEmail)
+                .maybeSingle();
+
+              let orgName = "New Business";
+              if (profile?.id) {
+                const { data: membership } = await supabase
+                  .from("org_memberships")
+                  .select("organization:organizations(name)")
+                  .eq("user_id", profile.id)
+                  .order("organization_id", { ascending: true })
+                  .limit(1)
+                  .maybeSingle();
+
+                if (membership?.organization) {
+                  const org = membership.organization as unknown as { name: string };
+                  if (org?.name) orgName = org.name;
+                }
+              }
+
+              await sendAdminNotification(supabaseUrl, supabaseServiceKey, {
+                organizationName: orgName,
+                ownerEmail: checkoutEmail,
+                subscriptionType: "New Subscription",
+              });
+
+              try {
+                const makeSubWebhookUrl = "https://hook.us2.make.com/1dcdsn08refadbtlbj1v1j8uxel4dwil";
+                await fetch(makeSubWebhookUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    email: checkoutEmail,
+                    full_name: profile?.full_name || orgName,
+                    organization_name: orgName,
+                    subscription_status: "New Subscription",
+                    subscribed_at: new Date().toISOString(),
+                  }),
+                });
+                console.log("[stripe-invoice-webhook] Make subscription confirmation webhook triggered (checkout)");
+              } catch (makeErr) {
+                console.error("[stripe-invoice-webhook] Make webhook failed (non-critical):", makeErr);
+              }
+            } catch (notifyError) {
+              console.error("[stripe-invoice-webhook] Failed to notify admin on checkout:", notifyError);
+            }
           }
         }
       }
@@ -1399,7 +1396,7 @@ const handler = async (req: Request): Promise<Response> => {
         const lookupEmail = (customerEmail || disputedEvidence?.email || "").toLowerCase();
         if (!usageUserId && lookupEmail) {
           const { data: prof } = await supabase
-            .from("profiles").select("id").ilike("email", lookupEmail).limit(1).maybeSingle();
+            .from("profiles").select("id").ilike("email", escapeIlikeExact(lookupEmail)).limit(1).maybeSingle();
           usageUserId = prof?.id ?? null;
         }
         let usageSummary: string | null = null;
@@ -1685,7 +1682,7 @@ const handler = async (req: Request): Promise<Response> => {
               // Mark the org's subscription row from the SaaS subscription
               // as it is now. An older delete must not rewind a newer
               // status. retrieve is read-only; the event guard is the fallback.
-              const current = await readCurrentSaasSubscription(sub.id);
+              const current = await readCurrentSaasSubscription(stripe, sub.id);
               const authoritative = current != null;
               const source = current ?? sub;
               const snap = subscriptionBillingSnapshot(source);
@@ -1747,15 +1744,20 @@ const handler = async (req: Request): Promise<Response> => {
                 }
               }
 
-              // An older delete must not downgrade the plan or cancel ads.
-              // When the write applies, main's helper still refuses lifetime
-              // and grandfathered orgs, and a failed plan write returns 500
-              // so Stripe retries.
-              const sourceIsEnded = state.status === "canceled"
-                || state.status === "cancelled"
-                || state.status === "incomplete_expired"
-                || state.status === "unpaid";
-              if (applyState && !subscriptionStateFailed && (!authoritative || sourceIsEnded)) {
+              // Billing columns stay behind applyState. The free-plan write
+              // still runs for a terminal status when this delete is not a
+              // strictly older replay, including an equal timestamp whose
+              // retrieve failed. A retrieve that shows the subscription
+              // still active does not downgrade. Lifetime and grandfathered
+              // orgs are refused inside the helper. A failed plan write
+              // returns 500 so Stripe retries.
+              if (subscriptionDeleteShouldDowngrade({
+                authoritative,
+                status: state.status,
+                stored: billingReadErr ? null : existingBilling,
+                incomingCreatedSec: event.created,
+                blocked: subscriptionStateFailed,
+              })) {
               const { error: planErr, downgraded } = await downgradeOrgOnSubscriptionDeleted(
                 supabase,
                 organizationId,
@@ -2014,6 +2016,7 @@ async function resolveOrgIdForSubscription(
         .from("org_memberships")
         .select("organization_id")
         .eq("user_id", meta.account_id)
+        .order("organization_id", { ascending: true })
         .limit(1)
         .maybeSingle();
       if (byAccountId?.organization_id) {
@@ -2037,13 +2040,14 @@ async function resolveOrgIdForSubscription(
     const { data: profile } = await supabase
       .from("profiles")
       .select("id")
-      .ilike("email", customerEmail)
+      .ilike("email", escapeIlikeExact(customerEmail))
       .maybeSingle();
     if (profile?.id) {
       const { data: membership } = await supabase
         .from("org_memberships")
         .select("organization_id")
         .eq("user_id", profile.id)
+        .order("organization_id", { ascending: true })
         .limit(1)
         .maybeSingle();
       if (membership?.organization_id) {
@@ -2068,6 +2072,7 @@ async function resolveOrgIdForSubscription(
           .from("org_memberships")
           .select("organization_id")
           .eq("user_id", authUserId)
+          .order("organization_id", { ascending: true })
           .limit(1)
           .maybeSingle();
         if (membership?.organization_id) {
@@ -2149,13 +2154,14 @@ async function logSubscriptionOrphan(
  * deleted and on invoice.paid.
  */
 /**
- * Read the subscription from the SaaS billing account. Retrieve only —
- * no update, invoice, or refund. Null when Stripe cannot be read; the
- * caller then keeps the event payload behind the billing_event_at guard.
+ * Read the subscription with the client that verified this event's
+ * signature. Retrieve only — no update, invoice, or refund. Null when
+ * Stripe cannot be read; the caller then keeps the event payload behind
+ * the billing_event_at guard.
  */
-async function readCurrentSaasSubscription(id: string): Promise<Stripe.Subscription | null> {
+async function readCurrentSaasSubscription(stripe: Stripe, id: string): Promise<Stripe.Subscription | null> {
   try {
-    return await billingStripe().subscriptions.retrieve(id);
+    return await stripe.subscriptions.retrieve(id);
   } catch (err) {
     console.error("[stripe-invoice-webhook] subscriptions.retrieve failed; status falls back to the event guard:", err);
     return null;
@@ -2260,7 +2266,9 @@ async function upsertStripeSubscription(
 /**
  * Writes charge.refunded onto platform_subscription_refunds.
  * Org linkage is a lookup on stripe_subscriptions, not a Stripe call.
- * A missing table (migration not applied) is logged and ignored.
+ * A missing refund_kind column (42703 / PGRST204) is written again
+ * without that column. Any other write error returns false so the
+ * webhook releases its claim and Stripe retries.
  */
 async function persistSaasRefunds(
   supabase: any,
@@ -2336,20 +2344,7 @@ async function persistSaasRefunds(
         .filter((id: string | null | undefined): id is string => typeof id === "string" && id.length > 0);
     }
   }
-  const decision = refundDraftsToStore(drafts, storedRefundIds);
-  if (decision.dropUnitemized && charge.id) {
-    const { error: dropErr } = await supabase
-      .from("platform_subscription_refunds")
-      .delete()
-      .eq("stripe_refund_id", unitemizedRefundId(charge.id));
-    if (dropErr && !isMissingBillingColumn(dropErr)) {
-      console.error("[stripe-invoice-webhook] unitemized refund delete failed:", dropErr);
-      return false;
-    }
-  }
-  if (decision.rows.length === 0) return true;
-
-  const customerId = decision.rows[0].stripeCustomerId;
+  const customerId = drafts[0]?.stripeCustomerId ?? null;
   let organizationId: string | null = lifetimeOrgId;
   if (!organizationId && customerId) {
     const { data, error } = await supabase
@@ -2365,19 +2360,26 @@ async function persistSaasRefunds(
     }
   }
 
-  const rows = decision.rows.map((draft) => ({
-    organization_id: organizationId,
-    stripe_refund_id: draft.stripeRefundId,
-    stripe_charge_id: draft.stripeChargeId,
-    stripe_customer_id: draft.stripeCustomerId,
-    stripe_invoice_id: draft.stripeInvoiceId,
-    stripe_subscription_id: classification.subscriptionId,
-    amount_cents: draft.amountCents,
-    currency: draft.currency,
-    refunded_at: draft.refundedAt,
-    refund_kind: classification.kind,
-    source: "charge.refunded",
-  }));
+  const decision = saasRefundInsertRows({
+    drafts,
+    storedRefundIds,
+    organizationId,
+    kind: classification.kind,
+    subscriptionId: classification.subscriptionId,
+  });
+  if (decision.dropUnitemized && charge.id) {
+    const { error: dropErr } = await supabase
+      .from("platform_subscription_refunds")
+      .delete()
+      .eq("stripe_refund_id", unitemizedRefundId(charge.id));
+    if (dropErr && !isMissingBillingColumn(dropErr)) {
+      console.error("[stripe-invoice-webhook] unitemized refund delete failed:", dropErr);
+      return false;
+    }
+  }
+  if (decision.rows.length === 0) return true;
+
+  const rows = decision.rows;
 
   const { error } = await supabase
     .from("platform_subscription_refunds")

@@ -6,7 +6,12 @@
 //   node --experimental-strip-types --test src/lib/subscriptionWebhookEvent.test.ts
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { handleSubscriptionWebhookEvent } from "../../supabase/functions/_shared/subscription-webhook-event.ts";
+import { updateOrgPlanTier } from "../../supabase/functions/_shared/plan-tier.ts";
+
+const SUBSCRIPTION_SOURCE = "stripe-subscription-webhook";
+const INVOICE_SOURCE = "stripe-invoice-webhook";
 
 const ORG_ID = "org-1";
 
@@ -25,6 +30,10 @@ function subscriptionObject() {
   };
 }
 
+function claimKey(source: string, eventId: string): string {
+  return `${source}\0${eventId}`;
+}
+
 function fakeDb(opts: {
   billing: { billing_event_at: string; updated_at: string; organization_id?: string } | null;
   billingReadError?: { message: string; code?: string } | null;
@@ -32,20 +41,22 @@ function fakeDb(opts: {
   profile?: { id: string } | null;
   membership?: { organization_id: string } | null;
   claims?: Set<string>;
+  ilikePatterns?: string[];
 }) {
   const writes: string[] = [];
   const claims = opts.claims ?? new Set<string>();
+  const ilikePatterns = opts.ilikePatterns ?? [];
   const supabase = {
     from(table: string) {
       const api: {
         select: () => typeof api;
         eq: () => typeof api;
-        ilike: () => typeof api;
+        ilike: (column: string, pattern: string) => typeof api;
         in: () => typeof api;
         order: () => typeof api;
         limit: () => typeof api;
         update: (payload: unknown) => typeof api;
-        insert: (payload: { event_id?: string }) => Promise<{ error: { code?: string; message: string } | null }>;
+        insert: (payload: { event_id?: string; source?: string }) => Promise<{ error: { code?: string; message: string } | null }>;
         delete: () => typeof api;
         maybeSingle: () => Promise<{ data: unknown; error: { message: string } | null }>;
         then: (
@@ -55,7 +66,10 @@ function fakeDb(opts: {
       } = {
         select() { return api; },
         eq() { return api; },
-        ilike() { return api; },
+        ilike(_column: string, pattern: string) {
+          ilikePatterns.push(pattern);
+          return api;
+        },
         in() { return api; },
         order() { return api; },
         limit() { return api; },
@@ -66,11 +80,11 @@ function fakeDb(opts: {
         insert(payload) {
           writes.push(`insert:${table}`);
           if (table === "stripe_webhook_events") {
-            const id = payload.event_id ?? "";
-            if (claims.has(id)) {
+            const key = claimKey(payload.source ?? "", payload.event_id ?? "");
+            if (claims.has(key)) {
               return Promise.resolve({ error: { code: "23505", message: "duplicate" } });
             }
-            claims.add(id);
+            claims.add(key);
           }
           return Promise.resolve({ error: null });
         },
@@ -102,17 +116,23 @@ function fakeDb(opts: {
       return api;
     },
   };
-  return { supabase, writes, claims };
+  return { supabase, writes, claims, ilikePatterns };
 }
 
-function stripeClient(retrieve: () => Promise<ReturnType<typeof subscriptionObject>>) {
+function stripeClient(
+  retrieve: () => Promise<ReturnType<typeof subscriptionObject>>,
+  opts: { email?: string; listThrows?: boolean } = {},
+) {
   return {
     customers: {
-      retrieve: async () => ({ email: "owner@example.com" }),
+      retrieve: async () => ({ email: opts.email ?? "owner@example.com" }),
     },
     subscriptions: {
       retrieve,
-      list: async () => ({ data: [] }),
+      list: async () => {
+        if (opts.listThrows) throw new Error("subscriptions.list failed");
+        return { data: [] };
+      },
     },
   };
 }
@@ -128,15 +148,21 @@ async function run(opts: {
   membership?: { organization_id: string } | null;
   claims?: Set<string>;
   metadataOrg?: string;
+  customerEmail?: string;
+  listThrows?: boolean;
+  planThrows?: boolean;
 }) {
   const planCalls: string[] = [];
+  const planOrgs: string[] = [];
   const loyaltyCalls: string[] = [];
+  const ilikePatterns: string[] = [];
   const { supabase, writes } = fakeDb({
     billing: opts.billing,
     billingWriteError: opts.billingWriteError,
     profile: opts.profile,
     membership: opts.membership,
     claims: opts.claims,
+    ilikePatterns,
   });
   const object = subscriptionObject();
   if (opts.metadataOrg) object.metadata.organization_id = opts.metadataOrg;
@@ -147,11 +173,13 @@ async function run(opts: {
       created: opts.created,
       data: { object },
     },
-    stripe: stripeClient(opts.retrieve),
+    stripe: stripeClient(opts.retrieve, { email: opts.customerEmail, listThrows: opts.listThrows }),
     supabase,
     subscriptionToPlanTier: () => "pro",
-    updateOrgPlanTier: async (_supabase, _orgId, tier) => {
+    updateOrgPlanTier: async (_supabase, orgId, tier) => {
+      if (opts.planThrows) throw new Error("plan read exploded");
       planCalls.push(tier);
+      planOrgs.push(orgId);
       return opts.planResult ?? { updated: true };
     },
     syncLoyaltySubscription: async (_supabase, _stripe, args) => {
@@ -165,7 +193,7 @@ async function run(opts: {
   });
   const text = await response.text();
   const body = JSON.parse(text);
-  return { response, body, planCalls, loyaltyCalls, writes };
+  return { response, body, planCalls, planOrgs, loyaltyCalls, writes, ilikePatterns };
 }
 
 test("applyState true returns 200 JSON with the written tier", async () => {
@@ -302,7 +330,7 @@ test("a failed write releases the subscription webhook claim", async () => {
     claims,
   });
   assert.equal(failed.response.status, 500);
-  assert.equal(claims.has("evt_fail"), false);
+  assert.equal(claims.has(claimKey(SUBSCRIPTION_SOURCE, "evt_fail")), false);
 
   const retry = await run({
     created: 2_000,
@@ -314,4 +342,128 @@ test("a failed write releases the subscription webhook claim", async () => {
   assert.equal(retry.response.status, 200);
   assert.equal(retry.body.duplicate, undefined);
   assert.deepEqual(retry.planCalls, ["pro"]);
+});
+
+test("a throw after the claim releases it so the retry is not a duplicate", async () => {
+  const stored = new Date(1_000 * 1000).toISOString();
+  const claims = new Set<string>();
+  const exploded = await run({
+    created: 2_000,
+    eventId: "evt_throw",
+    retrieve: async () => ({ ...subscriptionObject(), status: "canceled" }),
+    billing: { billing_event_at: stored, updated_at: stored },
+    listThrows: true,
+    claims,
+  });
+  assert.equal(exploded.response.status, 500);
+  assert.match(exploded.body.error, /subscriptions\.list failed/);
+  assert.equal(claims.has(claimKey(SUBSCRIPTION_SOURCE, "evt_throw")), false);
+
+  const retry = await run({
+    created: 2_000,
+    eventId: "evt_throw",
+    retrieve: async () => subscriptionObject(),
+    billing: { billing_event_at: stored, updated_at: stored },
+    claims,
+  });
+  assert.equal(retry.response.status, 200);
+  assert.equal(retry.body.duplicate, undefined);
+  assert.deepEqual(retry.planCalls, ["pro"]);
+});
+
+test("the same event id can be claimed by each webhook source", async () => {
+  const stored = new Date(1_000 * 1000).toISOString();
+  const claims = new Set<string>([claimKey(INVOICE_SOURCE, "evt_shared")]);
+  const subscriptionFirst = await run({
+    created: 2_000,
+    eventId: "evt_shared",
+    retrieve: async () => subscriptionObject(),
+    billing: { billing_event_at: stored, updated_at: stored },
+    claims,
+  });
+  assert.equal(subscriptionFirst.response.status, 200);
+  assert.equal(subscriptionFirst.body.duplicate, undefined);
+  assert.equal(claims.has(claimKey(SUBSCRIPTION_SOURCE, "evt_shared")), true);
+  assert.equal(claims.has(claimKey(INVOICE_SOURCE, "evt_shared")), true);
+
+  const invoiceThenSubscription = new Set<string>();
+  invoiceThenSubscription.add(claimKey(SUBSCRIPTION_SOURCE, "evt_other"));
+  const invoiceKey = claimKey(INVOICE_SOURCE, "evt_other");
+  assert.equal(invoiceThenSubscription.has(invoiceKey), false);
+  invoiceThenSubscription.add(invoiceKey);
+  assert.equal(invoiceThenSubscription.has(claimKey(SUBSCRIPTION_SOURCE, "evt_other")), true);
+  assert.equal(invoiceThenSubscription.has(invoiceKey), true);
+});
+
+test("the stored subscription org wins over metadata, and email wildcards are escaped", async () => {
+  const stored = new Date(1_000 * 1000).toISOString();
+  const { response, planOrgs, ilikePatterns } = await run({
+    created: 2_000,
+    retrieve: async () => subscriptionObject(),
+    billing: { billing_event_at: stored, updated_at: stored, organization_id: "org-stored" },
+    metadataOrg: "org-from-metadata",
+    profile: null,
+    customerEmail: "owner_name@example.com",
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(planOrgs, ["org-stored"]);
+  assert.deepEqual(ilikePatterns, []);
+
+  const emailFallback = await run({
+    created: 2_000,
+    retrieve: async () => subscriptionObject(),
+    billing: { billing_event_at: stored, updated_at: stored },
+    customerEmail: "owner_name@example.com",
+  });
+  assert.equal(emailFallback.response.status, 200);
+  assert.deepEqual(emailFallback.planOrgs, ["org-1"]);
+  assert.deepEqual(emailFallback.ilikePatterns, ["owner\\_name@example.com"]);
+});
+
+test("an organization read error is a 500, and a missing org stays org_not_found", async () => {
+  const failed = await updateOrgPlanTier({
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle: async () => ({ data: null, error: { message: "connection reset", code: "08006" } }),
+      };
+    },
+  }, "org-1", "pro");
+  assert.equal(failed.updated, false);
+  assert.equal(failed.skipped, "connection reset");
+
+  const missing = await updateOrgPlanTier({
+    from() {
+      return {
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle: async () => ({ data: null, error: null }),
+      };
+    },
+  }, "org-1", "pro");
+  assert.equal(missing.skipped, "org_not_found");
+
+  const stored = new Date(1_000 * 1000).toISOString();
+  const { response, body } = await run({
+    created: 2_000,
+    retrieve: async () => subscriptionObject(),
+    billing: { billing_event_at: stored, updated_at: stored },
+    planResult: { updated: false, skipped: "connection reset" },
+  });
+  assert.equal(response.status, 500);
+  assert.match(body.error, /not saved/);
+});
+
+test("membership lookup is ordered by organization id", () => {
+  const source = readFileSync(
+    new URL("../../supabase/functions/_shared/subscription-webhook-event.ts", import.meta.url),
+    "utf8",
+  );
+  const start = source.indexOf("async function resolveWebhookOrganization");
+  const fn = source.slice(start);
+  const orderAt = fn.indexOf('.order("organization_id", { ascending: true })');
+  const limitAt = fn.indexOf(".limit(1)", orderAt);
+  assert.ok(orderAt > 0);
+  assert.ok(limitAt > orderAt);
 });

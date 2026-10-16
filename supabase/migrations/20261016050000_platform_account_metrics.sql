@@ -650,6 +650,8 @@ REVOKE ALL ON public.platform_account_metrics_v FROM PUBLIC, anon, authenticated
 
 -- ---------------------------------------------------------------------------
 -- Admin-gated reader. Authenticated may execute it; the body checks the caller.
+-- RETURNS SETOF public.platform_account_metrics_v: each row is one view row.
+-- The view itself stays revoked. This function is the only reader.
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.platform_account_metrics(
@@ -690,7 +692,7 @@ REVOKE ALL ON FUNCTION public.platform_account_metrics(integer, integer) FROM PU
 GRANT EXECUTE ON FUNCTION public.platform_account_metrics(integer, integer) TO authenticated;
 
 COMMENT ON FUNCTION public.platform_account_metrics(integer, integer) IS
-  'Platform-admin account metrics. Raises 42501 for every other caller. Pages are at most 1000 rows, ordered by signup_at desc, organization_id. Does not call Stripe.';
+  'RETURNS SETOF public.platform_account_metrics_v. Platform-admin account metrics. Raises 42501 for every other caller. Pages are at most 1000 rows, ordered by signup_at desc, organization_id. Does not call Stripe.';
 
 -- Re-revoke in case a default privilege re-granted the view.
 REVOKE ALL ON public.platform_account_metrics_v FROM PUBLIC, anon, authenticated, service_role;

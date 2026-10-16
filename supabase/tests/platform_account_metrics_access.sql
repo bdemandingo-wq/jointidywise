@@ -37,23 +37,21 @@ AS $$
   SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
 $$;
 
-CREATE OR REPLACE FUNCTION public.is_platform_admin()
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM auth.users
-    WHERE id = auth.uid()
-      AND lower(email) IN (
-        'support@tidywisecleaning.com'
-      )
-  )
-$$;
-
+-- The assertions below execute the function from the migration, not a stub.
 \ir ../migrations/20261016040000_platform_admin_support_only.sql
+
+DO $$
+DECLARE
+  src text;
+BEGIN
+  SELECT pg_get_functiondef('public.is_platform_admin()'::regprocedure) INTO src;
+  IF src IS NULL OR position('support@tidywisecleaning.com' IN src) = 0 THEN
+    RAISE EXCEPTION 'SQL test is not running the real is_platform_admin()';
+  END IF;
+  IF position('gmail.com' IN src) > 0 THEN
+    RAISE EXCEPTION 'is_platform_admin still names a gmail address';
+  END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION public.jsonb_flag_true(p_json jsonb, p_key text)
 RETURNS boolean
@@ -188,7 +186,7 @@ CREATE TABLE public.account_signup_attribution (
   captured_at timestamptz NOT NULL DEFAULT now()
 );
 
-\ir ../migrations/20261015010000_platform_account_metrics.sql
+\ir ../migrations/20261016050000_platform_account_metrics.sql
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-4111-8111-111111111111', 'owner@example.com'),
@@ -500,5 +498,44 @@ BEGIN
     IF v_state IS DISTINCT FROM '42501' THEN
       RAISE EXCEPTION 'anon sqlstate %, expected 42501', v_state;
     END IF;
+  END;
+END $$;
+
+-- The old primary key was event_id alone. Each webhook source claims the
+-- same Stripe id, and the other source must still be able to insert it.
+CREATE TABLE public.stripe_webhook_events (
+  event_id text PRIMARY KEY,
+  event_type text NOT NULL,
+  source text NOT NULL,
+  processed_at timestamptz NOT NULL DEFAULT now()
+);
+
+\ir ../migrations/20261016050100_stripe_webhook_events_source_key.sql
+
+INSERT INTO public.stripe_webhook_events (event_id, event_type, source) VALUES
+  ('evt_both', 'customer.subscription.deleted', 'stripe-invoice-webhook');
+INSERT INTO public.stripe_webhook_events (event_id, event_type, source) VALUES
+  ('evt_both', 'customer.subscription.deleted', 'stripe-subscription-webhook');
+
+INSERT INTO public.stripe_webhook_events (event_id, event_type, source) VALUES
+  ('evt_both_rev', 'invoice.paid', 'stripe-subscription-webhook');
+INSERT INTO public.stripe_webhook_events (event_id, event_type, source) VALUES
+  ('evt_both_rev', 'invoice.paid', 'stripe-invoice-webhook');
+
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.stripe_webhook_events (event_id, event_type, source) VALUES
+      ('evt_both', 'customer.subscription.deleted', 'stripe-invoice-webhook');
+    RAISE EXCEPTION 'invoice source claimed evt_both twice';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+  BEGIN
+    INSERT INTO public.stripe_webhook_events (event_id, event_type, source) VALUES
+      ('evt_both_rev', 'invoice.paid', 'stripe-subscription-webhook');
+    RAISE EXCEPTION 'subscription source claimed evt_both_rev twice';
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
   END;
 END $$;
