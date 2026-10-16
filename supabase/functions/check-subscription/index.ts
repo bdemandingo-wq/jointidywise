@@ -274,7 +274,7 @@ serve(async (req) => {
 
     // ── Step 1: Check Stripe for an active/trialing subscription first ──
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
-    const customers = await withTimeout(
+    const customers = await withTimeout<Stripe.List<Stripe.Customer>>(
       stripe.customers.list({ email: user.email, limit: 1 }),
       STRIPE_TIMEOUT_MS,
       "stripe.customers.list"
@@ -284,7 +284,7 @@ serve(async (req) => {
       const customerId = customers.data[0].id;
       logBranch("stripe_customer_found", { customerId });
 
-      const subscriptions = await withTimeout(
+      const subscriptions = await withTimeout<Stripe.List<Stripe.Subscription>>(
         stripe.subscriptions.list({
           customer: customerId,
           limit: 10,
