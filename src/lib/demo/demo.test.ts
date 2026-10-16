@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { demoInvokeKind, isMutatingDemoRpc, isSilentDemoRpc } from './blocklist.ts';
+import { demoInvokeKind, demoRpcKind, isMutatingDemoRpc, isSilentDemoRpc } from './blocklist.ts';
 import { buildDemoTables, getDemoTables, resetDemoTables } from './dataset.ts';
 import { demoQuery } from './query.ts';
 import { demoScreenPath, demoScreenTourId, isDemoScreen } from './screens.ts';
@@ -62,6 +62,24 @@ test('side effects are blocked and booking reads stay in memory', () => {
   assert.equal(demoInvokeKind('public-booking-data'), 'canned');
   assert.equal(demoInvokeKind('check-availability'), 'canned');
   assert.equal(demoInvokeKind('check-subscription'), 'allow');
+  assert.equal(demoInvokeKind('address-autocomplete'), 'allow');
+  for (const name of [
+    'buy-ai-credits',
+    'buy-lifetime',
+    'buy-ad-management',
+    'process-refund',
+    'process-tip',
+    'remove-customer-card',
+    'delete-platform-account',
+    'not-a-listed-function',
+  ]) {
+    assert.equal(demoInvokeKind(name), 'block', name);
+  }
+  assert.equal(demoRpcKind('merge_customers'), 'block');
+  assert.equal(demoRpcKind('increment_coupon_use'), 'block');
+  assert.equal(demoRpcKind('unmerge_customers'), 'block');
+  assert.equal(demoRpcKind('get_org_stripe_settings_safe'), 'allow');
+  assert.equal(demoRpcKind('unknown_rpc'), 'block');
   assert.equal(isMutatingDemoRpc('mark_abandoned_booking_progress'), true);
   assert.equal(isSilentDemoRpc('mark_abandoned_booking_progress'), true);
   assert.equal(isMutatingDemoRpc('claim_trial_started_pixel'), true);

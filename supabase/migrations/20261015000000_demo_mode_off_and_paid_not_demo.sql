@@ -31,6 +31,11 @@ BEGIN
     RETURN false;
   END IF;
 
+  -- In-memory Harbor & Pine preview. Same id as DEMO_ORG_ID in the app.
+  IF p_org_id = 'd00000de-0000-4000-8000-000000000001'::uuid THEN
+    RETURN true;
+  END IF;
+
   IF EXISTS (
     SELECT 1
     FROM public.stripe_subscriptions s

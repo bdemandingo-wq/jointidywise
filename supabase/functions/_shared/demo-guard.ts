@@ -1,68 +1,111 @@
 /**
- * Looks up organization_pricing_settings.demo_mode_enabled and logs a skip.
- * Lookup failures stay open so a settings outage does not stop every real
- * send. The known preview org id and sample recipients still block with no
- * database call.
+ * Classifies an organization with the same rules as public.is_demo_or_test.
+ * A lookup failure is treated as demo and is not cached, so the next send
+ * tries again. The preview org id and sample recipients still block with
+ * no database call.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import {
   DEMO_FLAG_TTL_MS,
   DEMO_ORG_ID,
+  demoFlagCacheDecision,
   demoFlagCacheFresh,
   demoSendBlockReason,
+  isDemoOrTest,
   isKnownDemoOrganization,
+  type StripeSubscriptionSnapshot,
 } from "./demo-org.ts";
 
-type Lookup = {
+type Row = Record<string, unknown>;
+type QueryError = { message?: string } | null;
+type SingleResult = { data: Row | null; error: QueryError };
+type ListResult = { data: Row[] | null; error: QueryError };
+
+type Filter = PromiseLike<ListResult> & {
+  maybeSingle: () => Promise<SingleResult>;
+};
+
+export type DemoLookup = {
   from: (table: string) => {
     select: (columns: string) => {
-      eq: (column: string, value: string) => {
-        maybeSingle: () => Promise<{ data: { demo_mode_enabled?: boolean | null } | null; error: { message?: string } | null }>;
-      };
+      eq: (column: string, value: string | boolean) => Filter;
     };
   };
 };
 
-type CachedFlag = { at: number; value: Promise<boolean> };
+type CachedFlag = { at: number; value: boolean };
 
 const cache = new Map<string, CachedFlag>();
 
-function serviceClient(): Lookup | null {
+function serviceClient(): DemoLookup | null {
   const url = Deno.env.get("SUPABASE_URL");
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false } }) as unknown as Lookup;
+  return createClient(url, key, { auth: { persistSession: false } }) as unknown as DemoLookup;
+}
+
+function asRows(data: unknown): Row[] {
+  if (Array.isArray(data)) return data.filter((row): row is Row => !!row && typeof row === "object");
+  return [];
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+async function loadDemoSnapshot(client: DemoLookup, organizationId: string) {
+  const [settingsRes, orgRes, subsRes] = await Promise.all([
+    client.from("organization_pricing_settings").select("demo_mode_enabled").eq("organization_id", organizationId).maybeSingle(),
+    client.from("organizations").select("name, slug, owner_id").eq("id", organizationId).maybeSingle(),
+    client.from("stripe_subscriptions").select("status, plan").eq("organization_id", organizationId),
+  ]);
+  if (settingsRes.error || orgRes.error || subsRes.error) {
+    throw new Error(settingsRes.error?.message || orgRes.error?.message || subsRes.error?.message || "demo lookup failed");
+  }
+  let ownerEmail: string | null = null;
+  const ownerId = text(orgRes.data?.owner_id);
+  if (ownerId) {
+    const profile = await client.from("profiles").select("email").eq("id", ownerId).maybeSingle();
+    if (profile.error) throw new Error(profile.error.message || "demo lookup failed");
+    ownerEmail = text(profile.data?.email);
+  }
+  const subscriptions: StripeSubscriptionSnapshot[] = asRows(subsRes.data).map((row) => ({
+    status: text(row.status),
+    plan: text(row.plan),
+  }));
+  return {
+    organizationId,
+    demoModeEnabled: settingsRes.data?.demo_mode_enabled === true,
+    name: text(orgRes.data?.name),
+    slug: text(orgRes.data?.slug),
+    ownerEmail,
+    subscriptions,
+  };
 }
 
 export async function demoModeEnabledForOrg(
-  supabase: Lookup | null | undefined,
+  supabase: DemoLookup | null | undefined,
   organizationId: string | null | undefined,
 ): Promise<boolean> {
   if (!organizationId) return false;
   if (isKnownDemoOrganization(organizationId)) return true;
   const cached = cache.get(organizationId);
   if (cached && demoFlagCacheFresh(cached.at, Date.now(), DEMO_FLAG_TTL_MS)) return cached.value;
-  const pending = (async () => {
-    const client = supabase ?? serviceClient();
-    if (!client) return false;
-    try {
-      const { data, error } = await client
-        .from("organization_pricing_settings")
-        .select("demo_mode_enabled")
-        .eq("organization_id", organizationId)
-        .maybeSingle();
-      if (error) {
-        console.error("[demo-guard] flag lookup failed", organizationId, error.message ?? error);
-        return false;
-      }
-      return data?.demo_mode_enabled === true;
-    } catch (err) {
-      console.error("[demo-guard] flag lookup threw", err);
-      return false;
-    }
-  })();
-  cache.set(organizationId, { at: Date.now(), value: pending });
-  return pending;
+  const client = supabase ?? serviceClient();
+  if (!client) {
+    console.error("[demo-guard] flag lookup failed", organizationId, "no service client");
+    return demoFlagCacheDecision({ ok: false }).value;
+  }
+  try {
+    const snapshot = await loadDemoSnapshot(client, organizationId);
+    const decision = demoFlagCacheDecision({ ok: true, value: isDemoOrTest(snapshot) });
+    if (decision.store) cache.set(organizationId, { at: Date.now(), value: decision.value });
+    return decision.value;
+  } catch (err) {
+    console.error("[demo-guard] flag lookup failed", organizationId, err);
+    const failed = demoFlagCacheDecision({ ok: false });
+    return failed.value;
+  }
 }
 
 type OrgIdQuery = {
@@ -97,21 +140,14 @@ export async function listDemoModeOrgIds(supabase: OrgIdQuery): Promise<string[]
   return [...ids];
 }
 
-export class DemoSendBlocked extends Error {
-  readonly channel: string;
-  constructor(channel: string) {
-    super("Disabled in demo mode");
-    this.name = "DemoSendBlocked";
-    this.channel = channel;
-  }
-}
+export { DemoSendBlocked } from "./demo-org.ts";
 
 /** Returns the skip reason, already logged, or null when the send may proceed. */
 export async function demoSendShouldSkip(input: {
   channel: string;
   organizationId?: string | null;
   recipients?: Array<string | null | undefined>;
-  supabase?: Lookup | null;
+  supabase?: DemoLookup | null;
   /** A reply the recipient just requested, such as a STOP confirmation. */
   requestedReply?: boolean;
 }): Promise<string | null> {

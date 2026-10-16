@@ -15,6 +15,7 @@
     "test:qa": "playwright test -c playwright.qa.config.ts",
     "test:qa:setup": "playwright test -c playwright.qa.config.ts --project=setup",
     "test:qa:report": "playwright show-report qa-report",
+    "test:demo": "node --experimental-strip-types --test supabase/functions/_shared/demo-send-boundary.test.ts supabase/functions/_shared/sms-opt-out.test.ts src/lib/demo/demo.test.ts",
     "check:tokens": "node scripts/check-color-pairs.mjs",
     "prebuild": "node scripts/check-ignored-sources.mjs && node scripts/check-data-slot-hooks.mjs && node scripts/check-color-pairs.mjs && node scripts/check-pv-tokens.mjs && npm run typecheck",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",

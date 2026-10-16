@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import {
   SILENT_DEMO_TABLES,
   demoInvokeKind,
-  isMutatingDemoRpc,
+  demoRpcKind,
   isSilentDemoRpc,
 } from '@/lib/demo/blocklist';
 import { demoFunctionData } from '@/lib/demo/responses';
@@ -109,8 +109,12 @@ export function installDemoGate(client: GateClient) {
 
   client.rpc = ((fn: string, args?: unknown, options?: unknown) => {
     if (!isSampleDemoOn()) return realRpc(fn, args, options);
-    if (isMutatingDemoRpc(fn)) {
-      if (!isSilentDemoRpc(fn)) toast('Disabled in demo mode', { id: 'demo-blocked' });
+    const kind = demoRpcKind(fn);
+    if (kind === 'silent' || isSilentDemoRpc(fn)) {
+      return resolved({ data: null, error: { message: 'Disabled in demo mode' } });
+    }
+    if (kind === 'block') {
+      toast('Disabled in demo mode', { id: 'demo-blocked' });
       return resolved({ data: null, error: { message: 'Disabled in demo mode' } });
     }
     if (isPublicDemoActive()) return resolved({ data: null, error: null });

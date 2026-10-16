@@ -12,6 +12,8 @@ import { buildDemoTables } from '../../../src/lib/demo/dataset.ts';
 import {
   DEMO_FLAG_TTL_MS,
   DEMO_ORG_ID,
+  assertStripeClientAllowed,
+  demoFlagCacheDecision,
   demoFlagCacheFresh,
   demoSendBlockReason,
   isDemoOrTest,
@@ -62,6 +64,11 @@ const RULES: { label: string; pattern: RegExp; allow: string[] }[] = [
     label: 'Gmail send',
     pattern: /gmail\.googleapis\.com\/gmail\/v1\/users\/me\/messages\/send/,
     allow: ['_shared/gmail-send-core.ts'],
+  },
+  {
+    label: 'Gmail SMTP',
+    pattern: /new SMTPClient\s*\(|smtp\.gmail\.com/,
+    allow: ['_shared/send-org-email.ts', 'send-gmail-test-email/index.ts'],
   },
 ];
 
@@ -183,6 +190,33 @@ test('paying non-lifetime subscriptions are never demo or test', () => {
   assert.match(migration, /status\) IN \('active', 'past_due'\)/);
   assert.match(migration, /<> 'lifetime'/);
   assert.match(migration, /REVOKE ALL ON FUNCTION public\.is_demo_or_test/);
+  assert.match(migration, /d00000de-0000-4000-8000-000000000001/);
+  const payingInput = {
+    demoModeEnabled: true,
+    name: 'Demo Cleaning',
+    slug: 'demo-cleaning',
+    ownerEmail: 'qa@tidywise1.com',
+    subscriptions: [paying],
+  };
+  assert.equal(stripeClientBlockReason(payingInput), null);
+  assert.equal(demoSendBlockReason(payingInput), null);
+  assert.equal(isDemoOrTest({ organizationId: DEMO_ORG_ID, subscriptions: [paying] }), true);
+  assert.equal(stripeClientBlockReason({ organizationId: DEMO_ORG_ID, subscriptions: [paying] }), 'demo_org');
+  const flagged = {
+    organizationId: 'org-1',
+    demoModeEnabled: true,
+    name: 'Harbor Cleaning',
+    slug: 'harbor-cleaning',
+    ownerEmail: 'owner@real-cleaning.com',
+    subscriptions: [] as { status: string; plan: string }[],
+  };
+  assert.equal(isDemoOrTest(flagged), true);
+  assert.equal(stripeClientBlockReason(flagged), 'demo_mode_enabled');
+  assert.equal(demoSendBlockReason(flagged), 'demo_mode_enabled');
+  const named = { organizationId: 'org-2', name: 'QA Sandbox', slug: 'harbor', ownerEmail: 'owner@real-cleaning.com' };
+  assert.equal(isDemoOrTest(named), true);
+  assert.equal(stripeClientBlockReason(named), 'demo_org');
+  assert.equal(demoSendBlockReason(named), 'demo_org');
 });
 
 test('a phone suppression is written only for a real opt-out', () => {
@@ -268,15 +302,99 @@ test('a demo-blocked queue row leaves the oldest window', () => {
   assert.ok(sendAt !== -1 && insertAt > sendAt);
 });
 
-test('Stripe still runs for a real org with demo mode on', () => {
-  assert.equal(stripeClientBlockReason('real-org'), null);
-  assert.equal(stripeClientBlockReason(null), null);
-  assert.equal(stripeClientBlockReason(DEMO_ORG_ID), 'demo_org');
-  assert.equal(demoSendBlockReason({ demoModeEnabled: true, organizationId: 'real-org' }), 'demo_mode_enabled');
+test('createStripeClient refuses a demo org before constructing Stripe', async () => {
+  await assert.rejects(
+    () => assertStripeClientAllowed({ organizationId: 'demo-org', isDemoOrg: async () => true }),
+    (err: unknown) => isDemoSendBlocked(err),
+  );
+  await assertStripeClientAllowed({ organizationId: 'paying-org', isDemoOrg: async () => false });
+  await assert.rejects(
+    () => assertStripeClientAllowed({
+      organizationId: DEMO_ORG_ID,
+      isDemoOrg: async () => false,
+    }),
+    (err: unknown) => isDemoSendBlocked(err),
+  );
+  await assert.rejects(
+    () => assertStripeClientAllowed({
+      organizationId: 'real-org',
+      isDemoOrg: async () => {
+        throw new Error('db down');
+      },
+    }),
+    (err: unknown) => isDemoSendBlocked(err),
+  );
+  await assertStripeClientAllowed({ organizationId: null, isDemoOrg: async () => true });
   const stripe = fs.readFileSync(path.join(functionsRoot, '_shared/stripe-client.ts'), 'utf8');
-  assert.match(stripe, /stripeClientBlockReason/);
-  assert.match(stripe, /throw new DemoSendBlocked\("stripe"\)/);
-  assert.doesNotMatch(stripe, /demoSendShouldSkip|demoModeEnabledForOrg|demo_mode_enabled/);
+  const fnAt = stripe.indexOf('export async function createStripeClient');
+  const body = stripe.slice(fnAt);
+  const guardAt = body.indexOf('assertStripeClientAllowed');
+  const uncheckedAt = body.indexOf('createStripeClientUnchecked');
+  assert.ok(guardAt !== -1 && uncheckedAt > guardAt);
+  assert.match(body, /demoModeEnabledForOrg/);
+  assert.doesNotMatch(body.slice(0, uncheckedAt), /new Stripe/);
+});
+
+test('a failed demo lookup fails closed and is not cached', () => {
+  assert.deepEqual(demoFlagCacheDecision({ ok: false }), { value: true, store: false });
+  assert.deepEqual(demoFlagCacheDecision({ ok: true, value: false }), { value: false, store: true });
+  assert.deepEqual(demoFlagCacheDecision({ ok: true, value: true }), { value: true, store: true });
+  const guard = fs.readFileSync(path.join(functionsRoot, '_shared/demo-guard.ts'), 'utf8');
+  const catchAt = guard.indexOf('} catch (err)');
+  const nextFn = guard.indexOf('export async function listDemoModeOrgIds');
+  const catchBody = guard.slice(catchAt, nextFn);
+  assert.match(catchBody, /ok: false/);
+  assert.doesNotMatch(catchBody, /cache\.set/);
+  const success = guard.indexOf('demoFlagCacheDecision({ ok: true');
+  const setAt = guard.indexOf('cache.set');
+  assert.ok(success !== -1 && setAt > success);
+  assert.equal(guard.indexOf('cache.set', setAt + 1), -1);
+});
+
+test('demo check runs before Stripe objects and database writes', () => {
+  const cases: { rel: string; markers: string[] }[] = [
+    {
+      rel: 'create-stripe-invoice/index.ts',
+      markers: ['stripe.customers.create', 'stripe.checkout.sessions.create', 'status: "sent"'],
+    },
+    {
+      rel: 'send-card-link-sms/index.ts',
+      markers: ['stripe.customers.create', 'stripe.checkout.sessions.create', "from('booking_link_tracking')"],
+    },
+    {
+      rel: 'send-invoice/index.ts',
+      markers: ['stripe.customers.create', 'stripe.checkout.sessions.create'],
+    },
+  ];
+  for (const item of cases) {
+    const text = fs.readFileSync(path.join(functionsRoot, item.rel), 'utf8');
+    const checkAt = text.indexOf('await createStripeClient');
+    assert.ok(checkAt !== -1, item.rel);
+    for (const marker of item.markers) {
+      const at = text.indexOf(marker);
+      assert.ok(at > checkAt, `${item.rel} ${marker}`);
+    }
+  }
+  for (const rel of ['buy-lifetime/index.ts', 'create-lifetime-checkout/index.ts', 'upgrade-now/index.ts']) {
+    const text = fs.readFileSync(path.join(functionsRoot, rel), 'utf8');
+    const memberAt = text.indexOf('from("org_memberships")');
+    const clientAt = text.indexOf('await createStripeClient');
+    assert.ok(memberAt !== -1 && clientAt > memberAt, rel);
+    assert.match(text, /await createStripeClient\([\s\S]{0,160}organizationId/, rel);
+    const sessionAt = text.indexOf('checkout.sessions.create');
+    assert.ok(sessionAt > clientAt, rel);
+  }
+});
+
+test('Gmail SMTP is checked for demo mode before the client opens', () => {
+  const testEmail = fs.readFileSync(path.join(functionsRoot, 'send-gmail-test-email/index.ts'), 'utf8');
+  const skipAt = testEmail.indexOf('demoSendShouldSkip');
+  const smtpAt = testEmail.indexOf('new SMTPClient');
+  assert.ok(skipAt !== -1 && smtpAt > skipAt);
+  const orgEmail = fs.readFileSync(path.join(functionsRoot, '_shared/send-org-email.ts'), 'utf8');
+  const orgSkip = orgEmail.indexOf('demoSendShouldSkip');
+  const orgSend = orgEmail.indexOf('await sendViaGmailSmtp');
+  assert.ok(orgSkip !== -1 && orgSend > orgSkip);
 });
 
 test('demo orgs and sample recipients are not send targets', () => {

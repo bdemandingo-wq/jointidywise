@@ -57,14 +57,67 @@ export function isKnownDemoOrganization(organizationId: string | null | undefine
 }
 
 /**
- * Stripe payouts, manual charges, invoices, and subscription create/cancel
- * must run for a real organization even when demo mode is on. The in-app
- * banner already stops those clicks in the browser. The server blocks only
- * the public preview org id, which has no Stripe account.
+ * Same predicate as public.is_demo_or_test and isDemoOrTest.
+ * A paying active or past_due plan other than Lifetime is never demo.
+ * The preview org, the demo flag, and the name/slug/email rules are.
  */
-export function stripeClientBlockReason(organizationId?: string | null): string | null {
-  if (isKnownDemoOrganization(organizationId)) return "demo_org";
-  return null;
+export function stripeClientBlockReason(input: {
+  organizationId?: string | null;
+  demoModeEnabled?: boolean | null;
+  name?: string | null;
+  slug?: string | null;
+  ownerEmail?: string | null;
+  subscriptions?: StripeSubscriptionSnapshot[] | null;
+} = {}): string | null {
+  if (!isDemoOrTest(input)) return null;
+  if (isKnownDemoOrganization(input.organizationId)) return "demo_org";
+  if (input.demoModeEnabled) return "demo_mode_enabled";
+  return "demo_org";
+}
+
+export class DemoSendBlocked extends Error {
+  readonly channel: string;
+  constructor(channel: string) {
+    super("Disabled in demo mode");
+    this.name = "DemoSendBlocked";
+    this.channel = channel;
+  }
+}
+
+/**
+ * Refuses a Stripe client for a demo org before `new Stripe`. A failed
+ * lookup fails closed. No organization id is not itself a demo org
+ * (anonymous checkout has no org yet).
+ */
+export async function assertStripeClientAllowed(input: {
+  organizationId?: string | null;
+  isDemoOrg: (organizationId: string) => Promise<boolean>;
+}): Promise<void> {
+  const organizationId = input.organizationId ?? null;
+  if (!organizationId) return;
+  if (isKnownDemoOrganization(organizationId)) {
+    console.log(`[demo-block] skipped stripe reason=demo_org org=${organizationId}`);
+    throw new DemoSendBlocked("stripe");
+  }
+  let demo = true;
+  try {
+    demo = await input.isDemoOrg(organizationId);
+  } catch (err) {
+    console.error("[demo-block] stripe lookup failed", organizationId, err);
+    demo = true;
+  }
+  if (demo) {
+    console.log(`[demo-block] skipped stripe reason=demo_mode org=${organizationId}`);
+    throw new DemoSendBlocked("stripe");
+  }
+}
+
+/** A failed flag lookup is demo (blocked) and must not be cached. */
+export function demoFlagCacheDecision(
+  result: { ok: true; value: boolean } | { ok: false },
+): { value: boolean; store: boolean } {
+  if (!result.ok) return { value: true, store: false };
+  return { value: result.value, store: true };
 }
 
 /** True while a cached demo-flag lookup is still inside its TTL. */
@@ -128,13 +181,17 @@ export function shouldRecordDeliveryAsSent(input: {
 export function demoSendBlockReason(input: {
   organizationId?: string | null;
   demoModeEnabled?: boolean | null;
+  name?: string | null;
+  slug?: string | null;
+  ownerEmail?: string | null;
+  subscriptions?: StripeSubscriptionSnapshot[] | null;
   recipients?: Array<string | null | undefined>;
   /** STOP confirmation and other replies the recipient just asked for. */
   requestedReply?: boolean;
 }): string | null {
   if (input.requestedReply) return null;
-  if (input.demoModeEnabled) return "demo_mode_enabled";
-  if (isKnownDemoOrganization(input.organizationId)) return "demo_org";
+  const orgReason = stripeClientBlockReason(input);
+  if (orgReason) return orgReason;
   if ((input.recipients ?? []).some((recipient) => isSampleSendTarget(recipient))) {
     return "sample_recipient";
   }
@@ -151,12 +208,14 @@ export type StripeSubscriptionSnapshot = {
  * whose plan is not Lifetime is a real customer and is never demo/test.
  */
 export function isDemoOrTest(input: {
+  organizationId?: string | null;
   demoModeEnabled?: boolean | null;
   name?: string | null;
   slug?: string | null;
   ownerEmail?: string | null;
   subscriptions?: StripeSubscriptionSnapshot[] | null;
 }): boolean {
+  if (isKnownDemoOrganization(input.organizationId)) return true;
   const paying = (input.subscriptions ?? []).some((row) => {
     const status = (row.status ?? "").toLowerCase();
     const plan = (row.plan ?? "").toLowerCase();

@@ -1,0 +1,17 @@
+name: Demo unit tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Demo, opt-out, and browser-gate tests
+        run: npm run test:demo

@@ -1,4 +1,5 @@
 import { createStripeClient } from "../_shared/stripe-client.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
@@ -81,7 +82,22 @@ serve(async (req) => {
       );
     }
 
-    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const { data: membership, error: membershipError } = await supabase
+      .from("org_memberships")
+      .select("organization_id")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (membershipError || !membership?.organization_id) {
+      return new Response(
+        JSON.stringify({ error: "Could not verify the organization before checkout." }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
+      );
+    }
+    const organizationId = membership.organization_id as string;
+
+    const stripe = await createStripeClient(stripeKey, { organizationId, apiVersion: "2025-08-27.basil" });
     const origin = req.headers.get("origin") || Deno.env.get("APP_URL") || "https://jointidywise.com";
 
     // Get or create Stripe customer
@@ -133,6 +149,12 @@ serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
     );
   } catch (error: any) {
+    if (isDemoSendBlocked(error)) {
+      return new Response(JSON.stringify({ success: false, skipped: true, reason: "demo_mode" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
     logStep("ERROR", { message: error.message });
     return new Response(
       JSON.stringify({ error: error.message }),

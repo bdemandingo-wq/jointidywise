@@ -12,6 +12,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 import { getOrgEmailSettings, formatEmailFrom, getReplyTo } from "../_shared/get-org-email-settings.ts";
+import { demoSendShouldSkip } from "../_shared/demo-guard.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,6 +55,19 @@ serve(async (req) => {
     const settings = settingsResult.settings;
     if (!settings.smtp_email || !settings.smtp_app_password) {
       throw new Error("Gmail SMTP is not configured. Add your Gmail address and app password first.");
+    }
+
+    const demoReason = await demoSendShouldSkip({
+      channel: "email",
+      organizationId,
+      recipients: [to],
+      supabase,
+    });
+    if (demoReason) {
+      return new Response(JSON.stringify({ success: false, skipped: true, reason: "demo_mode" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     const client = new SMTPClient({

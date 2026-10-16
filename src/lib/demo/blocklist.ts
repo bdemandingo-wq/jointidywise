@@ -1,13 +1,14 @@
 /**
  * What may leave the browser while sample demo is on.
- * Side effects toast. Telemetry is dropped quietly. A few reads are answered
- * from memory so the public booking form can open without a database.
+ * Unknown function names are blocked. A few reads are allowed, and the
+ * public booking form's two reads are answered from memory.
  */
 
 const ACCOUNT_READS = new Set([
   'check-subscription',
   'get-lifetime-spots',
   'public-growth',
+  'address-autocomplete',
 ]);
 
 const CANNED_READS = new Set([
@@ -19,38 +20,6 @@ const SILENT_FUNCTIONS = new Set([
   'resume-abandoned-booking',
 ]);
 
-const SIDE_EFFECT_SNIPPETS = [
-  'send-',
-  'notify',
-  'sms',
-  'email',
-  'push',
-  'stripe',
-  'payout',
-  'webhook',
-  'checkout',
-  'subscription',
-  'zapier',
-  'invoice',
-  'payment',
-  'dispatch',
-  'welcome',
-  'onboarding',
-  'invite',
-  'password',
-  'delete-my',
-  'migration',
-  'dispute',
-  'campaign',
-  'broadcast',
-  'twilio',
-  'resend',
-  'openphone',
-  'setup-intent',
-  'charge-',
-  'booking-submit',
-];
-
 export type DemoInvokeKind = 'allow' | 'canned' | 'block' | 'silent';
 
 export function demoInvokeKind(name: string): DemoInvokeKind {
@@ -58,52 +27,59 @@ export function demoInvokeKind(name: string): DemoInvokeKind {
   if (CANNED_READS.has(normalized)) return 'canned';
   if (ACCOUNT_READS.has(normalized)) return 'allow';
   if (SILENT_FUNCTIONS.has(normalized)) return 'silent';
-  if (SIDE_EFFECT_SNIPPETS.some((snippet) => normalized.includes(snippet))) return 'block';
-  return 'allow';
+  return 'block';
 }
 
 export function isBlockedDemoFunction(name: string): boolean {
   return demoInvokeKind(name) === 'block';
 }
 
-const MUTATING_RPC_PREFIXES = [
-  'create_',
-  'update_',
-  'delete_',
-  'set_',
-  'submit_',
-  'claim_',
-  'complete_',
-  'remove_',
-  'redeem_',
-  'reopen_',
-  'insert_',
-  'mark_',
-];
-
-const MUTATING_RPC = new Set([
-  'claim_booking',
-  'complete_assigned_booking',
-  'reopen_assigned_booking',
-  'redeem_access_code',
-  'update_org_member_role',
-  'remove_org_member',
-  'create_client_portal_user',
-  'create_booking_from_request',
-  'submit_review_by_token',
-  'set_campaign_run_status',
-  'mark_abandoned_booking_progress',
+/** Reads the sample demo may still call. Everything else is blocked. */
+const READ_RPC = new Set([
+  'billing_payer_plan_types',
+  'get_ai_credit_status',
+  'get_demo_availability',
+  'get_demo_booked_slots',
+  'get_lifetime_spots_remaining',
+  'get_my_staff_profile',
+  'get_my_staff_wages',
+  'get_org_email_settings_safe',
+  'get_org_member_names',
+  'get_org_staff_wages',
+  'get_org_stripe_settings_safe',
+  'get_org_tiers',
+  'get_public_activity_feed',
+  'get_public_growth_counters',
+  'get_review_request_by_token',
+  'get_staff_customers',
+  'get_staff_sensitive_fields',
+  'get_team_claim_counts',
+  'has_openphone_api_key',
+  'list_org_members',
+  'my_effective_plan',
+  'org_has_native_booking',
+  'org_has_resend_api_key',
+  'resolve_customer_tier',
+  'resolve_short_url',
 ]);
 
 const SILENT_RPC = new Set([
   'mark_abandoned_booking_progress',
   'claim_trial_started_pixel',
+  'touch_my_last_login',
 ]);
 
-export function isMutatingDemoRpc(name: string): boolean {
+export type DemoRpcKind = 'allow' | 'block' | 'silent';
+
+export function demoRpcKind(name: string): DemoRpcKind {
   const normalized = name.toLowerCase();
-  if (MUTATING_RPC.has(normalized)) return true;
-  return MUTATING_RPC_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+  if (SILENT_RPC.has(normalized)) return 'silent';
+  if (READ_RPC.has(normalized)) return 'allow';
+  return 'block';
+}
+
+export function isMutatingDemoRpc(name: string): boolean {
+  return demoRpcKind(name) !== 'allow';
 }
 
 export function isSilentDemoRpc(name: string): boolean {

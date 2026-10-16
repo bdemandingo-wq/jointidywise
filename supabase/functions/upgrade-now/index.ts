@@ -1,4 +1,5 @@
 import { createStripeClient } from "../_shared/stripe-client.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -58,7 +59,22 @@ serve(async (req) => {
     if (!user?.email) throw new Error("User not authenticated or email not available");
     logStep("User authenticated", { userId: user.id, email: user.email });
 
-    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
+    const { data: membership, error: membershipError } = await supabaseClient
+      .from("org_memberships")
+      .select("organization_id")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (membershipError || !membership?.organization_id) {
+      return new Response(
+        JSON.stringify({ error: "Could not verify the organization before checkout." }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
+      );
+    }
+    const organizationId = membership.organization_id as string;
+
+    const stripe = await createStripeClient(stripeKey, { organizationId, apiVersion: "2025-08-27.basil" });
 
     // Check for existing Stripe customer
     const customers = await stripe.customers.list({ email: user.email, limit: 1 });
@@ -155,6 +171,12 @@ serve(async (req) => {
       status: 200,
     });
   } catch (error) {
+    if (isDemoSendBlocked(error)) {
+      return new Response(JSON.stringify({ success: false, skipped: true, reason: "demo_mode" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
     const errorMessage = error instanceof Error ? error.message : String(error);
     logStep("ERROR", { message: errorMessage });
     return new Response(JSON.stringify({ error: errorMessage }), {
