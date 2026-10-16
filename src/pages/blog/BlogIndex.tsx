@@ -198,7 +198,7 @@ const featureArticles = [
   },
   {
     slug: "/features/payroll-software",
-    title: "Payroll Software for Cleaning Businesses — Plans from $49/mo",
+    title: "Payroll Software for Cleaning Businesses — Pro at $97/mo",
     excerpt: "Automate cleaner wages, tips, mileage reimbursements, and W-2/1099 docs. Built specifically for cleaning businesses.",
     category: "Features",
     readTime: "5 min read",
@@ -358,7 +358,7 @@ export default function BlogIndex() {
               Get cleaning business tips in your inbox
             </h2>
             <p className="text-muted-foreground mb-6 max-w-xl mx-auto">
-              Join 5,000+ cleaning business owners who receive weekly insights on growing their business.
+              Weekly notes on scheduling, pricing, and keeping customers.
             </p>
             <Button size="lg" asChild>
               <Link to="/auth">

@@ -65,17 +65,17 @@ export const COMPETITORS: Record<string, CompetitorData> = {
   jobber: {
     slug: "jobber",
     name: "Jobber",
-    pricing: "$69–$349/month",
+    pricing: "",
     positioning:
       "Jobber is a general field-service platform covering landscaping, HVAC, plumbing, and cleaning. Solid scheduling, but cleaning-specific workflows are an afterthought and pricing climbs fast as you add features.",
     weaknesses: [
       "No automated payroll",
       "No P&L reporting",
       "SMS inbox and review requests are paid add-ons",
-      "Pricing scales to $349/mo for full features",
+      "Cleaning-specific workflows are limited",
     ],
     features: {
-      "Monthly Pricing": "$69–$349/month",
+      "Monthly Pricing": "—",
       "Automated Payroll": false,
       "P&L Reports": false,
       "Recurring Bookings": true,
@@ -98,7 +98,7 @@ export const COMPETITORS: Record<string, CompetitorData> = {
   "housecall-pro": {
     slug: "housecall-pro",
     name: "Housecall Pro",
-    pricing: "$59–$199/month",
+    pricing: "",
     positioning:
       "Housecall Pro was built for plumbers and HVAC techs first. It handles dispatch well, but has no cleaning-specific pricing models, no payroll, and no P&L reporting.",
     weaknesses: [
@@ -108,7 +108,7 @@ export const COMPETITORS: Record<string, CompetitorData> = {
       "No P&L reports",
     ],
     features: {
-      "Monthly Pricing": "$59–$199/month",
+      "Monthly Pricing": "—",
       "Automated Payroll": false,
       "P&L Reports": false,
       "Recurring Bookings": true,
@@ -131,7 +131,7 @@ export const COMPETITORS: Record<string, CompetitorData> = {
   zenmaid: {
     slug: "zenmaid",
     name: "ZenMaid",
-    pricing: "$23–$100/month",
+    pricing: "",
     positioning:
       "ZenMaid is a simple scheduler for maid services. It's affordable at low volume, but pricing scales with your booking count, and there's no payroll, P&L, or AI tooling as you grow.",
     weaknesses: [
@@ -141,7 +141,7 @@ export const COMPETITORS: Record<string, CompetitorData> = {
       "No AI tools or inventory tracking",
     ],
     features: {
-      "Monthly Pricing": "$23–$100/month (scales with bookings)",
+      "Monthly Pricing": "—",
       "Automated Payroll": false,
       "P&L Reports": false,
       "Recurring Bookings": true,
@@ -164,17 +164,17 @@ export const COMPETITORS: Record<string, CompetitorData> = {
   "booking-koala": {
     slug: "booking-koala",
     name: "BookingKoala",
-    pricing: "$79–$379/month",
+    pricing: "",
     positioning:
-      "BookingKoala focuses on online booking forms and customer-facing flows. Booking is strong, but back-office features like payroll, P&L, and AI pricing tools are missing, and full functionality costs up to $379/mo.",
+      "BookingKoala focuses on online booking forms and customer-facing flows. Booking is strong, but back-office features like payroll, P&L, and AI pricing tools are missing.",
     weaknesses: [
       "No automated payroll",
       "No P&L reports",
       "No AI revenue tools",
-      "Full features cost up to $379/mo",
+      "Back-office tools such as payroll and P&L are missing",
     ],
     features: {
-      "Monthly Pricing": "$79–$379/month",
+      "Monthly Pricing": "—",
       "Automated Payroll": false,
       "P&L Reports": false,
       "Recurring Bookings": true,
@@ -197,18 +197,18 @@ export const COMPETITORS: Record<string, CompetitorData> = {
   launch27: {
     slug: "launch27",
     name: "Launch27",
-    pricing: "$75–$299/month",
+    pricing: "",
     positioning:
-      "Launch27 handles booking for cleaning companies, but its plan structure locks essentials behind expensive tiers — payroll requires the $150/mo plan and the mobile app requires $299/mo.",
+      "Launch27 handles booking for cleaning companies.",
     weaknesses: [
-      "Payroll locked behind the $150/mo plan",
-      "Mobile app locked behind the $299/mo plan",
+      "Not built around cleaner payroll",
+      "Not built as a cleaner mobile app",
       "No P&L reporting",
       "No AI tools",
     ],
     features: {
-      "Monthly Pricing": "$75–$299/month",
-      "Automated Payroll": "Pro plan only ($150/mo)",
+      "Monthly Pricing": "—",
+      "Automated Payroll": "Not on every plan",
       "P&L Reports": false,
       "Recurring Bookings": true,
       "Online Booking": true,
@@ -230,17 +230,17 @@ export const COMPETITORS: Record<string, CompetitorData> = {
   servicetitan: {
     slug: "servicetitan",
     name: "ServiceTitan",
-    pricing: "$125–$500+/month per user",
+    pricing: "",
     positioning:
       "ServiceTitan is enterprise software for HVAC, plumbing, and electrical contractors. It's powerful but priced per user, takes weeks to implement, and has no cleaning-specific features.",
     weaknesses: [
-      "Priced per user — $125–$500+ each",
+      "Priced per user",
       "Built for HVAC/plumbing/electrical",
       "Implementation takes weeks to months",
       "Payroll is a separate add-on cost",
     ],
     features: {
-      "Monthly Pricing": "$125–$500+/month per user",
+      "Monthly Pricing": "—",
       "Automated Payroll": "Paid add-on",
       "P&L Reports": true,
       "Recurring Bookings": true,
@@ -341,7 +341,7 @@ export const NICHES: Record<string, NicheData> = {
       {
         title: "One Flat Price, Everything Included",
         description:
-          "Booking, scheduling, invoicing, reminders, and reviews for $49/month. No per-user fees, no add-ons, no surprise tier upgrades as you grow.",
+          "Booking, scheduling, and invoicing are $49/month on Basic, with no per-user fees. Automated reminders and review requests are on Pro at $97/month.",
       },
       {
         title: "Automated Reminders & Review Requests",
@@ -378,7 +378,7 @@ export const NICHES: Record<string, NicheData> = {
       {
         question: "How does the pricing compare for solo operators?",
         answer:
-          "TidyWise is a flat $49/month with every feature included. {competitor} starts around the same range, but the features solo cleaners actually rely on — review requests, SMS, reporting — often sit in higher tiers or add-ons.",
+          "TidyWise Basic is $49/month for booking, scheduling, and invoicing. Review requests and reporting are on Pro at $97/month. Check {competitor}'s site for their current price.",
       },
       {
         question: "Can clients book online without me answering the phone?",
@@ -445,7 +445,7 @@ export const NICHES: Record<string, NicheData> = {
       {
         question: "Does per-user pricing punish growing crews?",
         answer:
-          "On per-user platforms, a 10-person crew can cost more than $1,000/month in seats alone. TidyWise includes unlimited users on Pro, so headcount growth doesn't inflate your software bill.",
+          "TidyWise includes unlimited users on Pro, so headcount growth doesn't add a per-seat software bill.",
       },
     ],
   },

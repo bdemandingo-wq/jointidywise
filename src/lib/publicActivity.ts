@@ -551,8 +551,8 @@ export function weeklySignupLabel(count: number): string {
 }
 
 export function trustedByLabel(count: number): string {
-  const noun = count === 1 ? 'cleaning business' : 'cleaning businesses';
-  return `Trusted by ${count} ${noun}`;
+  if (count === 1) return '1 cleaning business has signed up';
+  return `${count} cleaning businesses have signed up`;
 }
 
 export function shouldShowTrustedBy(count: number | null | undefined): boolean {

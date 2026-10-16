@@ -19,6 +19,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
+import { countLifetimeSpots } from "../_shared/lifetime-spots.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -43,22 +44,16 @@ serve(async (req) => {
       });
     }
 
-    // Read live counter — best-effort UX guard (webhook is the hard
-    // guard via the database CHECK constraint).
+    // Same count as get_lifetime_spots_remaining. The webhook CHECK is
+    // still the hard guard; this refuses checkout once purchase rows
+    // fill total_spots.
     const admin = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
       { auth: { persistSession: false } },
     );
-    const { data: state } = await admin
-      .from("lifetime_offer_state")
-      .select("total_spots, sold_spots, sold_out_at")
-      .eq("id", 1)
-      .maybeSingle();
-
-    const total = state?.total_spots ?? 100;
-    const sold = state?.sold_spots ?? 0;
-    if (state?.sold_out_at || sold >= total) {
+    const spots = await countLifetimeSpots(admin);
+    if (!spots.available) {
       return new Response(
         JSON.stringify({ error: "Lifetime offer is sold out." }),
         { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },

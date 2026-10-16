@@ -27,6 +27,11 @@ import {
   type CheckoutPlanId,
 } from "@/lib/startSubscriptionCheckout";
 import { CustomPriceMissing, isCustomPriceMissing } from "@/lib/priceNotConfigured";
+import { chargeLineFromPreview, planBillingAction, renewalDisclosure, visibleBillingLine } from "@/lib/planBillingCopy";
+import { chargePreviewKey, useSubscriptionChargePreview } from "@/hooks/useSubscriptionChargePreview";
+import { useOrganization } from "@/contexts/OrganizationContext";
+import { useOrgTimezone } from "@/hooks/useOrgTimezone";
+import { usePlatform } from "@/hooks/usePlatform";
 
 /**
  * Someone on a trial has no Stripe subscription to modify, so the plan-change
@@ -93,19 +98,28 @@ export function UpgradePlanDialog({
   const [needsCheckout, setNeedsCheckout] = useState(false);
   const { organizationId } = useOrgId();
   const navigate = useNavigate();
+  const { organization } = useOrganization();
+  const { timezone: orgTimezone } = useOrgTimezone();
+  const { canShowPaymentFlows } = usePlatform();
+  const orgTrialCheckout = organization?.plan_type === "trial";
+  const chargePreview = useSubscriptionChargePreview({
+    enabled: open && canShowPaymentFlows && orgTrialCheckout && !!targetPlan,
+    organizationId,
+    items: targetPlan ? [{ plan: targetPlan.id, interval: "monthly" }] : [],
+  });
 
 
   useEffect(() => {
-    if (!open || !targetPlan) return;
+    if (!open || !targetPlan || !canShowPaymentFlows) return;
     setDiscountCode("");
     setAppliedCode(null);
     setNeedsCheckout(false);
     void fetchPreview(undefined);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchPreview/targetPlan are recreated each render; runs when dialog opens or plan id changes
-  }, [open, targetPlan?.id]);
+  }, [open, targetPlan?.id, canShowPaymentFlows]);
 
   async function fetchPreview(code: string | undefined) {
-    if (!targetPlan) return;
+    if (!targetPlan || !canShowPaymentFlows) return;
     setLoading(true);
     setPreviewError(null);
     setNeedsCheckout(false);
@@ -143,7 +157,7 @@ export function UpgradePlanDialog({
   }
 
   async function confirm() {
-    if (!targetPlan) return;
+    if (!targetPlan || !canShowPaymentFlows) return;
     setConfirming(true);
     try {
       if (needsCheckout) {
@@ -191,6 +205,40 @@ export function UpgradePlanDialog({
   }
 
   if (!targetPlan) return null;
+
+  if (!canShowPaymentFlows) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Upgrade to {targetPlan.name}</DialogTitle>
+            <DialogDescription>
+              Subscriptions are managed at jointidywise.com. This app cannot take a card.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  const contactPlan = planBillingAction(targetPlan.id) === "contact";
+  const planPreview = chargePreview.data?.previews[chargePreviewKey(targetPlan.id, "monthly")];
+  const trialLine = visibleBillingLine(
+    contactPlan || !planPreview
+      ? null
+      : chargeLineFromPreview({
+          billNow: planPreview.bill_now,
+          firstChargeAt: planPreview.first_charge_at,
+          amountCents: planPreview.amount_cents_after_discounts,
+          timeZone: orgTimezone,
+        }),
+  );
+  const renewal = visibleBillingLine(
+    contactPlan ? null : renewalDisclosure(targetPlan.monthlyPrice),
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -291,6 +339,16 @@ export function UpgradePlanDialog({
             {needsCheckout ? "Continue to Stripe checkout" : `Upgrade to ${targetPlan.name}`}
           </Button>
         </DialogFooter>
+        <div className="space-y-1 text-center">
+          {trialLine && (
+            <p className="whitespace-nowrap text-xs text-muted-foreground">{trialLine}</p>
+          )}
+          {renewal && (
+            <p className="text-xs text-muted-foreground">
+              {renewal}
+            </p>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -355,6 +413,9 @@ export function DowngradePlanDialog({
   const lostFeatures = currentPlan
     ? currentPlan.features.filter((f) => !targetPlan.features.includes(f))
     : [];
+  const renewal = visibleBillingLine(
+    planBillingAction(targetPlan.id) === "contact" ? null : renewalDisclosure(targetPlan.monthlyPrice),
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -410,6 +471,11 @@ export function DowngradePlanDialog({
             Downgrade Now
           </Button>
         </DialogFooter>
+        {renewal && (
+          <p className="text-center text-xs text-muted-foreground">
+            {renewal}
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   );

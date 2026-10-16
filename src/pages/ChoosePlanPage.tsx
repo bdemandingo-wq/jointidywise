@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useSubscription } from '@/hooks/useSubscription';
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,8 @@ import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyL
 import { isCustomPriceMissing } from '@/lib/priceNotConfigured';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import { shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
+import { chargeLineFromPreview, planBillingAction, renewalDisclosure, todayChargeCopy, visibleBillingLine } from '@/lib/planBillingCopy';
+import { chargePreviewKey, useSubscriptionChargePreview } from '@/hooks/useSubscriptionChargePreview';
 import {
   hasAnswer,
   normalizeAnswers,
@@ -113,6 +116,7 @@ export default function ChoosePlanPage() {
   const location = useLocation();
   const upgradeRequested = new URLSearchParams(location.search).get('upgrade') === '1';
   const { user, loading: authLoading, signOut, checkSubscription } = useAuth();
+  const { timezone: orgTimezone } = useOrgTimezone();
   const { organization } = useOrganization();
   const { hasFullAccess, isLoading: subLoading } = useSubscription();
   const [billingInterval, setBillingInterval] = useState<Interval>('monthly');
@@ -137,6 +141,23 @@ export default function ChoosePlanPage() {
   const painPitch = pain ? PAIN_PITCH[pain] : null;
   // One redirect per click — same duplicate-session guard as PricingPage.
   const isRedirectingRef = useRef(false);
+  const orgTrialCheckout = organization?.plan_type === 'trial';
+  const chargePreview = useSubscriptionChargePreview({
+    enabled: orgTrialCheckout,
+    organizationId: organization?.id,
+    items: PUBLIC_TIERS.map((tier) => ({ plan: tier.id, interval: billingInterval })),
+  });
+  const datedPreview = Object.values(chargePreview.data?.previews ?? {}).find(
+    (row) => row && !row.bill_now && row.first_charge_at,
+  );
+  const trialDateLine = datedPreview
+    ? chargeLineFromPreview({
+        billNow: false,
+        firstChargeAt: datedPreview.first_charge_at,
+        amountCents: datedPreview.amount_cents_after_discounts,
+        timeZone: orgTimezone,
+      })
+    : null;
 
   useEffect(() => {
     const reset = () => {
@@ -356,12 +377,19 @@ export default function ChoosePlanPage() {
           </div>
         </div>
 
+        {trialDateLine && (
+          <p className="mb-6 whitespace-nowrap text-center text-xs text-muted-foreground">
+            {trialDateLine}
+          </p>
+        )}
+
         {/* Tiers */}
         <div className={cn('grid gap-6', showLifetime ? 'md:grid-cols-2 xl:grid-cols-4' : 'md:grid-cols-3')}>
           {TIERS.map((tier) => {
             const price = priceFor(tier, billingInterval);
             const busy = checkoutBusy === tier.id;
             const isRecommended = tier.id === recommendedId;
+            const chargePrice = billingInterval === 'yearly' ? tier.yearlyPrice : tier.monthlyPrice;
             return (
               <Card
                 key={tier.id}
@@ -410,6 +438,30 @@ export default function ChoosePlanPage() {
                       <>Choose {tier.name}</>
                     )}
                   </Button>
+                  {(() => {
+                    const preview = chargePreview.data?.previews[chargePreviewKey(tier.id, billingInterval)];
+                    const contactPlan = planBillingAction(tier.id) === "contact";
+                    const todayLine = visibleBillingLine(
+                      orgTrialCheckout && !contactPlan ? todayChargeCopy(preview, orgTimezone) : null,
+                    );
+                    const renewal = visibleBillingLine(
+                      contactPlan ? null : renewalDisclosure(chargePrice, billingInterval),
+                    );
+                    return (
+                      <>
+                        {todayLine ? (
+                          <p className="whitespace-nowrap text-center text-xs text-muted-foreground">
+                            {todayLine}
+                          </p>
+                        ) : null}
+                        {renewal ? (
+                          <p className="text-center text-xs text-muted-foreground">
+                            {renewal}
+                          </p>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             );

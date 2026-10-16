@@ -20,7 +20,6 @@ import { useState } from "react";
 import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 const comparisonData = [
-  { feature: "Monthly Pricing", tidywise: "$49/month", bookingkoala: "$79-$379/month", winner: "tidywise" },
   { feature: "Online Booking", tidywise: true, bookingkoala: true, winner: "tie" },
   { feature: "Smart Scheduling", tidywise: true, bookingkoala: true, winner: "tie" },
   { feature: "GPS Check-ins", tidywise: true, bookingkoala: true, winner: "tie" },
@@ -76,7 +75,7 @@ export default function CompareBookingKoala() {
     <div className="min-h-screen bg-background">
       <SEOHead 
         title="TidyWise vs BookingKoala 2026: Which Wins for Cleaners?"
-        description="Compare TIDYWISE vs BookingKoala for cleaning businesses. Payroll, P&L reports, and AI tools for $49/mo vs BookingKoala's $79–$379/mo."
+        description="Compare TIDYWISE vs BookingKoala for cleaning businesses. Basic starts at $49/mo. Payroll, P&L reports, and AI tools are on Pro at $97/mo."
         canonical="/compare/booking-koala"
         ogImage="/images/tidywise-og.png"
       />
@@ -128,7 +127,7 @@ export default function CompareBookingKoala() {
             <span className="text-primary">The Better Alternative</span>
           </h1>
           <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-3xl mx-auto">
-            Looking for a BookingKoala alternative? TIDYWISE offers <strong>automated payroll, P&L reports, and AI revenue tools</strong>—all for a flat $49/month vs BookingKoala's $79-$379/month.
+            Looking for a BookingKoala alternative? TIDYWISE Basic starts at $49/mo. <strong>Automated payroll, P&L reports, and AI revenue tools</strong> are on Pro at $97/mo.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button size="lg" className="h-12 px-8" onClick={handleStartFreeTrial}>
@@ -145,7 +144,7 @@ export default function CompareBookingKoala() {
       {/* Quick Stats */}
       <section className="py-12 px-4 sm:px-6 lg:px-8 bg-secondary/30">
         <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
             <div className="text-center">
               <div className="text-3xl font-bold text-primary">65%</div>
               <p className="text-sm text-muted-foreground">Lower Cost</p>
@@ -157,10 +156,6 @@ export default function CompareBookingKoala() {
             <div className="text-center">
               <div className="text-3xl font-bold text-primary">12+</div>
               <p className="text-sm text-muted-foreground">Extra Features</p>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-primary">4.9★</div>
-              <p className="text-sm text-muted-foreground">User Rating</p>
             </div>
           </div>
         </div>
@@ -223,9 +218,9 @@ export default function CompareBookingKoala() {
               <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
                 <DollarSign className="h-6 w-6 text-primary" />
               </div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Save $300+/Month</h3>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Plans from $49/mo</h3>
               <p className="text-muted-foreground">
-                BookingKoala Pro costs $379/month. TIDYWISE includes everything for just $49/month.
+                TIDYWISE plans start at $49/mo. Pro is $97/mo and Custom is $197/mo.
               </p>
             </div>
 
@@ -335,7 +330,7 @@ export default function CompareBookingKoala() {
             "priceCurrency": "USD",
             "priceValidUntil": "2026-12-31"
           },
-          "description": "The best BookingKoala alternative for cleaning businesses. Automated payroll, P&L reports, and flat $49/month pricing."
+          "description": "The best BookingKoala alternative for cleaning businesses. Basic is $49/mo. Automated payroll and P&L reports are on Pro at $97/mo."
         })
       }} />
     </div>

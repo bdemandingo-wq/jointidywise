@@ -170,7 +170,7 @@ export default function GPSTrackingForCleaners() {
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-6 mt-8">
               <h3 className="text-lg font-semibold text-foreground mb-2">GPS Tracking Included with TIDYWISE</h3>
               <p className="text-muted-foreground text-sm mb-4">
-                Real-time cleaner location, mileage tracking, and route optimization — all built into the same platform as your scheduling, payroll, and invoicing. Plans from $49/mo.
+                Real-time cleaner location and mileage tracking are on Pro at $97/mo, in the same platform as scheduling and invoicing. Those start at $49/mo on Basic.
               </p>
               <Button asChild><Link to="/signup">Get started →</Link></Button>
               <p className="text-sm text-muted-foreground mt-3">

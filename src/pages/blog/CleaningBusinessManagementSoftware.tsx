@@ -164,7 +164,7 @@ export default function CleaningBusinessManagementSoftware() {
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-6 mt-8">
               <h3 className="text-lg font-semibold text-foreground mb-2">TIDYWISE — All-in-One Cleaning Business Management</h3>
               <p className="text-muted-foreground text-sm mb-4">
-                Scheduling, online booking, invoicing, payroll, GPS tracking, CRM, and P&L reporting — from $49/mo, with Pro at $97/mo and Custom at $197/mo. Built specifically for cleaning businesses, no configuration required.
+                Scheduling, online booking, invoicing, and CRM from $49/mo. Payroll, GPS tracking, and P&L reporting are on Pro at $97/mo. Custom is $197/mo. Built specifically for cleaning businesses, no configuration required.
               </p>
               <Button asChild><Link to="/signup">Get started →</Link></Button>
               <p className="text-sm text-muted-foreground mt-3">

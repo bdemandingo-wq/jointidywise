@@ -43,30 +43,13 @@ test("an unpaid org trial is checkout, not the billing portal", () => {
   );
 });
 
-test("an active card-free trial is labeled Trial (Pro) even when the stored plan is free", () => {
+test("Trial (Pro) is only organizations.plan_type trial", () => {
+  assert.equal(planSectionLabel({ rawPlanType: "trial" }), "Trial (Pro)");
   assert.equal(
-    planSectionLabel({
-      rawPlanType: "free",
-      productId: "org_trial",
-      subscribed: true,
-      trialActive: true,
-    }),
-    "Trial (Pro)",
+    planSectionLabel({ rawPlanType: "free" }),
+    "Free",
   );
-  assert.equal(
-    planSectionLabel({ rawPlanType: "trial", trialActive: true }),
-    "Trial (Pro)",
-  );
-  assert.equal(planSectionLabel({ rawPlanType: "free" }), "Free");
-  assert.equal(
-    planSectionLabel({
-      rawPlanType: "pro",
-      productId: "prod_example",
-      subscribed: true,
-      trialActive: true,
-    }),
-    "Pro",
-  );
+  assert.equal(planSectionLabel({ rawPlanType: "pro" }), "Pro");
   assert.equal(planSectionLabel({ rawPlanType: "basic" }), "Basic");
 });
 

@@ -1,3 +1,4 @@
+import { readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -473,8 +474,8 @@ test("weekly signups stay hidden below the configured threshold", () => {
 });
 
 test("trusted-by uses the real organization count and hides when it is missing", () => {
-  assert.equal(trustedByLabel(131), "Trusted by 131 cleaning businesses");
-  assert.equal(trustedByLabel(1), "Trusted by 1 cleaning business");
+  assert.equal(trustedByLabel(131), "131 cleaning businesses have signed up");
+  assert.equal(trustedByLabel(1), "1 cleaning business has signed up");
   assert.equal(shouldShowTrustedBy(131), true);
   assert.equal(shouldShowTrustedBy(0), false);
   assert.equal(shouldShowTrustedBy(null), false);
@@ -495,6 +496,56 @@ test("lifetime spots use the real remaining count", () => {
   assert.equal(counters.weeklySignupMin, 15);
   assert.equal(shouldShowWeeklySignups(counters.weeklySignups, counters.weeklySignupMin), false);
   assert.equal(parseGrowthCounters({ lifetime_sold: 1 }), null);
+});
+
+function latestFunction(name: string): string {
+  const dir = new URL("../../supabase/migrations/", import.meta.url);
+  const marker = `CREATE OR REPLACE FUNCTION public.${name}`;
+  let body = "";
+  for (const file of readdirSync(dir).filter((entry) => entry.endsWith(".sql")).sort()) {
+    const sql = readFileSync(new URL(file, dir), "utf8");
+    const at = sql.lastIndexOf(marker);
+    if (at >= 0) body = sql.slice(at);
+  }
+  return body;
+}
+
+test("organization_count drops the owner orgs and keeps the existing test-org rule", () => {
+  const counters = latestFunction("get_public_growth_counters");
+  const detector = latestFunction("growth_org_is_public");
+  const signupCount = [
+    "COUNT(*) FILTER (",
+    "      WHERE o.id IS DISTINCT FROM 'e95b92d0-7099-408e-a773-e4407b34f8b4'::uuid",
+    "        AND o.name IS DISTINCT FROM 'Clean Collective'",
+    "    )::int",
+  ].join("\n");
+  assert.equal(counters.includes("'organization_count', orgs"), true);
+  assert.equal(counters.includes(signupCount), true);
+  assert.equal(counters.includes("WHERE public.growth_org_is_public(o.id, false)"), true);
+  assert.equal(
+    counters.includes("COUNT(*) FILTER (WHERE o.created_at > now() - interval '7 days')::int"),
+    true,
+  );
+  assert.equal(counters.includes("o.name IS DISTINCT FROM 'TIDYWISE'"), false);
+
+  assert.equal(detector.includes("coalesce(ops.demo_mode_enabled, false) = false"), true);
+  assert.equal(
+    detector.includes("o.name !~* '(^|[^a-z])(test|qa|demo|sandbox)([^a-z]|$)'"),
+    true,
+  );
+  assert.equal(detector.includes("coalesce(o.slug, '') !~* '^(test|qa|demo|sandbox)'"), true);
+  assert.equal(
+    detector.includes("coalesce(owner.email, '') !~* '(@tidywise1\\.com$|^applereview@|@example\\.com$|\\+(qa|test))'"),
+    true,
+  );
+  assert.equal(
+    detector.includes("coalesce(owner.email, '') <> 'support@tidywisecleaning.com'"),
+    true,
+  );
+
+  const client = readFileSync(new URL("./publicActivity.ts", import.meta.url), "utf8");
+  assert.equal(client.includes("e95b92d0-7099-408e-a773-e4407b34f8b4"), false);
+  assert.equal(client.includes("Clean Collective"), false);
 });
 
 test("an older counter payload does not invent an organization count", () => {

@@ -25,7 +25,6 @@ import { useState } from "react";
 import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 const comparisonData = [
-  { feature: "Monthly Pricing", tidywise: "$49/month", jobber: "$69-$349/month", winner: "tidywise" },
   { feature: "Online Booking", tidywise: true, jobber: true, winner: "tie" },
   { feature: "Smart Scheduling", tidywise: true, jobber: true, winner: "tie" },
   { feature: "GPS Check-ins", tidywise: true, jobber: true, winner: "tie" },
@@ -43,13 +42,13 @@ const comparisonData = [
 
 const testimonials = [
   {
-    quote: "Switched from Jobber and saved $200/month. TIDYWISE has everything we needed plus automated payroll.",
+    quote: "Switched from Jobber. TIDYWISE has everything we needed plus automated payroll.",
     author: "Marcus T.",
     role: "CleanPro Services",
     rating: 5
   },
   {
-    quote: "Jobber's pricing kept going up. TIDYWISE is half the cost with more features for cleaning businesses.",
+    quote: "TIDYWISE has more of the features our cleaning business needed.",
     author: "Lisa K.",
     role: "Sparkle Queens Cleaning",
     rating: 5
@@ -81,7 +80,7 @@ export default function CompareJobber() {
     <div className="min-h-screen bg-background">
       <SEOHead 
         title="TidyWise vs Jobber 2026: Best Cleaning Business Software?"
-        description="Compare TIDYWISE vs Jobber for cleaning businesses. Automated payroll, P&L reports, and $49/mo pricing vs Jobber's $69–$349/mo."
+        description="Compare TIDYWISE vs Jobber for cleaning businesses. Basic starts at $49/mo. Automated payroll and P&L reports are on Pro at $97/mo."
         canonical="/compare/jobber"
         ogImage="/images/tidywise-og.png"
       />
@@ -133,7 +132,7 @@ export default function CompareJobber() {
             <span className="text-primary">The Best Jobber Alternative</span>
           </h1>
           <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-3xl mx-auto">
-            Tired of Jobber's rising prices and limited cleaning features? TIDYWISE offers <strong>automated payroll, P&L reports, and loyalty programs</strong>—all for a flat $49/month. Compare the features and see why cleaning businesses are switching.
+            TIDYWISE Basic starts at $49/mo. <strong>Automated payroll, P&L reports, and loyalty programs</strong> are on Pro at $97/mo. Compare the features and see why cleaning businesses are switching.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button size="lg" className="h-12 px-8" onClick={handleStartFreeTrial}>
@@ -150,7 +149,7 @@ export default function CompareJobber() {
       {/* Quick Stats */}
       <section className="py-12 px-4 sm:px-6 lg:px-8 bg-secondary/30">
         <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
             <div className="text-center">
               <div className="text-3xl font-bold text-primary">50%</div>
               <p className="text-sm text-muted-foreground">Lower Cost</p>
@@ -162,10 +161,6 @@ export default function CompareJobber() {
             <div className="text-center">
               <div className="text-3xl font-bold text-primary">10+</div>
               <p className="text-sm text-muted-foreground">Extra Features</p>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-primary">4.9★</div>
-              <p className="text-sm text-muted-foreground">User Rating</p>
             </div>
           </div>
         </div>
@@ -228,9 +223,9 @@ export default function CompareJobber() {
               <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
                 <DollarSign className="h-6 w-6 text-primary" />
               </div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Save $200+/Month</h3>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Plans from $49/mo</h3>
               <p className="text-muted-foreground">
-                Jobber's Grow plan costs $349/month. TIDYWISE gives you more features for just $49/month.
+                TIDYWISE plans start at $49/mo. Pro is $97/mo and Custom is $197/mo.
               </p>
             </div>
 
@@ -340,7 +335,7 @@ export default function CompareJobber() {
             "priceCurrency": "USD",
             "priceValidUntil": "2026-12-31"
           },
-          "description": "The best Jobber alternative for cleaning businesses. Automated payroll, P&L reports, and flat $49/month pricing."
+          "description": "The best Jobber alternative for cleaning businesses. Basic is $49/mo. Automated payroll and P&L reports are on Pro at $97/mo."
         })
       }} />
     </div>

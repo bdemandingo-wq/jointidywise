@@ -20,7 +20,6 @@ import { useState } from "react";
 import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 const comparisonData = [
-  { feature: "Monthly Pricing", tidywise: "$49/month", housecallpro: "$59-$199/month", winner: "tidywise" },
   { feature: "Online Booking", tidywise: true, housecallpro: true, winner: "tie" },
   { feature: "Smart Scheduling", tidywise: true, housecallpro: true, winner: "tie" },
   { feature: "GPS Check-ins", tidywise: true, housecallpro: true, winner: "tie" },
@@ -44,7 +43,7 @@ const testimonials = [
     rating: 5
   },
   {
-    quote: "Saved $150/month switching from Housecall Pro. Plus I finally got real P&L reports.",
+    quote: "Switched from Housecall Pro. I finally got real P&L reports.",
     author: "Robert H.",
     role: "CleanSweep Services",
     rating: 5
@@ -76,7 +75,7 @@ export default function CompareHousecallPro() {
     <div className="min-h-screen bg-background">
       <SEOHead 
         title="TidyWise vs Housecall Pro 2026: Best Cleaning Software?"
-        description="Compare TIDYWISE vs Housecall Pro for cleaning businesses. Cleaning-specific features, payroll, and $49/mo pricing vs Housecall Pro's $59–$199/mo."
+        description="Compare TIDYWISE vs Housecall Pro for cleaning businesses. Basic starts at $49/mo. Payroll is on Pro at $97/mo."
         canonical="/compare/housecall-pro"
         ogImage="/images/tidywise-og.png"
       />
@@ -127,7 +126,7 @@ export default function CompareHousecallPro() {
             <span className="text-primary">Built for Cleaning, Not Plumbing</span>
           </h1>
           <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-3xl mx-auto">
-            Housecall Pro was built for plumbers and HVAC techs. TidyWise is built specifically for cleaning businesses with <strong>square footage pricing, automated payroll, and P&L reports</strong>—all for a flat $49/month.
+            Housecall Pro was built for plumbers and HVAC techs. TidyWise is built specifically for cleaning businesses. Square footage pricing is on Basic at $49/month. <strong>Automated payroll and P&L reports</strong> are on Pro at $97/month.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button size="lg" className="h-12 px-8" onClick={handleStartFreeTrial}>
@@ -144,7 +143,7 @@ export default function CompareHousecallPro() {
       {/* Quick Stats */}
       <section className="py-12 px-4 sm:px-6 lg:px-8 bg-secondary/30">
         <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
             <div className="text-center">
               <div className="text-3xl font-bold text-primary">60%</div>
               <p className="text-sm text-muted-foreground">Lower Cost</p>
@@ -156,10 +155,6 @@ export default function CompareHousecallPro() {
             <div className="text-center">
               <div className="text-3xl font-bold text-primary">10+</div>
               <p className="text-sm text-muted-foreground">Cleaning Features</p>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-primary">4.9★</div>
-              <p className="text-sm text-muted-foreground">User Rating</p>
             </div>
           </div>
         </div>
@@ -222,9 +217,9 @@ export default function CompareHousecallPro() {
               <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
                 <DollarSign className="h-6 w-6 text-primary" />
               </div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Save $100+/Month</h3>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Plans from $49/mo</h3>
               <p className="text-muted-foreground">
-                Housecall Pro's Pro plan costs $199/month. TidyWise gives you more cleaning features for just $49/month.
+                TIDYWISE plans start at $49/mo. Pro is $97/mo and Custom is $197/mo.
               </p>
             </div>
 
@@ -334,7 +329,7 @@ export default function CompareHousecallPro() {
             "priceCurrency": "USD",
             "priceValidUntil": "2027-12-31"
           },
-          "description": "The best Housecall Pro alternative for cleaning businesses. Cleaning-specific features, automated payroll, and flat $49/month pricing."
+          "description": "The best Housecall Pro alternative for cleaning businesses. Basic is $49/mo. Automated payroll is on Pro at $97/mo."
         })
       }} />
     </div>

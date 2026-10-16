@@ -25,7 +25,12 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { ensureOnboardingCoupon, type OnboardingCouponOffer } from "../_shared/onboarding-coupons.ts";
 import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
-import { stripeTrialEndUnix } from "../_shared/trial-end.ts";
+import {
+  CHECKOUT_MEMBERSHIP_SELECT,
+  chooseCheckoutOrg,
+  lookupCheckoutDiscount,
+  subscriptionChargeTiming,
+} from "../_shared/subscription-charge.ts";
 import { billingPaymentMethodConfiguration, billingSecretKey } from "../_shared/billing-stripe.ts";
 
 const corsHeaders = {
@@ -157,36 +162,17 @@ serve(async (req) => {
       // different Stripe trial than the dashboard clock.
       const { data: membershipRows } = await accessAdmin
         .from("org_memberships")
-        .select("role, organizations(id, plan_type, grandfathered_lifetime)")
+        .select(CHECKOUT_MEMBERSHIP_SELECT)
         .eq("user_id", user.id);
-      type MembershipOrg = { id?: string; plan_type?: string; grandfathered_lifetime?: boolean };
-      const memberships = (membershipRows ?? []) as Array<{
-        role?: string;
-        organizations?: MembershipOrg | MembershipOrg[] | null;
-      }>;
-      const orgFrom = (row: (typeof memberships)[number]): MembershipOrg | null => {
-        const value = row.organizations;
-        if (!value) return null;
-        return Array.isArray(value) ? (value[0] ?? null) : value;
-      };
       const requestedOrgId = typeof bodyData.organization_id === "string"
         ? bodyData.organization_id.trim()
         : typeof bodyData.organizationId === "string"
           ? bodyData.organizationId.trim()
           : "";
-      // The active org the client is looking at wins when this user is a
-      // member of it. Otherwise keep the previous fallback: a trial org,
-      // then an owner/admin membership, then the first row.
-      const requestedMembership = requestedOrgId
-        ? memberships.find((row) => orgFrom(row)?.id === requestedOrgId)
-        : undefined;
-      const trialMembership = memberships.find((row) => orgFrom(row)?.plan_type === "trial");
-      const ownerMembership = memberships.find((row) => row.role === "owner" || row.role === "admin");
-      const chosen = requestedMembership ?? trialMembership ?? ownerMembership ?? memberships[0];
-      const org = chosen ? orgFrom(chosen) : null;
-      referredOrgId = org?.id ?? null;
-      orgPlanType = org?.plan_type ?? null;
-      if (org?.grandfathered_lifetime || org?.plan_type === "lifetime") {
+      const chosenOrg = chooseCheckoutOrg(membershipRows ?? [], requestedOrgId);
+      referredOrgId = chosenOrg.referredOrgId;
+      orgPlanType = chosenOrg.orgPlanType;
+      if (chosenOrg.lifetime) {
 
         return new Response(
           JSON.stringify({
@@ -290,46 +276,20 @@ serve(async (req) => {
     // The coupon is `repeating`/`duration_in_months: 1`, NOT `once`: with a
     // A trial Stripe issues a $0 invoice at creation, and a `once` coupon
     // could be consumed by it, leaving nothing for the first real charge.
-    let referralDiscount: { coupon: string }[] | undefined;
-    let referralRowId: string | null = null;
-    let winbackOffer: OnboardingCouponOffer | null = null;
-    try {
-      const couponId = Deno.env.get("REFERRED_FIRST_MONTH_COUPON");
-      if (couponId && referredOrgId) {
-        const { data: ref } = await accessAdmin
-          .from("org_referrals")
-          .select("id, status, referred_discount_applied_at, referred_first_payment_at")
-          .eq("referred_org_id", referredOrgId)
-          .in("status", ["pending", "qualified"])
-          .maybeSingle();
-        // Gate on an actual PAYMENT, not on a session having been created.
-        // Abandoned checkouts (tab closed, card declined, "cancel" back to
-        // /pricing) used to stamp referred_discount_applied_at and silently
-        // burn the 50% coupon on the first attempt.
-        if (ref && !ref.referred_first_payment_at) {
-          referralDiscount = [{ coupon: couponId }];
-          referralRowId = ref.id;
-        }
-      }
-    } catch (e) {
-      // Never block checkout over a discount lookup.
-      console.error("[referral] discount lookup failed:", e);
-    }
-
-    if (user) {
-      try {
-        const { data: winback } = await accessAdmin
-          .from("onboarding_winback")
-          .select("offer_used")
-          .eq("user_id", user.id)
-          .maybeSingle();
-        if (winback?.offer_used === "half_off_first_month" || winback?.offer_used === "first_month_free") {
-          winbackOffer = winback.offer_used;
-        }
-      } catch (e) {
-        console.error("[winback] lookup failed:", e);
-      }
-    }
+    // Gate on an actual PAYMENT, not on a session having been created.
+    // Abandoned checkouts used to stamp referred_discount_applied_at and
+    // silently burn the 50% coupon on the first attempt. The lookup itself
+    // is shared with preview-subscription-charge and does not write.
+    const discountLookup = await lookupCheckoutDiscount(accessAdmin, {
+      userId: user?.id ?? null,
+      referredOrgId,
+      referralCouponId: Deno.env.get("REFERRED_FIRST_MONTH_COUPON") ?? null,
+    });
+    let referralDiscount: { coupon: string }[] | undefined = discountLookup.referral
+      ? [{ coupon: discountLookup.referral.couponId }]
+      : undefined;
+    let referralRowId: string | null = discountLookup.referral?.referralRowId ?? null;
+    let winbackOffer: OnboardingCouponOffer | null = discountLookup.winbackOffer;
 
     let checkoutDiscounts = referralDiscount;
     if (winbackOffer) {
@@ -356,24 +316,23 @@ serve(async (req) => {
       trial_settings: { end_behavior: { missing_payment_method: "cancel" } },
     };
 
+    let trialEndsAt: string | null = null;
     if (user && orgPlanType === "trial") {
-      paymentMethodCollection = "always";
       const { data: trialProfile } = await accessAdmin
         .from("profiles")
         .select("trial_ends_at")
         .eq("id", user.id)
         .maybeSingle();
-      const trialEnd = stripeTrialEndUnix(trialProfile?.trial_ends_at);
-      if (trialEnd != null) {
-        subscriptionData.trial_end = trialEnd;
-      }
-    } else if (user && orgPlanType && orgPlanType !== "trial") {
-      paymentMethodCollection = "always";
-      subscriptionData.trial_period_days = 14;
-    } else {
-      paymentMethodCollection = "if_required";
-      subscriptionData.trial_period_days = 30;
+      trialEndsAt = trialProfile?.trial_ends_at ?? null;
     }
+    const timing = subscriptionChargeTiming({
+      hasUser: Boolean(user),
+      orgPlanType,
+      trialEndsAt,
+    });
+    paymentMethodCollection = timing.paymentMethodCollection;
+    if (timing.trialEndUnix != null) subscriptionData.trial_end = timing.trialEndUnix;
+    if (timing.trialPeriodDays != null) subscriptionData.trial_period_days = timing.trialPeriodDays;
 
     const paymentMethodConfiguration = billingPaymentMethodConfiguration();
     const publishableKey = readPublishableKey();

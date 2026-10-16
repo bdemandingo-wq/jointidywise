@@ -105,31 +105,22 @@ export default function PayrollSoftwareForCleaners() {
             </p>
             <p className="text-muted-foreground">
               <strong className="text-foreground">Best for:</strong> Cleaning businesses that want payroll, scheduling, CRM, and invoicing in one place.<br />
-              <strong className="text-foreground">Price:</strong> Plans from $49/mo.
+              <strong className="text-foreground">Price:</strong> Pro at $97/mo. Payroll is not included on Basic ($49/mo).
             </p>
 
             <h3 className="text-xl font-semibold mt-6">2. Gusto — Best for Full-Service Payroll</h3>
             <p className="text-muted-foreground">
               Gusto is a standalone payroll platform with strong compliance and benefits management. It handles W-2 and 1099 workers, tax filings, and direct deposit well. The downside for cleaning businesses: it doesn't integrate with cleaning-specific scheduling software natively, so you'll be entering hours manually or paying for a third-party integration.
             </p>
-            <p className="text-muted-foreground">
-              <strong className="text-foreground">Price:</strong> Starting at $40/month + $6/employee/month.
-            </p>
 
             <h3 className="text-xl font-semibold mt-6">3. QuickBooks Payroll — Best for Accounting Integration</h3>
             <p className="text-muted-foreground">
               If you're already using QuickBooks for accounting, their payroll add-on is a natural extension. It handles tax calculations and filings reliably. But like Gusto, it's not built for variable per-job wage structures — you'll need to manually input what each cleaner earned each pay period.
             </p>
-            <p className="text-muted-foreground">
-              <strong className="text-foreground">Price:</strong> Starting at $45/month + $6/employee/month.
-            </p>
 
             <h3 className="text-xl font-semibold mt-6">4. Housecall Pro + Gusto — Best Integration Combo</h3>
             <p className="text-muted-foreground">
               Housecall Pro integrates with Gusto for payroll. If you're already on Housecall Pro, this is a cleaner option than manually moving data. Still requires separate subscriptions and the integration has limitations.
-            </p>
-            <p className="text-muted-foreground">
-              <strong className="text-foreground">Price:</strong> Housecall Pro starts at $65/month; Gusto is additional.
             </p>
 
             <h2 className="text-2xl font-bold mt-8">How TIDYWISE Payroll Works</h2>
@@ -164,7 +155,7 @@ export default function PayrollSoftwareForCleaners() {
               If you're running payroll manually in a spreadsheet, you're losing hours every two weeks — and introducing errors. The best payroll software for your cleaning business depends on your size and how integrated you want your tools to be.
             </p>
             <p className="text-muted-foreground">
-              For most cleaning companies under 20 cleaners, TIDYWISE covers payroll, scheduling, and invoicing in one affordable platform (plans from $49/mo). Larger operations or those with complex tax situations may want to add Gusto for full-service compliance support.
+              For most cleaning companies under 20 cleaners, TIDYWISE covers scheduling and invoicing on Basic at $49/mo, and payroll on Pro at $97/mo. Larger operations or those with complex tax situations may want to add Gusto for full-service compliance support.
             </p>
 
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-6 mt-8">

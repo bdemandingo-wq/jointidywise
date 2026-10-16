@@ -1,14 +1,12 @@
 /**
  * useLifetimeCounter – returns the live state of the founding lifetime
- * offer (how many of the 100 spots are claimed, sold-out flag).
+ * offer (how many of LIFETIME_SPOT_CAP spots are claimed, sold-out flag).
  *
- * Source of truth: the `organizations` table. We count rows where
- * `plan_type = 'lifetime'` via the SECURITY DEFINER RPC
- * `get_lifetime_spots_remaining()` so anonymous visitors on the
- * landing/pricing page can read the live number without exposing the
- * organizations table publicly. The reconcile-checkout-session edge
- * function flips an org's `plan_type` to `'lifetime'` the moment a
- * Lifetime checkout completes, so the counter ticks down in real time.
+ * Source of truth: get_lifetime_spots_remaining(). The cap is
+ * lifetime_offer_state.total_spots. Sold is the count of
+ * lifetime_access_purchases, not lifetime_offer_state.sold_spots.
+ * Anonymous visitors on the landing and pricing pages read that RPC
+ * so the organizations table stays private.
  *
  * Cached via React Query with a 30s stale time so the same data isn't
  * re-fetched on every mount.
@@ -16,6 +14,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { LIFETIME_SPOT_CAP } from '@/lib/publicPlans';
 
 export interface LifetimeState {
   total: number;
@@ -27,12 +26,10 @@ export interface LifetimeState {
   loading: boolean;
 }
 
-const TOTAL_SPOTS = 100;
-
 const DEFAULT: LifetimeState = {
-  total: TOTAL_SPOTS,
+  total: LIFETIME_SPOT_CAP,
   sold: 0,
-  spotsLeft: TOTAL_SPOTS,
+  spotsLeft: LIFETIME_SPOT_CAP,
   soldOut: false,
   unavailable: false,
   loading: true,
@@ -51,7 +48,7 @@ async function fetchLifetimeState(): Promise<LifetimeState> {
   }
 
   const row = data[0];
-  const total = row.total ?? TOTAL_SPOTS;
+  const total = row.total ?? LIFETIME_SPOT_CAP;
   const sold = row.sold ?? 0;
   const remaining = row.remaining ?? Math.max(0, total - sold);
   return {

@@ -12,6 +12,7 @@ import {
   type GeneratedBlog,
 } from "../_shared/blogJson.ts";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { LIFETIME_SPOT_CAP } from "../_shared/lifetime-cap.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
 import { hasInternalBrandLink } from "../_shared/blogLinks.ts";
 import {
@@ -148,8 +149,8 @@ Depth over length. Never pad. Cut any sentence that doesn't teach something.
 
 FACTS YOU MUST NOT INVENT. These are the only correct values. If a fact you want to state is not on this list, leave it out rather than guessing:
   - Free trial: 30 days of Pro, no card. Never any other number for new signups. Existing trials keep the end date already on the account.
-  - Plans: Basic $49/month, Pro $97/month, Custom $197/month. Yearly billing includes 2 months free.
-  - Lifetime: one-time $300, limited to the first 50 customers.
+  - Plans: Basic $49/mo, Pro $97/mo, Custom $197/mo. Yearly billing includes 2 months free.
+  - Lifetime: one-time $300, limited to the first ${LIFETIME_SPOT_CAP} customers.
   - There is NO $50 tier, NO free-forever tier, and NO money-back guarantee. All payments are final and non-refundable per our Terms of Service.
   - Never state a price, trial length, discount or guarantee for TidyWise that does not appear above.
 You MAY state competitors' pricing where you are confident, but attribute it and prefer ranges over precise figures you cannot verify.

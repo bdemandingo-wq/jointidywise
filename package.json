@@ -18,7 +18,7 @@
     "check:tokens": "node scripts/check-color-pairs.mjs",
     "prebuild": "node scripts/check-openphone-messages-endpoint.mjs && node scripts/check-ignored-sources.mjs && node scripts/check-data-slot-hooks.mjs && node scripts/check-color-pairs.mjs && node scripts/check-pv-tokens.mjs && npm run typecheck",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "test:plan-billing": "node --experimental-strip-types --test src/lib/planBillingCopy.test.ts src/lib/orgBundleFields.test.ts src/lib/dashboardAccess.test.ts",
+    "test:plan-billing": "node --experimental-strip-types --test src/lib/planBillingCopy.test.ts src/lib/orgBundleFields.test.ts src/lib/dashboardAccess.test.ts src/lib/publicActivity.test.ts",
     "check:sources": "node scripts/check-ignored-sources.mjs",
     "check:slots": "node scripts/check-data-slot-hooks.mjs"
   },
