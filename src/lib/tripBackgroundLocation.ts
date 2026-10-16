@@ -19,46 +19,78 @@ interface TripBackgroundLocationPlugin {
     supabaseUrl: string;
     supabaseAnonKey: string;
     writeIntervalSeconds: number;
-  }): Promise<void>;
+    destinationLat?: number;
+    destinationLng?: number;
+    bookingId?: string;
+    staffId?: string;
+  }): Promise<{ epoch?: number }>;
   stop(): Promise<void>;
   addListener(
     eventName: 'location',
-    listenerFunc: (event: { latitude?: number; longitude?: number }) => void,
+    listenerFunc: (event: TripNativeEvent & { latitude?: number; longitude?: number }) => void,
   ): Promise<PluginListenerHandle>;
   addListener(
     eventName: 'authorization',
-    listenerFunc: (event: { status?: string }) => void,
+    listenerFunc: (event: TripNativeEvent & { status?: string }) => void,
   ): Promise<PluginListenerHandle>;
   addListener(
     eventName: 'timeout',
-    listenerFunc: () => void,
+    listenerFunc: (event: TripNativeEvent) => void,
   ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: 'arrival',
+    listenerFunc: (event: TripNativeEvent) => void,
+  ): Promise<PluginListenerHandle>;
+}
+
+interface TripNativeEvent {
+  reason?: string;
+  sms?: string;
+  epoch?: number;
+  trackingId?: string;
 }
 
 const TripBackgroundLocation = registerPlugin<TripBackgroundLocationPlugin>('TripBackgroundLocation');
 
 type PositionHandler = (latitude: number, longitude: number) => void;
 type AuthorizationHandler = (auth: TripLocationAuth) => void;
-type TimeoutHandler = () => void;
+export type NativeStopReason = 'arrived' | 'closed' | 'timeout';
+type NativeStopHandler = (reason: NativeStopReason, sms?: string) => void;
 
 let generation = 0;
 let started = false;
+let acceptedEpoch: number | null = null;
+let activeTrackingId: string | null = null;
 let idleStopStarted = false;
 let idleStop: Promise<void> = Promise.resolve();
 let positionHandler: PositionHandler | null = null;
 let authorizationHandler: AuthorizationHandler | null = null;
-let timeoutHandler: TimeoutHandler | null = null;
+let nativeStopHandler: NativeStopHandler | null = null;
 let locationListener: PluginListenerHandle | null = null;
 let authorizationListener: PluginListenerHandle | null = null;
 let timeoutListener: PluginListenerHandle | null = null;
+let arrivalListener: PluginListenerHandle | null = null;
+
+function acceptsNativeEvent(event: TripNativeEvent | undefined): boolean {
+  if (typeof event?.epoch === 'number' && acceptedEpoch != null && event.epoch !== acceptedEpoch) return false;
+  if (event?.trackingId && activeTrackingId && event.trackingId !== activeTrackingId) return false;
+  return true;
+}
+
+function nativeStopReason(value: string | undefined, fallback: NativeStopReason): NativeStopReason {
+  if (value === 'arrived' || value === 'closed' || value === 'timeout') return value;
+  return fallback;
+}
 
 async function removeListeners(): Promise<void> {
   const location = locationListener;
   const authorization = authorizationListener;
   const timeout = timeoutListener;
+  const arrival = arrivalListener;
   locationListener = null;
   authorizationListener = null;
   timeoutListener = null;
+  arrivalListener = null;
   if (location) {
     try { await location.remove(); } catch { /* already gone */ }
   }
@@ -67,6 +99,9 @@ async function removeListeners(): Promise<void> {
   }
   if (timeout) {
     try { await timeout.remove(); } catch { /* already gone */ }
+  }
+  if (arrival) {
+    try { await arrival.remove(); } catch { /* already gone */ }
   }
 }
 
@@ -103,6 +138,10 @@ export interface TripBackgroundWriteTarget {
   trackingId: string;
   supabaseUrl: string;
   supabaseAnonKey: string;
+  destinationLat?: number;
+  destinationLng?: number;
+  bookingId?: string;
+  staffId?: string;
 }
 
 /**
@@ -114,48 +153,78 @@ export interface TripBackgroundWriteTarget {
 export async function startTripBackgroundUpdates(
   onPosition: PositionHandler,
   onAuthorization?: AuthorizationHandler,
-  onTimeout?: TimeoutHandler,
+  onNativeStop?: NativeStopHandler,
   maxDurationSeconds?: number,
   writeTarget?: TripBackgroundWriteTarget,
 ): Promise<number> {
+  const nextTrackingId = writeTarget?.trackingId ?? '';
+  if (started && activeTrackingId && nextTrackingId && activeTrackingId !== nextTrackingId) {
+    throw new Error('A trip watcher is already running.');
+  }
   const token = ++generation;
   await idleStop;
   if (token !== generation) return token;
   positionHandler = onPosition;
   authorizationHandler = onAuthorization ?? null;
-  timeoutHandler = onTimeout ?? null;
+  nativeStopHandler = onNativeStop ?? null;
 
-  if (!started) {
+  if (started) return token;
+
+  const lat = writeTarget?.destinationLat;
+  const lng = writeTarget?.destinationLng;
+  const hasDestination = typeof lat === 'number' && Number.isFinite(lat)
+    && typeof lng === 'number' && Number.isFinite(lng);
+
+  try {
+    // start clears retained events. Listeners attach after that so a
+    // timeout or arrival from the previous trip is not replayed.
+    await removeListeners();
+    const startedResult = await TripBackgroundLocation.start({
+      distanceFilter: TRIP_DISTANCE_FILTER_METERS,
+      maxDurationSeconds: maxDurationSeconds ?? TRIP_MAX_DURATION_MS / 1000,
+      trackingId: nextTrackingId,
+      supabaseUrl: writeTarget?.supabaseUrl ?? '',
+      supabaseAnonKey: writeTarget?.supabaseAnonKey ?? '',
+      writeIntervalSeconds: NATIVE_WRITE_INTERVAL_SECONDS,
+      ...(hasDestination ? { destinationLat: lat, destinationLng: lng } : {}),
+      bookingId: writeTarget?.bookingId ?? '',
+      staffId: writeTarget?.staffId ?? '',
+    });
+    if (token !== generation) {
+      try { await TripBackgroundLocation.stop(); } catch { /* start lost the race with stop */ }
+      return token;
+    }
+    acceptedEpoch = typeof startedResult?.epoch === 'number' ? startedResult.epoch : null;
+    activeTrackingId = nextTrackingId || null;
     locationListener = await TripBackgroundLocation.addListener('location', (event) => {
+      if (!acceptsNativeEvent(event)) return;
       if (typeof event?.latitude !== 'number' || typeof event?.longitude !== 'number') return;
       positionHandler?.(event.latitude, event.longitude);
     });
     authorizationListener = await TripBackgroundLocation.addListener('authorization', (event) => {
+      if (!acceptsNativeEvent(event)) return;
       authorizationHandler?.(classifyTripAuth(event?.status));
     });
-    timeoutListener = await TripBackgroundLocation.addListener('timeout', () => {
-      timeoutHandler?.();
+    timeoutListener = await TripBackgroundLocation.addListener('timeout', (event) => {
+      if (!acceptsNativeEvent(event)) return;
+      nativeStopHandler?.(nativeStopReason(event?.reason, 'timeout'), event?.sms);
     });
-    try {
-      await TripBackgroundLocation.start({
-        distanceFilter: TRIP_DISTANCE_FILTER_METERS,
-        maxDurationSeconds: maxDurationSeconds ?? TRIP_MAX_DURATION_MS / 1000,
-        trackingId: writeTarget?.trackingId ?? '',
-        supabaseUrl: writeTarget?.supabaseUrl ?? '',
-        supabaseAnonKey: writeTarget?.supabaseAnonKey ?? '',
-        writeIntervalSeconds: NATIVE_WRITE_INTERVAL_SECONDS,
-      });
-      started = true;
-    } catch (err) {
-      started = false;
-      if (token === generation) {
-        positionHandler = null;
-        authorizationHandler = null;
-        timeoutHandler = null;
-      }
-      await removeListeners();
-      throw err;
+    arrivalListener = await TripBackgroundLocation.addListener('arrival', (event) => {
+      if (!acceptsNativeEvent(event)) return;
+      nativeStopHandler?.('arrived', event?.sms);
+    });
+    started = true;
+  } catch (err) {
+    started = false;
+    acceptedEpoch = null;
+    activeTrackingId = null;
+    if (token === generation) {
+      positionHandler = null;
+      authorizationHandler = null;
+      nativeStopHandler = null;
     }
+    await removeListeners();
+    throw err;
   }
 
   return token;
@@ -166,7 +235,9 @@ export async function stopTripBackgroundUpdates(token: number): Promise<void> {
   generation += 1;
   positionHandler = null;
   authorizationHandler = null;
-  timeoutHandler = null;
+  nativeStopHandler = null;
+  acceptedEpoch = null;
+  activeTrackingId = null;
   started = false;
   await removeListeners();
   try {

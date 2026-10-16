@@ -406,15 +406,35 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       if (transition.stopBackground) {
         void releaseBackgroundWatcher().finally(() => { void startForegroundWatch(); });
       }
-    }, () => {
+    }, (reason, sms) => {
+      if (reason === 'arrived') {
+        // Native already called send-arrival-sms. Retry from JS only when
+        // that call failed. The function dedupes a second success.
+        if (sms === 'failed') {
+          void fireArrival('native');
+          return;
+        }
+        arrivedRef.current = true;
+        setHasArrived(true);
+        void haltWatchRef.current(true, 'arrival');
+        return;
+      }
+      if (reason === 'closed') {
+        void stopTrackingRef.current('closed');
+        return;
+      }
       void stopTrackingRef.current('timeout');
     }, backgroundDurationSeconds(), {
       trackingId: trackingIdRef.current ?? '',
       supabaseUrl: SUPABASE_PUBLIC_URL,
       supabaseAnonKey: SUPABASE_PUBLIC_ANON_KEY,
+      destinationLat: destCoordsRef.current?.lat,
+      destinationLng: destCoordsRef.current?.lng,
+      bookingId,
+      staffId,
     });
     backgroundTokenRef.current = token;
-  }, [releaseBackgroundWatcher, startForegroundWatch]);
+  }, [bookingId, staffId, fireArrival, releaseBackgroundWatcher, startForegroundWatch]);
 
   const startWatch = useCallback(async () => {
     if (watchModeRef.current === 'background') {

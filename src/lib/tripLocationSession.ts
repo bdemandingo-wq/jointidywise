@@ -22,7 +22,7 @@ export const FOREGROUND_LOCATION_SHARE_BANNER =
   'Sharing your location with your company admins and the customer while this screen is open. Sharing pauses if you leave the app.';
 
 export const BACKGROUND_LOCATION_SHARE_BANNER =
-  'Sharing your location with your company admins and the customer until you arrive or the job starts, even with the app closed.';
+  'Sharing your location with your company admins and the customer while your trip is active, even if your phone is locked, until you arrive, the job ends, or after 3 hours.';
 
 export type TripPlatform = 'ios' | 'android' | 'web';
 
@@ -42,6 +42,7 @@ export type TripStopReason =
   | 'stop_tracking'
   | 'job_finished'
   | 'consent_revoked'
+  | 'closed'
   | 'unmount'
   | 'timeout';
 

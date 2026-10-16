@@ -29,6 +29,7 @@ const STOP_REASONS: TripStopReason[] = [
   'stop_tracking',
   'job_finished',
   'consent_revoked',
+  'closed',
   'unmount',
   'timeout',
 ];
@@ -238,7 +239,10 @@ test('the pause banner stays unless iOS background sharing is active', () => {
   assert.equal(locationShareBanner('ios', true), BACKGROUND_LOCATION_SHARE_BANNER);
   assert.equal(/pauses if you leave the app/.test(BACKGROUND_LOCATION_SHARE_BANNER), false);
   assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /customer/);
-  assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /even with the app closed/);
+  assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /while your trip is active, even if your phone is locked/);
+  assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /job ends/);
+  assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /3 hours/);
+  assert.equal(/even with the app closed/.test(BACKGROUND_LOCATION_SHARE_BANNER), false);
 });
 
 test('the hook starts background updates on the shared write path and stops them on every stop', () => {
@@ -279,10 +283,34 @@ test('the hook starts background updates on the shared write path and stops them
   assert.match(swift, /showsBackgroundLocationIndicator = true/);
   assert.match(swift, /3 \* 60 \* 60/);
   assert.match(swift, /notifyListeners\("timeout"/);
+  assert.match(swift, /notifyListeners\("arrival"/);
+  assert.match(swift, /"reason": "timeout"/);
+  assert.match(swift, /"reason": "closed"/);
+  assert.match(swift, /"reason": "arrived"/);
+  assert.match(swift, /functions\/v1\/send-arrival-sms/);
+  assert.match(swift, /arrived_at/);
+  assert.match(swift, /distance\(from: destination\)/);
+  assert.match(swift, /arrivalRadius: CLLocationDistance = 100/);
+  assert.match(swift, /destinationLat/);
+  assert.match(swift, /ALREADY_RUNNING/);
+  assert.match(swift, /retainedEventArguments = \[:\]/);
+  assert.match(swift, /heartbeatInterval: TimeInterval = 4 \* 60/);
+  assert.match(swift, /authStorageKey\(url\)/);
+  assert.equal(swift.includes('authStorageKey(url:'), false);
+  assert.equal(swift.includes('timeIntervalSince1970 + 60'), false);
+  assert.match(swift, /startedRefresh/);
+  assert.ok((swift.match(/UserDefaults\.standard\.string\(forKey: defaultsKey\)/g) ?? []).length >= 2);
 
   assert.match(card, /stopTracking\('job_started'\)/);
   assert.match(card, /stopTracking\('job_finished'\)/);
   assert.match(card, /booking\.status === 'no_show'/);
+  assert.match(hook, /reason === 'arrived'/);
+  assert.match(hook, /reason === 'closed'/);
+  assert.match(hook, /stopTrackingRef\.current\('closed'\)/);
+  assert.match(hook, /sms === 'failed'/);
+  assert.match(hook, /fireArrival\('native'\)/);
+  assert.match(hook, /destinationLat: destCoordsRef\.current\?\.lat/);
+  assert.match(hook, /bookingId,/);
   assert.match(hook, /trackingId: trackingIdRef\.current/);
   assert.match(hook, /supabaseUrl: SUPABASE_PUBLIC_URL/);
   assert.match(swift, /kCLLocationAccuracyHundredMeters/);
@@ -295,6 +323,10 @@ test('the hook starts background updates on the shared write path and stops them
   assert.match(card, /locationShareBanner\(/);
   assert.equal(card.includes('Sharing pauses if you leave the app'), false);
 
+  assert.match(wrapper, /addListener\('arrival'/);
+  assert.match(wrapper, /acceptedEpoch/);
+  assert.match(wrapper, /destinationLat: lat/);
+  assert.match(wrapper, /A trip watcher is already running/);
   assert.match(wrapper, /distanceFilter: TRIP_DISTANCE_FILTER_METERS/);
   assert.match(wrapper, /TripBackgroundLocation\.stop\(\)/);
   assert.match(wrapper, /stopIdleNativeTripWatcher/);

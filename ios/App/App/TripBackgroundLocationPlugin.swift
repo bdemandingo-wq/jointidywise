@@ -49,6 +49,17 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
     private var nativeWriteTimer: DispatchWorkItem?
     private var nativeWriteInFlight = false
     private var writeEpoch = 0
+    /// Bumped on each new start. Events carry it so a retained event from
+    /// the previous trip is ignored after the buffer is cleared.
+    private var watchEpoch = 0
+    private var destination: CLLocation?
+    private var bookingId: String?
+    private var staffId: String?
+    private var lastKnownFix: CLLocation?
+    private var heartbeatTimer: DispatchWorkItem?
+    /// Inside the 3–5 minute window, and under the 15 minute stale reaper.
+    private let heartbeatInterval: TimeInterval = 4 * 60
+    private let arrivalRadius: CLLocationDistance = 100
 
     @objc func checkAuthorization(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -96,7 +107,7 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
     /// Starts updates only for an Always grant. Battery settings: 25 m
     /// filter unless the caller passes one, automotive navigation, and
     /// updates that keep running while the device is stationary. The blue
-    /// pill is on. A trip already running keeps its original deadline.
+    /// pill is on. A second start while one is running is rejected.
     @objc func start(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             let manager = self.manager()
@@ -105,10 +116,13 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
                 return
             }
             if self.updating {
-                self.rememberWriteTarget(call)
-                call.resolve()
+                call.reject("A trip watcher is already running.", "ALREADY_RUNNING")
                 return
             }
+            // Drop timeout/arrival events retained from the previous trip
+            // before the new listener is attached.
+            self.retainedEventArguments = [:]
+            self.watchEpoch += 1
             let filter = call.getDouble("distanceFilter") ?? 25
             // Arrival is a 100 m geofence, so hundred-meter accuracy is enough.
             manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
@@ -122,8 +136,9 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
             var seconds = call.getDouble("maxDurationSeconds") ?? Double(3 * 60 * 60)
             if seconds < 0 { seconds = 0 }
             self.scheduleTripTimeout(seconds)
+            self.scheduleHeartbeat()
             manager.startUpdatingLocation()
-            call.resolve()
+            call.resolve(["epoch": self.watchEpoch])
         }
     }
 
@@ -149,7 +164,7 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         }
         if updating && status != .authorizedAlways {
             stopUpdating()
-            notifyListeners("authorization", data: ["status": statusName(status)], retainUntilConsumed: true)
+            notifyListeners("authorization", data: eventFields(["status": statusName(status)]), retainUntilConsumed: true)
         }
     }
 
@@ -159,15 +174,20 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
             stopForDeadline()
             return
         }
+        lastKnownFix = location
+        if withinArrivalRadius(location) {
+            handleArrival(location)
+            return
+        }
         // The WebView is suspended while the phone is locked, so JavaScript
         // cannot write. Post the latest fix from here. While the app is
         // active, the existing JS path keeps the 8 second throttle.
         if UIApplication.shared.applicationState == .active {
             beginDeliveryTask()
-            notifyListeners("location", data: [
+            notifyListeners("location", data: eventFields([
                 "latitude": location.coordinate.latitude,
                 "longitude": location.coordinate.longitude,
-            ], retainUntilConsumed: true)
+            ]), retainUntilConsumed: true)
             return
         }
         noteBackgroundFix(location)
@@ -197,8 +217,9 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
 
     private func stopForDeadline() {
         guard updating else { return }
+        let fields = eventFields(["reason": "timeout"])
         stopUpdating()
-        notifyListeners("timeout", data: ["reason": "timeout"], retainUntilConsumed: true)
+        notifyListeners("timeout", data: fields, retainUntilConsumed: true)
     }
 
     private func cancelTripTimeout() {
@@ -213,7 +234,13 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         nativeWriteInFlight = false
         nativeWriteTimer?.cancel()
         nativeWriteTimer = nil
+        heartbeatTimer?.cancel()
+        heartbeatTimer = nil
         latestBackgroundFix = nil
+        lastKnownFix = nil
+        destination = nil
+        bookingId = nil
+        staffId = nil
         cancelTripTimeout()
         locationManager?.showsBackgroundLocationIndicator = false
         locationManager?.allowsBackgroundLocationUpdates = false
@@ -333,6 +360,19 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         if let seconds = call.getDouble("writeIntervalSeconds"), seconds > 0 {
             writeInterval = seconds
         }
+        if let lat = call.getDouble("destinationLat"), let lng = call.getDouble("destinationLng"),
+           lat >= -90, lat <= 90, lng >= -180, lng <= 180 {
+            destination = CLLocation(latitude: lat, longitude: lng)
+        } else {
+            destination = nil
+        }
+        bookingId = call.getString("bookingId")
+        staffId = call.getString("staffId")
+    }
+
+    private func withinArrivalRadius(_ location: CLLocation) -> Bool {
+        guard let destination else { return false }
+        return location.distance(from: destination) <= arrivalRadius
     }
 
     private func noteBackgroundFix(_ location: CLLocation) {
@@ -448,8 +488,9 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
             let failed = !closed && !(200..<300).contains(status)
             DispatchQueue.main.async {
                 if closed && epoch == self.writeEpoch && self.updating {
+                    let fields = self.eventFields(["reason": "closed"])
                     self.stopUpdating()
-                    self.notifyListeners("timeout", data: ["reason": "timeout"], retainUntilConsumed: true)
+                    self.notifyListeners("timeout", data: fields, retainUntilConsumed: true)
                     return
                 }
                 self.finishNativeWrite(epoch: epoch, retry: failed)
@@ -469,30 +510,32 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         }
     }
 
-    /// Reads the supabase-js session. Refreshes it when it is inside a minute
-    /// of expiry, and stores the rotated refresh token back in UserDefaults.
+    /// Reads the supabase-js session. Refreshes only when the access token
+    /// is already expired (or after a 401). Before writing the rotated
+    /// session back, re-reads UserDefaults so a JS refresh that landed
+    /// during the request is left in place.
     private func accessToken(url: String, anonKey: String, forceRefresh: Bool = false, completion: @escaping (String?) -> Void) {
-        guard let key = authStorageKey(url: url) else {
+        guard let key = authStorageKey(url) else {
             completion(nil)
             return
         }
         let defaultsKey = "CapacitorStorage." + key
         guard let raw = UserDefaults.standard.string(forKey: defaultsKey),
               let data = raw.data(using: .utf8),
-              var session = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let session = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let current = session["access_token"] as? String,
               !current.isEmpty else {
             completion(nil)
             return
         }
         let expires = numeric(session["expires_at"])
-        if !forceRefresh && expires > Date().timeIntervalSince1970 + 60 {
+        if !forceRefresh && expires > Date().timeIntervalSince1970 {
             completion(current)
             return
         }
-        guard let refresh = session["refresh_token"] as? String,
+        guard let refresh = session["refresh_token"] as? String, !refresh.isEmpty,
               let endpoint = URL(string: "\(url)/auth/v1/token?grant_type=refresh_token") else {
-            completion(nil)
+            completion(forceRefresh ? nil : current)
             return
         }
         var request = URLRequest(url: endpoint)
@@ -509,18 +552,50 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
                 completion(forceRefresh ? nil : current)
                 return
             }
-            session["access_token"] = next
-            if let rotated = body["refresh_token"] { session["refresh_token"] = rotated }
-            if let expiresAt = body["expires_at"] { session["expires_at"] = expiresAt }
-            if let expiresIn = body["expires_in"] { session["expires_in"] = expiresIn }
-            if let tokenType = body["token_type"] { session["token_type"] = tokenType }
-            if let user = body["user"] { session["user"] = user }
-            if let saved = try? JSONSerialization.data(withJSONObject: session),
+            self.storeRefreshedSession(defaultsKey: defaultsKey, startedRefresh: refresh, body: body, next: next, completion: completion)
+        }.resume()
+    }
+
+    /// Writes the rotated session only when storage still holds the refresh
+    /// token this request used. A different token means JavaScript already
+    /// wrote a newer session.
+    private func storeRefreshedSession(
+        defaultsKey: String,
+        startedRefresh: String,
+        body: [String: Any],
+        next: String,
+        completion: @escaping (String?) -> Void
+    ) {
+        let apply = {
+            guard let latestRaw = UserDefaults.standard.string(forKey: defaultsKey),
+                  let latestData = latestRaw.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(with: latestData) as? [String: Any] else {
+                completion(next)
+                return
+            }
+            if (parsed["refresh_token"] as? String) != startedRefresh {
+                let latestAccess = parsed["access_token"] as? String
+                completion((latestAccess?.isEmpty == false) ? latestAccess : next)
+                return
+            }
+            var latest = parsed
+            latest["access_token"] = next
+            if let rotated = body["refresh_token"] { latest["refresh_token"] = rotated }
+            if let expiresAt = body["expires_at"] { latest["expires_at"] = expiresAt }
+            if let expiresIn = body["expires_in"] { latest["expires_in"] = expiresIn }
+            if let tokenType = body["token_type"] { latest["token_type"] = tokenType }
+            if let user = body["user"] { latest["user"] = user }
+            if let saved = try? JSONSerialization.data(withJSONObject: latest),
                let text = String(data: saved, encoding: .utf8) {
                 UserDefaults.standard.set(text, forKey: defaultsKey)
             }
             completion(next)
-        }.resume()
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.sync(execute: apply)
+        }
     }
 
     private func authStorageKey(_ url: String) -> String? {
@@ -545,9 +620,231 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         return formatter.string(from: date)
     }
 
+    /// Parked trips stop producing movement fixes. Rewrite `recorded_at`
+    /// from the last known point so the 15 minute reaper does not close
+    /// a trip that is still active. The location background mode keeps
+    /// this process runnable while the watcher is started.
+    private func scheduleHeartbeat() {
+        heartbeatTimer?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.sendHeartbeat()
+        }
+        heartbeatTimer = work
+        DispatchQueue.main.asyncAfter(wallDeadline: DispatchWallTime.now() + heartbeatInterval, execute: work)
+    }
+
+    private func sendHeartbeat() {
+        guard updating else { return }
+        if !nativeWriteInFlight, let location = lastKnownFix {
+            writeCoordinate(location, recordedAt: iso8601(Date()))
+        }
+        // A stop during the write cancels the timer. Don't schedule a new one.
+        guard updating else { return }
+        scheduleHeartbeat()
+    }
+
+    private func writeCoordinate(_ location: CLLocation, recordedAt: String) {
+        guard updating, !nativeWriteInFlight else { return }
+        guard let rowId = trackingRowId, isTrackingRowId(rowId),
+              let url = supabaseUrl, let anon = supabaseAnonKey else { return }
+        lastSentFix = location
+        lastNativeWriteAt = Date()
+        nativeWriteInFlight = true
+        let epoch = writeEpoch
+        accessToken(url: url, anonKey: anon) { [weak self] token in
+            guard let self else { return }
+            guard let token else {
+                DispatchQueue.main.async {
+                    guard epoch == self.writeEpoch else { return }
+                    self.nativeWriteInFlight = false
+                    if self.latestBackgroundFix == nil { self.latestBackgroundFix = location }
+                    if let pending = self.latestBackgroundFix {
+                        self.noteBackgroundFix(pending)
+                    }
+                }
+                return
+            }
+            self.patchLocation(
+                url: url,
+                anonKey: anon,
+                token: token,
+                rowId: rowId,
+                latitude: location.coordinate.latitude,
+                longitude: location.coordinate.longitude,
+                recordedAt: recordedAt,
+                allowRefresh: true,
+                epoch: epoch
+            )
+        }
+    }
+
+    /// The WebView cannot send the arrival text while the phone is locked.
+    /// Stop the watcher, mark the row arrived, and call `send-arrival-sms`
+    /// with the cleaner's own token. The function dedupes, so a later JS
+    /// retry after a failed native send does not text the customer twice.
+    private func handleArrival(_ location: CLLocation) {
+        guard updating else { return }
+        let rowId = trackingRowId
+        let url = supabaseUrl
+        let anon = supabaseAnonKey
+        let booking = bookingId
+        let staff = staffId
+        let epoch = watchEpoch
+        let latitude = location.coordinate.latitude
+        let longitude = location.coordinate.longitude
+        stopUpdating()
+        let recordedAt = iso8601(Date())
+        guard let rowId, isTrackingRowId(rowId), let url, let anon else {
+            emitArrival(epoch: epoch, trackingId: rowId ?? "", sms: "failed")
+            return
+        }
+        accessToken(url: url, anonKey: anon) { [weak self] token in
+            guard let self else { return }
+            guard let token else {
+                self.emitArrival(epoch: epoch, trackingId: rowId, sms: "failed")
+                return
+            }
+            self.patchArrival(
+                url: url,
+                anonKey: anon,
+                token: token,
+                rowId: rowId,
+                latitude: latitude,
+                longitude: longitude,
+                recordedAt: recordedAt,
+                allowRefresh: true
+            )
+            guard let booking, let staff, self.isTrackingRowId(booking), self.isTrackingRowId(staff) else {
+                self.emitArrival(epoch: epoch, trackingId: rowId, sms: "failed")
+                return
+            }
+            self.sendArrivalSms(url: url, anonKey: anon, token: token, bookingId: booking, staffId: staff) { sent in
+                self.emitArrival(epoch: epoch, trackingId: rowId, sms: sent ? "sent" : "failed")
+            }
+        }
+    }
+
+    private func patchArrival(
+        url: String,
+        anonKey: String,
+        token: String,
+        rowId: String,
+        latitude: Double,
+        longitude: Double,
+        recordedAt: String,
+        allowRefresh: Bool
+    ) {
+        guard let endpoint = URL(string: "\(url)/rest/v1/cleaner_location_tracking?id=eq.\(rowId)&is_active=eq.true") else {
+            return
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "PATCH"
+        request.setValue(anonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "latitude": latitude,
+            "longitude": longitude,
+            "recorded_at": recordedAt,
+            "arrived_at": recordedAt,
+            "is_active": false,
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard status == 401, allowRefresh, let self else { return }
+            self.accessToken(url: url, anonKey: anonKey, forceRefresh: true) { refreshed in
+                guard let refreshed else { return }
+                self.patchArrival(
+                    url: url,
+                    anonKey: anonKey,
+                    token: refreshed,
+                    rowId: rowId,
+                    latitude: latitude,
+                    longitude: longitude,
+                    recordedAt: recordedAt,
+                    allowRefresh: false
+                )
+            }
+        }.resume()
+    }
+
+    private func sendArrivalSms(
+        url: String,
+        anonKey: String,
+        token: String,
+        bookingId: String,
+        staffId: String,
+        allowRefresh: Bool = true,
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard let endpoint = URL(string: "\(url)/functions/v1/send-arrival-sms") else {
+            completion(false)
+            return
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue(anonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "bookingId": bookingId,
+            "staffId": staffId,
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 401 && allowRefresh {
+                guard let self else {
+                    completion(false)
+                    return
+                }
+                self.accessToken(url: url, anonKey: anonKey, forceRefresh: true) { refreshed in
+                    guard let refreshed else {
+                        completion(false)
+                        return
+                    }
+                    self.sendArrivalSms(
+                        url: url,
+                        anonKey: anonKey,
+                        token: refreshed,
+                        bookingId: bookingId,
+                        staffId: staffId,
+                        allowRefresh: false,
+                        completion: completion
+                    )
+                }
+                return
+            }
+            completion((200..<300).contains(status))
+        }.resume()
+    }
+
+    private func emitArrival(epoch: Int, trackingId: String, sms: String) {
+        let data: [String: Any] = [
+            "reason": "arrived",
+            "sms": sms,
+            "epoch": epoch,
+            "trackingId": trackingId,
+        ]
+        DispatchQueue.main.async { [weak self] in
+            self?.notifyListeners("arrival", data: data, retainUntilConsumed: true)
+        }
+    }
+
+    private func eventFields(_ fields: [String: Any]) -> [String: Any] {
+        var data = fields
+        data["epoch"] = watchEpoch
+        if let trackingRowId {
+            data["trackingId"] = trackingRowId
+        }
+        return data
+    }
+
     deinit {
         tripTimeout?.cancel()
         nativeWriteTimer?.cancel()
+        heartbeatTimer?.cancel()
         removeAuthObservers()
         endDeliveryTask()
     }
