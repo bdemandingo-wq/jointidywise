@@ -403,6 +403,35 @@
     @apply bg-sidebar-primary text-sidebar-primary-foreground shadow-md;
   }
 
+  /* Section header: slightly bolder than children */
+  .sidebar-link-section {
+    @apply font-medium text-sidebar-foreground/90;
+  }
+
+  /* Section header when its group contains the active page */
+  .sidebar-link-section.section-contains-active {
+    @apply text-sidebar-foreground font-semibold;
+  }
+
+  /* Children: smaller text, muted, tighter padding */
+  .sidebar-link-child {
+    @apply text-[13px] py-1 text-sidebar-foreground/60;
+  }
+
+  .sidebar-link-child:hover {
+    @apply text-sidebar-foreground/80;
+  }
+
+  /* Group background tint when expanded */
+  .sidebar-group-expanded {
+    @apply rounded-lg bg-sidebar-accent/50 py-1 mb-1;
+  }
+
+  /* Vertical guide rail connecting children to parent */
+  .sidebar-group-rail {
+    @apply border-l-2 border-sidebar-border/20 ml-[22px] pl-0;
+  }
+
   /* Pinned Help row — deliberately louder than regular nav in both themes.
      Built on the primary token so light and dark mode each get their own
      contrast; .sidebar-link.active still wins when the item is the current page. */

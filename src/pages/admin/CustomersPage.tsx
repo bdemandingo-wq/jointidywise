@@ -22,7 +22,7 @@ import {
   Search, Plus, Mail, Phone, MessageSquare, Megaphone, Edit, Trash2, CreditCard, Upload, Users,
   UserX, RefreshCw, MapPin, Download, AlertTriangle, ArrowUpDown, WifiOff,
   ArrowUp, ArrowDown, CalendarDays, DollarSign, FileText, Eye, UserPlus,
-  ChevronDown, ChevronUp, GitMerge,
+  ChevronDown, ChevronUp, GitMerge, MoreHorizontal,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -54,6 +54,17 @@ import { SEOHead } from '@/components/SEOHead';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useAuth } from '@/hooks/useAuth';
 import { fmt } from '@/lib/activeCurrency';
+
+function displayPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 11 && digits[0] === '1') {
+    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return raw; // international or short — show as-is
+}
 
 const CUSTOMER_FIELDS: FieldMapping[] = [
   { dbField: 'first_name', label: 'First Name', required: true },
@@ -883,27 +894,29 @@ export default function CustomersPage() {
       actions={
         <div className="flex gap-2">
       <SEOHead title="Customers | TidyWise" description="Manage your customer database" noIndex />
-          {isAdmin && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={() => navigate('/dashboard/customers/duplicates')}
-            >
-              <GitMerge className="w-4 h-4" />
-              <span className="hidden sm:inline">Find duplicates</span>
-            </Button>
-          )}
-          {isAdmin && (
-            <Button variant="outline" size="sm" className="gap-2" onClick={exportToCsv}>
-              <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">Export CSV</span>
-            </Button>
-          )}
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => setImportDialogOpen(true)}>
-            <Upload className="w-4 h-4" />
-            <span className="hidden sm:inline">Import</span>
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2">
+                <MoreHorizontal className="w-4 h-4" />
+                <span className="hidden sm:inline">More</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {isAdmin && (
+                <DropdownMenuItem onClick={() => navigate('/dashboard/customers/duplicates')}>
+                  <GitMerge className="w-4 h-4 mr-2" /> Find duplicates
+                </DropdownMenuItem>
+              )}
+              {isAdmin && (
+                <DropdownMenuItem onClick={exportToCsv}>
+                  <Download className="w-4 h-4 mr-2" /> Export CSV
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => setImportDialogOpen(true)}>
+                <Upload className="w-4 h-4 mr-2" /> Import
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button size="sm" className="gap-2" onClick={() => {
             if (atCustomerLimit) {
               toast.error(`Basic plan limited to ${maxCustomers} customers. Upgrade to add more.`);
@@ -932,20 +945,23 @@ export default function CustomersPage() {
       {/* Tabs + Search + Bulk Actions */}
       <div className="space-y-4 mb-4">
         <Tabs value={tabFilter} onValueChange={(v) => setTabFilter(v as TabFilter)} className="w-full">
-          <TabsList className="w-full sm:w-auto">
-            <TabsTrigger value="all" className="flex-1 sm:flex-none gap-1.5">
-              All <Badge variant="secondary" className="text-xs px-1.5 py-0">{customers.length}</Badge>
-            </TabsTrigger>
-            <TabsTrigger value="customers" className="flex-1 sm:flex-none gap-1.5">
-              Customers <Badge variant="secondary" className="text-xs px-1.5 py-0">{customerCount}</Badge>
-            </TabsTrigger>
-            <TabsTrigger value="leads" className="flex-1 sm:flex-none gap-1.5">
-              Leads <Badge variant="secondary" className="text-xs px-1.5 py-0">{leadCount}</Badge>
-            </TabsTrigger>
-            <TabsTrigger value="non_recurring" className="flex-1 sm:flex-none gap-1.5">
-              Non-Recurring <Badge variant="secondary" className="text-xs px-1.5 py-0">{customers.filter(c => c.is_recurring === false).length}</Badge>
-            </TabsTrigger>
-          </TabsList>
+          <div className="relative overflow-hidden">
+            <TabsList className="w-full sm:w-auto overflow-x-auto scrollbar-none flex-nowrap">
+              <TabsTrigger value="all" className="flex-1 sm:flex-none gap-1.5">
+                All <Badge variant="secondary" className="text-xs px-1.5 py-0">{customers.length}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="customers" className="flex-1 sm:flex-none gap-1.5">
+                Customers <Badge variant="secondary" className="text-xs px-1.5 py-0">{customerCount}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="leads" className="flex-1 sm:flex-none gap-1.5">
+                Leads <Badge variant="secondary" className="text-xs px-1.5 py-0">{leadCount}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="non_recurring" className="flex-1 sm:flex-none gap-1.5">
+                Non-Recurring <Badge variant="secondary" className="text-xs px-1.5 py-0">{customers.filter(c => c.is_recurring === false).length}</Badge>
+              </TabsTrigger>
+            </TabsList>
+            <div className="absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-background to-transparent pointer-events-none sm:hidden" />
+          </div>
         </Tabs>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -1086,7 +1102,7 @@ export default function CustomersPage() {
                                     <p className="font-medium text-sm truncate">{maskName(`${customer.first_name} ${customer.last_name}`)}</p>
                                     {isDupe && <AlertTriangle className="w-3.5 h-3.5 text-warning flex-shrink-0" />}
                                   </div>
-                                  <p className="text-xs text-muted-foreground truncate">{maskPhone(customer.phone || '')}</p>
+                                  <p className="text-xs text-muted-foreground truncate">{maskPhone(displayPhone(customer.phone || ''))}</p>
                                 </div>
                                 <div className="flex flex-col items-end gap-0.5 shrink-0">
                                   <StatusBadgeMenu customer={customer} />
@@ -1128,15 +1144,6 @@ export default function CustomersPage() {
               </div>
             )}
           </div>
-
-          <button
-            type="button"
-            onClick={() => { hapticImpact('medium'); setAddDialogOpen(true); }}
-            className={cn('fixed right-4 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center transition-transform active:scale-[0.96] will-change-transform')}
-            aria-label="Add customer"
-          >
-            <Plus className="h-6 w-6" aria-hidden="true" />
-          </button>
 
           {batchMode && (
             <div className="fixed left-4 right-4 bottom-[calc(4.25rem+env(safe-area-inset-bottom))]">
@@ -1278,7 +1285,7 @@ export default function CustomersPage() {
                                   <div className="flex items-center gap-2 text-sm">
                                     <a href={`tel:${customer.phone}`} className="flex items-center gap-2 hover:text-primary transition-colors">
                                       <Phone className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                                      {maskPhone(customer.phone)}
+                                      {maskPhone(displayPhone(customer.phone))}
                                     </a>
                                     <Tooltip>
                                       <TooltipTrigger asChild>

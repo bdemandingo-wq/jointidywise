@@ -44,6 +44,7 @@ import { resolveActiveStaffOrg } from '@/lib/staffOrgResolution';
 import { OrgSwitcherList } from '@/components/OrgSwitcherList';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useIsMutating } from '@tanstack/react-query';
+import { cn } from '@/lib/utils';
 
 /** Email that was never set up is not a failed send. */
 function isReviewSendUnconfigured(reason: string): boolean {
@@ -746,10 +747,10 @@ export default function StaffPortal() {
   // cleaner dismissed the app mid-prompt.
   const [photoNudge, setPhotoNudge] = useState<{
     bookingId: string;
-    photos: { id: string; created_at: string | null }[];
+    photos: { id: string; created_at: string | null; photo_url: string | null }[];
     currentType: 'before' | 'after';
-    moveCount: number;
   } | null>(null);
+  const [toggledIds, setToggledIds] = useState<Set<string>>(new Set());
   const [applyingNudge, setApplyingNudge] = useState(false);
 
   /** Photos are ordered oldest-first. Proposes how many trailing photos belong
@@ -775,21 +776,25 @@ export default function StaffPortal() {
     try {
       const { data, error } = await supabase
         .from('booking_photos')
-        .select('id, photo_type, created_at')
+        .select('id, photo_type, created_at, photo_url')
         .eq('booking_id', bookingId)
         .in('photo_type', ['before', 'after'])
         .order('created_at', { ascending: true });
       // A failed lookup must never surface on a job that completed fine.
       if (error || !data) return;
 
-      const rows = data as { id: string; photo_type: string | null; created_at: string | null }[];
+      const rows = data as { id: string; photo_type: string | null; created_at: string | null; photo_url: string | null }[];
       if (rows.length < 2) return;                       // nothing ambiguous
       const types = new Set(rows.map((r) => r.photo_type));
       if (types.size !== 1) return;                      // already in both columns
 
       const currentType = rows[0].photo_type as 'before' | 'after';
-      const photos = rows.map((r) => ({ id: r.id, created_at: r.created_at }));
-      setPhotoNudge({ bookingId, photos, currentType, moveCount: proposeSplit(photos) });
+      const photos = rows.map((r) => ({ id: r.id, created_at: r.created_at, photo_url: r.photo_url }));
+      const splitCount = proposeSplit(photos);
+      // Pre-select the trailing N photos (the suggested "after" batch), newest-last in ASC order
+      const preSelected = new Set(photos.slice(photos.length - splitCount).map((p) => p.id));
+      setToggledIds(preSelected);
+      setPhotoNudge({ bookingId, photos, currentType });
     } catch {
       // Same rule — swallow. The job is already complete.
     }
@@ -798,17 +803,18 @@ export default function StaffPortal() {
   const applyPhotoNudge = async () => {
     if (!photoNudge) return;
     const target = photoNudge.currentType === 'before' ? 'after' : 'before';
-    const ids = photoNudge.photos.slice(photoNudge.photos.length - photoNudge.moveCount).map((p) => p.id);
-    if (ids.length === 0) { setPhotoNudge(null); return; }
+    const idsToMove = Array.from(toggledIds);
+    if (idsToMove.length === 0) { setPhotoNudge(null); setToggledIds(new Set()); return; }
     setApplyingNudge(true);
     try {
       const { error } = await supabase
         .from('booking_photos')
         .update({ photo_type: target })
-        .in('id', ids);
+        .in('id', idsToMove);
       if (error) throw error;
-      toast.success(`Moved ${ids.length} to ${target}`);
+      toast.success(`Moved ${idsToMove.length} to ${target}`);
       setPhotoNudge(null);
+      setToggledIds(new Set());
     } catch (err) {
       console.error(err);
       toast.error('Could not move those photos');
@@ -1606,67 +1612,83 @@ export default function StaffPortal() {
 
     {/* Post-completion only. Dismissing, or killing the app, leaves the job
         complete and the hours written — this can only change photo_type. */}
-    <Dialog open={!!photoNudge} onOpenChange={(open) => { if (!open) setPhotoNudge(null); }}>
+    <Dialog open={!!photoNudge} onOpenChange={(open) => { if (!open) { setPhotoNudge(null); setToggledIds(new Set()); } }}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Check your photo stages</DialogTitle>
           <DialogDescription>
-            All {photoNudge?.photos.length} photos on this job are marked{' '}
-            <span className="font-medium capitalize">{photoNudge?.currentType}</span>. If some were
-            taken {photoNudge?.currentType === 'before' ? 'after' : 'before'} the clean, move them
-            across — otherwise just keep them as they are.
+            All {photoNudge?.photos.length} photos are marked{' '}
+            <span className="font-medium capitalize">{photoNudge?.currentType}</span>. Tap any photo
+            to mark it as {photoNudge?.currentType === 'before' ? 'After' : 'Before'} instead —
+            highlighted photos will be moved. Keep tapping to toggle.
           </DialogDescription>
         </DialogHeader>
 
         {photoNudge && (
           <div className="space-y-4">
-            <div className="flex items-center justify-center gap-4">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="min-h-[44px] min-w-[44px]"
-                aria-label="Move fewer photos"
-                disabled={photoNudge.moveCount <= 0}
-                onClick={() => setPhotoNudge((n) => (n ? { ...n, moveCount: Math.max(0, n.moveCount - 1) } : n))}
-              >
-                −
-              </Button>
-              <div className="text-center">
-                <div className="text-2xl font-bold">{photoNudge.moveCount}</div>
-                <div className="text-xs text-muted-foreground">
-                  most recent {photoNudge.moveCount === 1 ? 'photo' : 'photos'}
-                </div>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="min-h-[44px] min-w-[44px]"
-                aria-label="Move more photos"
-                disabled={photoNudge.moveCount >= photoNudge.photos.length}
-                onClick={() => setPhotoNudge((n) => (n ? { ...n, moveCount: Math.min(n.photos.length, n.moveCount + 1) } : n))}
-              >
-                +
-              </Button>
+            <div className="grid grid-cols-3 gap-2 max-h-[280px] overflow-y-auto">
+              {[...photoNudge.photos].reverse().map((photo) => {
+                const isToggled = toggledIds.has(photo.id);
+                const targetType = photoNudge.currentType === 'before' ? 'after' : 'before';
+                const willBe = isToggled ? targetType : photoNudge.currentType;
+                return (
+                  <button
+                    key={photo.id}
+                    type="button"
+                    onClick={() => {
+                      setToggledIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(photo.id)) next.delete(photo.id);
+                        else next.add(photo.id);
+                        return next;
+                      });
+                    }}
+                    className={cn(
+                      'relative aspect-square rounded-lg overflow-hidden border-2 transition-colors',
+                      isToggled ? 'border-primary ring-2 ring-primary/30' : 'border-border',
+                    )}
+                  >
+                    {photo.photo_url ? (
+                      <img
+                        src={photo.photo_url}
+                        alt=""
+                        loading="lazy"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-muted text-xs text-muted-foreground">
+                        {photo.created_at
+                          ? new Date(photo.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                          : '—'}
+                      </div>
+                    )}
+                    <span className={cn(
+                      'absolute bottom-1 left-1 px-1.5 py-0.5 rounded text-[10px] font-semibold',
+                      willBe === 'after' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
+                    )}>
+                      {willBe === 'after' ? 'After' : 'Before'}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="flex flex-col gap-2">
               <Button
                 type="button"
                 className="min-h-[44px]"
-                disabled={applyingNudge || photoNudge.moveCount === 0}
+                disabled={applyingNudge || toggledIds.size === 0}
                 onClick={applyPhotoNudge}
               >
                 {applyingNudge && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Move {photoNudge.moveCount} to {photoNudge.currentType === 'before' ? 'After' : 'Before'}
+                Move {toggledIds.size} to {photoNudge.currentType === 'before' ? 'After' : 'Before'}
               </Button>
               <Button
                 type="button"
                 variant="ghost"
                 className="min-h-[44px]"
                 disabled={applyingNudge}
-                onClick={() => setPhotoNudge(null)}
+                onClick={() => { setPhotoNudge(null); setToggledIds(new Set()); }}
               >
                 Keep as is
               </Button>
