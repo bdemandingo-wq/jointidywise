@@ -2,6 +2,7 @@
 //   node --experimental-strip-types --test src/lib/planBillingCopy.test.ts
 // tsconfig.app.json sets allowImportingTsExtensions and excludes *.test.ts,
 // so `tsc -p tsconfig.app.json` does not typecheck this import. Node does.
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -12,9 +13,11 @@ import {
   planChoicesFooter,
   renewalDisclosure,
   showPlanChoices,
-  trialChargeLine,
+  trialChargesOnSelection,
+  trialFirstChargeLine,
   trialEndDateLabel,
 } from "./planBillingCopy.ts";
+import { LIFETIME_SPOT_CAP } from "./publicPlans.ts";
 
 test("basic and pro stay on checkout and custom is contact", () => {
   assert.equal(planBillingAction("basic"), "checkout");
@@ -22,34 +25,103 @@ test("basic and pro stay on checkout and custom is contact", () => {
   assert.equal(planBillingAction("custom"), "contact");
 });
 
-test("renewal disclosure names the monthly price", () => {
-  assert.equal(renewalDisclosure(49), "Renews monthly at $49 until you cancel.");
-  assert.equal(renewalDisclosure(97), "Renews monthly at $97 until you cancel.");
+test("renewal disclosure names the real price and how to cancel", () => {
+  assert.equal(
+    renewalDisclosure(49),
+    "Renews monthly at $49 until you cancel. Cancel anytime in Settings.",
+  );
+  assert.equal(
+    renewalDisclosure(97),
+    "Renews monthly at $97 until you cancel. Cancel anytime in Settings.",
+  );
+  assert.equal(
+    renewalDisclosure(490, "yearly"),
+    "Renews yearly at $490 until you cancel. Cancel anytime in Settings.",
+  );
+  assert.equal(renewalDisclosure(0), "");
 });
 
-test("a trial names the org-local end date and does not promise a charge date", () => {
+test("a trial names the org-local end as the first charge, and the last 48 hours bill today", () => {
   // Nov 13, 11:00pm Eastern is already Nov 14 in UTC.
   const elevenPmEastern = "2026-11-14T04:00:00.000Z";
+  const now = Date.parse("2026-10-16T12:00:00.000Z");
   assert.equal(trialEndDateLabel(elevenPmEastern, "America/New_York"), "Nov 13");
   assert.equal(trialEndDateLabel(elevenPmEastern, "UTC"), "Nov 14");
   assert.equal(trialEndDateLabel(null, "America/New_York"), null);
   assert.equal(trialEndDateLabel("not-a-date", "America/New_York"), null);
   assert.equal(trialEndDateLabel(elevenPmEastern, ""), null);
-  const line = trialChargeLine({ endDate: "Nov 13", daysLeft: 12 });
-  assert.equal(line, "Free trial of Pro until Nov 13. 12 days left.");
-  assert.equal(line.includes("first charge"), false);
+  assert.equal(trialChargesOnSelection(elevenPmEastern, now), false);
   assert.equal(
-    trialChargeLine({ endDate: "Nov 13", daysLeft: 1 }),
-    "Free trial of Pro until Nov 13. 1 day left.",
+    trialFirstChargeLine({
+      trialEndIso: elevenPmEastern,
+      timeZone: "America/New_York",
+      price: 49,
+      nowMs: now,
+    }),
+    "If you choose a plan now, your first charge is Nov 13, 2026.",
   );
   assert.equal(
-    trialChargeLine({ endDate: "Nov 13", daysLeft: null }),
-    "Free trial of Pro until Nov 13.",
+    trialFirstChargeLine({
+      trialEndIso: elevenPmEastern,
+      timeZone: "UTC",
+      price: 97,
+      nowMs: now,
+    }),
+    "If you choose a plan now, your first charge is Nov 14, 2026.",
+  );
+
+  const soon = new Date(now + 36 * 60 * 60 * 1000).toISOString();
+  assert.equal(trialChargesOnSelection(soon, now), true);
+  assert.equal(
+    trialFirstChargeLine({
+      trialEndIso: soon,
+      timeZone: "America/New_York",
+      price: 97,
+      nowMs: now,
+    }),
+    "You'll be charged $97 today.",
+  );
+  const exactly48h = new Date(now + 48 * 60 * 60 * 1000).toISOString();
+  assert.equal(trialChargesOnSelection(exactly48h, now), false);
+  const justUnder = new Date(now + 48 * 60 * 60 * 1000 - 1000).toISOString();
+  assert.equal(trialChargesOnSelection(justUnder, now), true);
+  assert.equal(
+    trialFirstChargeLine({
+      trialEndIso: null,
+      timeZone: "America/New_York",
+      price: 49,
+      nowMs: now,
+    }),
+    null,
   );
   assert.equal(
-    trialChargeLine({ endDate: null, daysLeft: 4 }),
-    "Free trial of Pro. 4 days left.",
+    trialFirstChargeLine({
+      trialEndIso: "not-a-date",
+      timeZone: "America/New_York",
+      price: 49,
+      nowMs: now,
+    }),
+    null,
   );
+  assert.equal(
+    trialFirstChargeLine({
+      trialEndIso: elevenPmEastern,
+      timeZone: "Not/AZone",
+      price: 49,
+      nowMs: now,
+    }),
+    null,
+  );
+});
+
+test("the lifetime cap is one shared constant at 100", () => {
+  assert.equal(LIFETIME_SPOT_CAP, 100);
+  const seo = readFileSync(new URL("../components/seo/AuthSEOContent.tsx", import.meta.url), "utf8");
+  const counter = readFileSync(new URL("../hooks/useLifetimeCounter.ts", import.meta.url), "utf8");
+  assert.match(seo, /LIFETIME_SPOT_CAP/);
+  assert.doesNotMatch(seo, /first 50 customers/);
+  assert.match(counter, /LIFETIME_SPOT_CAP/);
+  assert.doesNotMatch(counter, /TOTAL_SPOTS\s*=\s*100/);
 });
 
 test("an ended trial and a never-subscribed account get different dashboard nudges", () => {

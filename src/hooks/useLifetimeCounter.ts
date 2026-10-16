@@ -1,6 +1,6 @@
 /**
  * useLifetimeCounter – returns the live state of the founding lifetime
- * offer (how many of the 100 spots are claimed, sold-out flag).
+ * offer (how many of LIFETIME_SPOT_CAP spots are claimed, sold-out flag).
  *
  * Source of truth: the `organizations` table. We count rows where
  * `plan_type = 'lifetime'` via the SECURITY DEFINER RPC
@@ -16,6 +16,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { LIFETIME_SPOT_CAP } from '@/lib/publicPlans';
 
 export interface LifetimeState {
   total: number;
@@ -27,12 +28,10 @@ export interface LifetimeState {
   loading: boolean;
 }
 
-const TOTAL_SPOTS = 100;
-
 const DEFAULT: LifetimeState = {
-  total: TOTAL_SPOTS,
+  total: LIFETIME_SPOT_CAP,
   sold: 0,
-  spotsLeft: TOTAL_SPOTS,
+  spotsLeft: LIFETIME_SPOT_CAP,
   soldOut: false,
   unavailable: false,
   loading: true,
@@ -51,7 +50,7 @@ async function fetchLifetimeState(): Promise<LifetimeState> {
   }
 
   const row = data[0];
-  const total = row.total ?? TOTAL_SPOTS;
+  const total = row.total ?? LIFETIME_SPOT_CAP;
   const sold = row.sold ?? 0;
   const remaining = row.remaining ?? Math.max(0, total - sold);
   return {

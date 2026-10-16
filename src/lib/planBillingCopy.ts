@@ -1,5 +1,6 @@
 import { formatInOrgTz } from "./orgDateRange.ts";
 import { LIFETIME_PRICE } from "./publicPlans.ts";
+import { stripeTrialEndUnix } from "../../supabase/functions/_shared/trial-end.ts";
 
 // orgDateRange.ts and publicPlans.ts have zero imports, so node:test can
 // load this file without Vite or the @/ alias.
@@ -14,8 +15,13 @@ export function planBillingAction(planId: string): PlanBillingAction {
   return planId === "custom" ? "contact" : "checkout";
 }
 
-export function renewalDisclosure(monthlyPrice: number): string {
-  return `Renews monthly at $${monthlyPrice} until you cancel.`;
+export function renewalDisclosure(
+  price: number,
+  interval: "monthly" | "yearly" = "monthly",
+): string {
+  if (!(price > 0)) return "";
+  const cadence = interval === "yearly" ? "yearly" : "monthly";
+  return `Renews ${cadence} at $${price} until you cancel. Cancel anytime in Settings.`;
 }
 
 /** Shown under a downgrade button. The section footer stays as well. */
@@ -29,36 +35,55 @@ export const DOWNGRADE_EFFECT_NOTE = "Takes effect at your next renewal.";
 export function trialEndDateLabel(
   trialEndIso: string | null | undefined,
   timeZone: string,
+  withYear = false,
 ): string | null {
   if (!trialEndIso || !timeZone) return null;
   const end = Date.parse(trialEndIso);
   if (!Number.isFinite(end)) return null;
   try {
-    return formatInOrgTz(new Date(end), timeZone, { month: "short", day: "numeric" });
+    return formatInOrgTz(new Date(end), timeZone, {
+      month: "short",
+      day: "numeric",
+      ...(withYear ? { year: "numeric" as const } : {}),
+    });
   } catch {
     return null;
   }
 }
 
 /**
- * Trial copy names when Pro access ends. It does not name a first charge.
- *
- * create-subscription already sets Stripe trial_end to profiles.trial_ends_at
- * only when that instant is at least 48 hours away. Inside 48 hours it bills
- * on completion. Promising "your first charge is {trial end}" would be wrong
- * for that case, so this line never says it.
+ * True when checkout will bill on completion. Stripe rejects a trial_end
+ * inside 48 hours, and create-subscription then charges immediately.
+ * A missing or invalid timestamp is not treated as "charge today".
  */
-export function trialChargeLine(opts: {
-  endDate: string | null;
-  daysLeft: number | null;
-}): string {
-  const days = opts.daysLeft == null
-    ? ""
-    : opts.daysLeft === 1
-      ? " 1 day left."
-      : ` ${opts.daysLeft} days left.`;
-  if (!opts.endDate) return `Free trial of Pro.${days}`;
-  return `Free trial of Pro until ${opts.endDate}.${days}`;
+export function trialChargesOnSelection(
+  trialEndIso: string | null | undefined,
+  nowMs = Date.now(),
+): boolean {
+  if (!trialEndIso || !Number.isFinite(Date.parse(trialEndIso))) return false;
+  return stripeTrialEndUnix(trialEndIso, nowMs) == null;
+}
+
+/**
+ * Trial users choosing a plan. The date is the org-local trial end already
+ * stored on the subscription (profiles.trial_ends_at via check-subscription).
+ * Inside 48 hours the first charge is today, at this plan's price.
+ */
+export function trialFirstChargeLine(opts: {
+  trialEndIso: string | null | undefined;
+  timeZone: string;
+  price: number;
+  nowMs?: number;
+}): string | null {
+  const nowMs = opts.nowMs ?? Date.now();
+  if (!opts.trialEndIso || !Number.isFinite(Date.parse(opts.trialEndIso))) return null;
+  if (trialChargesOnSelection(opts.trialEndIso, nowMs)) {
+    if (!(opts.price > 0)) return null;
+    return `You'll be charged $${opts.price} today.`;
+  }
+  const date = trialEndDateLabel(opts.trialEndIso, opts.timeZone, true);
+  if (!date) return null;
+  return `If you choose a plan now, your first charge is ${date}.`;
 }
 
 /** Dashboard home copy when the account cannot use the product. */

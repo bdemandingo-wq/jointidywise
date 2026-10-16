@@ -109,15 +109,6 @@ export function weeklySignupLabel(count: number): string {
   return `${count} ${noun} joined this week`;
 }
 
-export function trustedByLabel(count: number): string {
-  const noun = count === 1 ? 'cleaning business' : 'cleaning businesses';
-  return `Trusted by ${count} ${noun}`;
-}
-
-export function shouldShowTrustedBy(count: number | null | undefined): boolean {
-  return typeof count === 'number' && Number.isInteger(count) && count >= 1;
-}
-
 export function lifetimeSpotsLabel(remaining: number, total: number): string {
   return `${remaining} of ${total} Lifetime spots left`;
 }

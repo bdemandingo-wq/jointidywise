@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useSubscription } from '@/hooks/useSubscription';
 import { Button } from '@/components/ui/button';
@@ -19,7 +20,8 @@ import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
 import { isCustomPriceMissing } from '@/lib/priceNotConfigured';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
-import { shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
+import { hasChangeableStripeSubscription, shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
+import { renewalDisclosure, trialFirstChargeLine } from '@/lib/planBillingCopy';
 import {
   hasAnswer,
   normalizeAnswers,
@@ -112,7 +114,8 @@ export default function ChoosePlanPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const upgradeRequested = new URLSearchParams(location.search).get('upgrade') === '1';
-  const { user, loading: authLoading, signOut, checkSubscription } = useAuth();
+  const { user, loading: authLoading, signOut, checkSubscription, subscription } = useAuth();
+  const { timezone: orgTimezone } = useOrgTimezone();
   const { organization } = useOrganization();
   const { hasFullAccess, isLoading: subLoading } = useSubscription();
   const [billingInterval, setBillingInterval] = useState<Interval>('monthly');
@@ -137,6 +140,10 @@ export default function ChoosePlanPage() {
   const painPitch = pain ? PAIN_PITCH[pain] : null;
   // One redirect per click — same duplicate-session guard as PricingPage.
   const isRedirectingRef = useRef(false);
+  const trialEndIso = subscription?.trial_end ?? null;
+  const showTrialCharge = !!subscription
+    && !hasChangeableStripeSubscription(subscription)
+    && !!trialEndIso;
 
   useEffect(() => {
     const reset = () => {
@@ -362,6 +369,14 @@ export default function ChoosePlanPage() {
             const price = priceFor(tier, billingInterval);
             const busy = checkoutBusy === tier.id;
             const isRecommended = tier.id === recommendedId;
+            const chargePrice = billingInterval === 'yearly' ? tier.yearlyPrice : tier.monthlyPrice;
+            const trialLine = showTrialCharge
+              ? trialFirstChargeLine({
+                  trialEndIso,
+                  timeZone: orgTimezone,
+                  price: chargePrice,
+                })
+              : null;
             return (
               <Card
                 key={tier.id}
@@ -410,6 +425,14 @@ export default function ChoosePlanPage() {
                       <>Choose {tier.name}</>
                     )}
                   </Button>
+                  <div className="space-y-1 text-center">
+                    {trialLine && (
+                      <p className="text-xs text-muted-foreground">{trialLine}</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {renewalDisclosure(chargePrice, billingInterval)}
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
             );

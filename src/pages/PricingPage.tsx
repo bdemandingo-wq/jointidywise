@@ -13,6 +13,7 @@ import {
   type AdServiceType,
 } from '@/components/pricing/AdManagementRequestDialog';
 import { useAuth } from '@/hooks/useAuth';
+import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { usePublicGrowth } from '@/hooks/usePublicGrowth';
@@ -36,6 +37,8 @@ import {
 } from 'lucide-react';
 
 import { LIFETIME_FEATURES, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
+import { hasChangeableStripeSubscription } from '@/lib/stripeMode';
+import { renewalDisclosure, trialFirstChargeLine } from '@/lib/planBillingCopy';
 import { formatLoyaltyDollars, LOYALTY_PRICING, pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
 
 type Interval = 'monthly' | 'yearly';
@@ -157,7 +160,12 @@ function priceFor(tier: Tier, interval: Interval): { display: string; sub: strin
 
 export default function PricingPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, subscription } = useAuth();
+  const { timezone: orgTimezone } = useOrgTimezone();
+  const trialEndIso = subscription?.trial_end ?? null;
+  const showTrialCharge = !!subscription
+    && !hasChangeableStripeSubscription(subscription)
+    && !!trialEndIso;
   const { organization } = useOrganization();
   const [searchParams, setSearchParams] = useSearchParams();
   // billingInterval / setBillingInterval — NOT named "setInterval" so it
@@ -567,6 +575,14 @@ export default function PricingPage() {
           >
             {TIERS.map((tier) => {
               const price = priceFor(tier, billingInterval);
+              const chargePrice = billingInterval === 'yearly' ? tier.yearlyPrice : tier.monthlyPrice;
+              const trialLine = showTrialCharge
+                ? trialFirstChargeLine({
+                    trialEndIso,
+                    timeZone: orgTimezone,
+                    price: chargePrice,
+                  })
+                : null;
               const isHighlighted = highlightedPlan === tier.id;
               const cardLabel = `${tier.name} plan, ${price.display}${price.sub}${tier.highlight ? ', most popular' : ''}${isHighlighted ? ', selected' : ''}`;
               return (
@@ -632,9 +648,19 @@ export default function PricingPage() {
                       `Choose ${tier.name}`
                     )}
                   </Button>
-                  <p className="text-[11px] text-muted-foreground text-center mb-6">
-                    No card to start. After 30 days of Pro the app asks you to pick a plan.
-                  </p>
+                  <div className="mb-6 space-y-1 text-center">
+                    {trialLine && (
+                      <p className="text-[11px] text-muted-foreground">{trialLine}</p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground">
+                      {renewalDisclosure(chargePrice, billingInterval)}
+                    </p>
+                    {!trialLine && (
+                      <p className="text-[11px] text-muted-foreground">
+                        No card to start. After 30 days of Pro the app asks you to pick a plan.
+                      </p>
+                    )}
+                  </div>
 
                   <ul className="space-y-2.5 text-sm">
                     {tier.features.map((feature) => (

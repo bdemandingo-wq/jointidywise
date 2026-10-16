@@ -59,10 +59,8 @@ const pricingPlans = [
     tagline: "Built for cleaning businesses",
     // Was "$0/month" with "Plans from $49/mo" directly beneath it. As the
     // headline in a price comparison that read as "TidyWise is free", and the
-    // subtitle contradicted it two lines down — which cost credibility on the
-    // one claim here that is already true: $49 against $197 IS the 75% lower
-    // price the section header promises. The subtitle now carries the real
-    // differentiator instead of repeating the number above it.
+    // subtitle contradicted it two lines down. The subtitle now carries the
+    // real differentiator instead of repeating the number above it.
     price: "$49",
     priceNote: "/month",
     subtitle: "Unlimited users · cancel anytime",
@@ -107,7 +105,7 @@ export function CompetitorComparison() {
             TIDYWISE vs Booking Koala vs Jobber: Which Cleaning Software Wins?
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Looking for Booking Koala alternatives or Jobber alternatives? Compare the best cleaning business software side by side. More features, 75% lower price.
+            Looking for Booking Koala alternatives or Jobber alternatives? Compare the best cleaning business software side by side. Plans from $49/mo vs $197/mo for Booking Koala.
           </p>
         </div>
 
@@ -199,7 +197,7 @@ export function CompetitorComparison() {
             See TIDYWISE Plans
           </Button>
           <p className="text-sm text-muted-foreground mt-3">
-            Trusted by cleaning businesses using TIDYWISE
+            Built for cleaning businesses
           </p>
         </div>
       </div>

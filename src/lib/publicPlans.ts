@@ -62,6 +62,13 @@ export const PUBLIC_TIERS: PublicTier[] = [
 
 export const LIFETIME_PRICE = 300;
 
+/**
+ * Founding lifetime spots. Auth copy and the client cap both read this.
+ * The owner is confirming 50 vs 100; leave it at 100 until that lands.
+ * The spots-left counter still uses the live remaining count.
+ */
+export const LIFETIME_SPOT_CAP = 100;
+
 export const LIFETIME_FEATURES = [
   "Every Pro feature, forever",
   "All future features included free",
