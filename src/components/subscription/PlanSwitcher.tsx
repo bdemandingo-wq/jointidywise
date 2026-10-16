@@ -450,9 +450,7 @@ export function PlanSwitcher() {
               {plan.monthlyPrice > 0 && (
                 <div className="mb-3">
                   <span className="text-2xl font-bold">${plan.monthlyPrice}</span>
-                  {plan.id !== "custom" && (
-                    <span className="text-sm text-muted-foreground">/mo</span>
-                  )}
+                  <span className="text-sm text-muted-foreground">/mo</span>
                 </div>
               )}
               <ul className="mb-4 space-y-1.5 text-xs text-muted-foreground">

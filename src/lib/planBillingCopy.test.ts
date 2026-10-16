@@ -18,7 +18,7 @@ import {
   trialEndDateLabel,
 } from "./planBillingCopy.ts";
 import { stripeTrialEndUnix } from "../../supabase/functions/_shared/trial-end.ts";
-import { LIFETIME_SPOT_CAP } from "./publicPlans.ts";
+import { LIFETIME_SPOT_CAP, PUBLIC_TIERS } from "./publicPlans.ts";
 
 test("basic and pro stay on checkout and custom is contact", () => {
   assert.equal(planBillingAction("basic"), "checkout");
@@ -100,6 +100,34 @@ test("trial charge copy follows stripeTrialEndUnix, the same rule as create-subs
   assert.ok(eastern);
   assert.ok(eastern.length * 6.6 <= innerPx);
   assert.ok("You'll be charged $1970 today.".length * 6.6 <= innerPx);
+});
+
+test("Custom is $197/mo in the app and in SEO copy", () => {
+  const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const comparison = read("../components/landing/CompetitorComparison.tsx");
+  const switcher = read("../components/subscription/PlanSwitcher.tsx");
+  const seo = read("../components/seo/AuthSEOContent.tsx");
+  const pricing = read("../pages/PricingPage.tsx");
+  const schema = read("./seo/schemas.ts");
+  const facts = read("../../supabase/functions/generate-daily-blogs/index.ts");
+  const pricingMd = read("../../public/pricing.md");
+  const customPrice = PUBLIC_TIERS.find((tier) => tier.id === "custom")?.monthlyPrice;
+  assert.equal(customPrice, 197);
+  assert.match(comparison, /\$\$\{tier\.monthlyPrice\}\/mo/);
+  assert.match(comparison, /custom\.monthlyPrice/);
+  assert.doesNotMatch(comparison, /Booking Koala/);
+  assert.doesNotMatch(comparison, /Jobber/);
+  assert.doesNotMatch(comparison, /\$349/);
+  assert.doesNotMatch(comparison, /bookingKoala/);
+  assert.doesNotMatch(switcher, /plan\.id !== "custom"/);
+  assert.match(switcher, /\/mo/);
+  assert.match(schema, /id === "custom"\)\?\.monthlyPrice\}\/mo for Custom/);
+  assert.doesNotMatch(schema, /\$197\/month/);
+  for (const source of [seo, pricing, facts, pricingMd]) {
+    assert.match(source, /\$197\/mo/);
+    assert.doesNotMatch(source, /\$197\/month/);
+    assert.doesNotMatch(source, /Custom \$197(?!\/mo)/);
+  }
 });
 
 test("the lifetime cap is one shared constant at 100", () => {
