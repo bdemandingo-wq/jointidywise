@@ -20,7 +20,7 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
 import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/send-sms.ts";

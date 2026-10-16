@@ -558,7 +558,7 @@ export function InvoiceFormDialog({
       if (wantsEmail && !customerEmail) throw new Error('Customer has no email address. The draft was kept.');
       if (wantsSms && !customerPhone) throw new Error('Customer has no phone number. The draft was kept.');
 
-      const { error: sendError } = await supabase.functions.invoke('create-stripe-invoice', {
+      const { data: sendData, error: sendError } = await supabase.functions.invoke('create-stripe-invoice', {
         body: {
           invoiceId: saved.id,
           organizationId: fields.organizationId,
@@ -583,11 +583,22 @@ export function InvoiceFormDialog({
         const reason = await readEdgeFunctionError(sendError, 'Could not email or text this invoice.');
         throw new Error(`${reason} The draft was kept.`);
       }
-      return { invoiceNumber: saved.invoiceNumber, sendMethod };
+      return {
+        invoiceNumber: saved.invoiceNumber,
+        sendMethod,
+        smsSkipped: sendData?.skipped === true || (sendData?.smsSent === false && wantsSms),
+      };
     },
     onSuccess: async (result) => {
-      const method = result.sendMethod === 'both' ? 'via email & SMS' : result.sendMethod === 'email' ? 'via email' : 'via SMS';
-      toast.success(`Invoice #${result.invoiceNumber} sent ${method}`);
+      const number = `Invoice #${result.invoiceNumber}`;
+      if (result.smsSkipped && result.sendMethod === 'sms') {
+        toast.success(`${number} is ready. This number texted STOP, so it was not texted.`);
+      } else if (result.smsSkipped && result.sendMethod === 'both') {
+        toast.success(`${number} sent via email. This number texted STOP, so it was not texted.`);
+      } else {
+        const method = result.sendMethod === 'both' ? 'via email & SMS' : result.sendMethod === 'email' ? 'via email' : 'via SMS';
+        toast.success(`${number} sent ${method}`);
+      }
       await finishAndClose();
     },
     onError: (error: Error) => toast.error(error.message || 'Failed to save invoice'),

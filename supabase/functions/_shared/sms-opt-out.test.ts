@@ -195,17 +195,7 @@ test("START and UNSTOP match the whole message only", () => {
   }
 });
 
-function subscribedCustomer(): SmsConsentState {
-  return {
-    marketing_status: "subscribed",
-    opted_out_at: null,
-    opted_out_method: null,
-    opted_out_campaign_id: null,
-    marketing_status_before_sms_stop: null,
-  };
-}
-
-test("START restores the previous status, or subscribed, for every opt-out", () => {
+test("START restores a saved status for an SMS STOP and leaves other opt-outs alone", () => {
   const smsStop: SmsConsentState = {
     marketing_status: "opted_out",
     opted_out_at: "2026-10-01T00:00:00.000Z",
@@ -231,17 +221,23 @@ test("START restores the previous status, or subscribed, for every opt-out", () 
     marketing_status_before_sms_stop: null,
   };
   const manualStart = nextSmsConsent(manual, " start ", "2026-10-02T00:00:00.000Z", null);
-  assert.equal(manualStart.smsResubscribed, true);
+  assert.equal(manualStart.smsResubscribed, false);
   assert.equal(manualStart.optOutReview, false);
-  assert.equal(manualStart.persist, true);
+  assert.equal(manualStart.persist, false);
   assert.equal(manualStart.sendConfirmation, false);
-  assert.deepEqual(manualStart.state, subscribedCustomer());
+  assert.deepEqual(manualStart.state, manual);
 
   const emailOptOut: SmsConsentState = { ...manual, opted_out_method: "email" };
   const emailStart = nextSmsConsent(emailOptOut, "UNSTOP", "2026-10-02T00:00:00.000Z", null);
-  assert.equal(emailStart.smsResubscribed, true);
-  assert.equal(emailStart.persist, true);
-  assert.deepEqual(emailStart.state, subscribedCustomer());
+  assert.equal(emailStart.smsResubscribed, false);
+  assert.equal(emailStart.persist, false);
+  assert.deepEqual(emailStart.state, emailOptOut);
+
+  const adminOptOut: SmsConsentState = { ...manual, opted_out_method: "admin" };
+  const adminStart = nextSmsConsent(adminOptOut, "START", "2026-10-02T00:00:00.000Z", null);
+  assert.equal(adminStart.smsResubscribed, false);
+  assert.equal(adminStart.persist, false);
+  assert.deepEqual(adminStart.state, adminOptOut);
 
   const notOptedOut = nextSmsConsent(activeCustomer(), "START", "2026-10-02T00:00:00.000Z", null);
   assert.deepEqual(notOptedOut.state, activeCustomer());
@@ -250,7 +246,7 @@ test("START restores the previous status, or subscribed, for every opt-out", () 
   assert.equal(notOptedOut.persist, false);
 });
 
-test("START sets subscribed when the prior status was not saved", () => {
+test("START does not invent subscribed when the prior status was not saved", () => {
   const legacy: SmsConsentState = {
     marketing_status: "opted_out",
     opted_out_at: "2026-08-01T00:00:00.000Z",
@@ -262,8 +258,9 @@ test("START sets subscribed when the prior status was not saved", () => {
   assert.equal(step.smsResubscribed, true);
   assert.equal(step.persist, true);
   assert.equal(step.sendConfirmation, false);
-  assert.equal(step.state.marketing_status, "subscribed");
-  assert.equal(step.state.opted_out_at, null);
+  assert.equal(step.state.marketing_status, "opted_out");
+  assert.notEqual(step.state.marketing_status, "subscribed");
+  assert.equal(step.state.opted_out_at, "2026-08-01T00:00:00.000Z");
   assert.equal(step.state.opted_out_method, null);
   assert.equal(step.state.opted_out_campaign_id, null);
   assert.equal(step.state.marketing_status_before_sms_stop, null);

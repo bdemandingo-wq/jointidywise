@@ -1,4 +1,5 @@
-import { sendOpenPhoneMessage, type SmsSupabaseClient } from "./send-sms.ts";
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendOpenPhoneMessage } from "./send-sms.ts";
 
 /**
  * business_settings.notification_phone may hold several numbers separated by
@@ -23,7 +24,7 @@ export async function sendToExtraAlertPhones(
   authHeader: string,
   content: string,
   tag: string,
-  scope: { supabase: SmsSupabaseClient; organizationId: string },
+  scope: { supabase: SupabaseClient; organizationId: string },
 ): Promise<void> {
   for (const to of phones) {
     try {

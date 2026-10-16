@@ -142,20 +142,18 @@ serve(async (req: Request) => {
           });
           if (sent.skipped) {
             console.log(`[demo-reminders] 24h client reminder skipped opted_out ${demo.phone}`);
+          } else if (!sent.response.ok) {
+            console.error(`[demo-reminders] 24h client reminder failed:`, sent.response.status, await sent.response.text());
           } else {
-            if (!sent.response.ok) {
-              console.error(`[demo-reminders] 24h client reminder failed:`, sent.response.status, await sent.response.text());
-            }
-            const { error: logErr } = await supabase.from("demo_reminder_log").insert({
-              demo_booking_id: demo.id,
-              reminder_type: "24h_client",
-            });
-            if (logErr) {
-              console.error(`[demo-reminders] 24h reminder sent but log insert failed for demo ${demo.id} — dedupe will not catch this next run:`, logErr);
-            }
-
             console.log(`[demo-reminders] 24h client reminder sent to ${demo.phone}`);
             sentCount++;
+          }
+          const { error: logErr } = await supabase.from("demo_reminder_log").insert({
+            demo_booking_id: demo.id,
+            reminder_type: "24h_client",
+          });
+          if (logErr) {
+            console.error(`[demo-reminders] 24h reminder log insert failed for demo ${demo.id} — dedupe will not catch this next run:`, logErr);
           }
         } catch (err) {
           console.error(`[demo-reminders] 24h client reminder failed:`, err);
@@ -168,6 +166,7 @@ serve(async (req: Request) => {
         const adminMsg = `⏰ DEMO REMINDER\n\n${demo.full_name} from ${demo.business_name}\nin 1 hour at ${timeDisplay} EST\n\n📞 ${demo.phone}\n📧 ${demo.email}\nChallenge: ${demo.biggest_challenge || "N/A"}`;
 
         try {
+          let adminDelivered = false;
           for (const adminPhone of ADMIN_PHONES) {
             const sent = await sendOpenPhoneMessage({
               supabase,
@@ -184,7 +183,9 @@ serve(async (req: Request) => {
             }
             if (!sent.response.ok) {
               console.error(`[demo-reminders] 1h admin reminder failed:`, sent.response.status, await sent.response.text());
+              continue;
             }
+            adminDelivered = true;
           }
 
           const { error: logErr } = await supabase.from("demo_reminder_log").insert({
@@ -192,11 +193,13 @@ serve(async (req: Request) => {
             reminder_type: "1h_admin",
           });
           if (logErr) {
-            console.error(`[demo-reminders] 1h admin reminder sent but log insert failed for demo ${demo.id} — dedupe will not catch this next run:`, logErr);
+            console.error(`[demo-reminders] 1h admin reminder log insert failed for demo ${demo.id} — dedupe will not catch this next run:`, logErr);
           }
 
-          console.log(`[demo-reminders] 1h admin reminder sent for ${demo.full_name}`);
-          sentCount++;
+          if (adminDelivered) {
+            console.log(`[demo-reminders] 1h admin reminder sent for ${demo.full_name}`);
+            sentCount++;
+          }
         } catch (err) {
           console.error(`[demo-reminders] 1h admin reminder failed:`, err);
         }
@@ -219,20 +222,18 @@ serve(async (req: Request) => {
           });
           if (sent.skipped) {
             console.log(`[demo-reminders] 30min client reminder skipped opted_out ${demo.phone}`);
+          } else if (!sent.response.ok) {
+            console.error(`[demo-reminders] 30min client reminder failed:`, sent.response.status, await sent.response.text());
           } else {
-            if (!sent.response.ok) {
-              console.error(`[demo-reminders] 30min client reminder failed:`, sent.response.status, await sent.response.text());
-            }
-            const { error: logErr } = await supabase.from("demo_reminder_log").insert({
-              demo_booking_id: demo.id,
-              reminder_type: "30min_client",
-            });
-            if (logErr) {
-              console.error(`[demo-reminders] 30min reminder sent but log insert failed for demo ${demo.id} — dedupe will not catch this next run:`, logErr);
-            }
-
             console.log(`[demo-reminders] 30min client reminder sent to ${demo.phone}`);
             sentCount++;
+          }
+          const { error: logErr } = await supabase.from("demo_reminder_log").insert({
+            demo_booking_id: demo.id,
+            reminder_type: "30min_client",
+          });
+          if (logErr) {
+            console.error(`[demo-reminders] 30min reminder log insert failed for demo ${demo.id} — dedupe will not catch this next run:`, logErr);
           }
         } catch (err) {
           console.error(`[demo-reminders] 30min client reminder failed:`, err);

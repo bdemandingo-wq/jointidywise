@@ -160,7 +160,12 @@ const handler = async (req: Request): Promise<Response> => {
         error: "skipped: opted_out",
       });
       return new Response(
-        JSON.stringify({ success: false, skipped: true, reason: "opted_out" }),
+        JSON.stringify({
+          success: false,
+          skipped: true,
+          reason: "opted_out",
+          error: "This number texted STOP",
+        }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

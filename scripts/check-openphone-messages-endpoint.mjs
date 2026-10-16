@@ -32,6 +32,7 @@ const SKIP_DIRS = new Set([
   "playwright-report",
   "ios",
   "android",
+  "docs",
 ]);
 
 const SKIP_FILES = new Set(["package-lock.json"]);

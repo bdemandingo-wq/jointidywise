@@ -11,21 +11,6 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { phoneMatchKey, toE164 } from "./phone.ts";
 
-type RealSupabaseClient = SupabaseClient<any, any, any>;
-
-/**
- * The client passed into the SMS gate. It is the real SupabaseClient `from`
- * method: a bare SupabaseClient defaults its schema to `never` and rejects the
- * value `createClient()` returns, and esm.sh @2, esm.sh @2.57.2, and npm: are
- * three different classes. The builder is widened so every one of those
- * clients assigns, and so `.from().select().eq()` typechecks.
- */
-export type SmsSupabaseClient = {
-  from: RealSupabaseClient["from"] extends (...args: infer _Args) => unknown
-    ? (table: string) => any
-    : never;
-};
-
 const OPTED_OUT = "opted_out";
 const SMS_STOP_METHOD = "sms_stop";
 
@@ -34,7 +19,7 @@ const SMS_STOP_METHOD = "sms_stop";
  * Returns TRUE on any lookup error (fail closed).
  */
 export async function isOptedOut(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   customerId: string,
 ): Promise<boolean> {
@@ -75,7 +60,7 @@ export async function isOptedOut(
  * NOT opted out, preserving input order. Returns an EMPTY array on any error.
  */
 export async function filterOptedIn<T extends { id: string }>(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   customers: T[],
 ): Promise<T[]> {
@@ -160,7 +145,7 @@ export function phoneLookupCandidates(raw: string | null | undefined): string[] 
 }
 
 async function loadCustomersForPhone(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   phone: string,
 ): Promise<CustomerPhoneRow[]> {
@@ -192,7 +177,7 @@ export type PhoneOptOutStatus = "opted_out" | "clear" | "lookup_failed" | "inval
  * sender does not text and does not call it an opt-out.
  */
 export async function phoneOptOutStatus(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   phone: string | null | undefined,
 ): Promise<PhoneOptOutStatus> {
@@ -235,7 +220,7 @@ export async function phoneOptOutStatus(
  * texting STOP). An email unsubscribe or admin opt-out does not count.
  */
 export async function isPhoneOptedOut(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   phone: string | null | undefined,
 ): Promise<boolean> {
@@ -254,7 +239,7 @@ export async function isPhoneOptedOut(
  * up by its stored forms. Does not read the rest of the org. Empty on error.
  */
 export async function findCustomerIdsByPhone(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   phone: string | null | undefined,
 ): Promise<string[]> {
@@ -278,7 +263,7 @@ export async function findCustomerIdsByPhone(
  * record that already reflects it.
  */
 export async function findCustomerIdByPhone(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   phone: string | null | undefined,
 ): Promise<string | null> {
@@ -307,7 +292,7 @@ export async function findCustomerIdByPhone(
  * (owners, staff, leads) have nothing to opt out of here.
  */
 export async function isEmailOptedOut(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   email: string | null | undefined,
 ): Promise<boolean> {

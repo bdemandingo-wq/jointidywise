@@ -60,6 +60,15 @@ test("a POST in the read helper fails", () => {
   assert.deepEqual(hits, [READ_FILE]);
 });
 
+test("docs are outside the endpoint check", () => {
+  const name = ["OPENPHONE", "MESSAGES", "URL"].join("_");
+  const hits = withTree({
+    [POST_FILE]: `const ${name} = "${ENDPOINT}";\nmethod: "POST"\n`,
+    "docs/paste.txt": `fetch("${ENDPOINT}", { method: "POST" });\nconst ${name} = "x";\n`,
+  }, findOpenPhoneMessageEndpointViolations);
+  assert.deepEqual(hits, []);
+});
+
 test("the messages URL identifier outside the sender fails the check", () => {
   const name = ["OPENPHONE", "MESSAGES", "URL"].join("_");
   const hits = withTree({

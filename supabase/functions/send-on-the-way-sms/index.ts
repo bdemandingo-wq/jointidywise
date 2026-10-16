@@ -113,7 +113,13 @@ const handler = async (req: Request): Promise<Response> => {
 
     // Caller must be this cleaner, or an owner/admin/manager, and the staff
     // row must be assigned to this booking in this organization.
-    const auth = await assertAssignedStaffEvent(req, supabase as any, booking.organization_id, staffId, bookingId);
+    const auth = await assertAssignedStaffEvent(
+      req,
+      supabase as unknown as Parameters<typeof assertAssignedStaffEvent>[1],
+      booking.organization_id,
+      staffId,
+      bookingId,
+    );
     if (!auth.ok) {
       return new Response(
         JSON.stringify({ success: false, error: auth.error }),

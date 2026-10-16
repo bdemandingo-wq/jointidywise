@@ -13,8 +13,9 @@
  *
  * The inbound webhook is the only caller that may pass purpose
  * "stop_confirmation" or "help". Those two replies are the only sends that
- * skip the gate. START/UNSTOP deletes the suppression row and sets
- * marketing_status to a non-blocking value. It does not send a text.
+ * skip the gate. START/UNSTOP deletes the suppression row and clears an
+ * SMS STOP on the customer. Email and admin opt-outs are left in place.
+ * It does not send a text.
  *
  * This file is the only place that may POST the OpenPhone messages URL.
  * Read-only GETs live in openphone-messages-read.ts and cannot POST.
@@ -22,9 +23,8 @@
  * URL, any POST outside this file, and any compliance purpose outside the
  * inbound webhook.
  */
-import { phoneOptOutStatus, type SmsSupabaseClient } from "./marketing-guard.ts";
-
-export type { SmsSupabaseClient };
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { phoneOptOutStatus } from "./marketing-guard.ts";
 import { toE164 } from "./phone.ts";
 
 const OPENPHONE_MESSAGES_URL = "https://api.openphone.com/v1/messages";
@@ -64,7 +64,7 @@ type FetchLike = (
 ) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>;
 
 export interface SendOpenPhoneMessageInput {
-  supabase: SmsSupabaseClient;
+  supabase: SupabaseClient;
   organizationId: string;
   to: string;
   content: string;
@@ -102,7 +102,7 @@ function looseConfirmationAddress(raw: string): string | null {
 }
 
 async function logBlockedSend(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   to: string,
   tag: string,
@@ -131,7 +131,7 @@ async function logBlockedSend(
  * Returns false when the phone cannot be normalized or the write fails.
  */
 export async function recordSmsSuppression(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   phone: string,
 ): Promise<boolean> {
@@ -161,7 +161,7 @@ export async function recordSmsSuppression(
 
 /** Delete the org + E.164 suppression. A missing row is success. */
 export async function clearSmsSuppression(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   phone: string,
 ): Promise<boolean> {

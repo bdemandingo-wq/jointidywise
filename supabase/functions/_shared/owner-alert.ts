@@ -5,6 +5,7 @@
 // Keep this file free of Deno URL imports so node:test can load it.
 // sendOrgEmail is imported only when an email is actually sent.
 
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { parseAlertPhones } from "./alertPhones.ts";
 import { escapeHtml } from "./escapeHtml.ts";
 import { notifyOffice } from "./office-notify.ts";
@@ -23,7 +24,7 @@ export const OWNER_ALERT_EMAIL_DEFAULT_KEYS = [
 ] as const;
 
 export interface OwnerAlertOrg {
-  supabase: OwnerAlertDb;
+  supabase: SupabaseClient;
   organizationId: string;
   /** Present for booking-scoped events. */
   bookingId?: string | null;
@@ -81,7 +82,7 @@ export interface OwnerAlertDeps {
     from: string;
     apiKey: string;
     organizationId: string;
-    supabase: OwnerAlertDb;
+    supabase: SupabaseClient;
   }) => Promise<{ sent: number; skipped?: boolean }>;
   sendEmail: (args: {
     organizationId: string;
@@ -372,7 +373,7 @@ async function defaultSendSms(args: {
   from: string;
   apiKey: string;
   organizationId: string;
-  supabase: OwnerAlertDb;
+  supabase: SupabaseClient;
 }): Promise<{ sent: number; skipped: boolean }> {
   // Loaded only when a text is sent. A static import pulls marketing-guard's
   // esm.sh type into every node:test that loads this file.
@@ -384,7 +385,7 @@ async function defaultSendSms(args: {
     // Bearer retry on 401 stays in sendOpenPhoneMessage. This number still
     // goes through the org opt-out check; it is the business's own phone.
     const result = await sendOpenPhoneMessage({
-      supabase: args.supabase as never,
+      supabase: args.supabase,
       organizationId: args.organizationId,
       to,
       content: args.content,

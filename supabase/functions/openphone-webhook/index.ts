@@ -4,8 +4,8 @@ import {
   AUTOMATION_DEFAULTS,
 } from "../_shared/automation-templates.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { findCustomerIdByPhone, findCustomerIdsByPhone, type SmsSupabaseClient } from "../_shared/marketing-guard.ts";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { findCustomerIdByPhone, findCustomerIdsByPhone } from "../_shared/marketing-guard.ts";
 import { internalDispatchHeaders } from "../_shared/internal-dispatch-auth.ts";
 import {
   classifySmsOptOut,
@@ -189,7 +189,7 @@ async function findLocalContactName(
  * per webhook delivery; a failed send is logged and not retried.
  */
 async function sendSmsComplianceReply(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   args: {
     organizationId: string;
     conversationId: string;
@@ -315,7 +315,7 @@ function consentStateFromRow(row: {
 }
 
 async function loadSmsConsent(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   customerId: string,
 ): Promise<SmsConsentState | null> {
@@ -345,7 +345,7 @@ async function loadSmsConsent(
 }
 
 async function persistSmsConsent(
-  supabase: SmsSupabaseClient,
+  supabase: SupabaseClient,
   organizationId: string,
   customerId: string,
   state: SmsConsentState,
@@ -1115,9 +1115,10 @@ const handler = async (req: Request): Promise<Response> => {
     // Classify before insert. A single-word CANCEL or END still opts out, and
     // it is still written to sms_messages so a person sees it in the inbox.
     // A keyword inside a normal sentence is not an opt-out; it is flagged.
-    // START / UNSTOP clear sms_suppressions and set marketing_status to a
-    // non-blocking value on every customer row for that number. They do not
-    // send a second text. HELP gets one reply.
+    // START / UNSTOP delete sms_suppressions and clear opted_out_method
+    // sms_stop on every customer row for that number. Email, manual, and
+    // admin opt-outs are left in place. They do not send a second text.
+    // HELP gets one reply.
     const inboundText = direction === 'inbound' && typeof content === 'string' ? content : null;
     const optOutClassification = inboundText
       ? classifySmsOptOut(inboundText)

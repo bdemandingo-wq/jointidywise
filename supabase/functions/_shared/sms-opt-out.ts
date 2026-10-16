@@ -340,7 +340,7 @@ export interface SmsConsentStep {
   sendConfirmation: boolean;
   /** Inbox flag: keyword in a sentence. */
   optOutReview: boolean;
-  /** START/UNSTOP cleared a blocking opt-out. No second text. */
+  /** START/UNSTOP cleared an SMS STOP. No second text. */
   smsResubscribed: boolean;
   /** Skip the AI auto-reply. */
   suppressAi: boolean;
@@ -369,17 +369,12 @@ function applySmsStop(state: SmsConsentState, now: string, campaignId: string | 
   };
 }
 
-function nonBlockingMarketingStatus(state: SmsConsentState): string {
-  const saved = state.marketing_status_before_sms_stop;
-  if (saved && saved !== "opted_out") return saved;
-  if (state.marketing_status && state.marketing_status !== "opted_out") return state.marketing_status;
-  return "subscribed";
-}
-
 function restoreSmsStop(state: SmsConsentState): SmsConsentState {
+  const saved = state.marketing_status_before_sms_stop;
+  const restoreStatus = Boolean(saved && saved !== "opted_out");
   return {
-    marketing_status: nonBlockingMarketingStatus(state),
-    opted_out_at: null,
+    marketing_status: restoreStatus ? saved! : state.marketing_status,
+    opted_out_at: restoreStatus ? null : state.opted_out_at,
     opted_out_method: null,
     opted_out_campaign_id: null,
     marketing_status_before_sms_stop: null,
@@ -406,10 +401,10 @@ export function nextSmsConsent(
   };
 
   if (isExactResubscribe(content)) {
-    const blocked = state.marketing_status === "opted_out" || Boolean(state.opted_out_method);
-    if (!blocked) return unchanged;
-    // Previous status when it would not itself block the next text, otherwise
-    // subscribed. START/UNSTOP must leave marketing_status non-blocking.
+    // START/UNSTOP clears an SMS STOP only. Email, manual, and admin
+    // opt-outs stay as they are. The previous status is restored when it
+    // was saved. A missing snapshot is not turned into "subscribed".
+    if (state.opted_out_method !== SMS_STOP_METHOD) return unchanged;
     return {
       state: restoreSmsStop(state),
       persist: true,
@@ -497,11 +492,6 @@ function usableName(raw: string | null | undefined): string {
 }
 
 /**
- * One opt-out confirmation. No marketing. The phone sentence is omitted when
- * there is no usable business phone. The result is always GSM-7 basic and
- * fits in a single 160-character segment.
- */
-/**
  * One HELP reply. No marketing. GSM-7 basic, one segment.
  */
 export function renderHelpReply(
@@ -516,6 +506,11 @@ export function renderHelpReply(
   return truncateWithAsciiEllipsis(text, GSM_7_SINGLE_SEGMENT);
 }
 
+/**
+ * One opt-out confirmation. No marketing. The phone sentence is omitted when
+ * there is no usable business phone. The result is always GSM-7 basic and
+ * fits in a single 160-character segment.
+ */
 export function renderOptOutConfirmation(
   businessName: string | null | undefined,
   businessPhone: string | null | undefined,
