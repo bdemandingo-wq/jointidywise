@@ -29,8 +29,8 @@ const benefits = [
   },
   {
     icon: Fuel,
-    title: "Reduce Fuel Costs by 25%",
-    description: "Optimized routes mean less driving. Save hundreds on gas every month across your cleaning team."
+    title: "Shorter drives between jobs",
+    description: "Optimized routes mean less driving between appointments."
   },
   {
     icon: Clock,
@@ -78,7 +78,7 @@ export default function RouteOptimization() {
     <div className="min-h-screen bg-background">
       <SEOHead 
         title="Route Optimization Software for Cleaning Businesses"
-        description="AI-powered route optimization for cleaning businesses. Cut drive time 30%, reduce fuel costs 25%, and fit more jobs per day. Included with the TIDYWISE Pro plan."
+        description="AI-powered route optimization for cleaning businesses. Plan faster routes and fit more jobs per day. Included with the TIDYWISE Pro plan."
         canonical="/features/route-optimization"
         ogImage="/images/og/og-routes.png"
         schemaJson={featurePageSchemas({ featureName: 'Route Optimization', description: 'Sequence jobs by driving time and reduce windshield time across your team.', path: '/features/route-optimization', crumbLabel: 'Route Optimization' })}
@@ -129,7 +129,7 @@ export default function RouteOptimization() {
             <span className="text-primary">for Cleaning Businesses</span>
           </h1>
           <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-3xl mx-auto">
-            Stop wasting time and money on inefficient routes. TidyWise automatically plans the fastest routes for your cleaning team. <strong>Save 25% on fuel costs</strong> and fit more jobs into every day.
+            Stop wasting time and money on inefficient routes. TidyWise automatically plans the fastest routes for your cleaning team and fits more jobs into every day.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button size="lg" className="h-12 px-8" onClick={handleStartFreeTrial}>
@@ -145,11 +145,7 @@ export default function RouteOptimization() {
       {/* Stats */}
       <section className="py-12 px-4 sm:px-6 lg:px-8 bg-secondary/30">
         <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-primary">25%</div>
-              <p className="text-sm text-muted-foreground">Fuel Savings</p>
-            </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
             <div className="text-center">
               <div className="text-3xl font-bold text-primary">30%</div>
               <p className="text-sm text-muted-foreground">Less Drive Time</p>
@@ -257,7 +253,7 @@ export default function RouteOptimization() {
           "applicationCategory": "BusinessApplication",
           "operatingSystem": "Web, iOS, Android",
           "offers": { "@type": "Offer", "price": "50", "priceCurrency": "USD" },
-          "description": "Route optimization software for cleaning businesses. AI-powered routing saves 25% on fuel and reduces drive time by 30%."
+          "description": "Route optimization software for cleaning businesses. AI-powered routing plans the fastest routes for a cleaning team."
         })
       }} />
     </div>

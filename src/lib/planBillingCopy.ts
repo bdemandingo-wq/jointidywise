@@ -1,6 +1,6 @@
 import { formatInOrgTz } from "./orgDateRange.ts";
 import { LIFETIME_PRICE } from "./publicPlans.ts";
-import { stripeTrialEndUnix } from "../../supabase/functions/_shared/trial-end.ts";
+import { MIN_STRIPE_TRIAL_LEAD_SEC, stripeTrialEndUnix } from "../../supabase/functions/_shared/trial-end.ts";
 
 // orgDateRange.ts and publicPlans.ts have zero imports, so node:test can
 // load this file without Vite or the @/ alias.
@@ -136,6 +136,31 @@ export function chargeLineFromPreview(opts: {
  * without an amount. A preview that bills later returns null so the date
  * line can stand on its own. A today charge uses the discounted cents.
  */
+/**
+ * How long to wait before asking preview-subscription-charge again.
+ * The cached bill-now answer goes stale when the trial crosses the same
+ * 48-hour lead create-subscription uses. A future boundary waits until
+ * that moment. A boundary the client clock has already passed is asked
+ * again in a minute, because the server clock is still the decision.
+ */
+export function chargePreviewRefetchMs(
+  previews: Record<string, { bill_now: boolean; first_charge_at: string | null } | undefined> | null | undefined,
+  nowMs = Date.now(),
+): number | false {
+  if (!previews) return false;
+  const leadMs = MIN_STRIPE_TRIAL_LEAD_SEC * 1000;
+  let wait = Infinity;
+  for (const row of Object.values(previews)) {
+    if (!row || row.bill_now || !row.first_charge_at) continue;
+    const boundary = Date.parse(row.first_charge_at) - leadMs;
+    if (!Number.isFinite(boundary)) continue;
+    const delta = boundary - nowMs;
+    wait = Math.min(wait, delta <= 0 ? 60_000 : delta);
+  }
+  if (!Number.isFinite(wait)) return false;
+  return Math.max(1000, Math.min(wait, 24 * 60 * 60 * 1000));
+}
+
 export function todayChargeCopy(
   preview: {
     bill_now: boolean;

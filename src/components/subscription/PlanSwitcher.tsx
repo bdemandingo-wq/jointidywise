@@ -190,9 +190,10 @@ export function PlanSwitcher() {
     !!downgrade.to && !!targetDowngradePlan && planChoicesVisible && canShowPaymentFlows;
   const canChangePlan = hasChangeableStripeSubscription(subscription);
   const choosingFirstPlan = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
-  // create-subscription applies the 48-hour rule only when organizations.plan_type
-  // is trial. trial_end is the profile trial end check-subscription already returns.
-  const orgTrialCheckout = currentPlanId === "trial" || isActiveOrgTrial(subscription);
+  // create-subscription applies the 48-hour rule only when the active
+  // organization's plan_type is trial. The subscription payload is not a
+  // second vote.
+  const orgTrialCheckout = organization?.plan_type === "trial";
   const chargePreview = useSubscriptionChargePreview({
     enabled: orgTrialCheckout && planChoicesVisible,
     organizationId,
@@ -348,19 +349,17 @@ export function PlanSwitcher() {
           let planButton: ReactNode;
           let downgradeNote = false;
           let showRenewal = false;
+          let showChargeLine = false;
           const planPreview = plan.id === "basic" || plan.id === "pro"
             ? chargePreview.data?.previews[chargePreviewKey(plan.id, "monthly")]
             : undefined;
-          const todayLine = visibleBillingLine(
-            orgTrialCheckout && !contactPlan ? todayChargeCopy(planPreview, orgTimezone) : null,
-          );
           if (choosingFirstPlan && contactPlan) {
             planButton = talkToUs;
           } else if (choosingFirstPlan && !canShowPaymentFlows) {
-            showRenewal = true;
             planButton = onTheWebsite;
           } else if (choosingFirstPlan) {
             showRenewal = true;
+            showChargeLine = true;
             planButton = (
               <Button
                 variant="premium"
@@ -392,10 +391,10 @@ export function PlanSwitcher() {
           } else if (!canChangePlan && contactPlan) {
             planButton = talkToUs;
           } else if (!canChangePlan && !canShowPaymentFlows) {
-            showRenewal = true;
             planButton = onTheWebsite;
           } else if (!canChangePlan) {
             showRenewal = true;
+            showChargeLine = true;
             planButton = (
               <Button
                 variant="premium"
@@ -416,11 +415,11 @@ export function PlanSwitcher() {
           } else if (contactPlan) {
             planButton = talkToUs;
           } else if (!canShowPaymentFlows) {
-            showRenewal = true;
             planButton = onTheWebsite;
           } else {
             downgradeNote = !isUpgrade;
             showRenewal = true;
+            showChargeLine = true;
             planButton = (
               <Button
                 variant={isUpgrade ? "default" : "outline"}
@@ -433,6 +432,11 @@ export function PlanSwitcher() {
             );
           }
 
+          const todayLine = visibleBillingLine(
+            showChargeLine && orgTrialCheckout && !contactPlan
+              ? todayChargeCopy(planPreview, orgTimezone)
+              : null,
+          );
           const renewal = visibleBillingLine(
             showRenewal && !contactPlan ? renewalDisclosure(plan.monthlyPrice) : null,
           );

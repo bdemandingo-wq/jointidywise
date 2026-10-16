@@ -37,7 +37,6 @@ import {
 } from 'lucide-react';
 
 import { LIFETIME_FEATURES, LIFETIME_SPOT_CAP, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
-import { isActiveOrgTrial } from '@/lib/stripeMode';
 import { chargeLineFromPreview, renewalDisclosure, todayChargeCopy, visibleBillingLine } from '@/lib/planBillingCopy';
 import { chargePreviewKey, useSubscriptionChargePreview } from '@/hooks/useSubscriptionChargePreview';
 import { formatLoyaltyDollars, LOYALTY_PRICING, pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
@@ -161,10 +160,10 @@ function priceFor(tier: Tier, interval: Interval): { display: string; sub: strin
 
 export default function PricingPage() {
   const navigate = useNavigate();
-  const { user, subscription } = useAuth();
+  const { user } = useAuth();
   const { timezone: orgTimezone } = useOrgTimezone();
   const { organization } = useOrganization();
-  const orgTrialCheckout = organization?.plan_type === 'trial' || isActiveOrgTrial(subscription);
+  const orgTrialCheckout = organization?.plan_type === 'trial';
   const [searchParams, setSearchParams] = useSearchParams();
   // billingInterval / setBillingInterval — NOT named "setInterval" so it
   // doesn't shadow the global timer function. Renaming because the prior

@@ -149,7 +149,7 @@ export default function CompareJobber() {
       {/* Quick Stats */}
       <section className="py-12 px-4 sm:px-6 lg:px-8 bg-secondary/30">
         <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
             <div className="text-center">
               <div className="text-3xl font-bold text-primary">50%</div>
               <p className="text-sm text-muted-foreground">Lower Cost</p>
@@ -161,10 +161,6 @@ export default function CompareJobber() {
             <div className="text-center">
               <div className="text-3xl font-bold text-primary">10+</div>
               <p className="text-sm text-muted-foreground">Extra Features</p>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-primary">4.9★</div>
-              <p className="text-sm text-muted-foreground">User Rating</p>
             </div>
           </div>
         </div>

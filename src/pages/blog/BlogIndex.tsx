@@ -358,7 +358,7 @@ export default function BlogIndex() {
               Get cleaning business tips in your inbox
             </h2>
             <p className="text-muted-foreground mb-6 max-w-xl mx-auto">
-              Join 5,000+ cleaning business owners who receive weekly insights on growing their business.
+              Weekly notes on scheduling, pricing, and keeping customers.
             </p>
             <Button size="lg" asChild>
               <Link to="/auth">

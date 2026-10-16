@@ -147,12 +147,12 @@ const faqs = [
 
 // Comparison data for competitors
 const competitorComparison = [
-  { name: "TIDYWISE", price: "$49/mo", users: "Unlimited", trial: "30 days", cleaning: true, mobile: true, rating: "4.9/5" },
-  { name: "Jobber", price: "—", users: "Up to 15", trial: "14 days", cleaning: false, mobile: true, rating: "4.5/5" },
-  { name: "Booking Koala", price: "—", users: "Unlimited", trial: "14 days", cleaning: true, mobile: true, rating: "4.3/5" },
-  { name: "Housecall Pro", price: "—", users: "1 user", trial: "14 days", cleaning: false, mobile: true, rating: "4.5/5" },
-  { name: "ServiceTitan", price: "—", users: "Custom", trial: "Demo only", cleaning: false, mobile: true, rating: "4.4/5" },
-  { name: "ZenMaid", price: "—", users: "Limited", trial: "14 days", cleaning: true, mobile: false, rating: "4.2/5" }
+  { name: "TIDYWISE", price: "$49/mo", users: "Unlimited", trial: "30 days", cleaning: true, mobile: true },
+  { name: "Jobber", price: "—", users: "Up to 15", trial: "14 days", cleaning: false, mobile: true },
+  { name: "Booking Koala", price: "—", users: "Unlimited", trial: "14 days", cleaning: true, mobile: true },
+  { name: "Housecall Pro", price: "—", users: "1 user", trial: "14 days", cleaning: false, mobile: true },
+  { name: "ServiceTitan", price: "—", users: "Custom", trial: "Demo only", cleaning: false, mobile: true },
+  { name: "ZenMaid", price: "—", users: "Limited", trial: "14 days", cleaning: true, mobile: false }
 ];
 
 // Benefits with statistics
@@ -398,7 +398,7 @@ export default function CleaningBusinessCRM() {
                 2026 Cleaning Business CRM Software Comparison
               </h2>
               <p className="text-muted-foreground mb-6">
-                Compare the top <strong>CRM solutions for cleaning companies</strong> based on pricing, features, and user ratings:
+                Compare the top <strong>CRM solutions for cleaning companies</strong> based on pricing and features:
               </p>
               <div className="bg-card rounded-xl border border-border overflow-x-auto not-prose">
                 <table className="w-full min-w-[800px]">
@@ -410,7 +410,6 @@ export default function CleaningBusinessCRM() {
                       <th className="text-center p-4 font-medium text-foreground">Free trial</th>
                       <th className="text-center p-4 font-medium text-foreground">Built for Cleaning</th>
                       <th className="text-center p-4 font-medium text-foreground">Mobile App</th>
-                      <th className="text-center p-4 font-medium text-foreground">Rating</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -429,7 +428,6 @@ export default function CleaningBusinessCRM() {
                         <td className="p-4 text-center">
                           {comp.mobile ? <Check className="h-5 w-5 text-green-500 mx-auto" /> : <span className="text-muted-foreground">—</span>}
                         </td>
-                        <td className="p-4 text-center">{comp.rating}</td>
                       </tr>
                     ))}
                   </tbody>

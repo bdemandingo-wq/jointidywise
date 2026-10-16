@@ -47,7 +47,7 @@ const features = [
   {
     icon: MapPin,
     title: "GPS Tracking & Route Optimization",
-    description: "Real-time cleaner location. AI-optimized routes save 25% on fuel. Automatic mileage tracking for reimbursements.",
+    description: "Real-time cleaner location. AI-optimized routes. Automatic mileage tracking for reimbursements.",
   },
   {
     icon: Smartphone,
