@@ -174,7 +174,7 @@ test('tracking rows are readable by an org admin and by the cleaner who owns the
 
 test('a tracking row must use the staff member org and a booking in that org', () => {
   const sql = readFileSync(
-    join(process.cwd(), 'supabase/migrations/20261016150000_cleaner_location_tracking_staff_org.sql'),
+    join(process.cwd(), 'supabase/migrations/20261016150100_cleaner_location_tracking_staff_org.sql'),
     'utf8',
   );
   assert.match(sql, /SECURITY DEFINER/);

@@ -74,7 +74,7 @@ test('the privacy manifest declares precise location and stays non-tracking', ()
 });
 
 test('stale On My Way rows are closed by pg_cron, and the customer point goes stale', () => {
-  const reaper = read('../../supabase/migrations/20261016180000_deactivate_stale_cleaner_locations.sql');
+  const reaper = read('../../supabase/migrations/20261016200000_deactivate_stale_cleaner_locations.sql');
   const freshness = read('../../supabase/migrations/20261016180100_tracking_freshness_and_org.sql');
   assert.match(reaper, /deactivate_stale_cleaner_locations/);
   assert.match(reaper, /is_active = false/);
@@ -107,8 +107,11 @@ test('stale On My Way rows are closed by pg_cron, and the customer point goes st
 
   const arrival = read('../../supabase/functions/send-arrival-sms/index.ts');
   const claimAt = arrival.indexOf('claimArrivalSend(');
-  const openPhoneAt = arrival.indexOf('api.openphone.com');
-  assert.ok(claimAt !== -1 && openPhoneAt > claimAt);
+  const sendAt = arrival.indexOf('sendOpenPhoneMessage(');
+  assert.ok(claimAt !== -1 && sendAt > claimAt);
+  const messagesUrl = ['api.openphone.com', 'v1', 'messages'].join('/');
+  assert.equal(arrival.includes(messagesUrl), false);
+  assert.match(arrival, /opted out by texting STOP/);
   assert.match(arrival, /nextArrivalClaimAction/);
   assert.match(arrival, /status: 'pending'/);
   assert.match(arrival, /error\.code === '23505'/);

@@ -7,12 +7,20 @@
 
 DO $$
 BEGIN
+  -- Live databases already have booking_reminder_log_booking_id_reminder_type_key
+  -- UNIQUE (booking_id, reminder_type). Either match returns before any
+  -- DELETE or ALTER, so this file is a no-op there.
   IF EXISTS (
     SELECT 1
     FROM pg_constraint
     WHERE conrelid = 'public.booking_reminder_log'::regclass
-      AND contype = 'u'
-      AND pg_get_constraintdef(oid) LIKE '%(booking_id, reminder_type)%'
+      AND (
+        conname = 'booking_reminder_log_booking_id_reminder_type_key'
+        OR (
+          contype = 'u'
+          AND pg_get_constraintdef(oid) LIKE '%(booking_id, reminder_type)%'
+        )
+      )
   ) THEN
     RETURN;
   END IF;

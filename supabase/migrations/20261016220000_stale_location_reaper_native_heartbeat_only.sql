@@ -8,7 +8,7 @@
 -- exists. Until then, every row is exempt from the 15 minute close.
 --
 -- Run this file in the Supabase SQL editor. A git push does not apply it.
--- The cron job from 20261016180000 keeps calling this function.
+-- The cron job from 20261016200000 keeps calling this function.
 
 ALTER TABLE public.cleaner_location_tracking
   ADD COLUMN IF NOT EXISTS native_background boolean NOT NULL DEFAULT false;
