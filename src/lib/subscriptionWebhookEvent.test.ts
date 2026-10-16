@@ -57,6 +57,7 @@ function fakeDb(opts: {
         in: () => typeof api;
         order: () => typeof api;
         limit: () => typeof api;
+        range: () => typeof api;
         update: (payload: unknown) => typeof api;
         insert: (payload: { event_id?: string; source?: string }) => Promise<{ error: { code?: string; message: string } | null }>;
         delete: () => typeof api;
@@ -76,8 +77,10 @@ function fakeDb(opts: {
           return api;
         },
         in() { return api; },
+        not() { return api; },
         order() { return api; },
         limit() { return api; },
+        range() { return api; },
         update() {
           writes.push(table);
           return api;

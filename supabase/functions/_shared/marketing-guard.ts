@@ -130,6 +130,36 @@ async function loadOrgPhoneRows(
   return rows;
 }
 
+export type PhoneOptOutStatus = "opted_out" | "clear" | "lookup_failed" | "invalid_phone";
+
+/**
+ * Same rule as isPhoneOptedOut, with the lookup failure kept separate from a
+ * real opt-out. A match is any customer in this org whose phone shares the
+ * last 10 digits and whose marketing_status is opted_out — the columns
+ * persistSmsConsent writes on STOP. No matching customer is clear.
+ */
+export async function phoneOptOutStatus(
+  supabase: SupabaseClient,
+  organizationId: string,
+  phone: string | null | undefined,
+): Promise<PhoneOptOutStatus> {
+  const target = phoneMatchKey(phone);
+  if (!target) return "invalid_phone";
+
+  try {
+    const rows = await loadOrgPhoneRows(supabase, organizationId);
+    const matches = rows.filter((r) => phoneMatchKey(r.phone) === target);
+    if (matches.length === 0) return "clear";
+    return matches.some((r) => r.marketing_status === OPTED_OUT) ? "opted_out" : "clear";
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[marketing-guard] isPhoneOptedOut lookup failed — failing closed | org:${organizationId} | ${message}`,
+    );
+    return "lookup_failed";
+  }
+}
+
 /**
  * Phone-based opt-out check for paths with no customer_id (abandoned bookings,
  * STOP webhook fallback). Matches on the last 10 digits, digits only.
@@ -142,28 +172,14 @@ export async function isPhoneOptedOut(
   organizationId: string,
   phone: string | null | undefined,
 ): Promise<boolean> {
-  const target = phoneMatchKey(phone);
-  if (!target) {
+  const status = await phoneOptOutStatus(supabase, organizationId, phone);
+  if (status === "invalid_phone") {
     console.error(
       `[marketing-guard] isPhoneOptedOut got an unusable phone — failing closed | org:${organizationId}`,
     );
     return true;
   }
-
-  try {
-    const rows = await loadOrgPhoneRows(supabase, organizationId);
-    const matches = rows.filter((r) => phoneMatchKey(r.phone) === target);
-    // No matching customer record: nothing says this person opted out.
-    if (matches.length === 0) return false;
-    // Any single opt-out among duplicates is enough.
-    return matches.some((r) => r.marketing_status === OPTED_OUT);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      `[marketing-guard] isPhoneOptedOut lookup failed — failing closed | org:${organizationId} | ${message}`,
-    );
-    return true;
-  }
+  return status !== "clear";
 }
 
 /**

@@ -2,24 +2,24 @@
  * The only outbound OpenPhone message POST.
  *
  * Every customer, cleaner, and lead text goes through sendOpenPhoneMessage.
- * Before the request, the destination is normalized to E.164 and checked for
- * this organization against sms_suppressions and the customer columns
- * classifySmsOptOut / nextSmsConsent write (opted_out_method = sms_stop).
+ * Before the request, the destination is normalized to E.164 and checked with
+ * phoneOptOutStatus — the same org-scoped phone match as isPhoneOptedOut.
+ * STOP is stored on customers (marketing_status = opted_out) by
+ * persistSmsConsent. Any opted-out customer who shares that number blocks
+ * every text from the org, including transactional ones.
  * A match returns { skipped: true, reason: "opted_out" } and does not call
  * OpenPhone and does not throw.
  *
- * The one STOP confirmation passes allowOptedOut. START/UNSTOP clears the
- * sms_suppressions row via clearSmsSuppression; it does not send a text.
+ * The one STOP confirmation passes allowOptedOut. START/UNSTOP restores the
+ * customer columns through persistSmsConsent; it does not send a text.
  */
-import { phoneMatchKey, toE164 } from "./phone.ts";
+import { phoneOptOutStatus } from "./marketing-guard.ts";
+import { toE164 } from "./phone.ts";
 
 export const OPENPHONE_MESSAGES_URL = "https://api.openphone.com/v1/messages";
 
 /** TidyWise's own org. Platform-line alerts use this scope for the same check. */
 export const TIDYWISE_PLATFORM_ORG_ID = "e95b92d0-7099-408e-a773-e4407b34f8b4";
-
-const SMS_STOP_METHOD = "sms_stop";
-const CUSTOMER_PAGE = 500;
 
 export interface OpenPhoneHttpResponse {
   ok: boolean;
@@ -93,140 +93,6 @@ function logTag(tag: string | undefined): string {
   return tag && tag.length > 0 ? tag : "openphone-send";
 }
 
-interface CustomerStopRow {
-  id?: string;
-  phone?: string | null;
-  opted_out_method?: string | null;
-}
-
-async function listSmsStopCustomers(
-  supabase: SmsSuppressionDb,
-  organizationId: string,
-): Promise<CustomerStopRow[] | "failed"> {
-  const rows: CustomerStopRow[] = [];
-  for (let offset = 0; offset < 20000; offset += CUSTOMER_PAGE) {
-    let query = supabase
-      .from("customers")
-      .select("id, phone, opted_out_method")
-      .eq("organization_id", organizationId)
-      .eq("opted_out_method", SMS_STOP_METHOD)
-      .order("id", { ascending: true });
-    if (typeof query.range === "function") {
-      query = query.range(offset, offset + CUSTOMER_PAGE - 1);
-    }
-    const { data, error } = await query;
-    if (error) {
-      console.error(
-        `[openphone-send] customer opt-out lookup failed for org ${organizationId}: ${error.message ?? "unknown"}`,
-      );
-      return "failed";
-    }
-    const page = Array.isArray(data) ? data as CustomerStopRow[] : [];
-    rows.push(...page);
-    if (page.length < CUSTOMER_PAGE || typeof query.range !== "function") break;
-  }
-  return rows;
-}
-
-/**
- * True when this org must not text the number because of a STOP.
- * Lookup failures fail closed: the caller does not send.
- */
-export async function smsStopBlocksSend(
-  supabase: SmsSuppressionDb,
-  organizationId: string,
-  rawPhone: string,
-): Promise<"opted_out" | "clear" | "lookup_failed" | "invalid_phone"> {
-  const phone = toE164(rawPhone);
-  if (!phone) return "invalid_phone";
-  const key = phoneMatchKey(phone);
-  try {
-    const suppressed = await supabase
-      .from("sms_suppressions")
-      .select("id")
-      .eq("organization_id", organizationId)
-      .eq("phone", phone)
-      .maybeSingle();
-    if (suppressed.error) {
-      console.error(
-        `[openphone-send] sms_suppressions lookup failed for org ${organizationId}: ${suppressed.error.message ?? "unknown"}`,
-      );
-      return "lookup_failed";
-    }
-    if (suppressed.data) return "opted_out";
-
-    const customers = await listSmsStopCustomers(supabase, organizationId);
-    if (customers === "failed") return "lookup_failed";
-    for (const row of customers) {
-      if (row.opted_out_method !== SMS_STOP_METHOD) continue;
-      if (key && phoneMatchKey(row.phone) === key) return "opted_out";
-    }
-    return "clear";
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[openphone-send] opt-out lookup threw for org ${organizationId}: ${message}`);
-    return "lookup_failed";
-  }
-}
-
-/** Store the STOP against this org and E.164 number. Idempotent. */
-export async function recordSmsSuppression(
-  supabase: SmsSuppressionDb,
-  organizationId: string,
-  rawPhone: string,
-  source = SMS_STOP_METHOD,
-): Promise<boolean> {
-  const phone = toE164(rawPhone);
-  if (!phone) {
-    console.error(
-      `[openphone-send] STOP not recorded for org ${organizationId}: phone cannot be normalized`,
-    );
-    return false;
-  }
-  const { error } = await supabase
-    .from("sms_suppressions")
-    .upsert(
-      { organization_id: organizationId, phone, source },
-      { onConflict: "organization_id,phone" },
-    );
-  if (error) {
-    console.error(
-      `[openphone-send] sms_suppressions upsert failed for org ${organizationId} ${phone}: ${error.message ?? "unknown"}`,
-    );
-    return false;
-  }
-  console.log(`[openphone-send] recorded sms suppression org=${organizationId} to=${phone}`);
-  return true;
-}
-
-/** START / UNSTOP. Removes the phone-level STOP row for this org. */
-export async function clearSmsSuppression(
-  supabase: SmsSuppressionDb,
-  organizationId: string,
-  rawPhone: string,
-): Promise<boolean> {
-  const phone = toE164(rawPhone);
-  if (!phone) {
-    console.error(
-      `[openphone-send] START could not clear suppression for org ${organizationId}: phone cannot be normalized`,
-    );
-    return false;
-  }
-  const { error } = await supabase
-    .from("sms_suppressions")
-    .delete()
-    .eq("organization_id", organizationId)
-    .eq("phone", phone);
-  if (error) {
-    console.error(
-      `[openphone-send] sms_suppressions delete failed for org ${organizationId} ${phone}: ${error.message ?? "unknown"}`,
-    );
-    return false;
-  }
-  console.log(`[openphone-send] cleared sms suppression org=${organizationId} to=${phone}`);
-  return true;
-}
-
 function looseConfirmationAddress(raw: string): string | null {
   const trimmed = raw.trim();
   return /^\+\d{10,15}$/.test(trimmed) ? trimmed : null;
@@ -249,7 +115,11 @@ export async function sendOpenPhoneMessage(
   }
 
   if (!input.allowOptedOut) {
-    const gate = await smsStopBlocksSend(input.supabase, input.organizationId, destination);
+    const gate = await phoneOptOutStatus(
+      input.supabase as never,
+      input.organizationId,
+      destination,
+    );
     if (gate === "opted_out") {
       console.log(
         `[${tag}] skipped opted_out org=${input.organizationId} to=${destination}`,

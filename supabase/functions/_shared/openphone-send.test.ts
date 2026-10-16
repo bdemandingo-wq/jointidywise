@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   OPENPHONE_MESSAGES_URL,
-  clearSmsSuppression,
-  recordSmsSuppression,
   sendOpenPhoneMessage,
   type SmsQuery,
   type SmsTable,
@@ -16,18 +14,14 @@ const E164 = "+18135550100";
 interface Row {
   id: string;
   phone: string;
-  opted_out_method?: string;
+  marketing_status: string | null;
   organization_id: string;
 }
 
 function mockDb(opts: {
-  suppressions?: Row[];
   customers?: Row[];
-  suppressionError?: string;
   customersError?: string;
-  writes?: Array<{ op: string; table: string; row?: unknown; phone?: string; org?: string }>;
 }) {
-  const writes = opts.writes ?? [];
   const fetches: Array<{ url: string; body: { to: string[]; content: string; from: string }; authorization: string }> = [];
   const fetchImpl = async (url: string, init: { method: string; headers: Record<string, string>; body: string }) => {
     fetches.push({
@@ -51,39 +45,23 @@ function mockDb(opts: {
           filters[column] = value;
           return api;
         },
+        not() { return api; },
         order() { return api; },
         range() { return api; },
         delete() { return api; },
-        upsert(row: Record<string, unknown>) {
-          writes.push({ op: "upsert", table, row });
+        upsert() {
           return Promise.resolve({ error: null });
         },
         maybeSingle() {
-          if (opts.suppressionError && table === "sms_suppressions") {
-            return Promise.resolve({ data: null, error: { message: opts.suppressionError } });
-          }
-          const hit = (opts.suppressions ?? []).find((row) =>
-            row.organization_id === filters.organization_id && row.phone === filters.phone
-          );
-          return Promise.resolve({ data: hit ? { id: hit.id } : null, error: null });
+          return Promise.resolve({ data: null, error: null });
         },
         then<T>(onfulfilled: (value: { data: unknown; error: { message?: string } | null }) => T) {
-          if (filters.phone && table === "sms_suppressions" && !("select-used" in filters)) {
-            writes.push({
-              op: "delete",
-              table,
-              phone: filters.phone,
-              org: filters.organization_id,
-            });
-            return Promise.resolve({ data: null, error: null }).then(onfulfilled);
-          }
           if (table === "customers") {
             if (opts.customersError) {
               return Promise.resolve({ data: null, error: { message: opts.customersError } }).then(onfulfilled);
             }
             const rows = (opts.customers ?? []).filter((row) =>
               row.organization_id === filters.organization_id
-              && row.opted_out_method === filters.opted_out_method
             );
             return Promise.resolve({ data: rows, error: null }).then(onfulfilled);
           }
@@ -94,7 +72,7 @@ function mockDb(opts: {
     },
   };
 
-  return { supabase, fetchImpl, fetches, writes };
+  return { supabase, fetchImpl, fetches };
 }
 
 const base = {
@@ -106,9 +84,14 @@ const base = {
   tag: "unit",
 };
 
-test("a suppressed number is not sent", async () => {
+test("an opted-out customer phone is not sent", async () => {
   const db = mockDb({
-    suppressions: [{ id: "s1", phone: E164, organization_id: ORG }],
+    customers: [{
+      id: "c1",
+      phone: "(813) 555-0100",
+      marketing_status: "opted_out",
+      organization_id: ORG,
+    }],
   });
   const result = await sendOpenPhoneMessage({
     ...base,
@@ -121,7 +104,12 @@ test("a suppressed number is not sent", async () => {
 
 test("the same number in another org is still sent", async () => {
   const db = mockDb({
-    suppressions: [{ id: "s1", phone: E164, organization_id: OTHER_ORG }],
+    customers: [{
+      id: "c1",
+      phone: E164,
+      marketing_status: "opted_out",
+      organization_id: OTHER_ORG,
+    }],
   });
   const result = await sendOpenPhoneMessage({
     ...base,
@@ -137,18 +125,19 @@ test("the same number in another org is still sent", async () => {
   assert.equal(db.fetches[0].authorization, "secret-key");
 });
 
-test("a customer sms_stop column blocks a differently formatted number", async () => {
+test("a differently formatted opted-out number blocks a transactional text", async () => {
   const db = mockDb({
     customers: [{
       id: "c1",
       phone: "813-555-0100",
-      opted_out_method: "sms_stop",
+      marketing_status: "opted_out",
       organization_id: ORG,
     }],
   });
   const result = await sendOpenPhoneMessage({
     ...base,
     to: "+1 813 555 0100",
+    content: "Your cleaner is on the way",
     supabase: db.supabase,
     fetchImpl: db.fetchImpl,
   });
@@ -156,12 +145,38 @@ test("a customer sms_stop column blocks a differently formatted number", async (
   assert.equal(db.fetches.length, 0);
 });
 
-test("a manual marketing opt-out is not a STOP block", async () => {
+test("one opted-out record blocks the number even when another record is still opted in", async () => {
+  const db = mockDb({
+    customers: [
+      {
+        id: "c1",
+        phone: "8135550100",
+        marketing_status: "subscribed",
+        organization_id: ORG,
+      },
+      {
+        id: "c2",
+        phone: "+18135550100",
+        marketing_status: "opted_out",
+        organization_id: ORG,
+      },
+    ],
+  });
+  const result = await sendOpenPhoneMessage({
+    ...base,
+    supabase: db.supabase,
+    fetchImpl: db.fetchImpl,
+  });
+  assert.deepEqual(result, { skipped: true, reason: "opted_out" });
+  assert.equal(db.fetches.length, 0);
+});
+
+test("a manual opt-out on the customer row blocks transactional SMS", async () => {
   const db = mockDb({
     customers: [{
       id: "c1",
       phone: "8135550100",
-      opted_out_method: "manual",
+      marketing_status: "opted_out",
       organization_id: ORG,
     }],
   });
@@ -170,13 +185,18 @@ test("a manual marketing opt-out is not a STOP block", async () => {
     supabase: db.supabase,
     fetchImpl: db.fetchImpl,
   });
-  assert.equal(result.skipped, false);
-  assert.equal(db.fetches.length, 1);
+  assert.deepEqual(result, { skipped: true, reason: "opted_out" });
+  assert.equal(db.fetches.length, 0);
 });
 
-test("the STOP confirmation is delivered to a suppressed number", async () => {
+test("the STOP confirmation is delivered to an opted-out number", async () => {
   const db = mockDb({
-    suppressions: [{ id: "s1", phone: E164, organization_id: ORG }],
+    customers: [{
+      id: "c1",
+      phone: E164,
+      marketing_status: "opted_out",
+      organization_id: ORG,
+    }],
   });
   const result = await sendOpenPhoneMessage({
     ...base,
@@ -191,7 +211,7 @@ test("the STOP confirmation is delivered to a suppressed number", async () => {
 });
 
 test("a lookup error does not send and does not throw", async () => {
-  const db = mockDb({ suppressionError: "connection reset" });
+  const db = mockDb({ customersError: "connection reset" });
   const result = await sendOpenPhoneMessage({
     ...base,
     supabase: db.supabase,
@@ -218,19 +238,13 @@ test("an unusable phone is not sent", async () => {
   assert.equal(db.fetches.length, 0);
 });
 
-test("STOP records an E.164 suppression and START clears it", async () => {
-  const writes: Array<{ op: string; table: string; row?: unknown; phone?: string }> = [];
-  const db = mockDb({ writes });
-  const recorded = await recordSmsSuppression(db.supabase, ORG, "813.555.0100");
-  assert.equal(recorded, true);
-  assert.equal(writes[0].op, "upsert");
-  assert.deepEqual(
-    (writes[0].row as { phone: string; organization_id: string; source: string }),
-    { phone: E164, organization_id: ORG, source: "sms_stop" },
-  );
-
-  const cleared = await clearSmsSuppression(db.supabase, ORG, "+1 (813) 555-0100");
-  assert.equal(cleared, true);
-  assert.equal(writes[1].op, "delete");
-  assert.equal(writes[1].phone, E164);
+test("a number with no customer row is still sent", async () => {
+  const db = mockDb({ customers: [] });
+  const result = await sendOpenPhoneMessage({
+    ...base,
+    supabase: db.supabase,
+    fetchImpl: db.fetchImpl,
+  });
+  assert.equal(result.skipped, false);
+  assert.equal(db.fetches.length, 1);
 });
