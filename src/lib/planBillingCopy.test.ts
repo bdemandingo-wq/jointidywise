@@ -9,6 +9,7 @@ import {
   expiredTrialNudgeCopy,
   lifetimeSpotsToShow,
   planBillingAction,
+  planChoicesFooter,
   renewalDisclosure,
   showPlanChoices,
   trialChargeLine,
@@ -60,6 +61,26 @@ test("an ended trial and a never-subscribed account get different dashboard nudg
   assert.equal(future.title, "Pick a plan to unlock the dashboard");
   assert.match(expiredTrialNudgeCopy(null, now).title, /Pick a plan/);
   assert.match(expiredTrialNudgeCopy("not-a-date", now).detail, /\$49/);
+});
+
+test("native trial and payment-failed accounts do not see checkout or portal copy", () => {
+  const native = "Subscriptions are managed at jointidywise.com. This app cannot take a card.";
+  assert.equal(
+    planChoicesFooter({ canShowPaymentFlows: false, paymentFailed: true, orgTrial: false }),
+    native,
+  );
+  assert.equal(
+    planChoicesFooter({ canShowPaymentFlows: false, paymentFailed: false, orgTrial: true }),
+    native,
+  );
+  assert.match(
+    planChoicesFooter({ canShowPaymentFlows: true, paymentFailed: true, orgTrial: true }),
+    /billing portal/,
+  );
+  assert.match(
+    planChoicesFooter({ canShowPaymentFlows: true, paymentFailed: false, orgTrial: true }),
+    /Stripe Checkout/,
+  );
 });
 
 test("an invalid timezone does not throw", () => {

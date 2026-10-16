@@ -87,6 +87,28 @@ export function expiredTrialNudgeCopy(
   };
 }
 
+/**
+ * Footer under the plan grid when the account cannot change a Stripe plan.
+ * Native is first: a trial or a failed payment still cannot enter a card
+ * in the app, so those orgs must not see Checkout or portal copy.
+ */
+export function planChoicesFooter(opts: {
+  canShowPaymentFlows: boolean;
+  paymentFailed: boolean;
+  orgTrial: boolean;
+}): string {
+  if (!opts.canShowPaymentFlows) {
+    return "Subscriptions are managed at jointidywise.com. This app cannot take a card.";
+  }
+  if (opts.paymentFailed) {
+    return "The last payment failed. Update payment method opens Stripe's billing portal.";
+  }
+  if (opts.orgTrial) {
+    return "Your trial is active. Choosing Basic or Pro opens Stripe Checkout when you want to upgrade. The card is entered on Stripe, and your trial stays in place until that checkout finishes.";
+  }
+  return "There is no card on file, so Basic and Pro open Stripe Checkout. The card is entered on Stripe, not in this screen.";
+}
+
 /** Lifetime and grandfathered accounts see the current plan only. */
 export function showPlanChoices(opts: { lifetime: boolean; grandfathered: boolean }): boolean {
   return !opts.lifetime && !opts.grandfathered;

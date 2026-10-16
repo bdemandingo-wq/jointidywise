@@ -39,6 +39,7 @@ import {
   DOWNGRADE_EFFECT_NOTE,
   lifetimeSpotsToShow,
   planBillingAction,
+  planChoicesFooter,
   renewalDisclosure,
   showPlanChoices,
   trialChargeLine,
@@ -483,13 +484,11 @@ export function PlanSwitcher() {
 
       {planChoicesVisible && !canChangePlan && (
         <p className="mt-3 text-xs text-muted-foreground">
-          {subscription?.payment_failed
-            ? "The last payment failed. Update payment method opens Stripe's billing portal."
-            : isActiveOrgTrial(subscription)
-              ? "Your trial is active. Choosing Basic or Pro opens Stripe Checkout when you want to upgrade. The card is entered on Stripe, and your trial stays in place until that checkout finishes."
-              : canShowPaymentFlows
-                ? "There is no card on file, so Basic and Pro open Stripe Checkout. The card is entered on Stripe, not in this screen."
-                : "Subscriptions are managed at jointidywise.com. This app cannot take a card."}
+          {planChoicesFooter({
+            canShowPaymentFlows,
+            paymentFailed: subscription?.payment_failed === true,
+            orgTrial: isActiveOrgTrial(subscription),
+          })}
         </p>
       )}
 
