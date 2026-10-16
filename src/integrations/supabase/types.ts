@@ -13256,8 +13256,12 @@ export type Database = {
           cancel_scheduled_for: string | null
           canceled_at: string | null
           cancellation_source: string | null
+          channel: string | null
+          channel_source: string | null
           counts_toward_mrr: boolean
+          detected_via: string | null
           how_heard: string | null
+          how_heard_other: string | null
           is_demo_or_test: boolean
           is_lifetime: boolean
           last_login_at: string | null
@@ -13342,6 +13346,7 @@ export type Database = {
       }
       save_how_heard: {
         Args: {
+          p_organization_id: string
           p_other?: string
           p_value?: string
         }

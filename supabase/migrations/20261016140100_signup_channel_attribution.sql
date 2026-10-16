@@ -47,8 +47,13 @@ COMMENT ON COLUMN public.account_signup_attribution.fbclid IS
 COMMENT ON COLUMN public.account_signup_attribution.ttclid IS
   'TikTok click id, capped. Null when the landing had none.';
 
--- Keep in sync with classifyChannel() in src/lib/utmAttribution.ts.
--- No user-agent argument: the browser turns that into a label before calling save.
+-- Same order as classifyChannel() in src/lib/utmAttribution.ts for UTM,
+-- click id, referrer, then iOS when p_native is true and the visit would
+-- otherwise be direct. There is no user-agent argument: the browser turns
+-- that into an allowlisted label, and save_signup_attribution applies it
+-- only when this function did not already return utm or click_id.
+DROP FUNCTION IF EXISTS public.signup_classify_channel(text, text, text, text, text, text, text, text, text);
+
 CREATE OR REPLACE FUNCTION public.signup_classify_channel(
   p_utm_source text,
   p_utm_medium text,
@@ -58,7 +63,8 @@ CREATE OR REPLACE FUNCTION public.signup_classify_channel(
   p_referrer text,
   p_gclid text,
   p_fbclid text,
-  p_ttclid text
+  p_ttclid text,
+  p_native boolean DEFAULT false
 ) RETURNS TABLE (channel text, channel_source text, detected_via text)
 LANGUAGE plpgsql
 IMMUTABLE
@@ -145,6 +151,15 @@ BEGIN
     END IF;
   END IF;
 
+  -- Own domain, or no referrer. A native iOS visit is not direct.
+  IF COALESCE(p_native, false) THEN
+    channel := 'ios_app';
+    channel_source := 'ios';
+    detected_via := 'native';
+    RETURN NEXT;
+    RETURN;
+  END IF;
+
   channel := 'direct';
   channel_source := NULL;
   detected_via := 'direct';
@@ -152,7 +167,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.signup_classify_channel(text, text, text, text, text, text, text, text, text)
+REVOKE ALL ON FUNCTION public.signup_classify_channel(text, text, text, text, text, text, text, text, text, boolean)
   FROM PUBLIC, anon, authenticated;
 
 DROP FUNCTION IF EXISTS public.save_signup_attribution(text, text, text, text, text, text, text, timestamptz);
@@ -228,27 +243,25 @@ BEGIN
     p_referrer,
     p_gclid,
     p_fbclid,
-    p_ttclid
+    p_ttclid,
+    v_client_via = 'native' AND v_client_channel = 'ios_app'
   ) AS c;
 
-  -- The database never sees the user agent. Trust only an allowlisted label
-  -- for the two signals it cannot recompute, and only when UTM and click ids
-  -- did not already classify the visit.
-  IF v_detected_via NOT IN ('utm', 'click_id') THEN
-    IF v_client_via = 'user_agent' AND v_client_channel IN ('tiktok', 'instagram', 'facebook', 'reddit') THEN
-      v_channel := v_client_channel;
-      v_channel_source := CASE v_client_channel
-        WHEN 'tiktok' THEN 'TikTok'
-        WHEN 'instagram' THEN 'Instagram'
-        WHEN 'facebook' THEN 'Facebook'
-        ELSE 'Reddit'
-      END;
-      v_detected_via := 'user_agent';
-    ELSIF v_client_via = 'native' AND v_client_channel = 'ios_app' THEN
-      v_channel := 'ios_app';
-      v_channel_source := 'ios';
-      v_detected_via := 'native';
-    END IF;
+  -- The database never sees the user agent. Trust only an allowlisted label,
+  -- and only when UTM and click ids did not already classify the visit.
+  -- Native iOS is p_native on signup_classify_channel, so a real referrer
+  -- stays a referral.
+  IF v_detected_via NOT IN ('utm', 'click_id')
+     AND v_client_via = 'user_agent'
+     AND v_client_channel IN ('tiktok', 'instagram', 'facebook', 'reddit') THEN
+    v_channel := v_client_channel;
+    v_channel_source := CASE v_client_channel
+      WHEN 'tiktok' THEN 'TikTok'
+      WHEN 'instagram' THEN 'Instagram'
+      WHEN 'facebook' THEN 'Facebook'
+      ELSE 'Reddit'
+    END;
+    v_detected_via := 'user_agent';
   END IF;
 
   -- 'direct' is only the normalized source when nothing else identified the visit.

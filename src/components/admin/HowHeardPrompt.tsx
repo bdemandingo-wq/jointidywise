@@ -70,10 +70,11 @@ export function HowHeardPrompt() {
   };
 
   const save = async (nextValue: string, nextOther: string) => {
-    if (decided.current || saving) return;
+    if (decided.current || saving || !organization) return;
     if (nextValue !== 'not_sure' && !isHowHeardComplete(nextValue, nextOther)) return;
     setSaving(true);
     const { error } = await supabase.rpc('save_how_heard', {
+      p_organization_id: organization.id,
       p_value: nextValue,
       p_other: nextValue === 'other' ? nextOther.trim() : undefined,
     });
@@ -93,10 +94,18 @@ export function HowHeardPrompt() {
       if (decided.current) setOpen(false);
       return;
     }
+    if (!organization) {
+      setOpen(false);
+      return;
+    }
     decided.current = true;
     remember();
     setOpen(false);
-    void supabase.rpc('save_how_heard', { p_value: 'not_sure' }).then(({ error }) => {
+    const organizationId = organization.id;
+    void supabase.rpc('save_how_heard', {
+      p_organization_id: organizationId,
+      p_value: 'not_sure',
+    }).then(({ error }) => {
       if (error) console.error('[how-heard] not sure save failed', error.message);
     });
   };

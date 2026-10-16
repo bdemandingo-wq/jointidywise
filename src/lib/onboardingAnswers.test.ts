@@ -30,6 +30,7 @@
 // See docs/superpowers/plans/2026-08-13-onboarding-acquisition-question.md
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   QUALIFYING_KEYS,
   HOW_HEARD_VALUES,
@@ -438,4 +439,23 @@ test("display helpers do not mutate what they are given", () => {
   describeAnswers(input);
   hasOnboardingData(input);
   assert.deepEqual(JSON.parse(JSON.stringify(input)), snapshot);
+});
+
+test("save_how_heard writes only the named organization the caller owns", () => {
+  const sql = readFileSync(
+    new URL("../../supabase/migrations/20261016140000_save_how_heard.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(sql, /p_organization_id uuid/);
+  assert.match(sql, /WHERE org\.id = p_organization_id/);
+  assert.match(sql, /AND org\.owner_id = v_uid/);
+  assert.match(sql, /SET search_path = public/);
+  assert.doesNotMatch(sql, /WHERE org\.owner_id = v_uid\s+AND NOT/);
+  const prompt = readFileSync(
+    new URL("../components/admin/HowHeardPrompt.tsx", import.meta.url),
+    "utf8",
+  );
+  const named = prompt.match(/p_organization_id:/g) ?? [];
+  assert.equal(named.length, 2);
+  assert.equal(prompt.includes("save_how_heard"), true);
 });

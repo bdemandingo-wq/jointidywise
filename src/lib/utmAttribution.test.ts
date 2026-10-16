@@ -482,3 +482,49 @@ test("a referred visit is not summarized as direct, and the user agent is not st
   assert.equal(args.p_ttclid, "click123");
   assert.equal(JSON.stringify(args).includes("SECRETTOKEN"), false);
 });
+
+test("signup args keep an allowlisted stored label and drop a user agent stuffed into channel", () => {
+  const blank = {
+    utm_source: null,
+    utm_medium: null,
+    utm_campaign: null,
+    utm_term: null,
+    utm_content: null,
+    referrer: null,
+    landing_page: "/",
+    gclid: null,
+    fbclid: null,
+    ttclid: null,
+    capturedAt: 10,
+  };
+  const kept = signupAttributionArgs({
+    ...blank,
+    channel: "instagram",
+    channel_source: "Instagram",
+    detected_via: "user_agent",
+  }, 10, { userAgent: null, native: false });
+  assert.equal(kept.p_channel, "instagram");
+  assert.equal(kept.p_channel_source, "Instagram");
+  assert.equal(kept.p_detected_via, "user_agent");
+
+  const ua = "Mozilla/5.0 (iPhone) Instagram SECRETTOKEN";
+  const dropped = signupAttributionArgs({
+    ...blank,
+    channel: ua,
+    channel_source: ua,
+    detected_via: "user_agent",
+  }, 10, { userAgent: null, native: false });
+  assert.equal(dropped.p_channel, "direct");
+  assert.equal(dropped.p_channel_source, null);
+  assert.equal(dropped.p_detected_via, "direct");
+  assert.equal(JSON.stringify(dropped).includes("SECRETTOKEN"), false);
+  assert.equal(JSON.stringify(dropped).includes("Mozilla"), false);
+
+  const sql = readFileSync(
+    new URL("../../supabase/migrations/20261016140100_signup_channel_attribution.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(sql, /p_native boolean/);
+  assert.match(sql, /channel := 'ios_app'/);
+  assert.match(sql, /detected_via := 'native'/);
+});

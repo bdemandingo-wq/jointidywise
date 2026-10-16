@@ -718,6 +718,55 @@ export function clearCapturedUtm(
   }
 }
 
+const KNOWN_CHANNELS = new Set([
+  "tiktok", "instagram", "facebook", "reddit", "google", "google_ads",
+  "organic_search", "x", "direct", "referral", "ios_app", "utm",
+]);
+
+const DETECTED_VIAS = new Set<DetectedVia>(["utm", "click_id", "user_agent", "referrer", "native", "direct"]);
+
+const USER_AGENT_SOURCE: Record<string, string> = {
+  tiktok: "TikTok",
+  instagram: "Instagram",
+  facebook: "Facebook",
+  reddit: "Reddit",
+};
+
+function allowedChannelLabel(channel: string, via: DetectedVia): boolean {
+  if (KNOWN_CHANNELS.has(channel)) return true;
+  return via === "utm" && /^[a-z0-9][a-z0-9_-]{0,63}$/.test(channel);
+}
+
+function allowedChannelSource(source: string | null, channel: string, via: DetectedVia): boolean {
+  if (via === "direct") return source == null && channel === "direct";
+  if (source == null || source.length === 0 || source.length > 120) return false;
+  if (via === "user_agent") return USER_AGENT_SOURCE[channel] === source;
+  if (via === "native") return channel === "ios_app" && source === "ios";
+  if (via === "click_id") {
+    return (channel === "tiktok" && source === "ttclid")
+      || (channel === "facebook" && source === "fbclid")
+      || (channel === "google_ads" && source === "gclid");
+  }
+  if (via === "referrer") {
+    return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(source);
+  }
+  return /^[a-z0-9][a-z0-9._-]{0,119}$/i.test(source);
+}
+
+/** A stored label pair, or null when the capture is missing or not on the list. */
+function storedClassification(
+  channel: string | null | undefined,
+  channelSource: string | null | undefined,
+  detectedVia: string | null | undefined,
+): ChannelClassification | null {
+  if (!channel || !detectedVia || !DETECTED_VIAS.has(detectedVia as DetectedVia)) return null;
+  const via = detectedVia as DetectedVia;
+  if (!allowedChannelLabel(channel, via)) return null;
+  const source = channelSource ?? null;
+  if (!allowedChannelSource(source, channel, via)) return null;
+  return { channel, channel_source: source, detected_via: via };
+}
+
 /** Arguments for public.save_signup_attribution. Raw values, capped. Labels only — never a user agent. */
 export function signupAttributionArgs(
   captured: CapturedUtm | null,
@@ -740,13 +789,8 @@ export function signupAttributionArgs(
     detected_via: null,
     capturedAt: now,
   };
-  const classified = fields.channel && fields.detected_via
-    ? {
-      channel: fields.channel,
-      channel_source: fields.channel_source,
-      detected_via: fields.detected_via,
-    }
-    : classifyChannel({ ...fields, ...runtimeSignals(signals) });
+  const classified = storedClassification(fields.channel, fields.channel_source, fields.detected_via)
+    ?? classifyChannel({ ...fields, ...runtimeSignals(signals) });
   return {
     p_utm_source: cap(fields.utm_source, 500),
     p_utm_medium: cap(fields.utm_medium, 500),
