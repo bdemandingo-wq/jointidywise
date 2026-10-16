@@ -3,7 +3,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
-import { LIFETIME_SPOT_CAP } from "../_shared/lifetime-cap.ts";
+import { countLifetimeSpots } from "../_shared/lifetime-spots.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,20 +40,13 @@ serve(async (req) => {
     const user = userData.user;
     logStep("User authenticated", { userId: user.id, email: user.email });
 
-    // Same cap as buy-lifetime and the webhook: lifetime_offer_state.total_spots.
-    // LIFETIME_SPOT_CAP is only the fallback when that row is missing.
-    const { data: offerState, error: offerError } = await supabase
-      .from("lifetime_offer_state")
-      .select("total_spots, sold_spots, sold_out_at")
-      .eq("id", 1)
-      .maybeSingle();
-    if (offerError) throw offerError;
-    const totalSpots = offerState?.total_spots ?? LIFETIME_SPOT_CAP;
-    const soldSpots = offerState?.sold_spots ?? 0;
+    // Same count as get_lifetime_spots_remaining: total_spots for the cap,
+    // lifetime_access_purchases for how many are sold.
+    const spots = await countLifetimeSpots(supabase);
 
-    if (offerState?.sold_out_at || soldSpots >= totalSpots) {
+    if (!spots.available) {
       return new Response(
-        JSON.stringify({ error: `Sorry — all ${totalSpots} lifetime spots have been claimed.` }),
+        JSON.stringify({ error: `Sorry — all ${spots.total} lifetime spots have been claimed.` }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
       );
     }
@@ -124,12 +117,12 @@ serve(async (req) => {
     };
 
     const session = await stripe.checkout.sessions.create(sessionParams);
-    logStep("Lifetime checkout session created", { sessionId: session.id, spotsLeft: totalSpots - soldSpots - 1 });
+    logStep("Lifetime checkout session created", { sessionId: session.id, spotsLeft: spots.remaining - 1 });
 
     return new Response(
       JSON.stringify({
         ...embeddedCheckoutBody(session.client_secret, publishableKey),
-        spotsRemaining: totalSpots - soldSpots,
+        spotsRemaining: spots.remaining,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
     );

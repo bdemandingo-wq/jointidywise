@@ -327,6 +327,10 @@ const App = () => (
             !containsMapOrSet(q.state.data) &&
             !JSON.stringify(q.queryKey).includes('signed') &&
             !JSON.stringify(q.queryKey).includes('service-pricing') &&
+            // A cached subscription-charge-preview can outlive the 48-hour
+            // lead and show "You'll be charged today" after the server
+            // would bill on the trial end, or the reverse. Always refetch.
+            !JSON.stringify(q.queryKey).includes('subscription-charge-preview') &&
             // Campaign run progress is a live figure, not a cached fact.
             // Restoring yesterday's "Sending 12 of 300" would show a stalled
             // number that reads as current — worse than showing nothing,

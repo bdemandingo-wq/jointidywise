@@ -1,6 +1,8 @@
 import {
   lifetimeSpotsLabel,
+  shouldShowTrustedBy,
   shouldShowWeeklySignups,
+  trustedByLabel,
   weeklySignupLabel,
 } from '@/lib/publicActivity';
 import type { LifetimeState } from '@/hooks/useLifetimeCounter';
@@ -26,13 +28,20 @@ export function GrowthCounters({
       ? lifetime.spotsLeft
       : null;
   const weekly = counters?.weeklySignups ?? null;
+  const organizations = counters?.organizationCount ?? null;
   const showLifetime = total != null && remaining != null && total > 0;
+  const showTrusted = shouldShowTrustedBy(organizations);
   const showWeekly = shouldShowWeeklySignups(weekly, counters?.weeklySignupMin);
 
-  if (!showLifetime && !showWeekly) return null;
+  if (!showLifetime && !showWeekly && !showTrusted) return null;
 
   return (
     <div className={`flex flex-col gap-1 text-sm ${className.includes('items-') ? '' : 'items-center'} ${className}`}>
+      {showTrusted && organizations != null && (
+        <p className="font-serif text-2xl sm:text-3xl text-foreground leading-tight">
+          {trustedByLabel(organizations)}
+        </p>
+      )}
       {showLifetime && (
         <p className="font-medium text-foreground">
           {lifetimeSpotsLabel(remaining, total)}

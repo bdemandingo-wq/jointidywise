@@ -371,7 +371,7 @@ export const STATIC_ROUTE_META: Record<string, RouteMeta> = {
   "/features/route-optimization": {
     title: "Route Optimization for Cleaning Crews",
     description:
-      "AI-optimized cleaner routes cut fuel costs up to 25% and squeeze more jobs into every day. Auto-recalculate when schedules change.",
+      "AI-optimized cleaner routes squeeze more jobs into every day. Auto-recalculate when schedules change.",
     h1: "Route Optimization for Cleaning Crews",
   },
   "/features/scheduling-software": {

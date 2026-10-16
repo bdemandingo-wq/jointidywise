@@ -159,7 +159,7 @@ export default function CompareLaunch27() {
                 <tbody>
                   {[
                     { plan: "Entry plan", tw: "$49/mo", l27: "—" },
-                    { plan: "With payroll", tw: "$49/mo (included)", l27: "—" },
+                    { plan: "With payroll", tw: "$97/mo (Pro)", l27: "—" },
                     { plan: "With mobile app", tw: "$49/mo (included)", l27: "—" },
                     { plan: "Annual cost (full features)", tw: "See pricing", l27: "—" },
                     { plan: "P&L reporting", tw: "Yes", l27: "No" },

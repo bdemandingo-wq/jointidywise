@@ -36,8 +36,8 @@ import {
   Loader2,
 } from 'lucide-react';
 
-import { LIFETIME_FEATURES, LIFETIME_SPOT_CAP, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
-import { chargeLineFromPreview, renewalDisclosure, todayChargeCopy, visibleBillingLine } from '@/lib/planBillingCopy';
+import { LIFETIME_FEATURES, LIFETIME_PRICE, LIFETIME_SPOT_CAP, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
+import { chargeLineFromPreview, planBillingAction, renewalDisclosure, todayChargeCopy, visibleBillingLine } from '@/lib/planBillingCopy';
 import { chargePreviewKey, useSubscriptionChargePreview } from '@/hooks/useSubscriptionChargePreview';
 import { formatLoyaltyDollars, LOYALTY_PRICING, pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
 
@@ -426,7 +426,7 @@ export default function PricingPage() {
     <>
       <SEOHead
         title="Pricing | TidyWise — Cleaning Business Software"
-        description={`Four plans for cleaning businesses of every size. Basic $49/mo, Pro $97/mo, Custom $197/mo, or a one-time Lifetime deal at $300 (${LIFETIME_SPOT_CAP} spots only).`}
+        description={`Four plans for cleaning businesses of every size. Basic $49/mo, Pro $97/mo, Custom $197/mo, or a one-time Lifetime deal at $${LIFETIME_PRICE} (${LIFETIME_SPOT_CAP} spots only).`}
         canonical="/pricing"
         ogImage="/images/og/og-pricing.png"
         schemaJson={[
@@ -488,7 +488,7 @@ export default function PricingPage() {
               <Link to={user ? '/dashboard' : '/signup'}>{TRIAL_CTA}</Link>
             </Button>
             <p className="text-sm text-muted-foreground max-w-xl">
-              Full Pro access for 30 days. No card. Basic stays $49, Pro $97, and Lifetime $300 — pick one when the trial ends and the dashboard locks.
+              Full Pro access for 30 days. No card. Basic stays $49, Pro $97, and Lifetime ${LIFETIME_PRICE} — pick one when the trial ends and the dashboard locks.
             </p>
             <GrowthCounters lifetime={lifetime} counters={growth.counters} />
             <p className="text-sm text-muted-foreground">
@@ -665,7 +665,9 @@ export default function PricingPage() {
                       const todayLine = visibleBillingLine(
                         orgTrialCheckout ? todayChargeCopy(preview, orgTimezone) : null,
                       );
-                      const renewal = visibleBillingLine(renewalDisclosure(chargePrice, billingInterval));
+                      const renewal = visibleBillingLine(
+                        planBillingAction(tier.id) === "contact" ? null : renewalDisclosure(chargePrice, billingInterval),
+                      );
                       return (
                         <>
                           {todayLine ? (
@@ -856,7 +858,7 @@ export default function PricingPage() {
               Pay once. Use TidyWise forever.
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mb-8">
-              One $300 payment locks in lifetime access to every Pro feature — including
+              One ${LIFETIME_PRICE} payment locks in lifetime access to every Pro feature — including
               everything we ship in the future. No recurring bill, ever.
               {' '}
               {lifetime.loading || lifetime.unavailable
@@ -868,7 +870,7 @@ export default function PricingPage() {
               <div>
                 <div className="mb-6">
                   <div className="flex items-baseline gap-3 mb-2">
-                    <span className="text-5xl font-bold tracking-tight">$300</span>
+                    <span className="text-5xl font-bold tracking-tight">${LIFETIME_PRICE}</span>
                     <span className="text-muted-foreground">one-time</span>
                   </div>
                   {lifetime.loading ? (

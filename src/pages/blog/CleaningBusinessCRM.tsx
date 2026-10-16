@@ -471,7 +471,7 @@ export default function CleaningBusinessCRM() {
                     <span className="w-8 h-8 bg-primary text-primary-foreground rounded-full flex items-center justify-center text-sm font-bold">3</span>
                     Evaluate Total Cost
                   </h3>
-                  <p className="text-muted-foreground">Look beyond the base price. Many competitors charge per user, charge extra for SMS, or limit features on lower tiers. TIDYWISE includes unlimited users and all features for $49/month.</p>
+                  <p className="text-muted-foreground">Look beyond the base price. Many competitors charge per user, charge extra for SMS, or limit features on lower tiers. TIDYWISE includes unlimited users on every plan. Plans start at $49/month, and payroll is included on Pro at $97/month.</p>
                 </div>
                 <div className="bg-card border border-border rounded-lg p-5">
                   <h3 className="font-semibold text-foreground mb-2 flex items-center gap-2">

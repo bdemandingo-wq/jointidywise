@@ -1,7 +1,7 @@
 // Reusable schema.org JSON-LD builders for TidyWise pages.
 
 import { SUPPORT_EMAIL } from "../supportEmail";
-import { LIFETIME_SPOT_CAP, PUBLIC_TIERS } from "../publicPlans";
+import { LIFETIME_PRICE, LIFETIME_SPOT_CAP, PUBLIC_TIERS } from "../publicPlans";
 
 const SITE = "https://www.jointidywise.com";
 
@@ -14,7 +14,7 @@ export const HOME_FAQS: FaqItem[] = [
   {
     question: "How much does TidyWise cost?",
     answer:
-      `Plans start at $${PUBLIC_TIERS.find((tier) => tier.id === "basic")?.monthlyPrice}/mo for Basic, $${PUBLIC_TIERS.find((tier) => tier.id === "pro")?.monthlyPrice}/mo for Pro, $${PUBLIC_TIERS.find((tier) => tier.id === "custom")?.monthlyPrice}/mo for Custom, and a one-time $300 Lifetime deal (limited to ${LIFETIME_SPOT_CAP} spots). All plans include unlimited users and bookings.`,
+      `Plans start at $${PUBLIC_TIERS.find((tier) => tier.id === "basic")?.monthlyPrice}/mo for Basic, $${PUBLIC_TIERS.find((tier) => tier.id === "pro")?.monthlyPrice}/mo for Pro, $${PUBLIC_TIERS.find((tier) => tier.id === "custom")?.monthlyPrice}/mo for Custom, and a one-time $${LIFETIME_PRICE} Lifetime deal (limited to ${LIFETIME_SPOT_CAP} spots). All plans include unlimited users and bookings.`,
   },
   {
     question: "Is there a free trial?",
@@ -39,7 +39,7 @@ export const HOME_FAQS: FaqItem[] = [
 ];
 
 const PRICE_LOW = "49";
-const PRICE_HIGH = "300";
+const PRICE_HIGH = String(LIFETIME_PRICE);
 
 const CORE_FEATURES = [
   "Online booking",
@@ -87,7 +87,7 @@ export function localBusinessSchema() {
     email: SUPPORT_EMAIL,
     description:
       "Cleaning business management software — booking, scheduling, invoicing, payroll, CRM, and GPS tracking for residential and commercial cleaning companies.",
-    priceRange: "$49 – $300",
+    priceRange: `$49 – $${LIFETIME_PRICE}`,
     areaServed: {
       "@type": "Country",
       name: "United States",
@@ -100,7 +100,7 @@ const PRICING_OFFERS = [
   { name: "Basic", price: "49", interval: "month" },
   { name: "Pro", price: "97", interval: "month" },
   { name: "Custom", price: "197", interval: "month" },
-  { name: "Lifetime", price: "300", interval: "lifetime" },
+  { name: "Lifetime", price: String(LIFETIME_PRICE), interval: "lifetime" },
 ];
 
 export function softwareApplicationSchema(opts?: {

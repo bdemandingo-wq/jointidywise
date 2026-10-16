@@ -1,6 +1,6 @@
 import { formatInOrgTz } from "./orgDateRange.ts";
 import { LIFETIME_PRICE } from "./publicPlans.ts";
-import { MIN_STRIPE_TRIAL_LEAD_SEC, stripeTrialEndUnix } from "../../supabase/functions/_shared/trial-end.ts";
+import { MIN_STRIPE_TRIAL_LEAD_SEC } from "../../supabase/functions/_shared/trial-end.ts";
 
 // orgDateRange.ts and publicPlans.ts have zero imports, so node:test can
 // load this file without Vite or the @/ alias.
@@ -52,24 +52,8 @@ export function trialEndDateLabel(
 }
 
 /**
- * Same decision create-subscription uses for an org on plan_type trial.
- * stripeTrialEndUnix returns null when profiles.trial_ends_at is missing,
- * invalid, or less than MIN_STRIPE_TRIAL_LEAD_SEC (48 hours) away, including
- * a trial that already ended. That function is what create-subscription calls.
- * A null result means it does not set trial_end, so Stripe bills on completion.
- * A unix result is sent as trial_end, and the card is charged at that second.
- */
-export function trialBillsOnCheckout(
-  trialEndIso: string | null | undefined,
-  nowMs = Date.now(),
-): boolean {
-  if (!trialEndIso || !Number.isFinite(Date.parse(trialEndIso))) return false;
-  return stripeTrialEndUnix(trialEndIso, nowMs) == null;
-}
-
-/**
- * Shown when checkout bills today and the discounted server amount is not
- * available yet. The dollar figure is never a catalog price.
+ * Shown when the server preview says bill_now and the discounted amount
+ * is missing. The dollar figure is never a catalog price.
  */
 export const CHARGE_TODAY_NO_AMOUNT = "You'll be charged today.";
 
@@ -78,26 +62,6 @@ export function visibleBillingLine(line: string | null | undefined): string | nu
   if (typeof line !== "string") return null;
   const trimmed = line.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-/**
- * One short line. The date is the org-local trial end. Inside the 48-hour
- * window checkout will not set trial_end, so the line says the charge is
- * today and leaves the amount out. The discounted amount comes only from
- * the server preview. A missing or invalid timestamp does not invent a date.
- */
-export function trialFirstChargeLine(opts: {
-  trialEndIso: string | null | undefined;
-  timeZone: string;
-  price?: number;
-  nowMs?: number;
-}): string | null {
-  const nowMs = opts.nowMs ?? Date.now();
-  if (!opts.trialEndIso || !Number.isFinite(Date.parse(opts.trialEndIso))) return null;
-  if (trialBillsOnCheckout(opts.trialEndIso, nowMs)) return CHARGE_TODAY_NO_AMOUNT;
-  const date = trialEndDateLabel(opts.trialEndIso, opts.timeZone, true);
-  if (!date) return null;
-  return `Your first charge is ${date}.`;
 }
 
 /** Dollars for a server preview. Whole dollars stay "$97". A half stays "$48.50". */
@@ -131,12 +95,6 @@ export function chargeLineFromPreview(opts: {
 }
 
 /**
- * Per-card line for an org trial that can check out on this plan.
- * Call it only in that case. No preview yet means the charge is described
- * without an amount. A preview that bills later returns null so the date
- * line can stand on its own. A today charge uses the discounted cents.
- */
-/**
  * How long to wait before asking preview-subscription-charge again.
  * The cached bill-now answer goes stale when the trial crosses the same
  * 48-hour lead create-subscription uses. A future boundary waits until
@@ -161,6 +119,15 @@ export function chargePreviewRefetchMs(
   return Math.max(1000, Math.min(wait, 24 * 60 * 60 * 1000));
 }
 
+/**
+ * Per-card today sentence. Call it only for an org trial that can check
+ * out on this plan. It renders only after preview-subscription-charge
+ * returns bill_now true. A missing preview, a load, or an error returns
+ * null so the card shows no charge line. When that preview bills today
+ * and the discounted amount is missing, the sentence is "You'll be
+ * charged today." A preview that bills later returns null so the date
+ * line can stand on its own.
+ */
 export function todayChargeCopy(
   preview: {
     bill_now: boolean;
@@ -169,8 +136,7 @@ export function todayChargeCopy(
   } | null | undefined,
   timeZone: string,
 ): string | null {
-  if (!preview) return CHARGE_TODAY_NO_AMOUNT;
-  if (!preview.bill_now) return null;
+  if (!preview?.bill_now) return null;
   return chargeLineFromPreview({
     billNow: true,
     firstChargeAt: preview.first_charge_at,

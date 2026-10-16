@@ -18,8 +18,6 @@ import {
   renewalDisclosure,
   showPlanChoices,
   todayChargeCopy,
-  trialBillsOnCheckout,
-  trialFirstChargeLine,
   trialEndDateLabel,
   visibleBillingLine,
 } from "./planBillingCopy.ts";
@@ -66,48 +64,56 @@ test("trial charge copy follows stripeTrialEndUnix, the same rule as create-subs
   assert.equal(trialEndDateLabel(elevenPmEastern, ""), null);
 
   assert.equal(stripeTrialEndUnix(elevenPmEastern, now) != null, true);
-  assert.equal(trialBillsOnCheckout(elevenPmEastern, now), false);
-  const eastern = trialFirstChargeLine({
-    trialEndIso: elevenPmEastern,
+  const eastern = chargeLineFromPreview({
+    billNow: false,
+    firstChargeAt: elevenPmEastern,
+    amountCents: null,
     timeZone: "America/New_York",
-    nowMs: now,
   });
   assert.equal(eastern, "Your first charge is Nov 13, 2026.");
   assert.equal(
-    trialFirstChargeLine({ trialEndIso: elevenPmEastern, timeZone: "UTC", nowMs: now }),
+    chargeLineFromPreview({
+      billNow: false,
+      firstChargeAt: elevenPmEastern,
+      amountCents: null,
+      timeZone: "UTC",
+    }),
     "Your first charge is Nov 14, 2026.",
   );
 
   const soon = new Date(now + 36 * 60 * 60 * 1000).toISOString();
   assert.equal(stripeTrialEndUnix(soon, now), null);
-  assert.equal(trialBillsOnCheckout(soon, now), true);
-  assert.equal(
-    trialFirstChargeLine({ trialEndIso: soon, timeZone: "America/New_York", price: 97, nowMs: now }),
-    "You'll be charged today.",
-  );
-  assert.equal(
-    trialFirstChargeLine({ trialEndIso: soon, timeZone: "America/New_York", nowMs: now }),
-    "You'll be charged today.",
-  );
 
   const exactly48h = new Date(now + 48 * 60 * 60 * 1000).toISOString();
   assert.equal(stripeTrialEndUnix(exactly48h, now) != null, true);
-  assert.equal(trialBillsOnCheckout(exactly48h, now), false);
   assert.match(
-    trialFirstChargeLine({ trialEndIso: exactly48h, timeZone: "America/New_York", price: 49, nowMs: now }) ?? "",
+    chargeLineFromPreview({
+      billNow: false,
+      firstChargeAt: exactly48h,
+      amountCents: null,
+      timeZone: "America/New_York",
+    }) ?? "",
     /^Your first charge is /,
   );
 
   const justUnder = new Date(now + 48 * 60 * 60 * 1000 - 1000).toISOString();
   assert.equal(stripeTrialEndUnix(justUnder, now), null);
-  assert.equal(
-    trialFirstChargeLine({ trialEndIso: justUnder, timeZone: "America/New_York", price: 49, nowMs: now }),
-    "You'll be charged today.",
-  );
 
-  assert.equal(trialFirstChargeLine({ trialEndIso: null, timeZone: "America/New_York", price: 49, nowMs: now }), null);
-  assert.equal(trialFirstChargeLine({ trialEndIso: "not-a-date", timeZone: "America/New_York", price: 49, nowMs: now }), null);
-  assert.equal(trialFirstChargeLine({ trialEndIso: elevenPmEastern, timeZone: "Not/AZone", nowMs: now }), null);
+  assert.equal(
+    chargeLineFromPreview({ billNow: false, firstChargeAt: null, amountCents: null, timeZone: "America/New_York" }),
+    null,
+  );
+  assert.equal(
+    chargeLineFromPreview({ billNow: false, firstChargeAt: "not-a-date", amountCents: null, timeZone: "America/New_York" }),
+    null,
+  );
+  assert.equal(
+    chargeLineFromPreview({ billNow: false, firstChargeAt: elevenPmEastern, amountCents: null, timeZone: "Not/AZone" }),
+    null,
+  );
+  const copySource = readFileSync(new URL("./planBillingCopy.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(copySource, /function trialFirstChargeLine/);
+  assert.doesNotMatch(copySource, /function trialBillsOnCheckout/);
 
   const innerPx = 375 - 32 - 40;
   assert.ok(eastern);
@@ -239,7 +245,15 @@ test("the charge preview uses the server clock and the discounted cents", () => 
   const hook = readFileSync(new URL("../hooks/useSubscriptionChargePreview.ts", import.meta.url), "utf8");
   assert.match(hook, /chargePreviewRefetchMs/);
   assert.match(hook, /refetchOnWindowFocus: true/);
-  assert.equal(todayChargeCopy(undefined, "America/New_York"), "You'll be charged today.");
+  assert.equal(todayChargeCopy(undefined, "America/New_York"), null);
+  assert.equal(todayChargeCopy(null, "America/New_York"), null);
+  assert.equal(
+    todayChargeCopy(
+      { bill_now: true, first_charge_at: null, amount_cents_after_discounts: null },
+      "America/New_York",
+    ),
+    "You'll be charged today.",
+  );
   assert.equal(
     todayChargeCopy(
       { bill_now: true, first_charge_at: null, amount_cents_after_discounts: 4850 },
@@ -279,8 +293,10 @@ test("the charge preview uses the server clock and the discounted cents", () => 
   const switcher = readFileSync(new URL("../components/subscription/PlanSwitcher.tsx", import.meta.url), "utf8");
   const dialogs = readFileSync(new URL("../components/subscription/PlanChangeDialogs.tsx", import.meta.url), "utf8");
   const choose = readFileSync(new URL("../pages/ChoosePlanPage.tsx", import.meta.url), "utf8");
-  assert.match(switcher, /organization\?\.plan_type === "trial"/);
+  assert.match(switcher, /choosingFirstPlan = organization\?\.plan_type === "trial"/);
+  assert.match(switcher, /rawPlanType: organization\?\.plan_type \?\? currentPlanId/);
   assert.doesNotMatch(switcher, /currentPlanId === "trial" \|\| isActiveOrgTrial/);
+  assert.doesNotMatch(switcher, /choosingFirstPlan = isActiveOrgTrial/);
   assert.doesNotMatch(switcher, /showRenewal = true;\s*planButton = onTheWebsite/);
   assert.match(switcher, /showChargeLine && orgTrialCheckout && !contactPlan/);
   assert.match(switcher, /showRenewal && !contactPlan \? renewalDisclosure/);
@@ -289,9 +305,14 @@ test("the charge preview uses the server clock and the discounted cents", () => 
   assert.doesNotMatch(choose, /isActiveOrgTrial/);
   assert.doesNotMatch(dialogs, /isActiveOrgTrial/);
   assert.match(switcher, /visibleBillingLine/);
-  assert.match(pricing, /visibleBillingLine\(renewalDisclosure/);
-  assert.match(choose, /visibleBillingLine\(renewalDisclosure/);
+  assert.match(pricing, /planBillingAction\(tier\.id\) === "contact" \? null : renewalDisclosure/);
+  assert.match(choose, /planBillingAction\(tier\.id\) === "contact" \? null : renewalDisclosure/);
   assert.match(dialogs, /contactPlan \? null : renewalDisclosure/);
+  assert.match(dialogs, /if \(!targetPlan \|\| !canShowPaymentFlows\) return/);
+  assert.match(dialogs, /This app cannot take a card/);
+  assert.doesNotMatch(dialogs, /CHARGE_TODAY_NO_AMOUNT/);
+  const app = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
+  assert.match(app, /subscription-charge-preview/);
   assert.doesNotMatch(readFileSync(new URL("./planBillingCopy.ts", import.meta.url), "utf8"), /You'll be charged \$\$\{/);
 });
 
@@ -341,22 +362,28 @@ test("the lifetime cap is one shared constant at 100", () => {
   const seo = read("../components/seo/AuthSEOContent.tsx");
   const counter = read("../hooks/useLifetimeCounter.ts");
   const signup = read("../pages/SignupPage.tsx");
-  const consumers = [
-    "../../supabase/functions/create-lifetime-checkout/index.ts",
-    "../../supabase/functions/get-lifetime-spots/index.ts",
-    "../../supabase/functions/buy-lifetime/index.ts",
-    "../../supabase/functions/generate-daily-blogs/index.ts",
-    "../../supabase/functions/stripe-invoice-webhook/index.ts",
-  ].map(read);
-  const schema = read("./seo/schemas.ts");
+  const spotsHelper = read("../../supabase/functions/_shared/lifetime-spots.ts");
+  assert.match(spotsHelper, /lifetime_offer_state/);
+  assert.match(spotsHelper, /total_spots/);
+  assert.match(spotsHelper, /\?\? LIFETIME_SPOT_CAP/);
+  assert.match(spotsHelper, /lifetime_access_purchases/);
+  assert.match(spotsHelper, /count:\s*"exact"/);
+  assert.doesNotMatch(spotsHelper, /sold_spots/);
   const lifetimeCheckout = read("../../supabase/functions/create-lifetime-checkout/index.ts");
   const lifetimeSpots = read("../../supabase/functions/get-lifetime-spots/index.ts");
-  for (const source of [lifetimeCheckout, lifetimeSpots]) {
-    assert.match(source, /lifetime_offer_state/);
-    assert.match(source, /total_spots/);
-    assert.match(source, /\?\? LIFETIME_SPOT_CAP/);
-    assert.doesNotMatch(source, /lifetime_access_purchases[\s\S]{0,80}count/);
+  const buyLifetime = read("../../supabase/functions/buy-lifetime/index.ts");
+  for (const source of [lifetimeCheckout, lifetimeSpots, buyLifetime]) {
+    assert.match(source, /countLifetimeSpots/);
+    assert.doesNotMatch(source, /sold_spots/);
   }
+  const consumers = [
+    "../../supabase/functions/_shared/lifetime-spots.ts",
+    "../../supabase/functions/generate-daily-blogs/index.ts",
+    "../../supabase/functions/get-lifetime-spots/index.ts",
+  ].map(read);
+  const schema = read("./seo/schemas.ts");
+  const webhook = read("../../supabase/functions/stripe-invoice-webhook/index.ts");
+  assert.doesNotMatch(webhook, /from "\.\.\/_shared\/lifetime-cap\.ts"/);
   const dialog = read("../components/admin/SubscriptionDialog.tsx");
   assert.match(dialog, /LIFETIME_PRICE/);
   assert.match(dialog, /PUBLIC_TIERS\.find/);
@@ -373,7 +400,20 @@ test("the lifetime cap is one shared constant at 100", () => {
     assert.doesNotMatch(read(`../pages/compare/${page}.tsx`), /4\.9★/);
   }
   assert.match(schema, /limited to \$\{LIFETIME_SPOT_CAP\} spots/);
+  assert.match(schema, /LIFETIME_PRICE/);
   assert.doesNotMatch(schema, /limited to 100 spots/);
+  assert.doesNotMatch(schema, /\$300/);
+  assert.doesNotMatch(schema, /"300"/);
+  assert.match(read("../pages/PricingPage.tsx"), /LIFETIME_PRICE/);
+  const payroll = read("../pages/blog/PayrollSoftwareForCleaners.tsx");
+  assert.doesNotMatch(payroll, /\$40\/month/);
+  assert.doesNotMatch(payroll, /\$45\/month/);
+  assert.doesNotMatch(payroll, /\$65\/month/);
+  assert.doesNotMatch(read("../lib/routeMeta.ts"), /fuel costs up to 25%/);
+  const launch = read("../pages/compare/CompareLaunch27.tsx");
+  assert.match(launch, /With payroll", tw: "\$97\/mo \(Pro\)"/);
+  assert.doesNotMatch(launch, /With payroll", tw: "\$49/);
+  assert.doesNotMatch(crm, /all features for \$49\/month/);
   assert.match(cap, /export const LIFETIME_SPOT_CAP = 100/);
   assert.match(plans, /lifetime-cap\.ts/);
   assert.doesNotMatch(plans, /LIFETIME_SPOT_CAP = 100/);

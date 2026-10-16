@@ -6,7 +6,6 @@ import { rejectReason, isVested } from "../_shared/referral-eligibility.ts";
 import { recordReferralInvoicePaid, recordReferralReversal, type BalanceClient } from "../_shared/saas-referral-db.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
 import { verifyStripeWebhook } from "../_shared/billing-stripe.ts";
-import { LIFETIME_SPOT_CAP } from "../_shared/lifetime-cap.ts";
 import {
   cascadeCancelAdSubscriptionsIfDowngraded,
   downgradeOrgOnSubscriptionDeleted,
@@ -634,11 +633,11 @@ const handler = async (req: Request): Promise<Response> => {
             }
           }
 
-          // ── Claim one lifetime spot (atomic) ─────────────────────────
+          // ── Claim one of the 50 spots (atomic) ───────────────────────
           // claim_lifetime_spot() is a single-statement UPDATE; the
-          // table's CHECK(sold_spots <= total_spots) raises when a
-          // purchase past LIFETIME_SPOT_CAP tries to land. We catch
-          // that and refund the unlucky-by-microseconds buyer.
+          // table's CHECK(sold_spots <= total_spots) raises when a 51st
+          // attempt tries to land. We catch that and refund the
+          // unlucky-by-microseconds buyer.
           try {
             const { data: claimed, error: claimErr } = await supabase
               .rpc("claim_lifetime_spot");
@@ -660,7 +659,7 @@ const handler = async (req: Request): Promise<Response> => {
                 organizationName: "LIFETIME OVERSOLD — refunded",
                 ownerEmail: email,
                 subscriptionType:
-                  `Purchase past the ${LIFETIME_SPOT_CAP}-spot cap attempted, automatic refund issued. Reach out personally.`,
+                  "Spot #51+ attempted, automatic refund issued. Reach out personally.",
               });
             } else {
               const row = Array.isArray(claimed) ? claimed[0] : claimed;

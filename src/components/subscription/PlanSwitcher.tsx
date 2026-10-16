@@ -189,10 +189,9 @@ export function PlanSwitcher() {
   const hasScheduledDowngrade =
     !!downgrade.to && !!targetDowngradePlan && planChoicesVisible && canShowPaymentFlows;
   const canChangePlan = hasChangeableStripeSubscription(subscription);
-  const choosingFirstPlan = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
-  // create-subscription applies the 48-hour rule only when the active
-  // organization's plan_type is trial. The subscription payload is not a
-  // second vote.
+  // organizations.plan_type is the only trial signal for the first-plan
+  // buttons and for whether checkout still has a trial.
+  const choosingFirstPlan = organization?.plan_type === "trial";
   const orgTrialCheckout = organization?.plan_type === "trial";
   const chargePreview = useSubscriptionChargePreview({
     enabled: orgTrialCheckout && planChoicesVisible,
@@ -270,10 +269,7 @@ export function PlanSwitcher() {
               </span>
             ) : (
               <>You're on the <span className="font-medium text-foreground">{planSectionLabel({
-                rawPlanType: currentPlanId,
-                productId: subscription?.product_id,
-                subscribed: subscription?.subscribed,
-                trialActive: subscription?.trial_active,
+                rawPlanType: organization?.plan_type ?? currentPlanId,
               })}</span> plan.</>
             )}
           </p>

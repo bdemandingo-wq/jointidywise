@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { LIFETIME_SPOT_CAP } from "../_shared/lifetime-cap.ts";
+import { countLifetimeSpots } from "../_shared/lifetime-spots.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,21 +20,10 @@ serve(async (req) => {
       { auth: { persistSession: false } }
     );
 
-    const { data: offerState, error } = await supabase
-      .from("lifetime_offer_state")
-      .select("total_spots, sold_spots, sold_out_at")
-      .eq("id", 1)
-      .maybeSingle();
-
-    if (error) throw error;
-
-    const total = offerState?.total_spots ?? LIFETIME_SPOT_CAP;
-    const used = offerState?.sold_spots ?? 0;
-    const remaining = Math.max(0, total - used);
-    const available = !offerState?.sold_out_at && remaining > 0;
+    const spots = await countLifetimeSpots(supabase);
 
     return new Response(
-      JSON.stringify({ total, used, remaining, available }),
+      JSON.stringify(spots),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
     );
   } catch (error: any) {

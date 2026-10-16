@@ -21,7 +21,7 @@ import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyL
 import { isCustomPriceMissing } from '@/lib/priceNotConfigured';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import { shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
-import { chargeLineFromPreview, renewalDisclosure, todayChargeCopy, visibleBillingLine } from '@/lib/planBillingCopy';
+import { chargeLineFromPreview, planBillingAction, renewalDisclosure, todayChargeCopy, visibleBillingLine } from '@/lib/planBillingCopy';
 import { chargePreviewKey, useSubscriptionChargePreview } from '@/hooks/useSubscriptionChargePreview';
 import {
   hasAnswer,
@@ -443,7 +443,9 @@ export default function ChoosePlanPage() {
                     const todayLine = visibleBillingLine(
                       orgTrialCheckout ? todayChargeCopy(preview, orgTimezone) : null,
                     );
-                    const renewal = visibleBillingLine(renewalDisclosure(chargePrice, billingInterval));
+                    const renewal = visibleBillingLine(
+                      planBillingAction(tier.id) === "contact" ? null : renewalDisclosure(chargePrice, billingInterval),
+                    );
                     return (
                       <>
                         {todayLine ? (
