@@ -486,7 +486,46 @@ test("lifetime and grandfathered accounts do not see the plan grid", () => {
   assert.equal(showPlanChoices({ lifetime: false, grandfathered: true }), false);
 });
 
-test("a $49 sentence does not include payroll, GPS, or automated reminders", () => {
+// Pro features from features.ts (automation_center, client_portal, ai_intelligence,
+// payroll, tracking). A clause may sit next to $49 only when that same clause
+// names Pro or $97. A $97 later on the line does not clear an earlier clause.
+const PRO_FEATURE_IN_PRICE_COPY =
+  /payroll|\bGPS\b|automated reminders?|automations?|client portal|\bAI\b/i;
+
+function proFeatureMispricedOnLine(line: string): string[] {
+  if (!/\$49(?!\d)/.test(line)) return [];
+  const bad: string[] = [];
+  for (const clause of line.split(/[.!?;]+/)) {
+    if (!PRO_FEATURE_IN_PRICE_COPY.test(clause)) continue;
+    // Denial, not a price claim: "Payroll is not included on Basic ($49/mo)."
+    if (/\bnot included\b/i.test(clause)) continue;
+    if (/\bPro\b/.test(clause) || /\$97(?!\d)/.test(clause)) continue;
+    bad.push(clause.trim());
+  }
+  return bad;
+}
+
+test("a $49 line attributes automation, client portal, AI, payroll, and GPS to Pro", () => {
+  const caught = [
+    "TidyWise is purpose-built for cleaning businesses with booking, scheduling, CRM, invoicing, SMS/email automation, a staff portal, client portal, and AI-powered business intelligence. Pricing starts at $49/month, and every new account begins with 30 days of Pro, no card.",
+    "TidyWise gives you booking, scheduling, CRM, invoicing, and automation in one platform. Plans start at $49/mo.",
+    "SMS/email automation, the client portal, and AI are included. Pricing starts at $49/month. Pro is $97/month.",
+  ];
+  for (const line of caught) {
+    assert.notEqual(proFeatureMispricedOnLine(line).length, 0, line);
+  }
+
+  const allowed = [
+    "Booking, scheduling, CRM, invoicing, and the staff portal start at $49/month. SMS/email automation, the client portal, and AI-powered business intelligence are on Pro at $97/month.",
+    "Booking, scheduling, CRM, and invoicing from $49/mo. Automation is on Pro at $97/mo.",
+    "Scheduling and invoicing on Basic at $49/mo, and payroll on Pro at $97/mo.",
+    "Pro at $97/mo. Payroll is not included on Basic ($49/mo).",
+    "The mobile app is included from $49/mo (Basic). Payroll, GPS check-ins, and P&L reports are on Pro at $97/mo.",
+  ];
+  for (const line of allowed) {
+    assert.deepEqual(proFeatureMispricedOnLine(line), [], line);
+  }
+
   const root = new URL("../", import.meta.url);
   const files: string[] = [];
   const walk = (dir: string) => {
@@ -502,10 +541,9 @@ test("a $49 sentence does not include payroll, GPS, or automated reminders", () 
   for (const file of files) {
     const lines = readFileSync(file, "utf8").split("\n");
     lines.forEach((line, index) => {
-      if (!/\$49/.test(line)) return;
-      if (!/(payroll|GPS|automated reminder)/i.test(line)) return;
-      if (/\$97/.test(line)) return;
-      bad.push(`${file}:${index + 1}: ${line.trim()}`);
+      for (const clause of proFeatureMispricedOnLine(line)) {
+        bad.push(`${file}:${index + 1}: ${clause}`);
+      }
     });
   }
   assert.deepEqual(bad, []);

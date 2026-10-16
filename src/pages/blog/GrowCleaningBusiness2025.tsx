@@ -84,7 +84,7 @@ export default function GrowCleaningBusiness2025() {
 
             <div className="bg-primary/5 rounded-xl p-6 mt-8 border border-primary/20">
               <h3 className="text-xl font-bold text-foreground mb-2">Ready to Grow Your Cleaning Business?</h3>
-              <p className="text-muted-foreground mb-4">TidyWise gives you booking, scheduling, CRM, invoicing, and automation in one platform. Plans start at $49/mo.</p>
+              <p className="text-muted-foreground mb-4">TidyWise gives you booking, scheduling, CRM, and invoicing from $49/mo. Automation is on Pro at $97/mo.</p>
               <Button asChild>
                 <Link to="/signup">Get started <ArrowRight className="ml-2 h-4 w-4" /></Link>
               </Button>
