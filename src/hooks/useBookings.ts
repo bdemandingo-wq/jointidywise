@@ -174,7 +174,7 @@ const CUSTOMER_LIST_SELECT = `
 `;
 
 const RECENT_WINDOW_MS = 120 * 24 * 60 * 60 * 1000;
-const RECENT_PAGE = 200;
+const RECENT_PAGE = 1000;
 const ARCHIVE_PAGE = 500;
 const ARCHIVE_CAP = 2000;
 

@@ -1,0 +1,11 @@
+In `supabase/functions/score-compute/index.ts`, change the import on line 5 from:
+
+  import { generateObject } from "https://esm.sh/ai@5";
+
+to:
+
+  import { generateObject } from "https://esm.sh/ai@4";
+
+Leave the `@ai-sdk/anthropic@1` import on line 6 exactly as-is. This pairs `ai@4` with `@ai-sdk/anthropic@1`, which are compatible major versions. The `ai@5` package is not compatible with `@ai-sdk/anthropic@1` and causes a runtime mismatch.
+
+No other changes. Deploy the score-compute function and confirm deployed, not just committed.

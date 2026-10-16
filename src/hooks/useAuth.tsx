@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     enabled: !!userId && !!token,
     staleTime: STARTUP_SUBSCRIPTION_STALE_MS,
     gcTime: 1000 * 60 * 60 * 24,
-    retry: 1,
+    retry: 2,
     ...(cached ? { initialData: cached.value, initialDataUpdatedAt: cached.at } : {}),
   });
 

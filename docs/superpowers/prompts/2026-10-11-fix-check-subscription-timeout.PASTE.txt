@@ -1,0 +1,46 @@
+In `supabase/functions/check-subscription/index.ts`, add a timeout helper and wrap both Stripe API calls with it.
+
+1. After the imports (after line 6, before the corsHeaders constant), add this helper function:
+
+```ts
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms),
+    ),
+  ]);
+}
+```
+
+2. Find this line (around line 254):
+
+```ts
+const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+```
+
+Change it to:
+
+```ts
+const customers = await withTimeout(stripe.customers.list({ email: user.email, limit: 1 }), 8000, 'stripe.customers.list');
+```
+
+3. Find this block (around line 260):
+
+```ts
+const subscriptions = await stripe.subscriptions.list({
+  customer: customerId,
+  limit: 10,
+});
+```
+
+Change it to:
+
+```ts
+const subscriptions = await withTimeout(stripe.subscriptions.list({
+  customer: customerId,
+  limit: 10,
+}), 8000, 'stripe.subscriptions.list');
+```
+
+No other changes. Deploy the check-subscription function and confirm deployed, not just committed.

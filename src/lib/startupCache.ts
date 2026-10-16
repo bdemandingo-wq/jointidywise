@@ -76,4 +76,4 @@ export const startupProfileKey = (userId: string) => ['startup-profile', userId]
 
 export const STARTUP_ORG_STALE_MS = 5 * 60 * 1000;
 export const STARTUP_PROFILE_STALE_MS = 5 * 60 * 1000;
-export const STARTUP_SUBSCRIPTION_STALE_MS = 60 * 1000;
+export const STARTUP_SUBSCRIPTION_STALE_MS = 5 * 60 * 1000;
