@@ -19,6 +19,8 @@
 import { useState, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthNoSession, supabaseNoSession } from '@/hooks/useAuthNoSession';
+import { lookupTrialWorkspace } from '@/lib/lookupTrialWorkspace';
+import { provisionTrialOrgIfMissing } from '@/lib/provisionTrialOrg';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -80,16 +82,22 @@ export default function NativeSignupPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // ── Provision trial org ───────────────────────────────────────────
-  const provisionTrialOrg = async (): Promise<string | null> => {
+  // The auth effect calls the same helper. The in-flight gate makes the
+  // second call wait instead of inserting another "Name's Business".
+  const provisionTrialOrg = async (userId: string): Promise<string | null> => {
     try {
-      const { data, error } = await supabaseNoSession.functions.invoke('provision-trial-org', {
-        body: { referral_code: readCapturedReferral() },
+      const result = await provisionTrialOrgIfMissing({
+        userId,
+        lookup: () => lookupTrialWorkspace(userId),
+        invoke: async () => {
+          const { data, error } = await supabaseNoSession.functions.invoke('provision-trial-org', {
+            body: { referral_code: readCapturedReferral() },
+          });
+          const organizationId = (data as { organization_id?: string } | null)?.organization_id ?? null;
+          return { organizationId, error: error ?? null };
+        },
       });
-      if (error) {
-        console.error('Trial org provisioning failed:', error);
-        return null;
-      }
-      return (data as { organization_id?: string })?.organization_id ?? null;
+      return result.organizationId;
     } catch (err) {
       console.error('Trial org provisioning failed:', err);
       return null;
@@ -204,7 +212,7 @@ export default function NativeSignupPage() {
         // refetch() reads the user from supabase.auth.getSession()
         // instead of from the React closure, so it works even though
         // React hasn't re-rendered with the auth state yet.
-        const orgId = await provisionTrialOrg();
+        const orgId = await provisionTrialOrg(data.user.id);
         if (orgId) {
           try { localStorage.setItem('tidywise_active_org', orgId); } catch { /* ignore */ }
         }

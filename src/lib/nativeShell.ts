@@ -2,7 +2,8 @@ import { Capacitor } from '@capacitor/core';
 import { hydrate, type QueryClient } from '@tanstack/react-query';
 
 const OFFLINE_CACHE_KEY = 'tw-offline-cache';
-const OFFLINE_CACHE_BUSTER = 'v3-bounded-lists';
+/** v4 drops caches that stored a false empty org from the sign-in race. */
+export const OFFLINE_CACHE_BUSTER = 'v4-drop-empty-org';
 const OFFLINE_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24;
 
 export function isNativeIos(): boolean {

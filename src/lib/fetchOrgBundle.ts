@@ -1,6 +1,11 @@
 import { supabase } from '@/lib/supabase';
 import { writeStartupSection } from '@/lib/startupCache';
 import { ORG_BUNDLE_SELECT, ORG_MEMBERSHIP_SELECT } from '@/lib/orgBundleFields';
+import {
+  joinMembershipsToOrgs,
+  resolveEmptyOrgRead,
+  shouldCacheOrgBundle,
+} from '@/lib/orgBundleResolution';
 
 export interface Organization {
   id: string;
@@ -134,20 +139,30 @@ async function loadViaTwoSteps(userId: string): Promise<OrgWithRole[]> {
   const orgIds = memberships.map((m) => m.organization_id);
   const { data: orgs, error: orgError } = await supabase.from('organizations').select(ORG_BUNDLE_SELECT).in('id', orgIds);
   if (orgError || !orgs) throw orgError ?? new Error('Could not load organizations');
-  const all: OrgWithRole[] = [];
-  for (const m of memberships) {
-    const org = (orgs as Organization[]).find((o) => o.id === m.organization_id);
-    if (!org) continue;
-    all.push({ organization: org, role: m.role as OrgRole });
-  }
-  return all;
+  return joinMembershipsToOrgs(memberships, orgs as Organization[]).map((row) => ({
+    organization: row.organization,
+    role: row.role as OrgRole,
+  }));
+}
+
+async function loadOrgs(userId: string): Promise<OrgWithRole[]> {
+  const embedded = await loadViaEmbed(userId);
+  return embedded ?? await loadViaTwoSteps(userId);
+}
+
+async function sessionUserId(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user?.id ?? null;
 }
 
 /** Membership and organization in one round trip. Falls back to the two-step read. */
 export async function fetchOrgBundle(userId: string): Promise<OrgBundle> {
-  const embedded = await loadViaEmbed(userId);
-  const allOrgs = embedded ?? await loadViaTwoSteps(userId);
+  const allOrgs = await resolveEmptyOrgRead({
+    userId,
+    load: () => loadOrgs(userId),
+    readSessionUserId: sessionUserId,
+  });
   const bundle = bundleFrom(allOrgs);
-  if (bundle.resolution !== 'error') writeStartupSection(userId, 'org', bundle);
+  if (shouldCacheOrgBundle(bundle.resolution)) writeStartupSection(userId, 'org', bundle);
   return bundle;
 }

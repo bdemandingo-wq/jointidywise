@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { SEOHead } from '@/components/SEOHead';
 import { useNavigate, Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuthNoSession, supabaseNoSession } from '@/hooks/useAuthNoSession';
@@ -21,6 +22,7 @@ import { Eye, EyeOff, Loader2, ArrowLeft, Mail, Lock, HardHat, Users } from 'luc
 import { z } from 'zod';
 import { Capacitor } from '@capacitor/core';
 import { APPLE_OAUTH_ENABLED, GOOGLE_OAUTH_ENABLED } from '@/lib/oauthFlags';
+import { clearCachedStartupOrg } from '@/lib/startupCache';
 
 // Validation schema
 const loginSchema = z.object({
@@ -38,6 +40,7 @@ export default function LoginPage() {
   const SHOW_NATIVE_SIGNUP_LINK = true;
   const { user, loading: authLoading, initialCleanupDone, provisioning, signIn, signInWithApple, signInWithGoogle } = useAuthNoSession();
   const { organization, refetch: refetchOrganization } = useOrganization();
+  const queryClient = useQueryClient();
   const [oauthLoading, setOauthLoading] = useState<'apple' | 'google' | null>(null);
   // Hard stop: break the login → dashboard → onboarding → login cycle after
   // 2 bounces. The counter persists across remounts via sessionStorage.
@@ -69,6 +72,11 @@ export default function LoginPage() {
   useEffect(() => {
     if (provisioning !== 'done' || orgRefetched) return;
     setOrgRefetched(true);
+    // A false empty org from the sign-in race must not stay in the startup
+    // snapshot. The refetch below reads the workspace again.
+    clearCachedStartupOrg((filters) => {
+      void queryClient.resetQueries(filters);
+    });
     refetchOrganization();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once when provisioning reaches done
   }, [provisioning, orgRefetched]);
@@ -140,6 +148,9 @@ export default function LoginPage() {
       }
 
       toast.success('Welcome back!');
+      clearCachedStartupOrg((filters) => {
+        void queryClient.resetQueries(filters);
+      });
       setShowSplash(true);
     } catch (error: any) {
       toast.error('Could not sign you in. Please try again.');
