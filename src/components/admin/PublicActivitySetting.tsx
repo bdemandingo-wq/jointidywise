@@ -77,7 +77,7 @@ export function PublicActivitySetting() {
       <CardHeader>
         <CardTitle>Public activity</CardTitle>
         <CardDescription>
-          The TidyWise marketing site shows a live feed of anonymous jobs and new businesses. Only a city and a rounded amount are used.
+          The TidyWise marketing site shows a live feed of anonymous jobs and new businesses. Only a state and a rounded amount are used.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -87,7 +87,7 @@ export function PublicActivitySetting() {
               Show my anonymous activity in the TidyWise feed
             </Label>
             <p className="text-sm text-muted-foreground">
-              On by default. We never share your name, a customer, or an address. Turn this off to leave the feed.
+              On by default. We never share your name, a customer, a city, or an address. Turn this off to leave the feed.
             </p>
           </div>
           {loading ? (

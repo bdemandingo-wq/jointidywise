@@ -1,19 +1,17 @@
 import { useEffect, useState } from 'react';
-import { activitySentence } from '@/lib/publicActivity';
+import { ACTIVITY_TICKER_INTERVAL_MS, tickerLines } from '@/lib/publicActivity';
 import type { PublicActivityEvent } from '@/lib/publicActivity';
 
-/** Rotating line of real events. Hidden when there is nothing to show. */
+/** Rotating line of real events. Hidden when nothing happened in the last 24 hours. */
 export function ActivityTicker({ events }: { events: PublicActivityEvent[] }) {
-  const lines = events
-    .map((event) => activitySentence(event))
-    .filter((line): line is string => Boolean(line));
+  const lines = tickerLines(events);
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
     if (lines.length < 2) return;
     const timer = window.setInterval(() => {
       setIndex((current) => (current + 1) % lines.length);
-    }, 5000);
+    }, ACTIVITY_TICKER_INTERVAL_MS);
     return () => window.clearInterval(timer);
   }, [lines.length]);
 
