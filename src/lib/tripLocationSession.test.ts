@@ -1,18 +1,20 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { LOCATION_CONSENT_COPY } from './locationConsent.ts';
 import {
   ALWAYS_LOCATION_EXPLAINER_BODY,
+  ALWAYS_LOCATION_EXPLAINER_HEADING,
   BACKGROUND_LOCATION_SHARE_BANNER,
   FOREGROUND_LOCATION_SHARE_BANNER,
   TRIP_DISTANCE_FILTER_METERS,
+  TRIP_MAX_DURATION_MS,
   beginTripWatch,
   chooseTripWatch,
   endTripWatch,
   initialTripWatchSession,
   locationShareBanner,
   planAlwaysPrompt,
+  tripTimedOut,
   tripWatchCommands,
   type TripLocationAuth,
   type TripPlatform,
@@ -28,6 +30,7 @@ const STOP_REASONS: TripStopReason[] = [
   'job_finished',
   'consent_revoked',
   'unmount',
+  'timeout',
 ];
 
 test('background location is iOS Always during a trip, and every stop ends it', async () => {
@@ -59,10 +62,17 @@ test('background location is iOS Always during a trip, and every stop ends it', 
 });
 
 test('Always is requested only on iOS after the explainer, and While Using stays foreground', async () => {
-  assert.equal(ALWAYS_LOCATION_EXPLAINER_BODY.includes(LOCATION_CONSENT_COPY), true);
-  assert.match(ALWAYS_LOCATION_EXPLAINER_BODY, /Allow Always/);
-  assert.match(ALWAYS_LOCATION_EXPLAINER_BODY, /While Using the App/);
+  assert.equal(ALWAYS_LOCATION_EXPLAINER_HEADING, 'Keep sharing while your phone is locked?');
+  assert.equal(
+    ALWAYS_LOCATION_EXPLAINER_BODY,
+    "To keep your customer updated, TidyWise can share your location during On My Way even if the app is closed or your phone is locked. It only runs during a trip and stops when you arrive. You'll see a blue location indicator while it's on.",
+  );
+  assert.equal(TRIP_MAX_DURATION_MS, 3 * 60 * 60 * 1000);
+  assert.equal(tripTimedOut(1_000, 1_000 + TRIP_MAX_DURATION_MS - 1), false);
+  assert.equal(tripTimedOut(1_000, 1_000 + TRIP_MAX_DURATION_MS), true);
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'always', explainerAccepted: null }).action, 'background');
+  assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'always', explainerDeclined: true, explainerAccepted: null }).action, 'background');
+  assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'whenInUse', explainerDeclined: true, explainerAccepted: null }).action, 'foreground');
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'whenInUse', explainerAccepted: null }).action, 'explain');
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'whenInUse', explainerAccepted: false }).action, 'foreground');
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'whenInUse', explainerAccepted: true }).action, 'request-always');
@@ -131,6 +141,64 @@ test('Always is requested only on iOS after the explainer, and While Using stays
     requestAlways: async () => { calls.push('request'); return 'always'; },
   }), 'foreground');
   assert.deepEqual(calls, []);
+
+  calls.length = 0;
+  let declined = false;
+  const declinedWatch = () => chooseTripWatch({
+    platform: 'ios',
+    explainerDeclined: declined,
+    readAuth: async () => {
+      calls.push('read');
+      return 'whenInUse';
+    },
+    explain: async () => {
+      calls.push('explain');
+      return false;
+    },
+    requestAlways: async () => {
+      calls.push('request');
+      return 'always';
+    },
+    rememberDecline: async () => {
+      calls.push('remember');
+      declined = true;
+    },
+  });
+  assert.equal(await declinedWatch(), 'foreground');
+  assert.deepEqual(calls, ['read', 'explain', 'remember']);
+  calls.length = 0;
+  assert.equal(await declinedWatch(), 'foreground');
+  assert.deepEqual(calls, ['read']);
+
+  calls.length = 0;
+  let remembered = false;
+  assert.equal(await chooseTripWatch({
+    platform: 'ios',
+    readAuth: async () => 'whenInUse',
+    explain: async () => { throw new Error('dialog missing'); },
+    requestAlways: async () => 'always',
+    rememberDecline: async () => { remembered = true; },
+  }), 'foreground');
+  assert.equal(remembered, false);
+
+  calls.length = 0;
+  assert.equal(await chooseTripWatch({
+    platform: 'ios',
+    explainerDeclined: true,
+    readAuth: async () => {
+      calls.push('read');
+      return 'always';
+    },
+    explain: async () => {
+      calls.push('explain');
+      return false;
+    },
+    requestAlways: async () => {
+      calls.push('request');
+      return 'whenInUse';
+    },
+  }), 'background');
+  assert.deepEqual(calls, ['read']);
 });
 
 test('the pause banner stays unless iOS background sharing is active', () => {
@@ -164,6 +232,16 @@ test('the hook starts background updates on the shared write path and stops them
   assert.match(hook, /runArrivalAttempt\(arrivedRef/);
   assert.equal(hook.match(/functions\.invoke\('send-arrival-sms'/g)?.length, 1);
   assert.match(hook, /explainAlwaysLocation/);
+  assert.match(hook, /confirmLabel: 'Continue'/);
+  assert.match(hook, /cancelLabel: 'Not now'/);
+  assert.match(hook, /readAlwaysExplainerDeclined\(\)/);
+  assert.match(hook, /rememberDecline: rememberAlwaysExplainerDeclined/);
+  assert.match(hook, /stopTrackingRef\.current\('timeout'\)/);
+  assert.match(hook, /TRIP_MAX_DURATION_MS/);
+  assert.match(hook, /select\('id, tracking_token, created_at'\)/);
+  assert.match(swift, /showsBackgroundLocationIndicator = true/);
+  assert.match(swift, /3 \* 60 \* 60/);
+  assert.match(swift, /notifyListeners\("timeout"/);
 
   assert.match(card, /stopTracking\('job_started'\)/);
   assert.match(card, /stopTracking\('job_finished'\)/);

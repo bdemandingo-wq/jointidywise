@@ -35,6 +35,7 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
     private var resignObserver: NSObjectProtocol?
     private var deliveryTask: UIBackgroundTaskIdentifier = .invalid
     private var deliveryEpoch = 0
+    private var tripTimeout: DispatchWorkItem?
 
     @objc func checkAuthorization(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -101,6 +102,9 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
             manager.allowsBackgroundLocationUpdates = true
             manager.showsBackgroundLocationIndicator = true
             self.updating = true
+            let seconds = call.getDouble("maxDurationSeconds") ?? Double(3 * 60 * 60)
+            if seconds < 0 { seconds = 0 }
+            self.scheduleTripTimeout(seconds)
             manager.startUpdatingLocation()
             call.resolve()
         }
@@ -153,8 +157,27 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         return created
     }
 
+    /// Hard stop. A trip already running keeps its original deadline.
+    /// The default is 3 hours. A resumed trip can pass the time it has left.
+    private func scheduleTripTimeout(_ seconds: Double) {
+        tripTimeout?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.updating else { return }
+            self.stopUpdating()
+            self.notifyListeners("timeout", data: ["reason": "timeout"], retainUntilConsumed: true)
+        }
+        tripTimeout = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    private func cancelTripTimeout() {
+        tripTimeout?.cancel()
+        tripTimeout = nil
+    }
+
     private func stopUpdating() {
         updating = false
+        cancelTripTimeout()
         locationManager?.stopUpdatingLocation()
         locationManager?.allowsBackgroundLocationUpdates = false
         endDeliveryTask()
@@ -248,6 +271,7 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
     }
 
     deinit {
+        tripTimeout?.cancel()
         removeAuthObservers()
         endDeliveryTask()
     }

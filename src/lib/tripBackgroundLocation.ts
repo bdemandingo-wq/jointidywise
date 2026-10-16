@@ -1,6 +1,7 @@
 import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import {
   TRIP_DISTANCE_FILTER_METERS,
+  TRIP_MAX_DURATION_MS,
   classifyTripAuth,
   type TripLocationAuth,
 } from './tripLocationSession.ts';
@@ -8,7 +9,7 @@ import {
 interface TripBackgroundLocationPlugin {
   checkAuthorization(): Promise<{ status?: string }>;
   requestAlways(): Promise<{ status?: string }>;
-  start(options: { distanceFilter: number }): Promise<void>;
+  start(options: { distanceFilter: number; maxDurationSeconds: number }): Promise<void>;
   stop(): Promise<void>;
   addListener(
     eventName: 'location',
@@ -18,30 +19,42 @@ interface TripBackgroundLocationPlugin {
     eventName: 'authorization',
     listenerFunc: (event: { status?: string }) => void,
   ): Promise<PluginListenerHandle>;
+  addListener(
+    eventName: 'timeout',
+    listenerFunc: () => void,
+  ): Promise<PluginListenerHandle>;
 }
 
 const TripBackgroundLocation = registerPlugin<TripBackgroundLocationPlugin>('TripBackgroundLocation');
 
 type PositionHandler = (latitude: number, longitude: number) => void;
 type AuthorizationHandler = (auth: TripLocationAuth) => void;
+type TimeoutHandler = () => void;
 
 let generation = 0;
 let started = false;
 let positionHandler: PositionHandler | null = null;
 let authorizationHandler: AuthorizationHandler | null = null;
+let timeoutHandler: TimeoutHandler | null = null;
 let locationListener: PluginListenerHandle | null = null;
 let authorizationListener: PluginListenerHandle | null = null;
+let timeoutListener: PluginListenerHandle | null = null;
 
 async function removeListeners(): Promise<void> {
   const location = locationListener;
   const authorization = authorizationListener;
+  const timeout = timeoutListener;
   locationListener = null;
   authorizationListener = null;
+  timeoutListener = null;
   if (location) {
     try { await location.remove(); } catch { /* already gone */ }
   }
   if (authorization) {
     try { await authorization.remove(); } catch { /* already gone */ }
+  }
+  if (timeout) {
+    try { await timeout.remove(); } catch { /* already gone */ }
   }
 }
 
@@ -63,10 +76,13 @@ export async function requestTripAlwaysAuthorization(): Promise<TripLocationAuth
 export async function startTripBackgroundUpdates(
   onPosition: PositionHandler,
   onAuthorization?: AuthorizationHandler,
+  onTimeout?: TimeoutHandler,
+  maxDurationSeconds?: number,
 ): Promise<number> {
   const token = ++generation;
   positionHandler = onPosition;
   authorizationHandler = onAuthorization ?? null;
+  timeoutHandler = onTimeout ?? null;
 
   if (!started) {
     locationListener = await TripBackgroundLocation.addListener('location', (event) => {
@@ -76,14 +92,21 @@ export async function startTripBackgroundUpdates(
     authorizationListener = await TripBackgroundLocation.addListener('authorization', (event) => {
       authorizationHandler?.(classifyTripAuth(event?.status));
     });
+    timeoutListener = await TripBackgroundLocation.addListener('timeout', () => {
+      timeoutHandler?.();
+    });
     try {
-      await TripBackgroundLocation.start({ distanceFilter: TRIP_DISTANCE_FILTER_METERS });
+      await TripBackgroundLocation.start({
+        distanceFilter: TRIP_DISTANCE_FILTER_METERS,
+        maxDurationSeconds: maxDurationSeconds ?? TRIP_MAX_DURATION_MS / 1000,
+      });
       started = true;
     } catch (err) {
       started = false;
       if (token === generation) {
         positionHandler = null;
         authorizationHandler = null;
+        timeoutHandler = null;
       }
       await removeListeners();
       throw err;
@@ -98,6 +121,7 @@ export async function stopTripBackgroundUpdates(token: number): Promise<void> {
   generation += 1;
   positionHandler = null;
   authorizationHandler = null;
+  timeoutHandler = null;
   started = false;
   await removeListeners();
   try {

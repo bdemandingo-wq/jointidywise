@@ -9,6 +9,7 @@ import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
 import { nextArrivalErrorToast, runArrivalAttempt } from '@/lib/arrivalAttempt';
 import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
 import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
+import { readAlwaysExplainerDeclined, rememberAlwaysExplainerDeclined } from '@/lib/alwaysLocationPrompt';
 import {
   readTripLocationAuth,
   requestTripAlwaysAuthorization,
@@ -22,6 +23,8 @@ import {
   chooseTripWatch,
   endTripWatch,
   initialTripWatchSession,
+  TRIP_MAX_DURATION_MS,
+  tripTimedOut,
   type TripStopReason,
   type TripWatchMode,
 } from '@/lib/tripLocationSession';
@@ -75,8 +78,8 @@ async function requestLocationPermission(): Promise<boolean> {
 
 function explainAlwaysLocation(): Promise<boolean> {
   return confirmDialog(ALWAYS_LOCATION_EXPLAINER_BODY, ALWAYS_LOCATION_EXPLAINER_HEADING, {
-    confirmLabel: 'Allow Always',
-    cancelLabel: 'Keep While Using',
+    confirmLabel: 'Continue',
+    cancelLabel: 'Not now',
     destructive: false,
   });
 }
@@ -85,6 +88,12 @@ function explainAlwaysLocation(): Promise<boolean> {
 
 const ARRIVAL_THRESHOLD_METERS = 100;
 const MIN_WRITE_INTERVAL_MS = 8_000; // throttle DB writes to ≤ 1 per 8 s
+
+function trackingStartedAtMs(createdAt: unknown): number {
+  if (typeof createdAt !== 'string') return Date.now();
+  const parsed = Date.parse(createdAt);
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
 
 export type TrackingStartResult =
   | {
@@ -127,6 +136,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   const sessionRef = useRef(initialTripWatchSession());
   const watchModeRef = useRef<TripWatchMode>('foreground');
   const backgroundTokenRef = useRef<number | null>(null);
+  const tripStartedAtRef = useRef<number | null>(null);
+  const tripTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const writePositionRef = useRef<(latitude: number, longitude: number) => Promise<void>>(async () => {});
   const [isTracking, setIsTracking] = useState(false);
   const [hasArrived, setHasArrived] = useState(false);
@@ -198,6 +209,11 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
   const writePosition = useCallback(async (latitude: number, longitude: number) => {
     if (arrivedRef.current) return;
+    const startedAt = tripStartedAtRef.current;
+    if (startedAt != null && tripTimedOut(startedAt, Date.now())) {
+      void stopTrackingRef.current('timeout');
+      return;
+    }
     if (!trackingIdRef.current) return;
     if (Capacitor.getPlatform() === 'web' && !webShareShouldReadGeolocation(webSharePhaseRef.current)) return;
     const now = Date.now();
@@ -237,6 +253,11 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   }, []);
 
   const haltWatch = useCallback(async (markArrivedAt: boolean, reason?: TripStopReason) => {
+    if (tripTimeoutRef.current != null) {
+      clearTimeout(tripTimeoutRef.current);
+      tripTimeoutRef.current = null;
+    }
+    tripStartedAtRef.current = null;
     webSharePhaseRef.current = 'idle';
     const resolvedReason = reason ?? (markArrivedAt ? 'arrival' : 'job_finished');
     const transition = endTripWatch(sessionRef.current, resolvedReason);
@@ -292,6 +313,11 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
     const checkNow = async () => {
       if (arrivedRef.current) return;
+      const startedAt = tripStartedAtRef.current;
+      if (startedAt != null && tripTimedOut(startedAt, Date.now())) {
+        void stopTrackingRef.current('timeout');
+        return;
+      }
       try {
         const { latitude, longitude } = await getPositionWithFallback();
         void checkArrival(latitude, longitude);
@@ -357,6 +383,11 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     }
   }, [clearBrowserWatch]);
 
+  const backgroundDurationSeconds = () => {
+    const startedAt = tripStartedAtRef.current ?? Date.now();
+    return Math.max(0, (TRIP_MAX_DURATION_MS - (Date.now() - startedAt)) / 1000);
+  };
+
   const engageBackgroundWatcher = useCallback(async () => {
     const token = await startTripBackgroundUpdates((latitude, longitude) => {
       void writePositionRef.current(latitude, longitude);
@@ -372,7 +403,9 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       if (transition.stopBackground) {
         void releaseBackgroundWatcher().finally(() => { void startForegroundWatch(); });
       }
-    });
+    }, () => {
+      void stopTrackingRef.current('timeout');
+    }, backgroundDurationSeconds());
     backgroundTokenRef.current = token;
   }, [releaseBackgroundWatcher, startForegroundWatch]);
 
@@ -472,6 +505,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
           readAuth: readTripLocationAuth,
           explain: explainAlwaysLocation,
           requestAlways: requestTripAlwaysAuthorization,
+          explainerDeclined: await readAlwaysExplainerDeclined(),
+          rememberDecline: rememberAlwaysExplainerDeclined,
         });
         if (mode === 'none') return { ok: false, reason: 'os_denied' };
         watchModeRef.current = mode;
@@ -498,24 +533,26 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       // Insert or resume tracking record
       let recordId: string;
       let trackingToken: string | null = null;
+      let createdAt: unknown = null;
 
       const { data, error } = await supabase
         .from('cleaner_location_tracking')
         .insert({ booking_id: bookingId, staff_id: staffId, organization_id: organizationId, latitude, longitude } as any)
-        .select('id, tracking_token')
+        .select('id, tracking_token, created_at')
         .single();
 
       if (error?.code === '23505') {
         // Already active — resume it
         const { data: existing } = await supabase
           .from('cleaner_location_tracking')
-          .select('id, tracking_token')
+          .select('id, tracking_token, created_at')
           .eq('booking_id', bookingId)
           .eq('is_active', true)
           .single();
         if (!existing) return { ok: false, reason: 'unavailable' };
         recordId = existing.id;
         trackingToken = (existing as any).tracking_token;
+        createdAt = existing.created_at;
         const { error: resumeError } = await supabase
           .from('cleaner_location_tracking')
           .update({ latitude, longitude, recorded_at: new Date().toISOString() } as any)
@@ -532,6 +569,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       } else {
         recordId = data.id;
         trackingToken = (data as any).tracking_token;
+        createdAt = data.created_at;
       }
 
       trackingIdRef.current = recordId;
@@ -558,6 +596,21 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
         } catch { /* non-critical */ }
       }
 
+      const startedAtMs = trackingStartedAtMs(createdAt);
+      const remainingMs = Math.min(
+        TRIP_MAX_DURATION_MS,
+        Math.max(0, TRIP_MAX_DURATION_MS - (Date.now() - startedAtMs)),
+      );
+      if (remainingMs === 0) {
+        await stopTracking('timeout');
+        toast.error('On My Way stopped after 3 hours.');
+        return { ok: false, reason: 'unavailable' };
+      }
+      tripStartedAtRef.current = startedAtMs;
+      if (tripTimeoutRef.current != null) clearTimeout(tripTimeoutRef.current);
+      tripTimeoutRef.current = setTimeout(() => {
+        void stopTrackingRef.current('timeout');
+      }, remainingMs);
       await startWatch();
       void acquireWakeLock();
       setIsTracking(true);

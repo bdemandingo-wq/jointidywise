@@ -1,21 +1,21 @@
-import { LOCATION_CONSENT_COPY } from './locationConsent.ts';
-
 /**
  * On My Way background location.
  *
  * The watcher runs only on iOS, only during an active trip, and only after
  * Always is granted. Web and Android stay on the foreground watch. While
- * Using stays on the foreground watch too. Every stop reason ends the
- * background watcher; none of them starts one.
+ * Using stays on the foreground watch too. A declined Always explainer stays
+ * declined. Every stop, including the 3 hour limit, ends the watcher.
  */
 
 export const TRIP_DISTANCE_FILTER_METERS = 25;
 
-export const ALWAYS_LOCATION_EXPLAINER_HEADING = 'Keep sharing while you drive';
+/** Hard stop for an On My Way trip. */
+export const TRIP_MAX_DURATION_MS = 3 * 60 * 60 * 1000;
 
-/** Legal disclosure, then the Always choice. Shown before the system prompt. */
+export const ALWAYS_LOCATION_EXPLAINER_HEADING = 'Keep sharing while your phone is locked?';
+
 export const ALWAYS_LOCATION_EXPLAINER_BODY =
-  `${LOCATION_CONSENT_COPY} Allow Always to keep sharing while Maps is open or the phone is locked. A blue location indicator stays on until you arrive or the job starts. Keep While Using the App if sharing should pause when you leave TidyWise.`;
+  "To keep your customer updated, TidyWise can share your location during On My Way even if the app is closed or your phone is locked. It only runs during a trip and stops when you arrive. You'll see a blue location indicator while it's on.";
 
 export const FOREGROUND_LOCATION_SHARE_BANNER =
   'Sharing your location with your company admins while this screen is open. Sharing pauses if you leave the app.';
@@ -41,7 +41,8 @@ export type TripStopReason =
   | 'stop_tracking'
   | 'job_finished'
   | 'consent_revoked'
-  | 'unmount';
+  | 'unmount'
+  | 'timeout';
 
 export function bannerPlatform(platform: string): TripPlatform {
   if (platform === 'ios' || platform === 'android' || platform === 'web') return platform;
@@ -86,12 +87,15 @@ export type AlwaysPromptPlan =
 export function planAlwaysPrompt(input: {
   platform: TripPlatform;
   auth: TripLocationAuth;
+  /** True after the cleaner taps Not now. Later trips skip the explainer. */
+  explainerDeclined?: boolean;
   explainerAccepted: boolean | null;
 }): AlwaysPromptPlan {
   if (input.platform !== 'ios') return { action: 'foreground' };
   if (input.auth === 'always') return { action: 'background' };
   if (input.auth === 'unavailable') return { action: 'foreground' };
   if (input.auth === 'denied' || input.auth === 'restricted') return { action: 'none' };
+  if (input.explainerDeclined) return { action: 'foreground' };
   if (input.explainerAccepted === null) return { action: 'explain' };
   if (input.explainerAccepted === false) return { action: 'foreground' };
   return { action: 'request-always' };
@@ -108,6 +112,10 @@ export interface ChooseTripWatchInput {
   readAuth: () => Promise<TripLocationAuth>;
   explain: () => Promise<boolean>;
   requestAlways: () => Promise<TripLocationAuth>;
+  /** Already tapped Not now. Skips the explainer and keeps the foreground watch. */
+  explainerDeclined?: boolean;
+  /** Persists Not now so the next trip does not ask again. */
+  rememberDecline?: () => Promise<void>;
 }
 
 /**
@@ -125,15 +133,34 @@ export async function chooseTripWatch(input: ChooseTripWatchInput): Promise<Trip
     return 'foreground';
   }
 
-  let plan = planAlwaysPrompt({ platform: 'ios', auth, explainerAccepted: null });
+  let plan = planAlwaysPrompt({
+    platform: 'ios',
+    auth,
+    explainerDeclined: input.explainerDeclined,
+    explainerAccepted: null,
+  });
   if (plan.action === 'explain') {
     let accepted = false;
+    let answered = false;
     try {
       accepted = await input.explain();
+      answered = true;
     } catch {
       accepted = false;
     }
-    plan = planAlwaysPrompt({ platform: 'ios', auth, explainerAccepted: accepted });
+    if (answered && !accepted) {
+      try {
+        await input.rememberDecline?.();
+      } catch {
+        // This trip still stays in the foreground.
+      }
+    }
+    plan = planAlwaysPrompt({
+      platform: 'ios',
+      auth,
+      explainerDeclined: input.explainerDeclined || (answered && !accepted),
+      explainerAccepted: accepted,
+    });
   }
 
   if (plan.action === 'background') return 'background';
@@ -188,4 +215,9 @@ export function tripWatchCommands(transition: TripWatchTransition): Array<'stop-
   if (transition.stopBackground) commands.push('stop-background');
   if (transition.startBackground) commands.push('start-background');
   return commands;
+}
+
+/** True once an On My Way trip has been running for 3 hours. */
+export function tripTimedOut(startedAtMs: number, nowMs: number): boolean {
+  return nowMs - startedAtMs >= TRIP_MAX_DURATION_MS;
 }
