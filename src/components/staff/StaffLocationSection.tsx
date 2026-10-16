@@ -1,11 +1,16 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Loader2, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useLocationPermission } from '@/hooks/useLocationPermission';
-import { buildLocationSectionModel, type LocationSectionModel } from '@/lib/locationPermission';
+import {
+  buildLocationSectionModel,
+  LOCATION_WHY,
+  LOCATION_WHY_MORE,
+  type LocationSectionModel,
+} from '@/lib/locationPermission';
 
 const TONE_CLASS = {
   on: 'bg-success/10 text-success border-success/30',
@@ -13,6 +18,30 @@ const TONE_CLASS = {
   warn: 'bg-warning/10 text-warning border-warning/30',
   neutral: 'bg-muted text-muted-foreground border-border',
 } as const;
+
+function LocationLearnMore({ detailsId, detail }: { detailsId: string; detail: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-3">
+      <Button
+        type="button"
+        variant="outline"
+        className="h-11 min-h-[44px] w-full md:h-11"
+        style={{ minHeight: 44 }}
+        aria-expanded={open}
+        aria-controls={detailsId}
+        onClick={() => setOpen((current) => !current)}
+      >
+        Learn more
+      </Button>
+      {open ? (
+        <p id={detailsId} className="text-sm text-muted-foreground">
+          {detail}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 export function StaffLocationSectionView({
   model,
@@ -35,6 +64,7 @@ export function StaffLocationSectionView({
           Location
         </CardTitle>
         <CardDescription>{model.why}</CardDescription>
+        <LocationLearnMore detailsId={`${id}-details`} detail={model.whyMore} />
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between gap-3">
@@ -120,8 +150,12 @@ export function StaffLocationSection({ staffId }: { staffId: string }) {
             <MapPin className="h-5 w-5" />
             Location
           </CardTitle>
-          <CardDescription>Checking location permission…</CardDescription>
+          <CardDescription>{LOCATION_WHY}</CardDescription>
+          <LocationLearnMore detailsId="staff-location-details" detail={LOCATION_WHY_MORE} />
         </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">Checking location permission…</p>
+        </CardContent>
       </Card>
     );
   }

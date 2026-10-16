@@ -15,7 +15,7 @@ export const LOCATION_SHARING_OFF_NOTE = 'Location sharing is off. Turn on in Se
 /**
  * Allow dialog body, and both NSLocation usage strings in Info.plist.
  * No business-name placeholder: the system prompt cannot fill one.
- * The cleaner Location card uses the shorter LOCATION_WHY string.
+ * The Location card shows LOCATION_WHY, and Learn more expands LOCATION_WHY_MORE in the app.
  */
 export const LOCATION_CONSENT_COPY =
   "TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. Admins may see your last shared location until the job's start time. It is deleted after 30 days. You can turn it off anytime in iPhone Settings or in your browser settings. If location is turned on, your location is also recorded when you clock in or out and when you take job photos.";

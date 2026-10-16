@@ -48,9 +48,13 @@ const ANDROID_STEPS = [
 /** Capacitor's WebView opens this with UIApplication.open. No settings plugin. */
 export const IOS_APP_SETTINGS_URL = 'app-settings:';
 
-/** Body of the cleaner Location card. The Allow dialog and Info.plist keep the longer disclosure. */
+/** Visible line on the cleaner Location card. Learn more expands LOCATION_WHY_MORE in the app. */
 export const LOCATION_WHY =
-  "We share your location with your business and its customer only while you're On My Way, and stop when you arrive. If location is on, we also record it when you clock in or out and take job photos. You can turn it off anytime in Settings.";
+  "Location is shared while you're On My Way and recorded at clock in, clock out and job photos.";
+
+/** Shown in the app when the cleaner taps Learn more. No network call. */
+export const LOCATION_WHY_MORE =
+  "We share your location with your business and its customer only while you're On My Way, and stop when you arrive. If location is on, we also record it when you clock in or out and take job photos. Admins may see your last shared location until the job's start time. You can turn it off anytime in Settings.";
 
 export function classifyPluginStatus(status: PluginPermissionStatus): ClassifiedLocation {
   const location = status.location ?? '';
@@ -132,6 +136,7 @@ export interface LocationSectionModel {
   label: string;
   tone: 'on' | 'off' | 'warn' | 'neutral';
   why: string;
+  whyMore: string;
   statusNote: string | null;
   showTurnOn: boolean;
   showCheckAgain: boolean;
@@ -181,6 +186,7 @@ export function buildLocationSectionModel(input: {
     label: locationStatusLabel(input.kind),
     tone: on ? 'on' : input.kind === 'off' ? 'off' : input.kind === 'not-asked' || input.kind === 'error' ? 'warn' : 'neutral',
     why: LOCATION_WHY,
+    whyMore: LOCATION_WHY_MORE,
     statusNote,
     showTurnOn: !on,
     showCheckAgain: on,

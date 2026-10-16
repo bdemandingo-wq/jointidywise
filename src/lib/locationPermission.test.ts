@@ -73,7 +73,11 @@ test('iOS denied model has the settings button and three plain steps', () => {
   assert.match(model.steps?.[2] ?? '', /Precise Location/);
   assert.equal(
     model.why,
-    "We share your location with your business and its customer only while you're On My Way, and stop when you arrive. If location is on, we also record it when you clock in or out and take job photos. You can turn it off anytime in Settings.",
+    "Location is shared while you're On My Way and recorded at clock in, clock out and job photos.",
+  );
+  assert.equal(
+    model.whyMore,
+    "We share your location with your business and its customer only while you're On My Way, and stop when you arrive. If location is on, we also record it when you clock in or out and take job photos. Admins may see your last shared location until the job's start time. You can turn it off anytime in Settings.",
   );
 });
 
