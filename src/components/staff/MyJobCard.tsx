@@ -260,7 +260,8 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
          alert is sent from the same call, and bailing out here meant a gap in
          the CUSTOMER's record silenced the OWNER's text too. The send skips
          only the customer leg now. */
-      const customerPhone = booking.customer?.phone;
+      const customerPhone = booking.customer?.phone
+        || (booking.customer as { has_phone?: boolean } | null)?.has_phone;
 
 
       const { data, error } = await supabase.functions.invoke('send-on-the-way-sms', {

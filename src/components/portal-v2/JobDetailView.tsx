@@ -53,7 +53,7 @@ export type JobDetailJob = {
   customer_notes: string | null;
   cleaner_checkin_at: string | null;
   cleaner_checkout_at: string | null;
-  customer: { first_name: string | null; last_name: string | null; phone?: string | null } | null;
+  customer: { first_name: string | null; last_name: string | null; phone?: string | null; phone_visible?: boolean } | null;
   service: { name: string | null } | null;
 };
 
@@ -335,12 +335,15 @@ export function JobDetailView({
             title={customerName || 'No customer on file'}
             sub={customerName ? 'Customer' : undefined}
           />
-          <InfoRow
-            icon={<Phone className="h-4 w-4" aria-hidden />}
-            title={customerPhone ? maskPhone(customerPhone) : 'Customer phone'}
-            sub={customerPhone ? 'Customer' : 'No number on file'}
-            action={callHref ? { label: 'Call', href: callHref } : undefined}
-          />
+          {/* The org can hide customer phones from cleaners; then render nothing. */}
+          {job.customer?.phone_visible !== false && (
+            <InfoRow
+              icon={<Phone className="h-4 w-4" aria-hidden />}
+              title={customerPhone ? maskPhone(customerPhone) : 'Customer phone'}
+              sub={customerPhone ? 'Customer' : 'No number on file'}
+              action={callHref ? { label: 'Call', href: callHref } : undefined}
+            />
+          )}
           <InfoRow
             icon={<MapPin className="h-4 w-4" aria-hidden />}
             title={addressLine || 'No address on file'}

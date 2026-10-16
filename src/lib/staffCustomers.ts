@@ -15,6 +15,8 @@ export interface StaffCustomer {
   phone: string | null;
   /** True when the customer has a number on file, even if it is hidden. */
   has_phone: boolean;
+  /** False when the org hides customer phones from cleaners. */
+  phone_visible: boolean;
 }
 
 export async function fetchStaffCustomers(ids: (string | null | undefined)[]): Promise<Record<string, StaffCustomer>> {
