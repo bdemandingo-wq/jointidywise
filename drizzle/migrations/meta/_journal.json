@@ -148,6 +148,13 @@
       "when": 1791929339634,
       "tag": "0020_device_push_token_idempotent_key",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792115793285,
+      "tag": "0021_extend_short_new_org_trials",
+      "breakpoints": true
     }
   ]
 }
