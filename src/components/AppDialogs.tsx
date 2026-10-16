@@ -28,6 +28,8 @@ interface Pending {
   description?: string;
   confirmLabel: string;
   cancelLabel: string;
+  /** No decline button, and the sheet stays up until confirm. */
+  hideCancel: boolean;
   destructive: boolean;
   defaultValue?: string;
   resolve: (value: boolean | string | null | undefined) => void;
@@ -50,7 +52,7 @@ function enqueue(pending: Pending): void {
 export function confirmDialog(
   message: string,
   title = "Are you sure?",
-  options?: { confirmLabel?: string; cancelLabel?: string; destructive?: boolean },
+  options?: { confirmLabel?: string; cancelLabel?: string; destructive?: boolean; hideCancel?: boolean },
 ): Promise<boolean> {
   return new Promise((resolve) => {
     enqueue({
@@ -59,6 +61,7 @@ export function confirmDialog(
       description: message,
       confirmLabel: options?.confirmLabel ?? "Confirm",
       cancelLabel: options?.cancelLabel ?? "Cancel",
+      hideCancel: options?.hideCancel ?? false,
       destructive: options?.destructive ?? true,
       resolve: (value) => resolve(value === true),
     });
@@ -73,6 +76,7 @@ export function alertDialog(message: string, title = "Notice"): Promise<void> {
       description: message,
       confirmLabel: "OK",
       cancelLabel: "Cancel",
+      hideCancel: false,
       destructive: false,
       resolve: () => resolve(),
     });
@@ -86,6 +90,7 @@ export function promptDialog(message: string, defaultValue = ""): Promise<string
       title: message,
       confirmLabel: "OK",
       cancelLabel: "Cancel",
+      hideCancel: false,
       destructive: false,
       defaultValue,
       resolve: (value) => resolve(typeof value === "string" ? value : null),
@@ -134,6 +139,8 @@ export function AppDialogsProvider({ children }: { children: ReactNode }) {
         open={!!pending}
         onOpenChange={(open) => {
           if (!open) {
+            // Continue is the only way on. Declining belongs to the system prompt.
+            if (pending?.hideCancel) return;
             if (pending?.kind === "confirm") settle(false);
             else if (pending?.kind === "prompt") settle(null);
             else settle(undefined);
@@ -161,7 +168,7 @@ export function AppDialogsProvider({ children }: { children: ReactNode }) {
             />
           ) : null}
           <AlertDialogFooter>
-            {pending?.kind !== "alert" ? (
+            {pending?.kind !== "alert" && !pending?.hideCancel ? (
               <AlertDialogCancel>{pending?.cancelLabel ?? "Cancel"}</AlertDialogCancel>
             ) : null}
             <Button

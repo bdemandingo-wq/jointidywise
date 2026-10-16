@@ -9,12 +9,7 @@ import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
 import { nextArrivalErrorToast, runArrivalAttempt } from '@/lib/arrivalAttempt';
 import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
 import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
-import {
-  readAlwaysExplainerDeclined,
-  readAlwaysLocationRequested,
-  rememberAlwaysExplainerDeclined,
-  rememberAlwaysLocationRequested,
-} from '@/lib/alwaysLocationPrompt';
+import { readAlwaysLocationRequested, rememberAlwaysLocationRequested } from '@/lib/alwaysLocationPrompt';
 import { SUPABASE_PUBLIC_ANON_KEY, SUPABASE_PUBLIC_URL } from '@/lib/supabasePublicEnv';
 import {
   readTripLocationAuth,
@@ -83,9 +78,10 @@ async function requestLocationPermission(): Promise<boolean> {
 }
 
 function explainAlwaysLocation(): Promise<boolean> {
+  // Continue is the only button. Apple 5.1.1(iv): the decline is the iOS prompt.
   return confirmDialog(ALWAYS_LOCATION_EXPLAINER_BODY, ALWAYS_LOCATION_EXPLAINER_HEADING, {
     confirmLabel: 'Continue',
-    cancelLabel: 'Not now',
+    hideCancel: true,
     destructive: false,
   });
 }
@@ -516,8 +512,6 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
           readAuth: readTripLocationAuth,
           explain: explainAlwaysLocation,
           requestAlways: requestTripAlwaysAuthorization,
-          explainerDeclined: await readAlwaysExplainerDeclined(),
-          rememberDecline: rememberAlwaysExplainerDeclined,
           alwaysRequested: await readAlwaysLocationRequested(),
           rememberRequested: rememberAlwaysLocationRequested,
         });

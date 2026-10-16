@@ -73,8 +73,6 @@ test('Always is requested only on iOS after the explainer, and While Using stays
   assert.equal(tripTimedOut(1_000, 1_000 + TRIP_MAX_DURATION_MS - 1), false);
   assert.equal(tripTimedOut(1_000, 1_000 + TRIP_MAX_DURATION_MS), true);
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'always', explainerAccepted: null }).action, 'background');
-  assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'always', explainerDeclined: true, explainerAccepted: null }).action, 'background');
-  assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'whenInUse', explainerDeclined: true, explainerAccepted: null }).action, 'foreground');
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'whenInUse', explainerAccepted: null }).action, 'explain');
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'whenInUse', explainerAccepted: null, alwaysRequested: true }).action, 'foreground');
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'always', explainerAccepted: null, alwaysRequested: true }).action, 'background');
@@ -147,10 +145,9 @@ test('Always is requested only on iOS after the explainer, and While Using stays
   assert.deepEqual(calls, []);
 
   calls.length = 0;
-  let declined = false;
-  const declinedWatch = () => chooseTripWatch({
+  let skipped = false;
+  const stillExplains = () => chooseTripWatch({
     platform: 'ios',
-    explainerDeclined: declined,
     readAuth: async () => {
       calls.push('read');
       return 'whenInUse';
@@ -163,16 +160,14 @@ test('Always is requested only on iOS after the explainer, and While Using stays
       calls.push('request');
       return 'always';
     },
-    rememberDecline: async () => {
-      calls.push('remember');
-      declined = true;
-    },
+    rememberRequested: async () => { skipped = true; },
   });
-  assert.equal(await declinedWatch(), 'foreground');
-  assert.deepEqual(calls, ['read', 'explain', 'remember']);
+  assert.equal(await stillExplains(), 'foreground');
+  assert.deepEqual(calls, ['read', 'explain']);
+  assert.equal(skipped, false);
   calls.length = 0;
-  assert.equal(await declinedWatch(), 'foreground');
-  assert.deepEqual(calls, ['read']);
+  assert.equal(await stillExplains(), 'foreground');
+  assert.deepEqual(calls, ['read', 'explain']);
 
   calls.length = 0;
   let remembered = false;
@@ -181,7 +176,7 @@ test('Always is requested only on iOS after the explainer, and While Using stays
     readAuth: async () => 'whenInUse',
     explain: async () => { throw new Error('dialog missing'); },
     requestAlways: async () => 'always',
-    rememberDecline: async () => { remembered = true; },
+    rememberRequested: async () => { remembered = true; },
   }), 'foreground');
   assert.equal(remembered, false);
 
@@ -216,7 +211,7 @@ test('Always is requested only on iOS after the explainer, and While Using stays
   calls.length = 0;
   assert.equal(await chooseTripWatch({
     platform: 'ios',
-    explainerDeclined: true,
+    alwaysRequested: true,
     readAuth: async () => {
       calls.push('read');
       return 'always';
@@ -269,9 +264,9 @@ test('the hook starts background updates on the shared write path and stops them
   assert.equal(hook.match(/functions\.invoke\('send-arrival-sms'/g)?.length, 1);
   assert.match(hook, /explainAlwaysLocation/);
   assert.match(hook, /confirmLabel: 'Continue'/);
-  assert.match(hook, /cancelLabel: 'Not now'/);
-  assert.match(hook, /readAlwaysExplainerDeclined\(\)/);
-  assert.match(hook, /rememberDecline: rememberAlwaysExplainerDeclined/);
+  assert.match(hook, /hideCancel: true/);
+  assert.equal(hook.includes("cancelLabel: 'Not now'"), false);
+  assert.equal(hook.includes('readAlwaysExplainerDeclined'), false);
   assert.match(hook, /readAlwaysLocationRequested\(\)/);
   assert.match(hook, /rememberRequested: rememberAlwaysLocationRequested/);
   const writeAt = hook.indexOf('const writePosition');

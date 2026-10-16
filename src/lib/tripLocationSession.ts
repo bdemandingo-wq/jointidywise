@@ -3,9 +3,9 @@
  *
  * The watcher runs only on iOS, only during an active trip, and only after
  * Always is granted. Web and Android stay on the foreground watch. While
- * Using stays on the foreground watch too. A declined Always explainer stays
- * declined. Once Always has been requested, later trips skip the explainer.
- * Every stop, including the 3 hour limit, ends the watcher.
+ * Using stays on the foreground watch too. The explainer has Continue only;
+ * declining happens in the iOS prompt. Once Always has been requested, later
+ * trips skip the explainer. Every stop, including the 3 hour limit, ends the watcher.
  */
 
 export const TRIP_DISTANCE_FILTER_METERS = 25;
@@ -88,8 +88,6 @@ export type AlwaysPromptPlan =
 export function planAlwaysPrompt(input: {
   platform: TripPlatform;
   auth: TripLocationAuth;
-  /** True after the cleaner taps Not now. Later trips skip the explainer. */
-  explainerDeclined?: boolean;
   /** True after requestAlways has already been shown. Later trips skip the explainer. */
   alwaysRequested?: boolean;
   explainerAccepted: boolean | null;
@@ -98,7 +96,6 @@ export function planAlwaysPrompt(input: {
   if (input.auth === 'always') return { action: 'background' };
   if (input.auth === 'unavailable') return { action: 'foreground' };
   if (input.auth === 'denied' || input.auth === 'restricted') return { action: 'none' };
-  if (input.explainerDeclined) return { action: 'foreground' };
   if (input.alwaysRequested) return { action: 'foreground' };
   if (input.explainerAccepted === null) return { action: 'explain' };
   if (input.explainerAccepted === false) return { action: 'foreground' };
@@ -116,10 +113,6 @@ export interface ChooseTripWatchInput {
   readAuth: () => Promise<TripLocationAuth>;
   explain: () => Promise<boolean>;
   requestAlways: () => Promise<TripLocationAuth>;
-  /** Already tapped Not now. Skips the explainer and keeps the foreground watch. */
-  explainerDeclined?: boolean;
-  /** Persists Not now so the next trip does not ask again. */
-  rememberDecline?: () => Promise<void>;
   /** Always was already requested. Skips the explainer on later trips. */
   alwaysRequested?: boolean;
   /** Persists that requestAlways ran, so the next trip does not explain again. */
@@ -144,30 +137,19 @@ export async function chooseTripWatch(input: ChooseTripWatchInput): Promise<Trip
   let plan = planAlwaysPrompt({
     platform: 'ios',
     auth,
-    explainerDeclined: input.explainerDeclined,
     alwaysRequested: input.alwaysRequested,
     explainerAccepted: null,
   });
   if (plan.action === 'explain') {
     let accepted = false;
-    let answered = false;
     try {
       accepted = await input.explain();
-      answered = true;
     } catch {
       accepted = false;
-    }
-    if (answered && !accepted) {
-      try {
-        await input.rememberDecline?.();
-      } catch {
-        // This trip still stays in the foreground.
-      }
     }
     plan = planAlwaysPrompt({
       platform: 'ios',
       auth,
-      explainerDeclined: input.explainerDeclined || (answered && !accepted),
       alwaysRequested: input.alwaysRequested,
       explainerAccepted: accepted,
     });
