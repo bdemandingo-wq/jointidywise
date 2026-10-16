@@ -293,9 +293,9 @@ function isStateCode(code: string): boolean {
 }
 
 /**
- * The server already resolved the place to a two-letter code. A full name,
+ * Exact 2-letter known code only, same as growth_public_region. A full name,
  * a city, or a code buried in a longer string ("Dallas, TX", "Florida") is
- * not accepted here.
+ * not a state.
  */
 export function publicRegion(raw: string | null | undefined): string | null {
   if (typeof raw !== 'string') return null;

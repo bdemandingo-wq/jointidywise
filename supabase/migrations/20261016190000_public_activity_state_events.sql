@@ -17,8 +17,9 @@
 -- Place comes from business_settings company_state, then company_zip, then
 -- the booking state when that row has one. A ZIP maps through USPS ZIP3
 -- prefixes or a Canada Post letter. A city name is never turned into a
--- state. A 2-letter value counts only when the whole field is that code
--- ("TX", not "Dallas, TX"). The payload has kind, region (two-letter code),
+-- state. A full state name is not a code. A value counts only when the
+-- whole field is a known 2-letter code ("TX", not "Florida" or "Dallas, TX").
+-- The payload has kind, region (two-letter code),
 -- rounded amount, service, and at. It has no city, zip, name, address,
 -- review text, or id. Every candidate is from the last 24 hours, which is
 -- the same window the ticker displays.
@@ -118,9 +119,7 @@ AS $function$
     WHEN upper(input.value) ~ '^[A-Z]{2}$' THEN (
       SELECT s.abbr FROM states s WHERE s.abbr = upper(input.value) LIMIT 1
     )
-    ELSE (
-      SELECT s.abbr FROM states s WHERE s.name = lower(input.value) LIMIT 1
-    )
+    ELSE NULL
   END
   FROM input;
 $function$;
@@ -129,8 +128,8 @@ REVOKE ALL ON FUNCTION public.growth_public_region(text) FROM PUBLIC, anon, auth
 
 DROP FUNCTION IF EXISTS public.growth_public_region_token(text);
 
--- A 2-letter value is accepted above only when the whole field is that code
--- and the code is in the list. "TX" is Texas. "Dallas, TX" and "NA" are not.
+-- A value is accepted above only when the whole field is a known 2-letter
+-- code. "TX" is Texas. "Florida", "Dallas, TX", and "NA" are not.
 -- USPS ZIP3 or a Canadian postal code. Unassigned and ambiguous prefixes
 -- (military, 969, Canada Post X) stay null. Keep the WHEN list in sync with
 -- ZIP3_RANGES in src/lib/publicActivity.ts.
@@ -277,8 +276,8 @@ BEGIN
 END;
 $function$;
 
--- Exact state (code or full name), then ZIP, then the booking state the same way.
--- No substring match, so a city plus a code ("Dallas, TX") is not a state.
+-- Exact state code, then ZIP, then an exact booking-state code.
+-- Full names and substrings are not codes.
 CREATE OR REPLACE FUNCTION public.growth_public_place(p_state text, p_zip text, p_booking_state text)
 RETURNS text
 LANGUAGE sql

@@ -113,6 +113,8 @@ test("the migration resolves place from state, zip, or booking state", () => {
   assert.equal(sql.includes("b.updated_at"), false);
   assert.equal(sql.includes("coalesce(b.completed_at, b.updated_at)"), false);
   assert.ok(sql.includes("WHEN upper(input.value) ~ '^[A-Z]{2}$'"));
+  assert.equal(sql.includes("s.name = lower(input.value)"), false);
+  assert.match(sql, /WHERE s\.abbr = upper\(input\.value\) LIMIT 1\s*\)\s*ELSE NULL/);
   assert.equal((sql.match(/interval '24 hours'/g) ?? []).length, 6);
   assert.equal((sql.match(/growth_public_place\(bs\.company_state, bs\.company_zip, b\.state\)/g) ?? []).length, 3);
   assert.equal((sql.match(/growth_public_place\(bs\.company_state, bs\.company_zip, NULL::text\)/g) ?? []).length, 3);
@@ -434,6 +436,7 @@ test("the ticker uses the last 24 hours and rotates every 8 seconds", () => {
   const source = readFileSync(new URL("../components/growth/ActivityTicker.tsx", import.meta.url), "utf8");
   assert.match(source, /ACTIVITY_TICKER_INTERVAL_MS/);
   assert.match(source, /tickerLines/);
+  assert.match(source, /setPosition\(\{ lineKey, index: 0 \}\)/);
   assert.equal(source.includes("5000"), false);
 });
 

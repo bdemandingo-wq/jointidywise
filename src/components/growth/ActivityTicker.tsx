@@ -5,18 +5,30 @@ import type { PublicActivityEvent } from '@/lib/publicActivity';
 /** Rotating line of real events. Hidden when nothing happened in the last 24 hours. */
 export function ActivityTicker({ events }: { events: PublicActivityEvent[] }) {
   const lines = tickerLines(events);
-  const [index, setIndex] = useState(0);
+  const lineKey = lines.join('\n');
+  const count = lines.length;
+  const [position, setPosition] = useState({ lineKey, index: 0 });
+
+  // An aged-out event replaces the lines. Start at the first sentence so the
+  // old index cannot land on the same kind that was just showing.
+  if (position.lineKey !== lineKey) {
+    setPosition({ lineKey, index: 0 });
+  }
 
   useEffect(() => {
-    if (lines.length < 2) return;
+    if (count < 2) return;
     const timer = window.setInterval(() => {
-      setIndex((current) => (current + 1) % lines.length);
+      setPosition((current) => ({
+        lineKey,
+        index: ((current.lineKey === lineKey ? current.index : 0) + 1) % count,
+      }));
     }, ACTIVITY_TICKER_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [lines.length]);
+  }, [lineKey, count]);
 
-  if (lines.length === 0) return null;
-  const line = lines[index % lines.length];
+  if (count === 0) return null;
+  const index = position.lineKey === lineKey ? position.index : 0;
+  const line = lines[index % count];
 
   return (
     <div
