@@ -48,8 +48,9 @@ const ANDROID_STEPS = [
 /** Capacitor's WebView opens this with UIApplication.open. No settings plugin. */
 export const IOS_APP_SETTINGS_URL = 'app-settings:';
 
+/** Body of the cleaner Location card. The Allow dialog and Info.plist keep the longer disclosure. */
 export const LOCATION_WHY =
-  "TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. Admins may see your last shared location until the job's start time. It is deleted after 30 days. You can turn it off anytime in iPhone Settings or in your browser settings. If location is turned on, your location is also recorded when you clock in or out and when you take job photos.";
+  "We share your location with your business and its customer only while you're On My Way, and stop when you arrive. If location is on, we also record it when you clock in or out and take job photos. You can turn it off anytime in Settings.";
 
 export function classifyPluginStatus(status: PluginPermissionStatus): ClassifiedLocation {
   const location = status.location ?? '';

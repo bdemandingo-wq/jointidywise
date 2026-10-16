@@ -71,12 +71,10 @@ test('iOS denied model has the settings button and three plain steps', () => {
   assert.equal(model.steps?.length, 3);
   assert.match(model.steps?.[2] ?? '', /While Using the App/);
   assert.match(model.steps?.[2] ?? '', /Precise Location/);
-  assert.match(model.why, /only during On My Way/);
-  assert.match(model.why, /deleted after 30 days/);
-  assert.match(model.why, /turn it off anytime/);
-  assert.match(model.why, /last shared location/);
-  assert.match(model.why, /clock in or out/);
-  assert.match(model.why, /job photos/);
+  assert.equal(
+    model.why,
+    "We share your location with your business and its customer only while you're On My Way, and stop when you arrive. If location is on, we also record it when you clock in or out and take job photos. You can turn it off anytime in Settings.",
+  );
 });
 
 test('android denied model explains that Settings must be opened by hand', () => {

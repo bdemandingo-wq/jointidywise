@@ -22,7 +22,6 @@ import {
   settingsToggleOn,
   shouldLogOsDenied,
 } from './locationConsent.ts';
-import { LOCATION_WHY } from './locationPermission.ts';
 
 const APPROVED_COPY =
   "TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. Admins may see your last shared location until the job's start time. It is deleted after 30 days. You can turn it off anytime in iPhone Settings or in your browser settings. If location is turned on, your location is also recorded when you clock in or out and when you take job photos.";
@@ -31,7 +30,6 @@ test('consent copy is version v4 and states the On My Way window', () => {
   assert.equal(CONSENT_COPY_VERSION, 'v4');
   assert.equal(LOCATION_CONSENT_COPY, APPROVED_COPY);
   assert.equal(PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION, LOCATION_CONSENT_COPY);
-  assert.equal(LOCATION_WHY, LOCATION_CONSENT_COPY);
   assert.match(LOCATION_CONSENT_COPY, /only during On My Way/);
   assert.match(LOCATION_CONSENT_COPY, /until you arrive or until the job is marked started/);
   assert.match(LOCATION_CONSENT_COPY, /business owner and the customer/);
@@ -45,7 +43,7 @@ test('consent copy is version v4 and states the On My Way window', () => {
   assert.equal(formatLocationConsentCopy('Bright Clean'), APPROVED_COPY);
 });
 
-test('the iOS usage strings match the location-card sentence', () => {
+test('the iOS usage strings match the Allow consent copy', () => {
   const plist = readFileSync(new URL('../../ios/App/App/Info.plist', import.meta.url), 'utf8');
   const whenInUse = plist.match(/<key>NSLocationWhenInUseUsageDescription<\/key>\s*<string>([^<]*)<\/string>/);
   const alwaysKey = plist.match(/<key>NSLocationAlwaysAndWhenInUseUsageDescription<\/key>\s*<string>([^<]*)<\/string>/);
