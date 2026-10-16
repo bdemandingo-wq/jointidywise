@@ -10,13 +10,19 @@ import {
   UserPlus, RefreshCw, Trash2, Activity, Calendar,
   ArrowUpRight, ArrowDownRight, Clock, Timer, Mail,
   CalendarCheck, Phone, Briefcase, Bell, Search, Gift, DollarSign,
-  AlertTriangle, Info
+  AlertTriangle, Info, Download
 } from 'lucide-react';
 import { PlatformRevenueView } from '@/pages/admin/PlatformRevenuePage';
 import { BroadcastView } from '@/pages/admin/BroadcastPage';
 import { isPlatformOwner } from '@/lib/platformOwner';
 
 import { supabase } from '@/lib/supabase';
+import { saveBlob } from '@/lib/fileActions';
+import {
+  buildAccountMetricsCsv,
+  fetchAllAccountMetrics,
+  type AccountMetricsRow,
+} from '@/lib/platformAccountMetricsExport';
 import { useAuth } from '@/hooks/useAuth';
 import { format, formatDistanceToNow, subDays, differenceInDays, parseISO } from 'date-fns';
 import { orgDateKey } from '@/lib/orgDateRange';
@@ -309,6 +315,40 @@ export default function PlatformAnalyticsPage() {
   const [selectedOrgs, setSelectedOrgs] = useState<Set<string>>(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkConfirm, setBulkConfirm] = useState<null | 'user' | 'organization'>(null);
+  const [exportingMetrics, setExportingMetrics] = useState(false);
+
+  const exportAccountMetrics = async () => {
+    setExportingMetrics(true);
+    try {
+      const rows = await fetchAllAccountMetrics(async (offset, limit) => {
+        const { data, error: rpcError } = await supabase.rpc('platform_account_metrics', {
+          p_limit: limit,
+          p_offset: offset,
+        });
+        if (rpcError) throw rpcError;
+        return (data ?? []) as AccountMetricsRow[];
+      });
+      const csv = buildAccountMetricsCsv(rows, new Date());
+      const stamp = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(new Date());
+      await saveBlob(
+        new Blob([csv], { type: 'text/csv;charset=utf-8;' }),
+        `tidywise-account-metrics-${stamp}.csv`,
+      );
+      toast.success(`Exported ${rows.length} organization${rows.length === 1 ? '' : 's'}`);
+    } catch (err) {
+      console.error('[PlatformAnalytics] account metrics export failed', err);
+      const message = err instanceof Error
+        ? err.message
+        : err && typeof err === 'object' && 'message' in err && typeof err.message === 'string'
+          ? err.message
+          : 'Could not export account metrics';
+      toast.error(message);
+    } finally {
+      setExportingMetrics(false);
+    }
+  };
 
   const toggleSelect = (setter: typeof setSelectedSignups, id: string) => {
     setter((prev) => {
@@ -515,6 +555,10 @@ export default function PlatformAnalyticsPage() {
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-10 h-10 animate-spin text-primary" />
             <p className="text-sm text-muted-foreground">Loading platform data...</p>
+            <Button variant="outline" size="sm" onClick={exportAccountMetrics} disabled={exportingMetrics}>
+              {exportingMetrics ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+              Export account CSV
+            </Button>
           </div>
         </div>
       </div>
@@ -529,7 +573,13 @@ export default function PlatformAnalyticsPage() {
         <Card className="border-destructive/20">
           <CardContent className="py-12 text-center">
             <p className="text-destructive mb-4">{error}</p>
-            <Button onClick={() => fetchAnalytics()}>Try Again</Button>
+            <div className="flex items-center justify-center gap-2">
+              <Button onClick={() => fetchAnalytics()}>Try Again</Button>
+              <Button variant="outline" onClick={exportAccountMetrics} disabled={exportingMetrics}>
+                {exportingMetrics ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+                Export account CSV
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -557,11 +607,20 @@ export default function PlatformAnalyticsPage() {
               Last updated: {formatTimestampWithZone(new Date(), orgTimezone)}
             </span>
           </div>
-          <Button variant="outline" size="sm" onClick={() => { fetchAnalytics(); refetchSessions(); }} disabled={loading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={exportAccountMetrics} disabled={exportingMetrics}>
+              {exportingMetrics ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+              Export account CSV
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => { fetchAnalytics(); refetchSessions(); }} disabled={loading}>
+              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
         </div>
+        <p className="text-xs text-muted-foreground">
+          Account CSV is one row per organization from stored signup, activation, and Stripe subscription rows. Lifetime plans are omitted from MRR. Demo and test organizations are included and flagged.
+        </p>
 
         {/* Apple Sign In secret expiry */}
         {appleSecretDaysLeft <= 0 ? (

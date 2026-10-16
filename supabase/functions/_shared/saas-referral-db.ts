@@ -467,6 +467,11 @@ export async function recordReferralInvoicePaid(
 export interface ReversalInput {
   chargeId: string | null;
   invoiceId: string | null;
+  /**
+   * Basil invoice.parent.subscription_details.subscription, else invoice.subscription.
+   * Reversal does not use it. A subscription id is not the qualifying charge.
+   */
+  subscriptionId?: string | null;
   eventAt: string;
   reason: "refund" | "dispute";
 }
@@ -495,6 +500,10 @@ export async function recordReferralReversal(
     if (error) throw error;
     referral = data;
   }
+  // Do not fall back to "any referral for this subscription's org".
+  // A later refund of a different charge on the same subscription is not
+  // the qualifying charge, and reversing it would claw back a reward the
+  // referrer already earned.
   if (!referral) return;
   if (!shouldReverseReferral({ status: referral.status, paidAt: referral.paid_at, eventAt: input.eventAt })) {
     return;

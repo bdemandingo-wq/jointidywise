@@ -13229,6 +13229,47 @@ export type Database = {
         }[]
       }
       org_stripe_is_connected: { Args: { p_row: Json }; Returns: boolean }
+      platform_account_metrics: {
+        Args: { p_limit?: number; p_offset?: number }
+        Returns: {
+          activation_milestones: Json
+          billing_interval: string | null
+          cancel_at_period_end: boolean | null
+          cancel_scheduled_for: string | null
+          canceled_at: string | null
+          cancellation_source: string | null
+          counts_toward_mrr: boolean
+          how_heard: string | null
+          is_demo_or_test: boolean
+          is_lifetime: boolean
+          last_login_at: string | null
+          latest_milestone: string | null
+          latest_milestone_at: string | null
+          loyalty_discount_cents: number | null
+          monthly_amount_basis: string | null
+          monthly_amount_cents: number | null
+          monthly_amount_source: string | null
+          mrr_cents: number | null
+          organization_id: string
+          organization_name: string
+          owner_email: string | null
+          plan: string | null
+          referrer: string | null
+          lifetime_refund_dates: string[] | null
+          refund_dates: string[] | null
+          signup_at: string
+          subscription_refund_dates: string[] | null
+          subscription_status: string | null
+          stripe_subscription_id: string | null
+          stripe_subscription_status: string | null
+          trial_end_source: string | null
+          trial_ends_at: string | null
+          trial_status: string
+          utm_campaign: string | null
+          utm_medium: string | null
+          utm_source: string | null
+        }[]
+      }
       read_email_batch: {
         Args: { batch_size: number; queue_name: string; vt: number }
         Returns: {
