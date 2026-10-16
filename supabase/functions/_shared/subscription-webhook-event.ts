@@ -87,19 +87,56 @@ export async function handleSubscriptionWebhookEvent(deps: {
     const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
     if (!customerId) throw new Error("no customer id");
 
-    const customer = await stripe.customers.retrieve(customerId);
-    const email = customer?.email?.toLowerCase();
-    if (!email) throw new Error("customer has no email");
-
-    // The subscription's own org wins. Email is only the fallback, and a
-    // missing profile must not ack 200 or Stripe will never retry.
-    const orgId = await resolveWebhookOrganization(supabase, sub, email);
+    // Stored row and metadata do not need the customer. A deleted Stripe
+    // customer has no email, and customers.retrieve must not run before
+    // those two lookups or the event 500s forever.
+    let orgId = await resolveWebhookOrganization(supabase, sub, null);
+    let email: string | null = null;
     if (!orgId) {
+      const customer = await stripe.customers.retrieve(customerId);
+      const deleted = customer?.deleted === true;
+      const rawEmail = deleted ? null : customer?.email;
+      email = typeof rawEmail === "string" && rawEmail.trim() ? rawEmail.trim().toLowerCase() : null;
+      if (email) orgId = await resolveWebhookOrganization(supabase, sub, email);
+    }
+    if (!orgId) {
+      // Same permanent miss as the invoice webhook's orphan: no profile
+      // or membership will not appear on a retry. A database error throws
+      // above and stays a 500.
       log("subscription org was not resolved", { email, subId: sub.id });
-      return new Response(
-        JSON.stringify({ error: "subscription org was not resolved; Stripe will retry." }),
-        { status: subscriptionPersistHttpStatus("failed"), headers: corsHeaders },
-      );
+      const orphanEventId = event.id;
+      if (orphanEventId) {
+        const claim = await claimSubscriptionWebhookEvent(supabase, orphanEventId, event.type);
+        if (claim === "duplicate") {
+          return new Response(JSON.stringify({ ok: true, duplicate: true }), {
+            status: 200,
+            headers: corsHeaders,
+          });
+        }
+        if (claim === "failed") {
+          return new Response(
+            JSON.stringify({ error: "Idempotency lookup failed; Stripe will retry." }),
+            { status: subscriptionPersistHttpStatus("failed"), headers: corsHeaders },
+          );
+        }
+        claimedEventId = orphanEventId;
+      }
+      try {
+        await sendOpenPhoneAdminSms(
+          supabase,
+          env,
+          doFetch,
+          adminPhones,
+          `TidyWise: orphan subscription\nCouldn't auto-link ${sub.id ?? "unknown"} (${customerId}).\nEmail: ${email ?? "unknown"}`,
+          "Orphan SMS",
+        );
+      } catch (notifyErr) {
+        log("Orphan SMS error (non-fatal)", { message: (notifyErr as Error).message });
+      }
+      return new Response(JSON.stringify({ ok: true, orphan: true }), {
+        status: 200,
+        headers: corsHeaders,
+      });
     }
 
     const eventId = event.id;
@@ -275,45 +312,7 @@ export async function handleSubscriptionWebhookEvent(deps: {
           `Price: ${amount} / ${interval}\n` +
           `Subscription: ${sub.id}`;
 
-        const TIDYWISE_ORG_ID = "e95b92d0-7099-408e-a773-e4407b34f8b4";
-        const { data: smsSettings } = await supabase
-          .from("organization_sms_settings")
-          .select("openphone_api_key, openphone_phone_number_id")
-          .eq("organization_id", TIDYWISE_ORG_ID)
-          .maybeSingle();
-
-        const openphoneApiKey =
-          smsSettings?.openphone_api_key || env("OPENPHONE_API_KEY");
-        const openphonePhoneNumberId =
-          smsSettings?.openphone_phone_number_id || env("OPENPHONE_PHONE_NUMBER_ID");
-
-        if (openphoneApiKey && openphonePhoneNumberId) {
-          for (const phone of adminPhones) {
-            try {
-              const res = await doFetch("https://api.openphone.com/v1/messages", {
-                method: "POST",
-                headers: {
-                  Authorization: openphoneApiKey.trim().replace(/^Bearer\s+/i, ""),
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  from: openphonePhoneNumberId,
-                  to: [phone],
-                  content: message,
-                }),
-              });
-              if (!res.ok) {
-                log("Conversion SMS failed", { phone, status: res.status, body: await res.text() });
-              } else {
-                log("Conversion SMS sent", { phone, subscription: sub.id });
-              }
-            } catch (smsErr) {
-              log("Conversion SMS error", { phone, message: (smsErr as Error).message });
-            }
-          }
-        } else {
-          log("Conversion SMS skipped - OpenPhone not configured");
-        }
+        await sendOpenPhoneAdminSms(supabase, env, doFetch, adminPhones, message, "Conversion SMS");
       } catch (notifyErr) {
         log("Conversion notification error (non-fatal)", {
           message: (notifyErr as Error).message,
@@ -386,20 +385,66 @@ async function releaseSubscriptionWebhookEvent(supabase: any, eventId: string | 
   if (error) log("failed to release idempotency claim", { message: error.message });
 }
 
+async function sendOpenPhoneAdminSms(
+  supabase: any,
+  env: (name: string) => string | undefined,
+  doFetch: typeof fetch,
+  adminPhones: readonly string[],
+  content: string,
+  label: string,
+): Promise<void> {
+  const TIDYWISE_ORG_ID = "e95b92d0-7099-408e-a773-e4407b34f8b4";
+  const { data: smsSettings } = await supabase
+    .from("organization_sms_settings")
+    .select("openphone_api_key, openphone_phone_number_id")
+    .eq("organization_id", TIDYWISE_ORG_ID)
+    .maybeSingle();
+
+  const openphoneApiKey = smsSettings?.openphone_api_key || env("OPENPHONE_API_KEY");
+  const openphonePhoneNumberId = smsSettings?.openphone_phone_number_id || env("OPENPHONE_PHONE_NUMBER_ID");
+
+  if (!openphoneApiKey || !openphonePhoneNumberId) {
+    log(`${label} skipped - OpenPhone not configured`);
+    return;
+  }
+  for (const phone of adminPhones) {
+    try {
+      const res = await doFetch("https://api.openphone.com/v1/messages", {
+        method: "POST",
+        headers: {
+          Authorization: openphoneApiKey.trim().replace(/^Bearer\s+/i, ""),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: openphonePhoneNumberId,
+          to: [phone],
+          content,
+        }),
+      });
+      if (!res.ok) {
+        log(`${label} failed`, { phone, status: res.status, body: await res.text() });
+      } else {
+        log(`${label} sent`, { phone });
+      }
+    } catch (smsErr) {
+      log(`${label} error`, { phone, message: (smsErr as Error).message });
+    }
+  }
+}
+
 /**
  * Org for this subscription, not "the first membership of this email".
  * The first two steps match the invoice webhook's deleted-subscription
  * resolver: the stored stripe_subscriptions row, then metadata.
- * The third step here is an exact email match and the earliest
- * owner/admin membership. The delete resolver's third step is the
- * Stripe customer id, ordered by updated_at then id.
- * A missing profile or membership is reported by returning null so the
- * caller can ask Stripe to retry instead of acknowledging the event.
+ * The third step, only when email is present, is an exact email match
+ * and the earliest owner/admin membership. Pass null to stop after
+ * metadata. A missing profile or membership returns null. The caller
+ * acknowledges that as an orphan. A database error still throws.
  */
 async function resolveWebhookOrganization(
   supabase: any,
   sub: { id?: string; metadata?: Record<string, string> },
-  email: string,
+  email: string | null,
 ): Promise<string | null> {
   if (sub.id) {
     const { data, error } = await supabase
@@ -416,6 +461,8 @@ async function resolveWebhookOrganization(
 
   const metaOrg = sub.metadata?.organization_id;
   if (typeof metaOrg === "string" && metaOrg.trim()) return metaOrg.trim();
+
+  if (!email) return null;
 
   const { data: profile, error: profileErr } = await supabase
     .from("profiles")

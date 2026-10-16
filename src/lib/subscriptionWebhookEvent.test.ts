@@ -131,11 +131,22 @@ function fakeDb(opts: {
 
 function stripeClient(
   retrieve: () => Promise<ReturnType<typeof subscriptionObject>>,
-  opts: { email?: string; listThrows?: boolean } = {},
+  opts: {
+    email?: string;
+    listThrows?: boolean;
+    customerDeleted?: boolean;
+    customerRetrieveThrows?: boolean;
+    customerRetrieves?: { count: number };
+  } = {},
 ) {
   return {
     customers: {
-      retrieve: async () => ({ email: opts.email ?? "owner@example.com" }),
+      retrieve: async () => {
+        if (opts.customerRetrieves) opts.customerRetrieves.count += 1;
+        if (opts.customerRetrieveThrows) throw new Error("customer retrieve failed");
+        if (opts.customerDeleted) return { id: "cus_123", deleted: true };
+        return { email: opts.email ?? "owner@example.com" };
+      },
     },
     subscriptions: {
       retrieve,
@@ -161,13 +172,20 @@ async function run(opts: {
   customerEmail?: string;
   listThrows?: boolean;
   planThrows?: boolean;
+  customerDeleted?: boolean;
+  customerRetrieveThrows?: boolean;
+  billingReadError?: { message: string; code?: string } | null;
+  notify?: boolean;
 }) {
   const planCalls: string[] = [];
   const planOrgs: string[] = [];
   const loyaltyCalls: string[] = [];
   const ilikePatterns: string[] = [];
+  const sms: string[] = [];
+  const customerRetrieves = { count: 0 };
   const { supabase, writes } = fakeDb({
     billing: opts.billing,
+    billingReadError: opts.billingReadError,
     billingWriteError: opts.billingWriteError,
     profile: opts.profile,
     membership: opts.membership,
@@ -183,7 +201,13 @@ async function run(opts: {
       created: opts.created,
       data: { object },
     },
-    stripe: stripeClient(opts.retrieve, { email: opts.customerEmail, listThrows: opts.listThrows }),
+    stripe: stripeClient(opts.retrieve, {
+      email: opts.customerEmail,
+      listThrows: opts.listThrows,
+      customerDeleted: opts.customerDeleted,
+      customerRetrieveThrows: opts.customerRetrieveThrows,
+      customerRetrieves,
+    }),
     supabase,
     subscriptionToPlanTier: () => "pro",
     updateOrgPlanTier: async (_supabase, orgId, tier) => {
@@ -195,15 +219,32 @@ async function run(opts: {
     syncLoyaltySubscription: async (_supabase, _stripe, args) => {
       loyaltyCalls.push(args.organizationId);
     },
-    adminPhones: [],
-    env: () => undefined,
-    fetchImpl: async () => {
-      throw new Error("conversion SMS must not be sent by these branches");
+    adminPhones: opts.notify ? ["+15555550100"] : [],
+    env: (name) => {
+      if (!opts.notify) return undefined;
+      if (name === "OPENPHONE_API_KEY") return "test-key";
+      if (name === "OPENPHONE_PHONE_NUMBER_ID") return "pn_test";
+      return undefined;
+    },
+    fetchImpl: async (_url, init) => {
+      const payload = JSON.parse(String(init?.body ?? "{}")) as { content?: string };
+      sms.push(payload.content ?? "");
+      return { ok: true, status: 200, text: async () => "" };
     },
   });
   const text = await response.text();
   const body = JSON.parse(text);
-  return { response, body, planCalls, planOrgs, loyaltyCalls, writes, ilikePatterns };
+  return {
+    response,
+    body,
+    planCalls,
+    planOrgs,
+    loyaltyCalls,
+    writes,
+    ilikePatterns,
+    sms,
+    customerRetrieves: customerRetrieves.count,
+  };
 }
 
 test("applyState true returns 200 JSON with the written tier", async () => {
@@ -272,30 +313,73 @@ test("a failed plan_tier write still returns 500 JSON", async () => {
   assert.match(body.error, /not saved/);
 });
 
-test("a missing profile returns 500 so Stripe retries", async () => {
+test("a missing profile is an orphan and sends the admin SMS", async () => {
   const stored = new Date(1_000 * 1000).toISOString();
-  const { response, body, planCalls } = await run({
+  const { response, body, planCalls, sms } = await run({
     created: 2_000,
+    eventId: "evt_orphan_profile",
     retrieve: async () => subscriptionObject(),
     billing: { billing_event_at: stored, updated_at: stored },
     profile: null,
+    notify: true,
   });
-  assert.equal(response.status, 500);
-  assert.match(body.error, /not resolved/);
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.orphan, true);
   assert.deepEqual(planCalls, []);
+  assert.equal(sms.length, 1);
+  assert.match(sms[0], /orphan subscription/);
+  assert.match(sms[0], /sub_123/);
 });
 
-test("a missing org returns 500 so Stripe retries", async () => {
+test("a missing org is an orphan and sends the admin SMS", async () => {
   const stored = new Date(1_000 * 1000).toISOString();
-  const { response, body, planCalls } = await run({
+  const { response, body, planCalls, sms } = await run({
     created: 2_000,
+    eventId: "evt_orphan_org",
     retrieve: async () => subscriptionObject(),
     billing: { billing_event_at: stored, updated_at: stored },
     membership: null,
+    notify: true,
   });
-  assert.equal(response.status, 500);
-  assert.match(body.error, /not resolved/);
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.orphan, true);
   assert.deepEqual(planCalls, []);
+  assert.equal(sms.length, 1);
+  assert.match(sms[0], /Couldn't auto-link/);
+});
+
+test("a deleted customer resolves from the stored row and does not require an email", async () => {
+  const stored = new Date(1_000 * 1000).toISOString();
+  const { response, body, planOrgs, customerRetrieves } = await run({
+    created: 2_000,
+    retrieve: async () => subscriptionObject(),
+    billing: { billing_event_at: stored, updated_at: stored, organization_id: "org-stored" },
+    customerDeleted: true,
+    customerRetrieveThrows: true,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.orphan, undefined);
+  assert.deepEqual(planOrgs, ["org-stored"]);
+  assert.equal(customerRetrieves, 0);
+
+  const orphan = await run({
+    created: 2_000,
+    eventId: "evt_deleted_customer",
+    retrieve: async () => subscriptionObject(),
+    billing: { billing_event_at: stored, updated_at: stored },
+    customerDeleted: true,
+    profile: null,
+    notify: true,
+  });
+  assert.equal(orphan.response.status, 200);
+  assert.equal(orphan.body.orphan, true);
+  assert.deepEqual(orphan.planCalls, []);
+  assert.equal(orphan.customerRetrieves, 1);
+  assert.equal(orphan.sms.length, 1);
+  assert.match(orphan.sms[0], /Email: unknown/);
 });
 
 test("the subscription's own org is used and a duplicate event skips side effects", async () => {
@@ -451,6 +535,20 @@ test("the stored subscription org wins over metadata, and email wildcards are es
   assert.equal(emailFallback.response.status, 200);
   assert.deepEqual(emailFallback.planOrgs, ["org-1"]);
   assert.deepEqual(emailFallback.ilikePatterns, ["owner\\_name@example.com"]);
+});
+
+test("an organization lookup database error is still a 500", async () => {
+  const stored = new Date(1_000 * 1000).toISOString();
+  const { response, body, sms } = await run({
+    created: 2_000,
+    retrieve: async () => subscriptionObject(),
+    billing: { billing_event_at: stored, updated_at: stored },
+    billingReadError: { message: "connection reset", code: "08006" },
+    notify: true,
+  });
+  assert.equal(response.status, 500);
+  assert.match(body.error, /connection reset/);
+  assert.deepEqual(sms, []);
 });
 
 test("an organization read error is a 500, and a missing org stays org_not_found", async () => {
