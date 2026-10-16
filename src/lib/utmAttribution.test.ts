@@ -510,6 +510,85 @@ test("a referred visit is not summarized as direct, and the user agent is not st
   assert.equal(JSON.stringify(args).includes("SECRETTOKEN"), false);
 });
 
+test("global privacy control keeps the channel and does not store or send click ids", () => {
+  const secret = "CLICKSECRET123";
+  const storage = memoryStorage();
+  let cookie: string | null = null;
+  const jar: UtmCookieJar = {
+    get: () => cookie,
+    set: (value) => { cookie = value; },
+    clear: () => { cookie = null; },
+  };
+  captureUtmFromLocation(
+    {
+      href: "https://jointidywise.com/",
+      pathname: "/",
+      search: `?ttclid=${secret}&fbclid=fb${secret}&gclid=g${secret}`,
+      hash: "",
+    },
+    null,
+    storage,
+    50,
+    jar,
+    { globalPrivacyControl: true },
+  );
+  const blob = `${storage.getItem(UTM_STORAGE_KEY) ?? ""}\n${cookie ?? ""}`;
+  assert.equal(blob.includes(secret), false);
+  const captured = readCapturedUtm(storage, 50, jar);
+  assert.equal(captured?.channel, "tiktok");
+  assert.equal(captured?.detected_via, "click_id");
+  assert.equal(captured?.channel_source, "ttclid");
+  assert.equal(captured?.ttclid, null);
+  assert.equal(captured?.fbclid, null);
+  assert.equal(captured?.gclid, null);
+  const args = signupAttributionArgs(captured, 50, { globalPrivacyControl: true });
+  assert.equal(args.p_channel, "tiktok");
+  assert.equal(args.p_gclid, null);
+  assert.equal(args.p_fbclid, null);
+  assert.equal(args.p_ttclid, null);
+  assert.equal(JSON.stringify(args).includes(secret), false);
+
+  const kept = signupAttributionArgs({
+    ...captured!,
+    gclid: `g${secret}`,
+    fbclid: `fb${secret}`,
+    ttclid: secret,
+  }, 50, { globalPrivacyControl: true });
+  assert.equal(kept.p_channel, "tiktok");
+  assert.equal(kept.p_gclid, null);
+  assert.equal(kept.p_fbclid, null);
+  assert.equal(kept.p_ttclid, null);
+  assert.equal(JSON.stringify(kept).includes(secret), false);
+
+  const prior = memoryStorage({
+    [UTM_STORAGE_KEY]: JSON.stringify({
+      utm_source: null,
+      utm_medium: null,
+      utm_campaign: null,
+      utm_term: null,
+      utm_content: null,
+      referrer: null,
+      landing_page: "/",
+      gclid: `g${secret}`,
+      fbclid: null,
+      ttclid: null,
+      channel: "google_ads",
+      channel_source: "gclid",
+      detected_via: "click_id",
+      capturedAt: 50,
+      expiresAt: 50 + UTM_TTL_MS,
+    }),
+  });
+  const reread = readCapturedUtm(prior, 50, undefined, { globalPrivacyControl: true });
+  assert.equal(reread?.channel, "google_ads");
+  assert.equal(reread?.gclid, null);
+  assert.equal((prior.getItem(UTM_STORAGE_KEY) ?? "").includes(secret), false);
+  const source = readFileSync(new URL("./utmAttribution.ts", import.meta.url), "utf8");
+  assert.equal(source.includes("googletagmanager"), false);
+  assert.equal(source.includes("facebook.com/tr"), false);
+  assert.equal(source.includes("analytics.tiktok.com"), false);
+});
+
 test("signup args keep an allowlisted stored label and drop a user agent stuffed into channel", () => {
   const blank = {
     utm_source: null,

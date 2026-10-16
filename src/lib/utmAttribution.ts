@@ -13,8 +13,11 @@
  *
  * What is stored, and nothing else from the URL:
  *   utm_source, utm_medium, utm_campaign, utm_term, utm_content
- *   gclid, fbclid, ttclid
+ *   gclid, fbclid, ttclid — not stored when Global Privacy Control is on
  *   channel, channel_source, detected_via — labels only
+ * Click ids are never sent to an advertising platform. When
+ * navigator.globalPrivacyControl is true they are not written to storage
+ * and save_signup_attribution receives null. The channel label is kept.
  *   the landing path, with no origin, query string, or hash
  *   the referrer's domain, with no path or query
  * The user agent is read to name an in-app browser and is never stored.
@@ -520,6 +523,27 @@ export function classifyChannel(input: ClassifyChannelInput): ChannelClassificat
 export interface ChannelSignals {
   userAgent?: string | null;
   native?: boolean;
+  /** Spec signal only. True drops click ids after the channel is chosen. */
+  globalPrivacyControl?: boolean;
+}
+
+const NO_CLICK_IDS: Pick<CapturedUtm, "gclid" | "fbclid" | "ttclid"> = {
+  gclid: null,
+  fbclid: null,
+  ttclid: null,
+};
+
+function privacyControl(signals?: ChannelSignals): boolean {
+  if (signals && typeof signals.globalPrivacyControl === "boolean") {
+    return signals.globalPrivacyControl;
+  }
+  try {
+    if (typeof navigator === "undefined") return false;
+    const nav = navigator as Navigator & { globalPrivacyControl?: boolean };
+    return nav.globalPrivacyControl === true;
+  } catch {
+    return false;
+  }
 }
 
 function runtimeSignals(override?: ChannelSignals): { userAgent: string | null; native: boolean } {
@@ -659,7 +683,7 @@ export function captureUtmFromLocation(
     });
     const capture: CapturedUtm = {
       ...fields,
-      ...clicks,
+      ...(privacyControl(signals) ? NO_CLICK_IDS : clicks),
       referrer: referrerHost,
       landing_page: landingFromLocation(loc),
       channel: classified.channel,
@@ -686,9 +710,13 @@ function presentCapture(
   parsed: CapturedUtm,
   storage: UtmStorage,
   cookies: UtmCookieJar | undefined,
+  signals?: ChannelSignals,
 ): CapturedUtm {
-  const clean = scrubCaptured(parsed);
-  if (clean.referrer === parsed.referrer && clean.landing_page === parsed.landing_page) return clean;
+  let clean = scrubCaptured(parsed);
+  const dropClicks = privacyControl(signals)
+    && (clean.gclid != null || clean.fbclid != null || clean.ttclid != null);
+  if (dropClicks) clean = { ...clean, ...NO_CLICK_IDS };
+  if (!dropClicks && clean.referrer === parsed.referrer && clean.landing_page === parsed.landing_page) return clean;
   try {
     remember(clean, storage, parsed.capturedAt, cookies);
   } catch {
@@ -701,10 +729,11 @@ export function readCapturedUtm(
   storage: UtmStorage = defaultStorage(),
   now: number = Date.now(),
   cookies?: UtmCookieJar,
+  signals?: ChannelSignals,
 ): CapturedUtm | null {
   try {
     const stored = parseStored(storage.getItem(UTM_STORAGE_KEY), now);
-    if (stored) return presentCapture(stored, storage, cookies ?? defaultCookies());
+    if (stored) return presentCapture(stored, storage, cookies ?? defaultCookies(), signals);
   } catch {
     // Fall through to the cookie.
   }
@@ -712,7 +741,7 @@ export function readCapturedUtm(
     const jar = cookies ?? defaultCookies();
     const stored = parseStored(jar?.get() ?? null, now);
     if (!stored) return null;
-    return presentCapture(stored, storage, jar);
+    return presentCapture(stored, storage, jar, signals);
   } catch {
     return null;
   }
@@ -819,9 +848,9 @@ export function signupAttributionArgs(
     p_channel: cap(classified.channel, 64),
     p_channel_source: cap(classified.channel_source, 120),
     p_detected_via: cap(classified.detected_via, 32),
-    p_gclid: cap(fields.gclid ?? null, 200),
-    p_fbclid: cap(fields.fbclid ?? null, 200),
-    p_ttclid: cap(fields.ttclid ?? null, 200),
+    p_gclid: privacyControl(signals) ? null : cap(fields.gclid ?? null, 200),
+    p_fbclid: privacyControl(signals) ? null : cap(fields.fbclid ?? null, 200),
+    p_ttclid: privacyControl(signals) ? null : cap(fields.ttclid ?? null, 200),
   };
 }
 
