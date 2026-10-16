@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { NEEDS_RECONNECT, connectPlatformFromEnv, isMissingPlatformAccountColumn, staffConnectNeedsReconnect } from "../_shared/connect-platform.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -33,10 +34,24 @@ serve(async (req) => {
       .maybeSingle();
     if (!staffRow) return json({ error: "Forbidden" }, 403);
 
-    const { data: acct } = await supabase
-      .from("staff_payout_accounts").select("stripe_account_id, details_submitted")
+    let acctQuery = await supabase
+      .from("staff_payout_accounts").select("stripe_account_id, details_submitted, platform_account_id")
       .eq("staff_id", staffId).eq("organization_id", organizationId).maybeSingle();
+    if (acctQuery.error && isMissingPlatformAccountColumn(acctQuery.error)) {
+      const legacy = await supabase
+        .from("staff_payout_accounts").select("stripe_account_id, details_submitted")
+        .eq("staff_id", staffId).eq("organization_id", organizationId).maybeSingle();
+      acctQuery = { ...legacy, data: legacy.data ? { ...legacy.data, platform_account_id: null } : null };
+    }
+    if (acctQuery.error) return json({ error: "Could not read your payout account." }, 500);
+    const acct = acctQuery.data;
     if (!acct?.stripe_account_id) return json({ error: "Finish payout setup first." }, 400);
+    if (staffConnectNeedsReconnect(acct.platform_account_id, acct.stripe_account_id, connectPlatformFromEnv())) {
+      return json({
+        error: "Reconnect payouts before opening Stripe. Nothing was opened.",
+        status: NEEDS_RECONNECT,
+      }, 409);
+    }
 
     const key = Deno.env.get("STRIPE_SECRET_KEY");
     if (!key) return json({ error: "Payouts are not configured. Please contact support." }, 500);

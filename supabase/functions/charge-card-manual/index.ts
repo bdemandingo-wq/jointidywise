@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { orgReconnectResponse } from "../_shared/get-org-stripe-settings.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -81,6 +82,9 @@ serve(async (req) => {
     const { data: secretRows } = await supabaseAdmin.rpc("get_org_stripe_secret", {
       p_org_id: organization_id,
     });
+    const blocked = await orgReconnectResponse(organization_id, corsHeaders);
+    if (blocked) return blocked;
+
     const orgSecret = Array.isArray(secretRows) ? secretRows[0] : secretRows;
     const stripeKey: string | null = orgSecret?.stripe_access_token || orgSecret?.stripe_secret_key || null;
     if (!stripeKey) {

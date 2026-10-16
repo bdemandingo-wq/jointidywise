@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { verifyAdminAuth, createUnauthorizedResponse } from "../_shared/verify-admin-auth.ts";
 import { verifyPortalSession } from "../_shared/portal-session.ts";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
+import { orgReconnectResponse } from "../_shared/get-org-stripe-settings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -119,6 +120,9 @@ const handler = async (req: Request): Promise<Response> => {
         .eq("organization_id", organizationId)
         .maybeSingle(),
     ]);
+
+    const blocked = await orgReconnectResponse(organizationId, corsHeaders);
+    if (blocked) return blocked;
 
     const orgSecret = Array.isArray(secretRows) ? secretRows[0] : secretRows;
     const stripeSecretKey: string | null = orgSecret?.stripe_access_token || orgSecret?.stripe_secret_key || null;

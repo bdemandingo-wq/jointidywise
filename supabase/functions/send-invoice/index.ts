@@ -5,6 +5,7 @@ import { getOrgEmailSettings, formatEmailFrom, getReplyTo } from "../_shared/get
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { resolveCallerOrg, isServiceRoleRequest } from "../_shared/require-caller-org.ts";
 import { resolveLogoUrl } from "../_shared/org-email-renderer.ts";
+import { orgReconnectResponse } from "../_shared/get-org-stripe-settings.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -172,6 +173,9 @@ const handler = async (req: Request): Promise<Response> => {
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
+
+    const blocked = await orgReconnectResponse(data.organizationId, corsHeaders);
+    if (blocked) return blocked;
 
     const orgSecret = Array.isArray(secretRows) ? secretRows[0] : secretRows;
     const stripeApiKey: string | null = orgSecret?.stripe_access_token || orgSecret?.stripe_secret_key || null;

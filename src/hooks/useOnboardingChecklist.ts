@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { fetchOrgStripeStatus } from '@/lib/orgStripeStatus';
 import { useOrgId } from './useOrgId';
 import {
   bookingIsRealJob,
@@ -98,11 +99,11 @@ export function useOnboardingChecklist(enabled = true) {
       // Stripe and OpenPhone and deactivate services. The milestone only
       // answers "did this ever happen", which turns a failed live check
       // into needs_attention.
-      const [hasServices, hasStaff, sms, stripe, hasBookings, phoneRow, events] = await Promise.all([
+      const [hasServices, hasStaff, sms, stripeStatus, hasBookings, phoneRow, events] = await Promise.all([
         hasActiveService(organizationId),
         hasActiveStaff(organizationId),
         supabase.rpc('has_openphone_api_key', { _org_id: organizationId }),
-        supabase.rpc('get_org_stripe_settings_safe', { p_organization_id: organizationId }),
+        fetchOrgStripeStatus(organizationId),
         hasNativeBooking(organizationId),
         supabase
           .from('organization_sms_settings')
@@ -116,7 +117,6 @@ export function useOnboardingChecklist(enabled = true) {
       ]);
 
       if (sms.error) throw sms.error;
-      if (stripe.error) throw stripe.error;
       if (phoneRow.error) throw phoneRow.error;
       // The ledger ships in a migration the owner runs by hand. Until that
       // table exists, the checklist still shows live status. needs_attention
@@ -126,12 +126,14 @@ export function useOnboardingChecklist(enabled = true) {
       const recorded = new Set(
         (events.data ?? []).map((row) => row.milestone).filter((key): key is string => typeof key === 'string'),
       );
-      const stripeRow = (stripe.data as { is_connected?: boolean | null; stripe_account_id?: string | null }[] | null)?.[0] ?? null;
       const live: Record<string, boolean> = {
         service_added: hasServices,
         staff_added: hasStaff,
         openphone_connected: openPhoneLiveConnected(sms.data === true, phoneRow.data?.openphone_phone_number_id),
-        stripe_connected: stripeLiveConnected(stripeRow),
+        stripe_connected: stripeLiveConnected({
+          is_connected: stripeStatus.connected,
+          needs_reconnect: stripeStatus.needs_reconnect,
+        }),
         first_job_booked: hasBookings,
       };
 

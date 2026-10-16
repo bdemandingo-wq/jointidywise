@@ -1,6 +1,7 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@17.7.0?target=deno";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
+import { orgReconnectResponse } from "../_shared/get-org-stripe-settings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,6 +47,9 @@ Deno.serve(async (req) => {
         .eq("organization_id", organization_id)
         .maybeSingle(),
     ]);
+
+    const blocked = await orgReconnectResponse(organization_id, corsHeaders);
+    if (blocked) return blocked;
 
     const orgSecret = Array.isArray(secretRows) ? secretRows[0] : secretRows;
     const stripeApiKey: string | null = orgSecret?.stripe_access_token || orgSecret?.stripe_secret_key || null;

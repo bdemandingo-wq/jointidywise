@@ -2,6 +2,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
+import { fetchOrgStripeStatus } from '@/lib/orgStripeStatus';
+import { CARD_PAYMENTS_UNAVAILABLE } from '@/lib/invoiceCardPayments';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -64,12 +66,13 @@ export function HealthMonitorTab() {
   const { data: stripeStatus, error: stripeError } = useQuery({
     queryKey: ['health-stripe', organization?.id],
     queryFn: async () => {
-      if (!organization?.id) return { connected: false, lastSync: null as string | null };
-      const { data: rows, error } = await supabase
-        .rpc('get_org_stripe_settings_safe', { p_organization_id: organization.id });
-      const data = rows?.[0] ?? null;
-      if (error || !data) return { connected: false, lastSync: null };
-      return { connected: data.is_connected, lastSync: data.connected_at };
+      if (!organization?.id) return { connected: false, needsReconnect: false, lastSync: null as string | null };
+      const status = await fetchOrgStripeStatus(organization.id);
+      return {
+        connected: status.available,
+        needsReconnect: status.needs_reconnect,
+        lastSync: status.connected_at,
+      };
     },
     enabled: !!organization?.id,
   });
@@ -138,11 +141,15 @@ export function HealthMonitorTab() {
       name: 'Stripe Connected',
       icon: CreditCard,
       status: stripeStatus?.connected ? 'ok' : 'error',
-      message: stripeStatus?.connected
-        ? `Connected${stripeStatus.lastSync ? ` since ${format(new Date(stripeStatus.lastSync), 'MMM d, yyyy')}` : ''}`
-        : 'Not connected. Payment features unavailable.',
+      message: stripeStatus?.needsReconnect
+        ? `${CARD_PAYMENTS_UNAVAILABLE}. Reconnect Stripe.`
+        : stripeStatus?.connected
+          ? `Connected${stripeStatus.lastSync ? ` since ${format(new Date(stripeStatus.lastSync), 'MMM d, yyyy')}` : ''}`
+          : 'Not connected. Payment features unavailable.',
       lastChecked: stripeStatus?.lastSync || null,
-      fixAction: !stripeStatus?.connected ? { label: 'Connect Stripe', href: '/dashboard/payment-integration' } : undefined,
+      fixAction: !stripeStatus?.connected
+        ? { label: stripeStatus?.needsReconnect ? 'Reconnect Stripe' : 'Connect Stripe', href: '/dashboard/payment-integration' }
+        : undefined,
     },
     {
       name: 'Automations Engine',

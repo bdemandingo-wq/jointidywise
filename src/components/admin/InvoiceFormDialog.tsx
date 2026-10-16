@@ -43,6 +43,7 @@ import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { orgDateKey, orgAddDays, formatInOrgTz } from '@/lib/orgDateRange';
 import { formatInvoiceNumber } from '@/lib/invoiceUtils';
 import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
+import { CARD_PAYMENTS_UNAVAILABLE, cardPaymentMethodLabel, invoiceNeedsReconnect } from '@/lib/invoiceCardPayments';
 import {
   clearLocalInvoiceDraft,
   invoiceAmountError,
@@ -157,15 +158,18 @@ export function InvoiceFormDialog({
   const { data: stripeSettings, error: stripeSettingsError, isPending: stripeLoading } = useQuery({
     queryKey: ['org-stripe-check', organizationId],
     queryFn: async () => {
-      const { data: rows, error } = await supabase
-        .rpc('get_org_stripe_settings_safe', { p_organization_id: organizationId });
-      if (error) throw error;
-      return rows?.[0] ?? null;
+      const { data, error } = await supabase.functions.invoke('stripe-connect-oauth', {
+        body: { action: 'get_status', organization_id: organizationId, skip_refresh: true },
+      });
+      if (error) throw new Error(await readEdgeFunctionError(error, 'Could not check whether card payments are available.'));
+      if (data?.error) throw new Error(String(data.error));
+      return data as { connected?: boolean; needs_reconnect?: boolean; status?: string } | null;
     },
     enabled: !!organizationId && open,
   });
 
-  const isStripeConfigured = !!stripeSettings?.is_connected;
+  const needsReconnect = invoiceNeedsReconnect(stripeSettings);
+  const isStripeConfigured = !!stripeSettings?.connected && !needsReconnect;
 
   // Fetch payment reminders for display
   const { data: reminders = [], error: remindersError } = useQuery({
@@ -544,6 +548,9 @@ export function InvoiceFormDialog({
         selectedCustomer: NonNullable<typeof selectedCustomer>;
         organizationId: string;
       };
+      if (needsReconnect) {
+        throw new Error(CARD_PAYMENTS_UNAVAILABLE);
+      }
       if (!isStripeConfigured) {
         throw new Error('Draft saved. Stripe is not connected, so this invoice was not emailed. Mark it paid for cash, check, or Zelle.');
       }
@@ -684,10 +691,11 @@ export function InvoiceFormDialog({
 
   // Get enabled payment methods for display
   const enabledMethods = [];
-  if (paymentSettings?.accept_cards !== false) {
-    enabledMethods.push({ 
-      name: 'Debit/Credit Cards', 
-      fee: `${paymentSettings?.card_fee_percent ?? 2.9}% + ${fmt((paymentSettings?.card_fee_fixed ?? 0.30))}`,
+  const cardLabel = cardPaymentMethodLabel(needsReconnect, paymentSettings?.accept_cards !== false);
+  if (cardLabel) {
+    enabledMethods.push({
+      name: cardLabel,
+      fee: needsReconnect ? '' : `${paymentSettings?.card_fee_percent ?? 2.9}% + ${fmt((paymentSettings?.card_fee_fixed ?? 0.30))}`,
       icon: CreditCard
     });
   }
@@ -1164,7 +1172,10 @@ export function InvoiceFormDialog({
               <span className={`text-lg font-semibold ${amountError ? 'text-destructive' : ''}`}>{fmt(totalAmount)}</span>
             </div>
             {amountError && <p className="text-sm text-destructive">{amountError}</p>}
-            {!stripeLoading && !isStripeConfigured && (
+            {!stripeLoading && needsReconnect && (
+              <p className="text-sm text-muted-foreground">{CARD_PAYMENTS_UNAVAILABLE}</p>
+            )}
+            {!stripeLoading && !needsReconnect && !isStripeConfigured && (
               <p className="text-xs text-muted-foreground">
                 Stripe is not connected. Save the draft, or mark it paid by cash, check, or Zelle. Email and SMS send stay off until Payments is connected.
               </p>
@@ -1207,7 +1218,7 @@ export function InvoiceFormDialog({
                   <Button
                     className="flex-1"
                     disabled={saveMutation.isPending || !canSave || stripeLoading || !isStripeConfigured}
-                    title={stripeLoading ? 'Checking whether Stripe is connected…' : !isStripeConfigured ? 'Connect Stripe to email or text this invoice. Cash, check, and Zelle use Mark as paid.' : undefined}
+                    title={stripeLoading ? 'Checking whether Stripe is connected…' : needsReconnect ? CARD_PAYMENTS_UNAVAILABLE : !isStripeConfigured ? 'Connect Stripe to email or text this invoice. Cash, check, and Zelle use Mark as paid.' : undefined}
                   >
                     {saveMutation.isPending ? (
                       <>

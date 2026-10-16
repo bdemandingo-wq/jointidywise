@@ -170,6 +170,7 @@ export function StaffPayoutSetup({ staffId, organizationId }: StaffPayoutSetupPr
       queryClient.setQueryData(['staff-payout-cached', staffId, organizationId], data);
       return data as {
         status: string;
+        needs_reconnect?: boolean;
         payoutsEnabled: boolean;
         chargesEnabled: boolean;
         detailsSubmitted: boolean;
@@ -319,8 +320,9 @@ export function StaffPayoutSetup({ staffId, organizationId }: StaffPayoutSetupPr
     );
   }
 
+  const needsReconnect = payoutStatus?.status === 'needs_reconnect';
   const isOrgNotConnected = payoutStatus?.status === 'org_not_connected';
-  const isSetUp = payoutStatus?.status === 'active';
+  const isSetUp = payoutStatus?.status === 'active' && !needsReconnect;
   const isOnboarding = payoutStatus?.status === 'onboarding' && !justSubmitted;
   const isPending = payoutStatus?.status === 'pending_verification' || (justSubmitted && payoutStatus?.detailsSubmitted);
 
@@ -342,10 +344,11 @@ export function StaffPayoutSetup({ staffId, organizationId }: StaffPayoutSetupPr
 
   return (
     <div className="space-y-4">
-      {/* Requirements checklist — shows status card and action items */}
-      <PayoutRequirementsChecklist staffId={staffId} organizationId={organizationId} />
+      {!needsReconnect && (
+        <PayoutRequirementsChecklist staffId={staffId} organizationId={organizationId} />
+      )}
 
-      {(isSetUp || isPending || payoutStatus?.detailsSubmitted) && (
+      {!needsReconnect && (isSetUp || isPending || payoutStatus?.detailsSubmitted) && (
         <Card>
           <CardContent className="pt-4 space-y-2">
             <p className="text-sm text-muted-foreground">
@@ -386,7 +389,26 @@ export function StaffPayoutSetup({ staffId, organizationId }: StaffPayoutSetupPr
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {isSetUp ? (
+          {needsReconnect ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Reconnect payouts to keep receiving pay.
+              </p>
+              <Button
+                className="w-full"
+                size="lg"
+                onClick={() => startOnboarding.mutate()}
+                disabled={startOnboarding.isPending}
+              >
+                {startOnboarding.isPending ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Banknote className="w-4 h-4 mr-2" />
+                )}
+                Reconnect payouts
+              </Button>
+            </div>
+          ) : isSetUp ? (
             <>
               <div className="p-4 rounded-lg bg-success/10 border border-success/20">
                 <div className="flex items-center gap-3">
@@ -659,13 +681,14 @@ export function StaffPayoutSetup({ staffId, organizationId }: StaffPayoutSetupPr
         </Card>
       )}
 
-      {/* Reset Payout Setup — collapsible at the bottom */}
-      <PayoutResetSection
-        staffId={staffId}
-        organizationId={organizationId}
-        currentStatus={payoutStatus?.status || null}
-        chargesEnabled={payoutStatus?.chargesEnabled || false}
-      />
+      {!needsReconnect && (
+        <PayoutResetSection
+          staffId={staffId}
+          organizationId={organizationId}
+          currentStatus={payoutStatus?.status || null}
+          chargesEnabled={payoutStatus?.chargesEnabled || false}
+        />
+      )}
     </div>
   );
 }

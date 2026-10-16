@@ -3,6 +3,13 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { sendStaffSms, sendStaffEmail, PORTAL_URL, FORGOT_URL } from "../_shared/staff-notify.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
+import {
+  NEEDS_RECONNECT,
+  connectPlatformFromEnv,
+  isMissingPlatformAccountColumn,
+  orgConnectNeedsReconnect,
+  staffConnectNeedsReconnect,
+} from "../_shared/connect-platform.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -72,17 +79,45 @@ serve(async (req) => {
     if (payment_method === 'stripe_transfer') {
       // Get the org's Stripe credentials. Secrets live in org_stripe_secrets
       // (no client RLS access); non-sensitive flags stay on org_stripe_settings.
-      const [{ data: secretRows }, { data: orgConn }] = await Promise.all([
+      const orgSelect = 'stripe_account_id, is_connected, platform_account_id';
+      const [secretResult, orgResult] = await Promise.all([
         supabaseAdmin.rpc('get_org_stripe_secret', { p_org_id: organization_id }),
         supabaseAdmin
           .from('org_stripe_settings')
-          .select('stripe_account_id, is_connected')
+          .select(orgSelect)
           .eq('organization_id', organization_id)
           .maybeSingle(),
       ]);
 
+      let orgConn = orgResult.data;
+      let orgError = orgResult.error;
+      if (orgError && isMissingPlatformAccountColumn(orgError)) {
+        const legacy = await supabaseAdmin
+          .from('org_stripe_settings')
+          .select('stripe_account_id, is_connected')
+          .eq('organization_id', organization_id)
+          .maybeSingle();
+        orgConn = legacy.data ? { ...legacy.data, platform_account_id: null } : null;
+        orgError = legacy.error;
+      }
+      if (orgError) throw new Error("Failed to read Stripe connection");
+
+      const secretRows = secretResult.data;
       const orgSecret = Array.isArray(secretRows) ? secretRows[0] : secretRows;
       const orgStripeApiKey: string | null = orgSecret?.stripe_access_token || orgSecret?.stripe_secret_key || null;
+      const platform = connectPlatformFromEnv();
+
+      if (orgConnectNeedsReconnect({
+        platformAccountId: orgConn?.platform_account_id ?? null,
+        stripeAccountId: orgConn?.stripe_account_id ?? orgSecret?.stripe_account_id ?? null,
+        hasAccessToken: !!orgSecret?.stripe_access_token,
+        hasManualSecret: !!orgSecret?.stripe_secret_key && !orgSecret?.stripe_access_token,
+      }, platform)) {
+        return new Response(JSON.stringify({
+          error: "Stripe needs to be reconnected before this payout can be sent. Nothing was sent.",
+          status: NEEDS_RECONNECT,
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
 
       if (!orgStripeApiKey || !orgConn?.is_connected) {
         throw new Error("Organization does not have Stripe connected. Please connect Stripe in Payment Integration settings.");
@@ -90,15 +125,36 @@ serve(async (req) => {
       logStep("Org Stripe verified");
 
       // Get cleaner's Stripe Express account
-      const { data: payoutAccount } = await supabaseAdmin
+      let payoutQuery = await supabaseAdmin
         .from('staff_payout_accounts')
-        .select('stripe_account_id, account_status, payouts_enabled')
+        .select('stripe_account_id, account_status, payouts_enabled, platform_account_id')
         .eq('staff_id', staff_id)
         .eq('organization_id', organization_id)
         .maybeSingle();
+      if (payoutQuery.error && isMissingPlatformAccountColumn(payoutQuery.error)) {
+        const legacyPayout = await supabaseAdmin
+          .from('staff_payout_accounts')
+          .select('stripe_account_id, account_status, payouts_enabled')
+          .eq('staff_id', staff_id)
+          .eq('organization_id', organization_id)
+          .maybeSingle();
+        payoutQuery = {
+          ...legacyPayout,
+          data: legacyPayout.data ? { ...legacyPayout.data, platform_account_id: null } : null,
+        };
+      }
+      if (payoutQuery.error) throw new Error("Failed to read cleaner payout account");
+      const payoutAccount = payoutQuery.data;
 
       if (!payoutAccount?.stripe_account_id) {
         throw new Error("This cleaner has not set up their payout account yet");
+      }
+
+      if (staffConnectNeedsReconnect(payoutAccount.platform_account_id, payoutAccount.stripe_account_id, platform)) {
+        return new Response(JSON.stringify({
+          error: "This cleaner needs to reconnect payouts before Stripe can send money. Nothing was sent.",
+          status: NEEDS_RECONNECT,
+        }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
       // Create Stripe Transfer using the PLATFORM key.

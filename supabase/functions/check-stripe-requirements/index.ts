@@ -5,6 +5,7 @@ import { resolveCallerOrg, isServiceRoleRequest } from "../_shared/require-calle
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { PLATFORM_SENDER_EMAIL } from "../_shared/email-sender-resolution.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { connectPlatformFromEnv, isMissingPlatformAccountColumn, staffConnectNeedsReconnect } from "../_shared/connect-platform.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -70,7 +71,7 @@ serve(async (req: Request) => {
     // Fetch all payout accounts with payouts_enabled = false that have a stripe_account_id
     let query = supabase
       .from("staff_payout_accounts")
-      .select("id, staff_id, organization_id, stripe_account_id")
+      .select("id, staff_id, organization_id, stripe_account_id, platform_account_id")
       .eq("payouts_enabled", false)
       .not("stripe_account_id", "is", null);
 
@@ -78,7 +79,18 @@ serve(async (req: Request) => {
       query = query.eq("organization_id", filterOrgId);
     }
 
-    const { data: accounts, error: accountsError } = await query;
+    let { data: accounts, error: accountsError } = await query;
+    if (accountsError && isMissingPlatformAccountColumn(accountsError)) {
+      let legacy = supabase
+        .from("staff_payout_accounts")
+        .select("id, staff_id, organization_id, stripe_account_id")
+        .eq("payouts_enabled", false)
+        .not("stripe_account_id", "is", null);
+      if (filterOrgId) legacy = legacy.eq("organization_id", filterOrgId);
+      const fallback = await legacy;
+      accounts = (fallback.data ?? []).map((row) => ({ ...row, platform_account_id: null }));
+      accountsError = fallback.error;
+    }
 
     if (accountsError) {
       console.error("[check-stripe-requirements] Error fetching accounts:", accountsError);
@@ -99,8 +111,14 @@ serve(async (req: Request) => {
     let skipped = 0;
     let errors = 0;
 
+    const platform = connectPlatformFromEnv();
+
     for (const account of accounts) {
       try {
+        if (staffConnectNeedsReconnect(account.platform_account_id, account.stripe_account_id, platform)) {
+          skipped++;
+          continue;
+        }
         const stripeAccount = await stripe.accounts.retrieve(account.stripe_account_id);
 
         const currentlyDue = stripeAccount.requirements?.currently_due || [];

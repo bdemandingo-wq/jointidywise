@@ -1,6 +1,13 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  connectPlatformFromEnv,
+  platformAccountColumnReady,
+  readKeyPlatformAccountId,
+  staffConnectNeedsReconnect,
+  writeRowRetryWithoutPlatform,
+} from "../_shared/connect-platform.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -162,9 +169,37 @@ serve(async (req: Request) => {
       .eq("organization_id", organizationId)
       .maybeSingle();
 
-    let stripeAccountId = existingAccount?.stripe_account_id;
+    const platform = connectPlatformFromEnv();
+    const stale = !!(existingAccount?.stripe_account_id && staffConnectNeedsReconnect(
+      existingAccount.platform_account_id,
+      existingAccount.stripe_account_id,
+      platform,
+    ));
+    let stripeAccountId = stale ? null : existingAccount?.stripe_account_id;
 
     if (!stripeAccountId) {
+      const columnReady = await platformAccountColumnReady(() =>
+        supabase.from("staff_payout_accounts").select("platform_account_id").limit(1)
+      );
+      if ((platform.switched || platform.platformAccountId) && !columnReady) {
+        return new Response(JSON.stringify({
+          error: "Apply the platform_account_id migration before creating payout accounts. Nothing was created.",
+        }), {
+          status: 503,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const stamped = await readKeyPlatformAccountId(
+        () => stripe.accounts.retrieve(),
+        platform,
+        "created",
+      );
+      if (!stamped.ok) {
+        return new Response(JSON.stringify({ error: stamped.error }), {
+          status: 503,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
       console.log("[create-staff-connect-account] Creating new Express account for staff:", staffId);
       // Create a new Stripe Connect Express account
       const account = await stripe.accounts.create({
@@ -183,14 +218,28 @@ serve(async (req: Request) => {
       stripeAccountId = account.id;
       console.log("[create-staff-connect-account] Created Stripe account:", stripeAccountId);
 
-      // Save to database
-      const { error: payoutAccountError } = await supabase.from("staff_payout_accounts").upsert({
-        staff_id: staffId,
-        organization_id: organizationId,
-        stripe_account_id: stripeAccountId,
-        account_status: "onboarding",
-        account_holder_name: staffRecord.name,
-      }, { onConflict: "staff_id,organization_id" });
+      // Save to database. A stale Express account is replaced, not reused:
+      // accountLinks on the old platform id would fail against the new key.
+      const { error: payoutAccountError } = await writeRowRetryWithoutPlatform(
+        (row) => supabase.from("staff_payout_accounts").upsert(row, { onConflict: "staff_id,organization_id" }),
+        {
+          staff_id: staffId,
+          organization_id: organizationId,
+          stripe_account_id: stripeAccountId,
+          platform_account_id: stamped.platformAccountId,
+          account_status: "onboarding",
+          account_holder_name: staffRecord.name,
+          payouts_enabled: false,
+          charges_enabled: false,
+          details_submitted: false,
+          bank_last4: null,
+          disabled_reason: null,
+          requirements_currently_due: [],
+          requirements_pending_verification: [],
+          stripe_requirements_errors: [],
+          onboarding_url: null,
+        },
+      );
 
       if (payoutAccountError) {
         // The Stripe account exists but isn't linked — sending them an
