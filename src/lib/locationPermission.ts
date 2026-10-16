@@ -3,10 +3,10 @@
  *
  * @capacitor/geolocation 8.2.0 collapses iOS `authorizedAlways` and
  * `authorizedWhenInUse` into one `granted` value (see
- * GeolocationPlugin.swift). The app only requests While Using — there is no
- * background location mode — so a granted read is "on", and the label names
- * both settings the phone may show. Splitting them would need a native plugin
- * this project does not have.
+ * GeolocationPlugin.swift). Clock-in and photos stay on While Using.
+ * On My Way may ask for Always so sharing continues while the phone is
+ * locked. This screen's label still names both, because the geolocation
+ * plugin cannot tell them apart.
  */
 
 export type LocationPlatform = 'ios' | 'android' | 'web';

@@ -58,18 +58,20 @@
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>TidyWise saves job photos and exported files to your photo library.</string>
 	<!--
-	  Background modes match what the app actually does: background fetch, and
-	  remote push. `location` is intentionally absent. @capacitor/geolocation
-	  does not run a continuous background session, and declaring the location
-	  background mode was removed for App Store guideline 2.5.4. Live tracking
-	  runs while the app is open and catches up when the cleaner returns.
-	  NSLocationAlwaysAndWhenInUseUsageDescription is required by the Capacitor
-	  geolocation plugin even though the prompt itself is When In Use.
+	  Background modes: fetch, remote push, and location.
+	  location is used only during an active On My Way trip.
+	  TripBackgroundLocationPlugin starts CLLocationManager when that trip
+	  starts and stops it on arrival, when the job starts, or when tracking
+	  stops. showsBackgroundLocationIndicator is on, so iOS shows the blue
+	  location pill while the watcher is running. The usage strings stay the
+	  legal disclosure: shared during On My Way, and recorded at clock in/out
+	  and job photos.
 	-->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
 		<string>remote-notification</string>
+		<string>location</string>
 	</array>
 	<key>CFBundleURLTypes</key>
 	<array>

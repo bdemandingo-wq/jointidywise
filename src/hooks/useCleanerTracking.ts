@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { confirmDialog } from '@/components/AppDialogs';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { useOrgCountryCode } from '@/hooks/useDistanceUnit';
@@ -8,6 +9,22 @@ import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
 import { nextArrivalErrorToast, runArrivalAttempt } from '@/lib/arrivalAttempt';
 import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
 import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
+import {
+  readTripLocationAuth,
+  requestTripAlwaysAuthorization,
+  startTripBackgroundUpdates,
+  stopTripBackgroundUpdates,
+} from '@/lib/tripBackgroundLocation';
+import {
+  ALWAYS_LOCATION_EXPLAINER_BODY,
+  ALWAYS_LOCATION_EXPLAINER_HEADING,
+  beginTripWatch,
+  chooseTripWatch,
+  endTripWatch,
+  initialTripWatchSession,
+  type TripStopReason,
+  type TripWatchMode,
+} from '@/lib/tripLocationSession';
 import {
   nextWebSharePhase,
   webShareShouldReadGeolocation,
@@ -26,10 +43,9 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Request When-In-Use location. @capacitor/geolocation does not prompt for
-// Always, and the Info.plist does not declare the location background mode
-// (removed for App Store guideline 2.5.4). Live updates run while the app
-// is open; coming back to the app re-checks arrival.
+// When In Use, via @capacitor/geolocation. Always is a separate step inside
+// startTracking, and only on iOS, after the in-app explainer. Web uses the
+// browser prompt. Clock-in and job photos do not call this.
 async function requestLocationPermission(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return true; // browser handles its own prompt
   try {
@@ -55,6 +71,14 @@ async function requestLocationPermission(): Promise<boolean> {
     console.warn('[GPS] Permission request error', e);
     return true; // don't block — let watchPosition surface the real error
   }
+}
+
+function explainAlwaysLocation(): Promise<boolean> {
+  return confirmDialog(ALWAYS_LOCATION_EXPLAINER_BODY, ALWAYS_LOCATION_EXPLAINER_HEADING, {
+    confirmLabel: 'Allow Always',
+    cancelLabel: 'Keep While Using',
+    destructive: false,
+  });
 }
 
 // ─── constants ───────────────────────────────────────────────────────────────
@@ -97,11 +121,16 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   const lastWriteRef     = useRef<number>(0);
   const watchIdRef       = useRef<string | null>(null);   // Capacitor watchId (string)
   const browserWatchRef  = useRef<number | null>(null);   // browser watchId (number)
-  const stopTrackingRef  = useRef<() => Promise<void>>(async () => {});
-  const haltWatchRef = useRef<(markArrivedAt: boolean) => Promise<void>>(async () => {});
+  const stopTrackingRef = useRef<(reason?: TripStopReason) => Promise<void>>(async () => {});
+  const haltWatchRef = useRef<(markArrivedAt: boolean, reason?: TripStopReason) => Promise<void>>(async () => {});
   const webSharePhaseRef = useRef<WebSharePhase>('idle');
+  const sessionRef = useRef(initialTripWatchSession());
+  const watchModeRef = useRef<TripWatchMode>('foreground');
+  const backgroundTokenRef = useRef<number | null>(null);
+  const writePositionRef = useRef<(latitude: number, longitude: number) => Promise<void>>(async () => {});
   const [isTracking, setIsTracking] = useState(false);
   const [hasArrived, setHasArrived] = useState(false);
+  const [backgroundSharing, setBackgroundSharing] = useState(false);
 
   // ── arrival firing (shared by geofence, resume-check, and manual button) ──
 
@@ -182,12 +211,21 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     if (error) {
       console.error('[GPS] position write failed', error);
       // Consent was revoked. Stop the watch so it does not keep writing.
-      if (error.code === '42501') void stopTrackingRef.current();
+      if (error.code === '42501') void stopTrackingRef.current('consent_revoked');
       return;
     }
 
     void checkArrival(latitude, longitude);
   }, [checkArrival]);
+
+  writePositionRef.current = writePosition;
+
+  const releaseBackgroundWatcher = useCallback(async () => {
+    const token = backgroundTokenRef.current;
+    backgroundTokenRef.current = null;
+    if (token == null) return;
+    await stopTripBackgroundUpdates(token);
+  }, []);
 
   // ── stop tracking ─────────────────────────────────────────────────────────
 
@@ -198,8 +236,17 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     }
   }, []);
 
-  const haltWatch = useCallback(async (markArrivedAt: boolean) => {
+  const haltWatch = useCallback(async (markArrivedAt: boolean, reason?: TripStopReason) => {
     webSharePhaseRef.current = 'idle';
+    const resolvedReason = reason ?? (markArrivedAt ? 'arrival' : 'job_finished');
+    const transition = endTripWatch(sessionRef.current, resolvedReason);
+    sessionRef.current = transition.session;
+    setBackgroundSharing(false);
+    if (transition.stopBackground) {
+      try { await releaseBackgroundWatcher(); } catch (err) {
+        console.warn('[GPS] background watch stop failed', err);
+      }
+    }
     if (watchIdRef.current !== null) {
       try {
         const { Geolocation } = await import('@capacitor/geolocation');
@@ -222,24 +269,23 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       trackingIdRef.current = null;
     }
     setIsTracking(false);
-  }, [clearBrowserWatch]);
+  }, [clearBrowserWatch, releaseBackgroundWatcher]);
 
   haltWatchRef.current = haltWatch;
 
-  const stopTracking = useCallback(async () => {
-    await haltWatch(false);
+  const stopTracking = useCallback(async (reason: TripStopReason = 'stop_tracking') => {
+    await haltWatch(false, reason);
     arrivedRef.current = false;
     setHasArrived(false);
-    console.log('[GPS] Tracking stopped');
+    console.log('[GPS] Tracking stopped', reason);
   }, [haltWatch]);
 
   stopTrackingRef.current = stopTracking;
 
   // ── resume check ──────────────────────────────────────────────────────────
-  // Without background location (removed for App Store 2.5.4), tracking
-  // suspends the moment the cleaner switches to Maps or locks the phone.
-  // When they come back, immediately grab a position and re-run the
-  // arrival check so the "arrived" texts still fire automatically.
+  // While Using pauses when the phone locks. Coming back re-checks arrival.
+  // Always keeps the background watcher running; this check is a second
+  // look when the app returns. The arrival claim blocks a second notice.
 
   useEffect(() => {
     if (!isTracking || Capacitor.getPlatform() === 'web') return;
@@ -274,12 +320,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
   // ── start position watch ──────────────────────────────────────────────────
 
-  const startWatch = useCallback(async () => {
+  const startForegroundWatch = useCallback(async () => {
     if (Capacitor.isNativePlatform()) {
-      // @capacitor/geolocation wraps CLLocationManager. It does not keep a
-      // background location session (no UIBackgroundModes location — that
-      // was removed for App Store 2.5.4). Updates flow while the app is in
-      // the foreground. The resume effect above catches up on return.
       try {
         const { Geolocation } = await import('@capacitor/geolocation');
         const id = await Geolocation.watchPosition(
@@ -287,7 +329,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
           (pos, err) => {
             if (err) { console.warn('[GPS] watch error', err); return; }
             if (!pos) return;
-            void writePosition(pos.coords.latitude, pos.coords.longitude);
+            void writePositionRef.current(pos.coords.latitude, pos.coords.longitude);
           },
         );
         watchIdRef.current = id;
@@ -307,13 +349,63 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     if (navigator.geolocation?.watchPosition) {
       clearBrowserWatch();
       browserWatchRef.current = navigator.geolocation.watchPosition(
-        (pos) => { void writePosition(pos.coords.latitude, pos.coords.longitude); },
+        (pos) => { void writePositionRef.current(pos.coords.latitude, pos.coords.longitude); },
         (err) => console.warn('[GPS] browser watch error', err?.code, err?.message),
         { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
       );
       console.log('[GPS] Browser watchPosition started');
     }
-  }, [writePosition, clearBrowserWatch]);
+  }, [clearBrowserWatch]);
+
+  const engageBackgroundWatcher = useCallback(async () => {
+    const token = await startTripBackgroundUpdates((latitude, longitude) => {
+      void writePositionRef.current(latitude, longitude);
+    }, (auth) => {
+      if (auth === 'always' || sessionRef.current.mode !== 'background') return;
+      if (auth === 'denied' || auth === 'restricted') {
+        void stopTrackingRef.current('consent_revoked');
+        return;
+      }
+      const transition = beginTripWatch(sessionRef.current, 'foreground');
+      sessionRef.current = transition.session;
+      setBackgroundSharing(false);
+      if (transition.stopBackground) {
+        void releaseBackgroundWatcher().finally(() => { void startForegroundWatch(); });
+      }
+    });
+    backgroundTokenRef.current = token;
+  }, [releaseBackgroundWatcher, startForegroundWatch]);
+
+  const startWatch = useCallback(async () => {
+    if (watchModeRef.current === 'background') {
+      const transition = beginTripWatch(sessionRef.current, 'background');
+      sessionRef.current = transition.session;
+      if (transition.startBackground) {
+        try {
+          await engageBackgroundWatcher();
+          setBackgroundSharing(true);
+          console.log('[GPS] Background trip watch started');
+          return;
+        } catch (err) {
+          console.warn('[GPS] Background watch failed, using foreground', err);
+          try { await releaseBackgroundWatcher(); } catch { /* not running */ }
+          sessionRef.current = beginTripWatch(initialTripWatchSession(), 'foreground').session;
+          setBackgroundSharing(false);
+        }
+      } else {
+        setBackgroundSharing(true);
+        return;
+      }
+    } else {
+      const transition = beginTripWatch(sessionRef.current, 'foreground');
+      sessionRef.current = transition.session;
+      if (transition.stopBackground) {
+        try { await releaseBackgroundWatcher(); } catch { /* ignore */ }
+      }
+      setBackgroundSharing(false);
+    }
+    await startForegroundWatch();
+  }, [engageBackgroundWatcher, releaseBackgroundWatcher, startForegroundWatch]);
 
   const startWatchRef = useRef(startWatch);
   startWatchRef.current = startWatch;
@@ -372,6 +464,20 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       onStatus?.('Waiting for location access…');
       const permitted = await requestLocationPermission();
       if (!permitted) return { ok: false, reason: 'os_denied' };
+
+      if (Capacitor.getPlatform() === 'ios') {
+        onStatus?.('Checking location access…');
+        const mode = await chooseTripWatch({
+          platform: 'ios',
+          readAuth: readTripLocationAuth,
+          explain: explainAlwaysLocation,
+          requestAlways: requestTripAlwaysAuthorization,
+        });
+        if (mode === 'none') return { ok: false, reason: 'os_denied' };
+        watchModeRef.current = mode;
+      } else {
+        watchModeRef.current = 'foreground';
+      }
 
       onStatus?.('Getting your location…');
       // Consent rows are looked up while the position fix is in flight.
@@ -486,8 +592,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => { void stopTracking(); };
+    return () => { void stopTracking('unmount'); };
   }, [stopTracking]);
 
-  return { startTracking, stopTracking, isTracking, hasArrived, markArrived };
+  return { startTracking, stopTracking, isTracking, hasArrived, markArrived, backgroundSharing };
 }

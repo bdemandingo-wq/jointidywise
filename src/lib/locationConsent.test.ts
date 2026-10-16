@@ -51,7 +51,9 @@ test('the iOS usage strings match the location-card sentence', () => {
   const alwaysKey = plist.match(/<key>NSLocationAlwaysAndWhenInUseUsageDescription<\/key>\s*<string>([^<]*)<\/string>/);
   assert.equal(whenInUse?.[1], LOCATION_CONSENT_COPY);
   assert.equal(alwaysKey?.[1], LOCATION_CONSENT_COPY);
-  assert.equal(plist.includes('<string>location</string>'), false);
+  assert.match(plist, /<key>UIBackgroundModes<\/key>[\s\S]*?<string>location<\/string>/);
+  assert.match(plist, /<string>fetch<\/string>/);
+  assert.match(plist, /<string>remote-notification<\/string>/);
 });
 
 test('tracking starts from the OS permission, and a grant row is appended only when the latest decision is not already a yes', () => {

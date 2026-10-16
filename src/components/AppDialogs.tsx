@@ -27,6 +27,7 @@ interface Pending {
   title: string;
   description?: string;
   confirmLabel: string;
+  cancelLabel: string;
   destructive: boolean;
   defaultValue?: string;
   resolve: (value: boolean | string | null | undefined) => void;
@@ -49,7 +50,7 @@ function enqueue(pending: Pending): void {
 export function confirmDialog(
   message: string,
   title = "Are you sure?",
-  options?: { confirmLabel?: string; destructive?: boolean },
+  options?: { confirmLabel?: string; cancelLabel?: string; destructive?: boolean },
 ): Promise<boolean> {
   return new Promise((resolve) => {
     enqueue({
@@ -57,6 +58,7 @@ export function confirmDialog(
       title,
       description: message,
       confirmLabel: options?.confirmLabel ?? "Confirm",
+      cancelLabel: options?.cancelLabel ?? "Cancel",
       destructive: options?.destructive ?? true,
       resolve: (value) => resolve(value === true),
     });
@@ -70,6 +72,7 @@ export function alertDialog(message: string, title = "Notice"): Promise<void> {
       title,
       description: message,
       confirmLabel: "OK",
+      cancelLabel: "Cancel",
       destructive: false,
       resolve: () => resolve(),
     });
@@ -82,6 +85,7 @@ export function promptDialog(message: string, defaultValue = ""): Promise<string
       kind: "prompt",
       title: message,
       confirmLabel: "OK",
+      cancelLabel: "Cancel",
       destructive: false,
       defaultValue,
       resolve: (value) => resolve(typeof value === "string" ? value : null),
@@ -158,7 +162,7 @@ export function AppDialogsProvider({ children }: { children: ReactNode }) {
           ) : null}
           <AlertDialogFooter>
             {pending?.kind !== "alert" ? (
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel>{pending?.cancelLabel ?? "Cancel"}</AlertDialogCancel>
             ) : null}
             <Button
               variant={pending?.destructive ? "destructive" : "default"}
