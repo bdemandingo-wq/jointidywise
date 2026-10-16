@@ -3,6 +3,11 @@
  * organizations column (generated types and the pricing-tier migration).
  * Both bundle queries select this list, so a grandfathered account is
  * not dropped by organizations(*).
+ *
+ * A scan of src for organization.<field> reads, including the plan_type
+ * cast in useReferrals, found only id, name, slug, logo_url, owner_id,
+ * needs_onboarding, created_at, plan_type, and grandfathered_lifetime.
+ * No timezone, Stripe id, or settings blob is read off this object.
  */
 export const ORG_BUNDLE_COLUMNS = [
   "id",

@@ -2,9 +2,11 @@ import { useMemo, useEffect, useCallback, lazy, Suspense } from 'react';
 import { isOrgToday } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { useSearchParams } from 'react-router-dom';
+import { Capacitor } from '@capacitor/core';
 import { useAuth } from '@/hooks/useAuth';
 import { useSubscription } from '@/hooks/useSubscription';
 import { ExpiredTrialNudge } from '@/components/subscription/ExpiredTrialNudge';
+import { billingPaywallPath } from '@/lib/dashboardAccess';
 import { AdminLayout } from '@/components/admin/AdminLayout';
 import { TodayStats } from '@/components/admin/TodayStats';
 import { UpcomingBookings } from '@/components/admin/UpcomingBookings';
@@ -102,8 +104,16 @@ function getGreeting() {
 }
 
 export default function AdminDashboard() {
+  // hasFullAccess is true while trial_active is set (useSubscription →
+  // hasPaidDashboardAccess). An active trial keeps the normal dashboard.
   const { hasFullAccess, isLoading } = useSubscription();
   const { subscription } = useAuth();
+  const planHref = billingPaywallPath({
+    native: Capacitor.isNativePlatform(),
+    paymentFailed: subscription?.payment_failed,
+    subscriptionEnd: subscription?.subscription_end,
+    productId: subscription?.product_id,
+  });
   // Plan-tier loading must not blank a paid dashboard. The nudge waits
   // until access is known, so a slow check does not flash "trial ended".
   if (isLoading && !hasFullAccess) {
@@ -119,7 +129,7 @@ export default function AdminDashboard() {
       <AdminLayout title="Dashboard" subtitle="Pick a plan to continue">
         <SEOHead title="Dashboard | TidyWise" description="Manage your cleaning business from one dashboard" noIndex />
         <div className="portal-v2">
-          <ExpiredTrialNudge trialEnd={subscription?.trial_end ?? null} />
+          <ExpiredTrialNudge trialEnd={subscription?.trial_end ?? null} href={planHref} />
         </div>
       </AdminLayout>
     );

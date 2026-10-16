@@ -52,9 +52,18 @@ test("a trial names the org-local end date and does not promise a charge date", 
 });
 
 test("an ended trial and a never-subscribed account get different dashboard nudges", () => {
-  assert.equal(expiredTrialNudgeCopy("2026-10-01T00:00:00.000Z").title, "Your trial has ended");
-  assert.match(expiredTrialNudgeCopy(null).title, /Pick a plan/);
-  assert.match(expiredTrialNudgeCopy("not-a-date").detail, /\$49/);
+  const now = Date.parse("2026-10-16T12:00:00.000Z");
+  const ended = expiredTrialNudgeCopy("2026-10-01T00:00:00.000Z", now);
+  assert.equal(ended.title, "Your trial has ended");
+  assert.match(ended.detail, /Lifetime is \$300 once/);
+  const future = expiredTrialNudgeCopy("2026-11-13T23:00:00.000Z", now);
+  assert.equal(future.title, "Pick a plan to unlock the dashboard");
+  assert.match(expiredTrialNudgeCopy(null, now).title, /Pick a plan/);
+  assert.match(expiredTrialNudgeCopy("not-a-date", now).detail, /\$49/);
+});
+
+test("an invalid timezone does not throw", () => {
+  assert.equal(trialEndDateLabel("2026-11-14T04:00:00.000Z", "Not/AZone"), null);
 });
 
 test("downgrade buttons say the change waits for renewal", () => {

@@ -63,6 +63,7 @@ export function SubscriptionPanel() {
   }, [organization?.id]);
 
   async function resumeEarly() {
+    if (!canShowPaymentFlows) return;
     setResuming(true);
     try {
       const { data, error } = await supabase.functions.invoke("resume-subscription", {
@@ -180,7 +181,7 @@ export function SubscriptionPanel() {
                 <LoyaltyPriceSummary state={loyalty} />
 
                 <div className="flex flex-wrap gap-2">
-                  {showResume && (
+                  {canShowPaymentFlows && showResume && (
                     <Button
                       variant="outline"
                       onClick={resumeEarly}
@@ -195,21 +196,7 @@ export function SubscriptionPanel() {
                       Resume now
                     </Button>
                   )}
-                  {canShowPaymentFlows && nextStep === "portal" && !onTrial ? (
-                    <Button
-                      variant="outline"
-                      onClick={openBillingPortal}
-                      disabled={openingPortal}
-                      className="h-11 min-h-[44px] md:h-11"
-                    >
-                      {openingPortal ? (
-                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                      ) : (
-                        <CreditCard className="mr-1 h-4 w-4" />
-                      )}
-                      Update payment method
-                    </Button>
-                  ) : canShowPaymentFlows && nextStep === "checkout" ? (
+                  {canShowPaymentFlows && nextStep === "checkout" ? (
                     <Button variant="premium" className="h-11 min-h-[44px] md:h-11" onClick={() => navigate("/choose-plan?upgrade=1")}>
                       <CreditCard className="mr-1 h-4 w-4" />
                       Choose a plan
@@ -238,16 +225,7 @@ export function SubscriptionPanel() {
                         ? "This account's access is comped. There is no card on file to update."
                         : "There is no card on file yet. Choose a plan and Stripe Checkout will collect it. Nothing is charged until you finish that page."}
                 </p>
-                {canShowPaymentFlows && nextStep === "portal" ? (
-                  <Button className="h-11 min-h-[44px] md:h-11" onClick={openBillingPortal} disabled={openingPortal}>
-                    {openingPortal ? (
-                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    ) : (
-                      <CreditCard className="mr-1 h-4 w-4" />
-                    )}
-                    Update payment method
-                  </Button>
-                ) : canShowPaymentFlows && nextStep === "checkout" ? (
+                {canShowPaymentFlows && nextStep === "checkout" ? (
                   <Button variant="premium" className="h-11 min-h-[44px] md:h-11" onClick={() => navigate("/choose-plan?upgrade=1")}>
                     <CreditCard className="mr-1 h-4 w-4" />
                     Choose a plan

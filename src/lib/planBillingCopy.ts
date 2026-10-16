@@ -1,4 +1,8 @@
 import { formatInOrgTz } from "./orgDateRange.ts";
+import { LIFETIME_PRICE } from "./publicPlans.ts";
+
+// orgDateRange.ts and publicPlans.ts have zero imports, so node:test can
+// load this file without Vite or the @/ alias.
 
 /**
  * Settings plan cards. Basic and Pro reuse the existing monthly checkout
@@ -29,7 +33,11 @@ export function trialEndDateLabel(
   if (!trialEndIso || !timeZone) return null;
   const end = Date.parse(trialEndIso);
   if (!Number.isFinite(end)) return null;
-  return formatInOrgTz(new Date(end), timeZone, { month: "short", day: "numeric" });
+  try {
+    return formatInOrgTz(new Date(end), timeZone, { month: "short", day: "numeric" });
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -54,20 +62,28 @@ export function trialChargeLine(opts: {
 }
 
 /** Dashboard home copy when the account cannot use the product. */
-export function expiredTrialNudgeCopy(trialEndIso: string | null | undefined): {
+export function expiredTrialNudgeCopy(
+  trialEndIso: string | null | undefined,
+  nowMs = Date.now(),
+): {
   title: string;
   detail: string;
 } {
-  const ended = !!trialEndIso && Number.isFinite(Date.parse(trialEndIso));
+  const end = trialEndIso ? Date.parse(trialEndIso) : NaN;
+  // A future trial_end is still running. Only a timestamp at or before now
+  // is an ended trial. hasFullAccess stays true while trial_active is set,
+  // so this copy is not what an active trial sees.
+  const ended = Number.isFinite(end) && end <= nowMs;
+  const offer = `Lifetime is $${LIFETIME_PRICE} once.`;
   if (ended) {
     return {
       title: "Your trial has ended",
-      detail: "Pick a plan to keep using the dashboard. Nothing here extends a trial that has already ended.",
+      detail: `Pick a plan to keep using the dashboard. Nothing here extends a trial that has already ended. ${offer}`,
     };
   }
   return {
     title: "Pick a plan to unlock the dashboard",
-    detail: "Basic is $49 a month and Pro is $97 a month.",
+    detail: `Basic is $49 a month and Pro is $97 a month. ${offer}`,
   };
 }
 

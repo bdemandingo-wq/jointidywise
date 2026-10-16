@@ -171,6 +171,7 @@ export function PlanSwitcher() {
   }
 
   async function cancelDowngrade() {
+    if (!canShowPaymentFlows) return;
     setCancellingDowngrade(true);
     try {
       const { data, error } = await supabase.functions.invoke(
@@ -191,7 +192,7 @@ export function PlanSwitcher() {
   }
 
   const hasScheduledDowngrade =
-    !!downgrade.to && !!targetDowngradePlan && planChoicesVisible;
+    !!downgrade.to && !!targetDowngradePlan && planChoicesVisible && canShowPaymentFlows;
   const canChangePlan = hasChangeableStripeSubscription(subscription);
   const choosingFirstPlan = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
   const showOrgTrialStatus = planChoicesVisible && (
@@ -340,11 +341,13 @@ export function PlanSwitcher() {
 
           let planButton: ReactNode;
           let downgradeNote = false;
+          let showRenewal = false;
           if (choosingFirstPlan && contactPlan) {
             planButton = talkToUs;
           } else if (choosingFirstPlan && !canShowPaymentFlows) {
             planButton = onTheWebsite;
           } else if (choosingFirstPlan) {
+            showRenewal = true;
             planButton = (
               <Button
                 variant="premium"
@@ -378,6 +381,7 @@ export function PlanSwitcher() {
           } else if (!canChangePlan && !canShowPaymentFlows) {
             planButton = onTheWebsite;
           } else if (!canChangePlan) {
+            showRenewal = true;
             planButton = (
               <Button
                 variant="premium"
@@ -401,6 +405,7 @@ export function PlanSwitcher() {
             planButton = onTheWebsite;
           } else {
             downgradeNote = !isUpgrade;
+            showRenewal = true;
             planButton = (
               <Button
                 variant={isUpgrade ? "default" : "outline"}
@@ -437,12 +442,14 @@ export function PlanSwitcher() {
                 <Icon className="h-4 w-4 text-muted-foreground" />
                 <span className="font-semibold">{plan.name}</span>
               </div>
-              <div className="mb-3">
-                <span className="text-2xl font-bold">${plan.monthlyPrice}</span>
-                {plan.id !== "custom" && (
-                  <span className="text-sm text-muted-foreground">/mo</span>
-                )}
-              </div>
+              {plan.monthlyPrice > 0 && (
+                <div className="mb-3">
+                  <span className="text-2xl font-bold">${plan.monthlyPrice}</span>
+                  {plan.id !== "custom" && (
+                    <span className="text-sm text-muted-foreground">/mo</span>
+                  )}
+                </div>
+              )}
               <ul className="mb-4 space-y-1.5 text-xs text-muted-foreground">
                 {plan.features.slice(0, 4).map((f) => (
                   <li key={f} className="flex items-start gap-1.5">
@@ -458,7 +465,7 @@ export function PlanSwitcher() {
                   {DOWNGRADE_EFFECT_NOTE}
                 </p>
               )}
-              {planBillingAction(plan.id) === "checkout" && (
+              {showRenewal && planBillingAction(plan.id) === "checkout" && (
                 <p className="mt-2 text-center text-xs text-muted-foreground">
                   {renewalDisclosure(plan.monthlyPrice)}
                 </p>

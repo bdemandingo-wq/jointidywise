@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { useAuth } from '@/hooks/useAuth';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useSubscription } from '@/hooks/useSubscription';
-import { dashboardHomeKeepsExpiredTrial, subscriptionRenderGate } from '@/lib/dashboardAccess';
+import { billingPaywallPath, dashboardHomeKeepsExpiredTrial, subscriptionRenderGate } from '@/lib/dashboardAccess';
 import { Loader2 } from 'lucide-react';
 
 interface AdminRouteProps {
@@ -157,14 +157,12 @@ export function AdminRoute({ children }: AdminRouteProps) {
   // On native, always send to /dashboard/subscription (the trial-expired
   // wall). On web, existing customers go to /dashboard/subscription to
   // update their card; new users go to /choose-plan to pick a plan.
-  const isExistingCustomer =
-    !!subscription?.payment_failed ||
-    !!subscription?.subscription_end ||
-    (!!subscription?.product_id && subscription.product_id !== 'org_trial');
-
-  const paywallDestination = Capacitor.isNativePlatform()
-    ? '/dashboard/subscription'
-    : isExistingCustomer ? '/dashboard/subscription' : '/choose-plan';
+  const paywallDestination = billingPaywallPath({
+    native: Capacitor.isNativePlatform(),
+    paymentFailed: subscription?.payment_failed,
+    subscriptionEnd: subscription?.subscription_end,
+    productId: subscription?.product_id,
+  });
 
   // The dashboard home stays put so an expired trial sees the upgrade nudge.
   // Every other admin route still leaves for the paywall.

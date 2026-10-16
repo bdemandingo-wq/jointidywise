@@ -24,6 +24,25 @@ export function dashboardHomeKeepsExpiredTrial(pathname: string): boolean {
   return pathname === "/dashboard" || pathname === "/dashboard/";
 }
 
+/**
+ * Where AdminRoute sends an account that cannot use the dashboard.
+ * Native always uses the subscription wall. On the web, an existing
+ * customer updates a card; a new account picks a plan.
+ */
+export function billingPaywallPath(opts: {
+  native: boolean;
+  paymentFailed?: boolean;
+  subscriptionEnd?: string | null;
+  productId?: string | null;
+}): string {
+  if (opts.native) return "/dashboard/subscription";
+  const existingCustomer =
+    opts.paymentFailed === true ||
+    !!opts.subscriptionEnd ||
+    (!!opts.productId && opts.productId !== "org_trial");
+  return existingCustomer ? "/dashboard/subscription" : "/choose-plan";
+}
+
 export function hasPaidDashboardAccess(opts: {
   isFreeAccount: boolean;
   /** check-subscription subscribed flag. True for every active trial above. */
