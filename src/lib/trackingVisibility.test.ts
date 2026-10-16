@@ -6,11 +6,13 @@ import { join } from 'node:path';
 import {
   clusterNearby,
   isLocationOffEnRoute,
+  liveTrackingLowerBounds,
   pausedLastSeenLabel,
   pickNextJob,
   showsMapPin,
   shouldRequestDrivingEta,
   trackingPinState,
+  tripShareIsFresh,
 } from './trackingVisibility.ts';
 
 const NOW = Date.parse('2026-10-14T15:00:00.000Z');
@@ -50,6 +52,29 @@ test('cancelled, no-show, and a started job drop the pin even while the row is a
   for (const bookingStatus of ['cancelled', 'no_show', 'in_progress', 'completed']) {
     assert.equal(trackingPinState({ ...base, bookingStatus }), 'hidden', bookingStatus);
   }
+});
+
+test('a fix older than 10 minutes or a trip older than 3 hours is not shown', () => {
+  const tooOld = trackingPinState({
+    ...base,
+    recordedAt: new Date(NOW - 10 * 60_000 - 1).toISOString(),
+  });
+  assert.equal(tooOld, 'hidden');
+  const exactlyTen = trackingPinState({
+    ...base,
+    recordedAt: new Date(NOW - 10 * 60_000).toISOString(),
+  });
+  assert.equal(exactlyTen, 'paused');
+  const longTrip = trackingPinState({
+    ...base,
+    createdAt: new Date(NOW - 3 * 60 * 60_000 - 1).toISOString(),
+  });
+  assert.equal(longTrip, 'hidden');
+  assert.equal(tripShareIsFresh({
+    recordedAt: base.recordedAt,
+    createdAt: new Date(NOW - 3 * 60 * 60_000).toISOString(),
+    now: NOW,
+  }), true);
 });
 
 test('an inactive row is hidden', () => {
@@ -114,6 +139,22 @@ test('nearby fixes cluster and a distant fix stays alone', () => {
   assert.deepEqual(groups[1].map((item) => item.id), ['c']);
 });
 
+test('live map queries omit a fix older than 10 minutes or a trip older than 3 hours', () => {
+  const bounds = liveTrackingLowerBounds(NOW);
+  assert.equal(bounds.recordedAt, new Date(NOW - 10 * 60_000).toISOString());
+  assert.equal(bounds.createdAt, new Date(NOW - 3 * 60 * 60_000).toISOString());
+  const admin = readFileSync(new URL('../components/admin/AdminLiveTracking.tsx', import.meta.url), 'utf8');
+  const page = readFileSync(new URL('../pages/admin/TrackingPage.tsx', import.meta.url), 'utf8');
+  const customer = readFileSync(new URL('../pages/TrackCleanerPage.tsx', import.meta.url), 'utf8');
+  for (const source of [admin, page]) {
+    assert.match(source, /liveTrackingLowerBounds/);
+    assert.match(source, /\.gte\('recorded_at', bounds\.recordedAt\)/);
+    assert.match(source, /\.gte\('created_at', bounds\.createdAt\)/);
+  }
+  assert.match(page, /createdAt: job\.created_at/);
+  assert.match(customer, /tripShareIsFresh/);
+});
+
 test('tracking rows are readable by an org admin and by the cleaner who owns the row', () => {
   const dir = join(process.cwd(), 'supabase/migrations');
   const sql = readdirSync(dir)
@@ -129,4 +170,20 @@ test('tracking rows are readable by an org admin and by the cleaner who owns the
   assert.match(afterDrop, /CREATE POLICY "Staff can view own tracking"[\s\S]*s\.user_id = auth\.uid\(\)/);
   assert.doesNotMatch(afterDrop, /cleaner_location_tracking[\s\S]{0,400}USING \(true\)/);
   assert.doesNotMatch(afterDrop, /CREATE POLICY "[^"]*customer[^"]*"\s+ON public\.cleaner_location_tracking/i);
+});
+
+test('a tracking row must use the staff member org and a booking in that org', () => {
+  const sql = readFileSync(
+    join(process.cwd(), 'supabase/migrations/20261016150100_cleaner_location_tracking_staff_org.sql'),
+    'utf8',
+  );
+  assert.match(sql, /SECURITY DEFINER/);
+  assert.match(sql, /s\.user_id = auth\.uid\(\)/);
+  assert.match(sql, /s\.organization_id = _organization_id/);
+  assert.match(sql, /b\.organization_id = s\.organization_id/);
+  assert.match(sql, /REVOKE ALL ON FUNCTION public\.cleaner_location_matches_staff_org/);
+  assert.match(sql, /CREATE POLICY "Staff can insert their own tracking"[\s\S]*cleaner_location_matches_staff_org/);
+  assert.match(sql, /CREATE POLICY "Staff can update their own tracking"[\s\S]*WITH CHECK \([\s\S]*cleaner_location_matches_staff_org/);
+  assert.equal(/GRANT EXECUTE[\s\S]*TO authenticated, anon/.test(sql) || /TO anon/.test(sql), true);
+  assert.equal(sql.includes('TO service_role'), false);
 });

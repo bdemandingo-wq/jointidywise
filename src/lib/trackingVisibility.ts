@@ -11,6 +11,38 @@ export function finitePoint(lat: unknown, lng: unknown): { lat: number; lng: num
 /** GPS older than this is "Paused" rather than live. */
 export const TRACKING_STALE_AFTER_SEC = 90;
 
+/** A live map or customer link shows nothing once the last fix is older than this. */
+export const LIVE_FIX_MAX_AGE_MS = 10 * 60 * 1000;
+
+/** A live map or customer link shows nothing once the trip itself is older than this. */
+export const LIVE_TRIP_MAX_AGE_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * True while the last fix is within 10 minutes and, when the trip start is
+ * known, the trip is within 3 hours. Exactly 10 minutes and exactly 3 hours
+ * are still fresh. Older than either bound is not.
+ */
+export function tripShareIsFresh(input: {
+  recordedAt: string | null | undefined;
+  createdAt?: string | null;
+  now: number;
+}): boolean {
+  const recorded = input.recordedAt ? Date.parse(input.recordedAt) : Number.NaN;
+  if (!Number.isFinite(recorded) || input.now - recorded > LIVE_FIX_MAX_AGE_MS) return false;
+  if (input.createdAt == null) return true;
+  const created = Date.parse(input.createdAt);
+  if (!Number.isFinite(created) || input.now - created > LIVE_TRIP_MAX_AGE_MS) return false;
+  return true;
+}
+
+/** Inclusive lower bounds for a live-map query. Rows older than these are omitted. */
+export function liveTrackingLowerBounds(now: number): { recordedAt: string; createdAt: string } {
+  return {
+    recordedAt: new Date(now - LIVE_FIX_MAX_AGE_MS).toISOString(),
+    createdAt: new Date(now - LIVE_TRIP_MAX_AGE_MS).toISOString(),
+  };
+}
+
 /** Driving-time lookups are limited to one Google call per cleaner per minute. */
 export const DRIVING_ETA_MIN_INTERVAL_MS = 60_000;
 
@@ -28,6 +60,8 @@ export type TrackingPinInput = {
   latitude: unknown;
   longitude: unknown;
   recordedAt: string | null;
+  /** When set, a trip older than 3 hours is hidden even if the last fix is new. */
+  createdAt?: string | null;
   scheduledAt: string | null;
   bookingStatus: string | null | undefined;
   now: number;
@@ -45,7 +79,12 @@ function isClosedStatus(status: string | null | undefined): boolean {
  */
 export function trackingPinState(input: TrackingPinInput): TrackingPinState {
   if (!input.isActive || isClosedStatus(input.bookingStatus)) return 'hidden';
+  if (input.createdAt != null) {
+    const created = Date.parse(input.createdAt);
+    if (!Number.isFinite(created) || input.now - created > LIVE_TRIP_MAX_AGE_MS) return 'hidden';
+  }
   if (!finitePoint(input.latitude, input.longitude)) return 'location_off';
+  if (!tripShareIsFresh({ recordedAt: input.recordedAt, now: input.now })) return 'hidden';
   const recorded = input.recordedAt ? Date.parse(input.recordedAt) : NaN;
   const ageSec = Number.isFinite(recorded) ? (input.now - recorded) / 1000 : Number.POSITIVE_INFINITY;
   if (ageSec <= TRACKING_STALE_AFTER_SEC) return 'live';

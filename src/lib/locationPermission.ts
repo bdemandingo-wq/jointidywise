@@ -3,10 +3,10 @@
  *
  * @capacitor/geolocation 8.2.0 collapses iOS `authorizedAlways` and
  * `authorizedWhenInUse` into one `granted` value (see
- * GeolocationPlugin.swift). The app only requests While Using — there is no
- * background location mode — so a granted read is "on", and the label names
- * both settings the phone may show. Splitting them would need a native plugin
- * this project does not have.
+ * GeolocationPlugin.swift). Clock-in and photos stay on While Using.
+ * On My Way may ask for Always so sharing continues while the phone is
+ * locked. This screen's label still names both, because the geolocation
+ * plugin cannot tell them apart.
  */
 
 export type LocationPlatform = 'ios' | 'android' | 'web';
@@ -48,8 +48,15 @@ const ANDROID_STEPS = [
 /** Capacitor's WebView opens this with UIApplication.open. No settings plugin. */
 export const IOS_APP_SETTINGS_URL = 'app-settings:';
 
-export const LOCATION_WHY =
-  "TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. Admins may see your last shared location until the job's start time. It is deleted after 30 days. You can turn it off anytime in iPhone Settings or in your browser settings. If location is turned on, your location is also recorded when you clock in or out and when you take job photos.";
+/** Visible location-card line. Legal wording, used exactly. */
+export const LOCATION_CARD_SUMMARY =
+  "Location is shared while you're On My Way, even with the app closed, and recorded at clock in, clock out and job photos.";
+
+/** Opened in the app from the location card. No network call. */
+export const LOCATION_CARD_LEARN_MORE =
+  "We share your location with your business and its customer only while you're On My Way. On iPhone this continues if the app is closed or your phone is locked, and stops when you arrive, the job starts or the job ends. If location is on, we also record it when you clock in or out and take job photos. Admins may see your last shared location until the job's start time. Location data is deleted after 30 days. You can turn it off anytime in Settings.";
+
+export const LOCATION_WHY = LOCATION_CARD_SUMMARY;
 
 export function classifyPluginStatus(status: PluginPermissionStatus): ClassifiedLocation {
   const location = status.location ?? '';
@@ -130,6 +137,10 @@ export function canOfferSystemSettings(platform: LocationPlatform, native: boole
 export interface LocationSectionModel {
   label: string;
   tone: 'on' | 'off' | 'warn' | 'neutral';
+  /** Short line on the location card. */
+  summary: string;
+  /** Learn more sheet. Shown in the app, not fetched. */
+  learnMore: string;
   why: string;
   statusNote: string | null;
   showTurnOn: boolean;
@@ -179,7 +190,9 @@ export function buildLocationSectionModel(input: {
   return {
     label: locationStatusLabel(input.kind),
     tone: on ? 'on' : input.kind === 'off' ? 'off' : input.kind === 'not-asked' || input.kind === 'error' ? 'warn' : 'neutral',
-    why: LOCATION_WHY,
+    summary: LOCATION_CARD_SUMMARY,
+    learnMore: LOCATION_CARD_LEARN_MORE,
+    why: LOCATION_CARD_SUMMARY,
     statusNote,
     showTurnOn: !on,
     showCheckAgain: on,

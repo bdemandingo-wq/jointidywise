@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { confirmDialog } from '@/components/AppDialogs';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { useOrgCountryCode } from '@/hooks/useDistanceUnit';
@@ -8,6 +9,31 @@ import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
 import { nextArrivalErrorToast, runArrivalAttempt } from '@/lib/arrivalAttempt';
 import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
 import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
+import { readAlwaysLocationRequested, rememberAlwaysLocationRequested } from '@/lib/alwaysLocationPrompt';
+import { SUPABASE_PUBLIC_ANON_KEY, SUPABASE_PUBLIC_URL } from '@/lib/supabasePublicEnv';
+import {
+  readTripLocationAuth,
+  requestTripAlwaysAuthorization,
+  startTripBackgroundUpdates,
+  stopTripBackgroundUpdates,
+} from '@/lib/tripBackgroundLocation';
+import {
+  ALWAYS_LOCATION_EXPLAINER_BODY,
+  ALWAYS_LOCATION_EXPLAINER_HEADING,
+  beginTripWatch,
+  chooseTripWatch,
+  endTripWatch,
+  initialTripWatchSession,
+  jsArrivalCheckEnabled,
+  nativeArrivalRetryDelayMs,
+  recordedAtForLocationWrite,
+  trackingUpdateDisposition,
+  TRIP_HEARTBEAT_MS,
+  TRIP_MAX_DURATION_MS,
+  tripTimedOut,
+  type TripStopReason,
+  type TripWatchMode,
+} from '@/lib/tripLocationSession';
 import {
   nextWebSharePhase,
   webShareShouldReadGeolocation,
@@ -26,10 +52,9 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Request When-In-Use location. @capacitor/geolocation does not prompt for
-// Always, and the Info.plist does not declare the location background mode
-// (removed for App Store guideline 2.5.4). Live updates run while the app
-// is open; coming back to the app re-checks arrival.
+// When In Use, via @capacitor/geolocation. Always is a separate step inside
+// startTracking, and only on iOS, after the in-app explainer. Web uses the
+// browser prompt. Clock-in and job photos do not call this.
 async function requestLocationPermission(): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) return true; // browser handles its own prompt
   try {
@@ -57,10 +82,47 @@ async function requestLocationPermission(): Promise<boolean> {
   }
 }
 
+function explainAlwaysLocation(): Promise<boolean> {
+  // Continue is the only button. Apple 5.1.1(iv): the decline is the iOS prompt.
+  return confirmDialog(ALWAYS_LOCATION_EXPLAINER_BODY, ALWAYS_LOCATION_EXPLAINER_HEADING, {
+    confirmLabel: 'Continue',
+    hideCancel: true,
+    destructive: false,
+  });
+}
+
 // ─── constants ───────────────────────────────────────────────────────────────
 
 const ARRIVAL_THRESHOLD_METERS = 100;
 const MIN_WRITE_INTERVAL_MS = 8_000; // throttle DB writes to ≤ 1 per 8 s
+
+/** Best-effort. The column arrives with a migration that is not applied by publishing the app. */
+async function writeNativeBackground(trackingId: string | null, enabled: boolean) {
+  if (!trackingId) return;
+  const { error } = await supabase
+    .from('cleaner_location_tracking')
+    .update({ native_background: enabled } as never)
+    .eq('id', trackingId)
+    .eq('is_active', true);
+  if (!error) return;
+  const code = (error as { code?: string }).code;
+  if (code === '42703' || code === 'PGRST204') return;
+  console.warn('[GPS] could not mark native heartbeat', error);
+}
+
+function markNativeBackgroundHeartbeat(trackingId: string | null) {
+  return writeNativeBackground(trackingId, true);
+}
+
+function clearNativeBackgroundHeartbeat(trackingId: string | null) {
+  return writeNativeBackground(trackingId, false);
+}
+
+function trackingStartedAtMs(createdAt: unknown): number {
+  if (typeof createdAt !== 'string') return Date.now();
+  const parsed = Date.parse(createdAt);
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
 
 export type TrackingStartResult =
   | {
@@ -97,11 +159,22 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   const lastWriteRef     = useRef<number>(0);
   const watchIdRef       = useRef<string | null>(null);   // Capacitor watchId (string)
   const browserWatchRef  = useRef<number | null>(null);   // browser watchId (number)
-  const stopTrackingRef  = useRef<() => Promise<void>>(async () => {});
-  const haltWatchRef = useRef<(markArrivedAt: boolean) => Promise<void>>(async () => {});
+  const stopTrackingRef = useRef<(reason?: TripStopReason) => Promise<void>>(async () => {});
+  const haltWatchRef = useRef<(markArrivedAt: boolean, reason?: TripStopReason) => Promise<void>>(async () => {});
   const webSharePhaseRef = useRef<WebSharePhase>('idle');
+  const sessionRef = useRef(initialTripWatchSession());
+  const watchModeRef = useRef<TripWatchMode>('foreground');
+  const backgroundTokenRef = useRef<number | null>(null);
+  const nativeArrivalOwnedRef = useRef(false);
+  const lastFixRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  const tripStartedAtRef = useRef<number | null>(null);
+  const tripTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nativeArrivalRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nativeArrivalFailuresRef = useRef(0);
+  const writePositionRef = useRef<(latitude: number, longitude: number) => Promise<void>>(async () => {});
   const [isTracking, setIsTracking] = useState(false);
   const [hasArrived, setHasArrived] = useState(false);
+  const [backgroundSharing, setBackgroundSharing] = useState(false);
 
   // ── arrival firing (shared by geofence, resume-check, and manual button) ──
 
@@ -158,6 +231,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   // ── arrival check ─────────────────────────────────────────────────────────
 
   const checkArrival = useCallback(async (lat: number, lng: number) => {
+    if (!jsArrivalCheckEnabled(nativeArrivalOwnedRef.current)) return;
     if (arrivedRef.current || !destCoordsRef.current) return;
     const meters = haversineMeters(lat, lng, destCoordsRef.current.lat, destCoordsRef.current.lng);
     if (meters > ARRIVAL_THRESHOLD_METERS) return;
@@ -167,27 +241,66 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
   // ── write position to DB ──────────────────────────────────────────────────
 
-  const writePosition = useCallback(async (latitude: number, longitude: number) => {
-    if (arrivedRef.current) return;
-    if (!trackingIdRef.current) return;
-    if (Capacitor.getPlatform() === 'web' && !webShareShouldReadGeolocation(webSharePhaseRef.current)) return;
-    const now = Date.now();
-    if (now - lastWriteRef.current < MIN_WRITE_INTERVAL_MS) return;
-    lastWriteRef.current = now;
-
-    const { error } = await supabase
+  const persistFix = useCallback(async (latitude: number, longitude: number) => {
+    const trackingId = trackingIdRef.current;
+    if (!trackingId || arrivedRef.current) return;
+    const startedAt = tripStartedAtRef.current;
+    if (startedAt != null && tripTimedOut(startedAt, Date.now())) {
+      void stopTrackingRef.current('timeout');
+      return;
+    }
+    const recordedAt = recordedAtForLocationWrite({
+      heartbeat: true,
+      nowIso: new Date().toISOString(),
+      fixIso: new Date().toISOString(),
+    });
+    const { data, error } = await supabase
       .from('cleaner_location_tracking')
-      .update({ latitude, longitude, recorded_at: new Date().toISOString() } as any)
-      .eq('id', trackingIdRef.current);
+      .update({ latitude, longitude, recorded_at: recordedAt } as any)
+      .eq('id', trackingId)
+      .eq('is_active', true)
+      .select('id');
     if (error) {
       console.error('[GPS] position write failed', error);
       // Consent was revoked. Stop the watch so it does not keep writing.
-      if (error.code === '42501') void stopTrackingRef.current();
+      if (error.code === '42501') void stopTrackingRef.current('consent_revoked');
       return;
     }
+    const affected = Array.isArray(data) ? data.length : null;
+    if (trackingUpdateDisposition({ error: false, affectedRows: affected }) === 'closed' && !arrivedRef.current) {
+      void stopTrackingRef.current('closed');
+    }
+  }, []);
 
+  const writePosition = useCallback(async (latitude: number, longitude: number) => {
+    if (arrivedRef.current) return;
+    const startedAt = tripStartedAtRef.current;
+    if (startedAt != null && tripTimedOut(startedAt, Date.now())) {
+      void stopTrackingRef.current('timeout');
+      return;
+    }
+    if (!trackingIdRef.current) return;
+    if (Capacitor.getPlatform() === 'web' && !webShareShouldReadGeolocation(webSharePhaseRef.current)) return;
+    lastFixRef.current = { latitude, longitude };
+    // Arrival is not on the 8 second write throttle. A fix inside the
+    // geofence stops the trip even when the last coordinate write was recent.
+    // The native watcher sends its own arrival text, so skip the JS check.
     void checkArrival(latitude, longitude);
-  }, [checkArrival]);
+    const now = Date.now();
+    if (now - lastWriteRef.current < MIN_WRITE_INTERVAL_MS) return;
+    lastWriteRef.current = now;
+    await persistFix(latitude, longitude);
+  }, [checkArrival, persistFix]);
+
+  writePositionRef.current = writePosition;
+
+  const releaseBackgroundWatcher = useCallback(async () => {
+    nativeArrivalOwnedRef.current = false;
+    const token = backgroundTokenRef.current;
+    backgroundTokenRef.current = null;
+    if (token == null) return;
+    await stopTripBackgroundUpdates(token);
+  }, []);
 
   // ── stop tracking ─────────────────────────────────────────────────────────
 
@@ -198,8 +311,27 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     }
   }, []);
 
-  const haltWatch = useCallback(async (markArrivedAt: boolean) => {
+  const haltWatch = useCallback(async (markArrivedAt: boolean, reason?: TripStopReason) => {
+    if (tripTimeoutRef.current != null) {
+      clearTimeout(tripTimeoutRef.current);
+      tripTimeoutRef.current = null;
+    }
+    if (nativeArrivalRetryRef.current != null) {
+      clearTimeout(nativeArrivalRetryRef.current);
+      nativeArrivalRetryRef.current = null;
+    }
+    nativeArrivalFailuresRef.current = 0;
+    tripStartedAtRef.current = null;
     webSharePhaseRef.current = 'idle';
+    const resolvedReason = reason ?? (markArrivedAt ? 'arrival' : 'job_finished');
+    const transition = endTripWatch(sessionRef.current, resolvedReason);
+    sessionRef.current = transition.session;
+    setBackgroundSharing(false);
+    if (transition.stopBackground) {
+      try { await releaseBackgroundWatcher(); } catch (err) {
+        console.warn('[GPS] background watch stop failed', err);
+      }
+    }
     if (watchIdRef.current !== null) {
       try {
         const { Geolocation } = await import('@capacitor/geolocation');
@@ -222,30 +354,35 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       trackingIdRef.current = null;
     }
     setIsTracking(false);
-  }, [clearBrowserWatch]);
+  }, [clearBrowserWatch, releaseBackgroundWatcher]);
 
   haltWatchRef.current = haltWatch;
 
-  const stopTracking = useCallback(async () => {
-    await haltWatch(false);
+  const stopTracking = useCallback(async (reason: TripStopReason = 'stop_tracking') => {
+    await haltWatch(false, reason);
     arrivedRef.current = false;
     setHasArrived(false);
-    console.log('[GPS] Tracking stopped');
+    console.log('[GPS] Tracking stopped', reason);
   }, [haltWatch]);
 
   stopTrackingRef.current = stopTracking;
 
   // ── resume check ──────────────────────────────────────────────────────────
-  // Without background location (removed for App Store 2.5.4), tracking
-  // suspends the moment the cleaner switches to Maps or locks the phone.
-  // When they come back, immediately grab a position and re-run the
-  // arrival check so the "arrived" texts still fire automatically.
+  // While Using pauses when the phone locks. Coming back re-checks arrival.
+  // Always keeps the background watcher running; this check is a second
+  // look when the app returns. The arrival claim blocks a second notice.
 
   useEffect(() => {
     if (!isTracking || Capacitor.getPlatform() === 'web') return;
 
     const checkNow = async () => {
+      if (!jsArrivalCheckEnabled(nativeArrivalOwnedRef.current)) return;
       if (arrivedRef.current) return;
+      const startedAt = tripStartedAtRef.current;
+      if (startedAt != null && tripTimedOut(startedAt, Date.now())) {
+        void stopTrackingRef.current('timeout');
+        return;
+      }
       try {
         const { latitude, longitude } = await getPositionWithFallback();
         void checkArrival(latitude, longitude);
@@ -274,12 +411,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
   // ── start position watch ──────────────────────────────────────────────────
 
-  const startWatch = useCallback(async () => {
+  const startForegroundWatch = useCallback(async () => {
     if (Capacitor.isNativePlatform()) {
-      // @capacitor/geolocation wraps CLLocationManager. It does not keep a
-      // background location session (no UIBackgroundModes location — that
-      // was removed for App Store 2.5.4). Updates flow while the app is in
-      // the foreground. The resume effect above catches up on return.
       try {
         const { Geolocation } = await import('@capacitor/geolocation');
         const id = await Geolocation.watchPosition(
@@ -287,7 +420,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
           (pos, err) => {
             if (err) { console.warn('[GPS] watch error', err); return; }
             if (!pos) return;
-            void writePosition(pos.coords.latitude, pos.coords.longitude);
+            void writePositionRef.current(pos.coords.latitude, pos.coords.longitude);
           },
         );
         watchIdRef.current = id;
@@ -307,13 +440,109 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     if (navigator.geolocation?.watchPosition) {
       clearBrowserWatch();
       browserWatchRef.current = navigator.geolocation.watchPosition(
-        (pos) => { void writePosition(pos.coords.latitude, pos.coords.longitude); },
+        (pos) => { void writePositionRef.current(pos.coords.latitude, pos.coords.longitude); },
         (err) => console.warn('[GPS] browser watch error', err?.code, err?.message),
         { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
       );
       console.log('[GPS] Browser watchPosition started');
     }
-  }, [writePosition, clearBrowserWatch]);
+  }, [clearBrowserWatch]);
+
+  const backgroundDurationSeconds = () => {
+    const startedAt = tripStartedAtRef.current ?? Date.now();
+    return Math.max(0, (TRIP_MAX_DURATION_MS - (Date.now() - startedAt)) / 1000);
+  };
+
+  const engageBackgroundWatcher = useCallback(async () => {
+    nativeArrivalOwnedRef.current = true;
+    const token = await startTripBackgroundUpdates((latitude, longitude) => {
+      void writePositionRef.current(latitude, longitude);
+    }, (auth) => {
+      if (auth === 'always' || sessionRef.current.mode !== 'background') return;
+      if (auth === 'denied' || auth === 'restricted') {
+        void stopTrackingRef.current('consent_revoked');
+        return;
+      }
+      const transition = beginTripWatch(sessionRef.current, 'foreground');
+      sessionRef.current = transition.session;
+      setBackgroundSharing(false);
+      // Always was downgraded to While Using. This row no longer heartbeats
+      // while the phone is locked, so the 15 minute reaper must not close it.
+      void clearNativeBackgroundHeartbeat(trackingIdRef.current);
+      if (transition.stopBackground) {
+        void releaseBackgroundWatcher().finally(() => { void startForegroundWatch(); });
+      }
+    }, (reason, sms) => {
+      if (reason === 'arrived') {
+        // Native calls send-arrival-sms and leaves the watcher running until
+        // that call succeeds. The JS retry waits, then backs off, so it does
+        // not stack on the failure that just happened. A second success is
+        // claimed by the reminder row. A failed send does not write arrived_at.
+        // 409 is in-flight and does not toast.
+        if (sms === 'failed') {
+          nativeArrivalFailuresRef.current += 1;
+          if (nativeArrivalRetryRef.current != null) clearTimeout(nativeArrivalRetryRef.current);
+          const delay = nativeArrivalRetryDelayMs(nativeArrivalFailuresRef.current);
+          nativeArrivalRetryRef.current = setTimeout(() => {
+            nativeArrivalRetryRef.current = null;
+            void fireArrival('native');
+          }, delay);
+          return;
+        }
+        arrivedRef.current = true;
+        setHasArrived(true);
+        void haltWatchRef.current(true, 'arrival');
+        return;
+      }
+      if (reason === 'closed') {
+        void stopTrackingRef.current('closed');
+        return;
+      }
+      void stopTrackingRef.current('timeout');
+    }, backgroundDurationSeconds(), {
+      trackingId: trackingIdRef.current ?? '',
+      supabaseUrl: SUPABASE_PUBLIC_URL,
+      supabaseAnonKey: SUPABASE_PUBLIC_ANON_KEY,
+      destinationLat: destCoordsRef.current?.lat,
+      destinationLng: destCoordsRef.current?.lng,
+      bookingId,
+      staffId,
+    });
+    backgroundTokenRef.current = token;
+    void markNativeBackgroundHeartbeat(trackingIdRef.current);
+  }, [bookingId, staffId, fireArrival, releaseBackgroundWatcher, startForegroundWatch]);
+
+  const startWatch = useCallback(async () => {
+    if (watchModeRef.current === 'background') {
+      const transition = beginTripWatch(sessionRef.current, 'background');
+      sessionRef.current = transition.session;
+      if (transition.startBackground) {
+        try {
+          await engageBackgroundWatcher();
+          setBackgroundSharing(true);
+          console.log('[GPS] Background trip watch started');
+          return;
+        } catch (err) {
+          console.warn('[GPS] Background watch failed, using foreground', err);
+          try { await releaseBackgroundWatcher(); } catch { /* not running */ }
+          sessionRef.current = beginTripWatch(initialTripWatchSession(), 'foreground').session;
+          setBackgroundSharing(false);
+        }
+      } else {
+        setBackgroundSharing(true);
+        return;
+      }
+    } else {
+      const transition = beginTripWatch(sessionRef.current, 'foreground');
+      sessionRef.current = transition.session;
+      if (transition.stopBackground) {
+        void clearNativeBackgroundHeartbeat(trackingIdRef.current);
+        try { await releaseBackgroundWatcher(); } catch { /* ignore */ }
+      }
+      setBackgroundSharing(false);
+    }
+    await startForegroundWatch();
+  }, [engageBackgroundWatcher, releaseBackgroundWatcher, startForegroundWatch]);
 
   const startWatchRef = useRef(startWatch);
   startWatchRef.current = startWatch;
@@ -373,6 +602,22 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       const permitted = await requestLocationPermission();
       if (!permitted) return { ok: false, reason: 'os_denied' };
 
+      if (Capacitor.getPlatform() === 'ios') {
+        onStatus?.('Checking location access…');
+        const mode = await chooseTripWatch({
+          platform: 'ios',
+          readAuth: readTripLocationAuth,
+          explain: explainAlwaysLocation,
+          requestAlways: requestTripAlwaysAuthorization,
+          alwaysRequested: await readAlwaysLocationRequested(),
+          rememberRequested: rememberAlwaysLocationRequested,
+        });
+        if (mode === 'none') return { ok: false, reason: 'os_denied' };
+        watchModeRef.current = mode;
+      } else {
+        watchModeRef.current = 'foreground';
+      }
+
       onStatus?.('Getting your location…');
       // Consent rows are looked up while the position fix is in flight.
       // A failed consent write does not cancel the fix. The tracking insert
@@ -392,24 +637,26 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       // Insert or resume tracking record
       let recordId: string;
       let trackingToken: string | null = null;
+      let createdAt: unknown = null;
 
       const { data, error } = await supabase
         .from('cleaner_location_tracking')
         .insert({ booking_id: bookingId, staff_id: staffId, organization_id: organizationId, latitude, longitude } as any)
-        .select('id, tracking_token')
+        .select('id, tracking_token, created_at')
         .single();
 
       if (error?.code === '23505') {
         // Already active — resume it
         const { data: existing } = await supabase
           .from('cleaner_location_tracking')
-          .select('id, tracking_token')
+          .select('id, tracking_token, created_at')
           .eq('booking_id', bookingId)
           .eq('is_active', true)
           .single();
         if (!existing) return { ok: false, reason: 'unavailable' };
         recordId = existing.id;
         trackingToken = (existing as any).tracking_token;
+        createdAt = existing.created_at;
         const { error: resumeError } = await supabase
           .from('cleaner_location_tracking')
           .update({ latitude, longitude, recorded_at: new Date().toISOString() } as any)
@@ -426,6 +673,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       } else {
         recordId = data.id;
         trackingToken = (data as any).tracking_token;
+        createdAt = data.created_at;
       }
 
       trackingIdRef.current = recordId;
@@ -452,6 +700,22 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
         } catch { /* non-critical */ }
       }
 
+      const startedAtMs = trackingStartedAtMs(createdAt);
+      const remainingMs = Math.min(
+        TRIP_MAX_DURATION_MS,
+        Math.max(0, TRIP_MAX_DURATION_MS - (Date.now() - startedAtMs)),
+      );
+      if (remainingMs === 0) {
+        await stopTracking('timeout');
+        toast.error('On My Way stopped after 3 hours.');
+        return { ok: false, reason: 'unavailable' };
+      }
+      tripStartedAtRef.current = startedAtMs;
+      lastFixRef.current = { latitude, longitude };
+      if (tripTimeoutRef.current != null) clearTimeout(tripTimeoutRef.current);
+      tripTimeoutRef.current = setTimeout(() => {
+        void stopTrackingRef.current('timeout');
+      }, remainingMs);
       await startWatch();
       void acquireWakeLock();
       setIsTracking(true);
@@ -473,7 +737,28 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       }
       return { ok: false, reason: 'unavailable' };
     }
-  }, [bookingId, staffId, organizationId, destinationAddress, destinationLat, destinationLng, orgCountry, checkArrival, startWatch, acquireWakeLock]);
+  }, [bookingId, staffId, organizationId, destinationAddress, destinationLat, destinationLng, orgCountry, checkArrival, startWatch, acquireWakeLock, stopTracking]);
+
+  // Stationary foreground trips do not get GPS writes. Refresh recorded_at
+  // so the 15 minute reaper does not close While Using, Android, or web.
+  // Past the 3 hour deadline this stops the trip instead of writing.
+  useEffect(() => {
+    if (!isTracking) return;
+    const id = setInterval(() => {
+      if (arrivedRef.current) return;
+      if (Capacitor.getPlatform() === 'web' && !webShareShouldReadGeolocation(webSharePhaseRef.current)) return;
+      const fix = lastFixRef.current;
+      if (!fix) return;
+      const startedAt = tripStartedAtRef.current;
+      if (startedAt != null && tripTimedOut(startedAt, Date.now())) {
+        void stopTrackingRef.current('timeout');
+        return;
+      }
+      lastWriteRef.current = Date.now();
+      void persistFix(fix.latitude, fix.longitude);
+    }, TRIP_HEARTBEAT_MS);
+    return () => clearInterval(id);
+  }, [isTracking, persistFix]);
 
   // Re-acquire wake lock when app comes back to foreground
   useEffect(() => {
@@ -486,8 +771,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => { void stopTracking(); };
+    return () => { void stopTracking('unmount'); };
   }, [stopTracking]);
 
-  return { startTracking, stopTracking, isTracking, hasArrived, markArrived };
+  return { startTracking, stopTracking, isTracking, hasArrived, markArrived, backgroundSharing };
 }

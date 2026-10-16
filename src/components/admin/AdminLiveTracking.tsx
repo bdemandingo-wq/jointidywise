@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { loadDrivingEta } from '@/lib/drivingEta';
 import { finitePoint } from '@/components/admin/trackingFleetModel';
+import { liveTrackingLowerBounds, tripShareIsFresh } from '@/lib/trackingVisibility';
 import { Navigation, Clock, MapPin, Car, Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -113,18 +114,26 @@ export function AdminLiveTracking({
 
   useEffect(() => {
     if (isCompleted) return;
+    const bounds = liveTrackingLowerBounds(Date.now());
     const fetchData = async () => {
       const { data: trackingData } = await supabase
         .from('cleaner_location_tracking')
         .select('latitude, longitude, is_active, recorded_at, created_at')
         .eq('booking_id', bookingId)
         .eq('is_active', true)
+        .gte('recorded_at', bounds.recordedAt)
+        .gte('created_at', bounds.createdAt)
         .maybeSingle();
 
-      if (trackingData) {
+      if (trackingData && tripShareIsFresh({
+        recordedAt: trackingData.recorded_at,
+        createdAt: trackingData.created_at,
+        now: Date.now(),
+      })) {
         setTracking(trackingData);
         return;
       }
+      setTracking(null);
 
       const { data: reminderData } = await supabase
         .from('booking_reminder_log')
@@ -150,7 +159,11 @@ export function AdminLiveTracking({
         filter: `booking_id=eq.${bookingId}`,
       }, (payload) => {
         const d = payload.new as TrackingInfo;
-        if (d?.is_active) {
+        if (d?.is_active && tripShareIsFresh({
+          recordedAt: d.recorded_at,
+          createdAt: d.created_at,
+          now: Date.now(),
+        })) {
           setTracking(d);
         } else {
           setTracking(null);
@@ -212,15 +225,21 @@ export function AdminLiveTracking({
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tracking object ref changes on every GPS update; we only care about lat/lng values
   }, [tracking?.latitude, tracking?.longitude, tracking?.recorded_at, destCoords, organization?.id, bookingId]);
 
+  const liveTracking = tracking && tripShareIsFresh({
+    recordedAt: tracking.recorded_at,
+    createdAt: tracking.created_at,
+    now: Date.now(),
+  }) ? tracking : null;
+
   // Don't render for completed bookings
   if (isCompleted) return null;
 
   // GPS-based live tracking with map
-  if (tracking) {
-    const ageSec = (Date.now() - new Date(tracking.recorded_at).getTime()) / 1000;
+  if (liveTracking) {
+    const ageSec = (Date.now() - new Date(liveTracking.recorded_at).getTime()) / 1000;
     const isStale = ageSec > 90;
     const timeAgo = Math.round(ageSec / 60);
-    const startedAtLabel = formatInTimezone(tracking.created_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' });
+    const startedAtLabel = formatInTimezone(liveTracking.created_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' });
 
     return (
       <div className="rounded-lg border bg-card p-4 space-y-3">
@@ -242,10 +261,10 @@ export function AdminLiveTracking({
         </div>
 
         {/* Location-off rows have no coordinates: never draw a pin for them. */}
-        {tracking.latitude != null && tracking.longitude != null && (
+        {liveTracking.latitude != null && liveTracking.longitude != null && (
           <MiniMap
-            lat={tracking.latitude}
-            lng={tracking.longitude}
+            lat={liveTracking.latitude}
+            lng={liveTracking.longitude}
             destLat={destCoords?.lat}
             destLng={destCoords?.lng}
           />

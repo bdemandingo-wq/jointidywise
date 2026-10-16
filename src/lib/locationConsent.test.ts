@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
   CONSENT_COPY_VERSION,
+  IOS_ALWAYS_LOCATION_USAGE_DESCRIPTION,
+  IOS_WHEN_IN_USE_LOCATION_USAGE_DESCRIPTION,
   LOCATION_CONSENT_COPY,
   LOCATION_CONSENT_HEADING,
   LOCATION_SHARING_OFF_NOTE,
@@ -22,7 +24,7 @@ import {
   settingsToggleOn,
   shouldLogOsDenied,
 } from './locationConsent.ts';
-import { LOCATION_WHY } from './locationPermission.ts';
+import { LOCATION_CARD_SUMMARY, LOCATION_WHY } from './locationPermission.ts';
 
 const APPROVED_COPY =
   "TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. Admins may see your last shared location until the job's start time. It is deleted after 30 days. You can turn it off anytime in iPhone Settings or in your browser settings. If location is turned on, your location is also recorded when you clock in or out and when you take job photos.";
@@ -30,8 +32,8 @@ const APPROVED_COPY =
 test('consent copy is version v4 and states the On My Way window', () => {
   assert.equal(CONSENT_COPY_VERSION, 'v4');
   assert.equal(LOCATION_CONSENT_COPY, APPROVED_COPY);
-  assert.equal(PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION, LOCATION_CONSENT_COPY);
-  assert.equal(LOCATION_WHY, LOCATION_CONSENT_COPY);
+  assert.equal(PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION, IOS_ALWAYS_LOCATION_USAGE_DESCRIPTION);
+  assert.equal(LOCATION_WHY, LOCATION_CARD_SUMMARY);
   assert.match(LOCATION_CONSENT_COPY, /only during On My Way/);
   assert.match(LOCATION_CONSENT_COPY, /until you arrive or until the job is marked started/);
   assert.match(LOCATION_CONSENT_COPY, /business owner and the customer/);
@@ -45,13 +47,30 @@ test('consent copy is version v4 and states the On My Way window', () => {
   assert.equal(formatLocationConsentCopy('Bright Clean'), APPROVED_COPY);
 });
 
-test('the iOS usage strings match the location-card sentence', () => {
+test('the iOS usage strings match the legal Always and When In Use sentences', () => {
+  const always =
+    "TidyWise shares your location with your business and its customer only during an On My Way trip, including when the app is closed or your phone is locked, so they know when you'll arrive. It stops when you arrive, the job starts, the job ends, or after 3 hours. Location is also recorded when you clock in or out and take job photos.";
+  const whenInUseCopy =
+    "TidyWise shares your location with your business and its customer only during an On My Way trip, so they know when you'll arrive. It stops when you arrive, the job starts, the job ends, or after 3 hours. Location is also recorded when you clock in or out and take job photos.";
+  assert.equal(IOS_ALWAYS_LOCATION_USAGE_DESCRIPTION, always);
+  assert.equal(IOS_WHEN_IN_USE_LOCATION_USAGE_DESCRIPTION, whenInUseCopy);
+  assert.equal(
+    IOS_ALWAYS_LOCATION_USAGE_DESCRIPTION,
+    IOS_WHEN_IN_USE_LOCATION_USAGE_DESCRIPTION.replace(
+      'only during an On My Way trip',
+      'only during an On My Way trip, including when the app is closed or your phone is locked',
+    ),
+  );
+  assert.equal(/only while the app is open|stops when you leave/i.test(IOS_WHEN_IN_USE_LOCATION_USAGE_DESCRIPTION), false);
+
   const plist = readFileSync(new URL('../../ios/App/App/Info.plist', import.meta.url), 'utf8');
   const whenInUse = plist.match(/<key>NSLocationWhenInUseUsageDescription<\/key>\s*<string>([^<]*)<\/string>/);
   const alwaysKey = plist.match(/<key>NSLocationAlwaysAndWhenInUseUsageDescription<\/key>\s*<string>([^<]*)<\/string>/);
-  assert.equal(whenInUse?.[1], LOCATION_CONSENT_COPY);
-  assert.equal(alwaysKey?.[1], LOCATION_CONSENT_COPY);
-  assert.equal(plist.includes('<string>location</string>'), false);
+  assert.equal(whenInUse?.[1], IOS_WHEN_IN_USE_LOCATION_USAGE_DESCRIPTION);
+  assert.equal(alwaysKey?.[1], IOS_ALWAYS_LOCATION_USAGE_DESCRIPTION);
+  assert.match(plist, /<key>UIBackgroundModes<\/key>[\s\S]*?<string>location<\/string>/);
+  assert.match(plist, /<string>fetch<\/string>/);
+  assert.match(plist, /<string>remote-notification<\/string>/);
 });
 
 test('tracking starts from the OS permission, and a grant row is appended only when the latest decision is not already a yes', () => {
