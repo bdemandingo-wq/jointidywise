@@ -27,6 +27,9 @@ function hashString(str: string): number {
   return Math.abs(hash);
 }
 
+// Device-only name masking. This is not demo mode. An older toggle that
+// stored demo_mode_enabled is cleared by the demo-mode migration; this key
+// stays so those customers keep masking without sample data or blocked sends.
 const MASK_KEY = 'tw-mask-names';
 
 export function TestModeProvider({ children }: { children: ReactNode }) {

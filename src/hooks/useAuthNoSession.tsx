@@ -413,6 +413,8 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
     }
     setUser(null);
     setSession(null);
+    const { clearSampleDemoStorage } = await import('@/lib/demo/session');
+    clearSampleDemoStorage();
 
     // Clear storage synchronously BEFORE redirecting — the redirect kills
     // the JS context, so anything after it is fire-and-forget at best.

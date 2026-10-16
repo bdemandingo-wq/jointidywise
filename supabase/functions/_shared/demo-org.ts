@@ -15,6 +15,60 @@ export const DEMO_FLAG_TTL_MS = 60_000;
 /** How long a demo-blocked queue row stays out of the oldest-50 window. */
 export const DEMO_QUEUE_DEFER_MS = 24 * 60 * 60 * 1000;
 
+/** A held row older than this is expired instead of sent when demo turns off. */
+export const DEMO_QUEUE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Deferral cap. After this many holds the row is expired, not delivered. */
+export const DEMO_QUEUE_MAX_DEFERS = 7;
+
+export function demoQueueHoldPlan(input: {
+  createdAt?: string | null;
+  deferCount?: number | null;
+  now?: number;
+}): "defer" | "expire" {
+  if ((input.deferCount ?? 0) >= DEMO_QUEUE_MAX_DEFERS) return "expire";
+  const created = input.createdAt ? Date.parse(input.createdAt) : Number.NaN;
+  const now = input.now ?? Date.now();
+  if (Number.isFinite(created) && now - created >= DEMO_QUEUE_MAX_AGE_MS) return "expire";
+  return "defer";
+}
+
+/** organization_id or organizationId from a function body. */
+export function requestedOrganizationId(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as { organization_id?: unknown; organizationId?: unknown };
+  const raw = record.organization_id ?? record.organizationId;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
+/**
+ * The organization the caller is acting in. No membership is not an error
+ * (signup checkout has no org yet). Several memberships and no requested
+ * id is an error: do not pick the oldest row.
+ */
+export function pickActingOrganizationId(
+  memberships: Array<{ organization_id?: string | null }>,
+  requestedOrganizationId?: string | null,
+): { organizationId: string | null; status?: number; error?: string } {
+  const ids = memberships
+    .map((row) => row.organization_id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  const requested = requestedOrganizationId?.trim() || null;
+  if (requested) {
+    if (!ids.includes(requested)) {
+      return { organizationId: null, status: 403, error: "You are not a member of that organization." };
+    }
+    return { organizationId: requested };
+  }
+  if (ids.length === 0) return { organizationId: null };
+  if (ids.length === 1) return { organizationId: ids[0] };
+  return {
+    organizationId: null,
+    status: 400,
+    error: "Could not determine which business this is for. Reopen the page and try again.",
+  };
+}
+
 export function demoQueueDeferUntil(now = Date.now()): string {
   return new Date(now + DEMO_QUEUE_DEFER_MS).toISOString();
 }
@@ -58,8 +112,8 @@ export function isKnownDemoOrganization(organizationId: string | null | undefine
 
 /**
  * Same predicate as public.is_demo_or_test and isDemoOrTest.
- * A paying active or past_due plan other than Lifetime is never demo.
- * The preview org, the demo flag, and the name/slug/email rules are.
+ * demo_mode_enabled wins, including for a paying organization.
+ * The preview org and the name/slug/email rules do too.
  */
 export function stripeClientBlockReason(input: {
   organizationId?: string | null;
@@ -204,8 +258,9 @@ export type StripeSubscriptionSnapshot = {
 };
 
 /**
- * Mirrors public.is_demo_or_test. An active or past_due Stripe subscription
- * whose plan is not Lifetime is a real customer and is never demo/test.
+ * Mirrors public.is_demo_or_test. demo_mode_enabled wins, including when
+ * the organization has a paying subscription. A subscription does not
+ * turn sends or Stripe back on.
  */
 export function isDemoOrTest(input: {
   organizationId?: string | null;
@@ -216,12 +271,6 @@ export function isDemoOrTest(input: {
   subscriptions?: StripeSubscriptionSnapshot[] | null;
 }): boolean {
   if (isKnownDemoOrganization(input.organizationId)) return true;
-  const paying = (input.subscriptions ?? []).some((row) => {
-    const status = (row.status ?? "").toLowerCase();
-    const plan = (row.plan ?? "").toLowerCase();
-    return (status === "active" || status === "past_due") && plan !== "lifetime";
-  });
-  if (paying) return false;
   if (input.demoModeEnabled) return true;
   const name = input.name ?? "";
   if (/(^|[^a-z])(test|qa|demo|sandbox)([^a-z]|$)/i.test(name)) return true;

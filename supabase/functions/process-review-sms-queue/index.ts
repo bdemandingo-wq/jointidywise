@@ -1,5 +1,5 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
-import { demoQueueDeferUntil, excludeOrgFilter, isDemoSendBlocked } from "../_shared/demo-org.ts";
+import { demoQueueDeferUntil, demoQueueHoldPlan, excludeOrgFilter, isDemoSendBlocked } from "../_shared/demo-org.ts";
 import { listDemoModeOrgIds } from "../_shared/demo-guard.ts";
 import {
   resolveTemplate,
@@ -45,7 +45,7 @@ const handler = async (req: Request): Promise<Response> => {
       const now = new Date().toISOString();
       let due = supabase
         .from("automated_review_sms_queue")
-        .select("id, booking_id, organization_id, customer_id")
+        .select("id, booking_id, organization_id, customer_id, created_at")
         .eq("sent", false)
         .lte("send_at", now);
       if (demoOrgFilter) due = due.not("organization_id", "in", demoOrgFilter);
@@ -304,6 +304,15 @@ const handler = async (req: Request): Promise<Response> => {
         console.log(`Review SMS sent for booking ${item.booking_id} to ${formattedPhone}`);
       } catch (itemError: any) {
         if (isDemoSendBlocked(itemError)) {
+          if (demoQueueHoldPlan({ createdAt: item.created_at }) === "expire") {
+            const { error: expireErr } = await supabase.from("automated_review_sms_queue")
+              .update({ sent: true, sent_at: new Date().toISOString(), error: "expired while demo mode was on" })
+              .eq("id", item.id);
+            if (expireErr) {
+              console.error(`[process-review-sms-queue] failed to expire demo-blocked item ${item.id}:`, expireErr);
+            }
+            continue;
+          }
           const { error: deferErr } = await supabase.from("automated_review_sms_queue")
             .update({ send_at: demoQueueDeferUntil() })
             .eq("id", item.id);

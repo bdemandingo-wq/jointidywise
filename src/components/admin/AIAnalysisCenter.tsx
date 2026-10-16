@@ -26,6 +26,7 @@ import { handlePossibleAiCreditError, openAiCreditLimitModal } from '@/component
 import { parseEdgeFunctionError } from '@/lib/errorHandling';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { orgStartOfMonth, orgEndOfMonth, orgStartOfWeek, orgEndOfWeek, formatInOrgTz } from '@/lib/orgDateRange';
+import { demoAwareFetch } from '@/lib/demo/edgeFetch';
 
 /** Wraps supabase.functions.invoke and shows the credit-limit modal when a 402 comes back. */
 async function invokeAi(fn: string, body: Record<string, unknown>) {
@@ -571,7 +572,7 @@ export function AIAnalysisCenter() {
         setChatLoading(false);
         return;
       }
-      const resp = await fetch(CHAT_URL, {
+      const resp = await demoAwareFetch(CHAT_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

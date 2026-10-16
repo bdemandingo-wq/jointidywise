@@ -1,4 +1,5 @@
 import { createStripeClient } from "../_shared/stripe-client.ts";
+import { isDemoSendBlocked, pickActingOrganizationId, requestedOrganizationId } from "../_shared/demo-org.ts";
 // Resume a paused TidyWise CRM (platform) subscription early.
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
@@ -27,7 +28,32 @@ serve(async (req) => {
 
     const stripeKey = billingSecretKey();
     if (!stripeKey) throw new Error("STRIPE_BILLING_SECRET_KEY is not set");
-    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
+
+    let requestedOrgId: string | null = null;
+    try {
+      requestedOrgId = requestedOrganizationId(await req.json());
+    } catch {
+      requestedOrgId = null;
+    }
+    const { data: memberships, error: membershipError } = await supabase
+      .from("org_memberships")
+      .select("organization_id")
+      .eq("user_id", userId);
+    if (membershipError) {
+      return new Response(
+        JSON.stringify({ error: "Could not verify the organization before checkout." }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    const picked = pickActingOrganizationId(memberships ?? [], requestedOrgId);
+    if (picked.status) {
+      return new Response(JSON.stringify({ error: picked.error }), {
+        status: picked.status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const organizationId = picked.organizationId;
+    const stripe = await createStripeClient(stripeKey, { organizationId, apiVersion: "2025-08-27.basil" });
 
     const customers = await stripe.customers.list({ email: userEmail, limit: 1 });
     if (customers.data.length === 0) {
@@ -41,7 +67,7 @@ serve(async (req) => {
       status: "all",
       limit: 10,
     });
-    const paused = subs.data.find((s) => (s as any).pause_collection != null);
+    const paused = subs.data.find((s: { pause_collection?: unknown }) => s.pause_collection != null);
     if (!paused) {
       return new Response(JSON.stringify({ error: "No paused subscription" }), {
         status: 404,
@@ -89,6 +115,12 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
+    if (isDemoSendBlocked(err)) {
+      return new Response(JSON.stringify({ success: false, skipped: true, reason: "demo_mode" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     const msg = err instanceof Error ? err.message : String(err);
     console.log("[RESUME-SUB] ERROR", msg);
     return new Response(JSON.stringify({ error: msg }), {

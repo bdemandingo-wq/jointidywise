@@ -354,7 +354,7 @@ export default function PricingPage() {
     setCheckoutBusy('lifetime');
     try {
       const { data, error } = await supabase.functions.invoke('buy-lifetime', {
-        body: {},
+        body: organization?.id ? { organization_id: organization.id } : {},
       });
       // buy-lifetime returns real reasons — sold out, already subscribed,
       // price not configured. Throwing the raw error showed "non-2xx status

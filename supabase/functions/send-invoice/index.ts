@@ -240,7 +240,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     const paymentUrl = session.url;
     const companyName = bizSettings?.company_name || emailSettings.from_name || orgRow?.name || "Your Business";
-    const logoUrl = await resolveLogoUrl(bizSettings?.logo_url ?? null, SUPABASE_URL!, supabase);
+    const logoUrl = await resolveLogoUrl(bizSettings?.logo_url ?? null, SUPABASE_URL!, supabase as never);
     const brandColor = bizSettings?.primary_color || ACCENT;
     const footerMessage = bizSettings?.invoice_footer_message || "";
     const orgEmailLine = bizSettings?.company_email || emailSettings.from_email;
@@ -376,6 +376,12 @@ const handler = async (req: Request): Promise<Response> => {
       metadata: { invoice_number: invoiceNumber, total: data.total },
     });
 
+    if (sendResult.skipped || sendResult.demo) {
+      return new Response(JSON.stringify({ success: false, skipped: true, reason: "demo_mode", emailId: sendResult.id }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
     if (!sendResult.success) {
       if (/not verified/i.test(sendResult.error || "")) {
         const domain = emailSettings.from_email.split("@")[1];

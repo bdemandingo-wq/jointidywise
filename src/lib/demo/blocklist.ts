@@ -5,7 +5,6 @@
  */
 
 const ACCOUNT_READS = new Set([
-  'check-subscription',
   'get-lifetime-spots',
   'public-growth',
   'address-autocomplete',
@@ -63,6 +62,14 @@ const READ_RPC = new Set([
   'resolve_short_url',
 ]);
 
+/** Writes. Blocked with a toast. Listed so they cannot fall through as reads. */
+const BLOCKED_RPC = new Set([
+  'increment_coupon_use',
+  'merge_customers',
+  'save_signup_attribution',
+  'unmerge_customers',
+]);
+
 const SILENT_RPC = new Set([
   'mark_abandoned_booking_progress',
   'claim_trial_started_pixel',
@@ -74,6 +81,7 @@ export type DemoRpcKind = 'allow' | 'block' | 'silent';
 export function demoRpcKind(name: string): DemoRpcKind {
   const normalized = name.toLowerCase();
   if (SILENT_RPC.has(normalized)) return 'silent';
+  if (BLOCKED_RPC.has(normalized)) return 'block';
   if (READ_RPC.has(normalized)) return 'allow';
   return 'block';
 }

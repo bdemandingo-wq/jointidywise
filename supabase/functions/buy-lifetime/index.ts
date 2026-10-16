@@ -1,5 +1,5 @@
 import { createStripeClient } from "../_shared/stripe-client.ts";
-import { isDemoSendBlocked } from "../_shared/demo-org.ts";
+import { isDemoSendBlocked, pickActingOrganizationId, requestedOrganizationId } from "../_shared/demo-org.ts";
 // One-time $300 lifetime checkout. Supports two flows:
 //
 //   1) Anonymous (checkout-first):
@@ -83,24 +83,36 @@ serve(async (req) => {
       }
     }
 
+    let requestedOrgId: string | null = null;
+    try {
+      requestedOrgId = requestedOrganizationId(await req.json());
+    } catch {
+      requestedOrgId = null;
+    }
+
     let customerId: string | undefined;
     let lifetimeOrgId: string | null = null;
     if (user) {
-      const { data: membership, error: membershipError } = await admin
+      const { data: memberships, error: membershipError } = await admin
         .from("org_memberships")
         .select("organization_id, organizations(plan_type, grandfathered_lifetime)")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (membershipError || !membership?.organization_id) {
+        .eq("user_id", user.id);
+      if (membershipError) {
         return new Response(
           JSON.stringify({ error: "Could not verify the organization before checkout." }),
           { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
-      lifetimeOrgId = membership.organization_id;
-      const org = (membership as { organizations?: { plan_type?: string; grandfathered_lifetime?: boolean } }).organizations;
+      const picked = pickActingOrganizationId(memberships ?? [], requestedOrgId);
+      if (picked.status) {
+        return new Response(JSON.stringify({ error: picked.error }), {
+          status: picked.status,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      lifetimeOrgId = picked.organizationId;
+      const membership = (memberships ?? []).find((row) => row.organization_id === lifetimeOrgId);
+      const org = (membership as { organizations?: { plan_type?: string; grandfathered_lifetime?: boolean } } | undefined)?.organizations;
       if (org?.grandfathered_lifetime || org?.plan_type === "lifetime") {
         return new Response(
           JSON.stringify({
@@ -110,16 +122,16 @@ serve(async (req) => {
           { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
+    }
 
-      const stripeForLookup = await createStripeClient(stripeKey, { organizationId: lifetimeOrgId, apiVersion: "2025-08-27.basil" });
-      const customers = await stripeForLookup.customers.list({
+    const stripe = await createStripeClient(stripeKey, { organizationId: lifetimeOrgId, apiVersion: "2025-08-27.basil" });
+    if (user) {
+      const customers = await stripe.customers.list({
         email: user.email,
         limit: 1,
       });
       customerId = customers.data[0]?.id;
     }
-
-    const stripe = await createStripeClient(stripeKey, { organizationId: lifetimeOrgId, apiVersion: "2025-08-27.basil" });
 
     const origin =
       req.headers.get("origin") ||

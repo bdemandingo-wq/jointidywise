@@ -76,6 +76,9 @@ export interface SendOrgEmailResult {
   method: "gmail_smtp" | "resend" | "none";
   fellBack?: boolean;
   error?: string;
+  /** Demo mode refused the send. Not a provider failure and not a 500. */
+  skipped?: boolean;
+  demo?: boolean;
 }
 
 /**
@@ -309,8 +312,7 @@ export async function sendOrgEmail(opts: SendOrgEmailOptions): Promise<SendOrgEm
     recipients: toArr(opts.to),
   });
   if (demoReason) {
-    const { DemoSendBlocked } = await import("./demo-guard.ts");
-    throw new DemoSendBlocked("email");
+    return { success: true, skipped: true, demo: true, id: "demo-skipped", method: "none" };
   }
   const settingsResult = await getOrgEmailSettings(opts.organizationId);
   if (!settingsResult.success || !settingsResult.settings) {

@@ -9,10 +9,10 @@ import {
   demoInvokeKind,
   demoRpcKind,
   isSilentDemoRpc,
-} from '@/lib/demo/blocklist';
-import { demoFunctionData } from '@/lib/demo/responses';
-import { blockedDemoQuery, demoQuery, setDemoBlockedHandler } from '@/lib/demo/query';
-import { isPublicDemoActive, isSampleDemoOn } from '@/lib/demo/session';
+} from './blocklist.ts';
+import { demoFunctionData } from './responses.ts';
+import { blockedDemoQuery, demoQuery, setDemoBlockedHandler } from './query.ts';
+import { isPublicDemoActive, isSampleDemoOn } from './session.ts';
 
 const PASSTHROUGH = new Set([
   'organizations',
@@ -95,8 +95,12 @@ export function installDemoGate(client: GateClient) {
   const realRpc = client.rpc.bind(client);
   const realChannel = client.channel.bind(client);
   const realRemove = client.removeChannel.bind(client);
-  const realInvoke = client.functions.invoke.bind(client.functions);
   const realStorageFrom = client.storage.from.bind(client.storage);
+  const functionsDescriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(client), 'functions');
+  const readFunctions = () => {
+    if (functionsDescriptor?.get) return functionsDescriptor.get.call(client) as GateClient['functions'];
+    return client.functions;
+  };
 
   client.from = (table: string) => {
     if (!isSampleDemoOn()) return realFrom(table);
@@ -133,8 +137,9 @@ export function installDemoGate(client: GateClient) {
     return realRemove(channel);
   }) as GateClient['removeChannel'];
 
-  client.functions.invoke = (async (name: string, options?: unknown) => {
-    if (!isSampleDemoOn()) return realInvoke(name, options);
+  const gatedInvoke = (async (name: string, options?: unknown) => {
+    const live = readFunctions();
+    if (!isSampleDemoOn()) return live.invoke(name, options);
     const kind = demoInvokeKind(name);
     if (kind === 'canned') return { data: demoFunctionData(name), error: null };
     if (kind === 'silent') return { data: null, error: { message: 'Disabled in demo mode' } };
@@ -143,8 +148,25 @@ export function installDemoGate(client: GateClient) {
       return { data: null, error: { message: 'Disabled in demo mode' } };
     }
     if (isPublicDemoActive()) return { data: null, error: null };
-    return realInvoke(name, options);
+    return live.invoke(name, options);
   }) as GateClient['functions']['invoke'];
+
+  // supabase-js 2.88 `functions` is a getter that returns a new client each
+  // time. Assigning `.invoke` on one instance never runs. Wrap every get.
+  Object.defineProperty(client, 'functions', {
+    configurable: true,
+    enumerable: true,
+    get() {
+      const live = readFunctions();
+      return new Proxy(live, {
+        get(target, prop, receiver) {
+          if (prop === 'invoke') return gatedInvoke;
+          const value = Reflect.get(target, prop, receiver);
+          return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+        },
+      });
+    },
+  });
 
   client.storage.from = (bucket: string) => {
     const api = realStorageFrom(bucket);

@@ -1768,7 +1768,7 @@ async function sendAdminNotification(
   console.log(`[stripe-invoice-webhook] Sending admin notification to ${PLATFORM_ADMIN_PHONE}`);
 
   const response = await sendOpenPhoneMessage( {
-      organizationId: organizationId,
+      organizationId: null,
     method: "POST",
     headers: {
       "Authorization": openphoneApiKey,

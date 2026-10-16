@@ -18,18 +18,13 @@ import {
 
 type Row = Record<string, unknown>;
 type QueryError = { message?: string } | null;
-type SingleResult = { data: Row | null; error: QueryError };
-type ListResult = { data: Row[] | null; error: QueryError };
 
-type Filter = PromiseLike<ListResult> & {
-  maybeSingle: () => Promise<SingleResult>;
-};
-
+// The real PostgREST builder is a thenable with a huge generic. Typing that
+// here makes `deno check` recurse until it gives up, so the client is `any`
+// at the boundary and the reads below narrow the rows.
 export type DemoLookup = {
   from: (table: string) => {
-    select: (columns: string) => {
-      eq: (column: string, value: string | boolean) => Filter;
-    };
+    select: (columns: string) => any;
   };
 };
 
@@ -108,31 +103,42 @@ export async function demoModeEnabledForOrg(
   }
 }
 
-type OrgIdQuery = {
-  from: (table: string) => {
-    select: (columns: string) => {
-      eq: (column: string, value: boolean) => Promise<{
-        data: { organization_id?: string | null }[] | null;
-        error: { message?: string } | null;
-      }>;
-    };
-  };
-};
-
-/** Orgs whose demo flag is on, plus the public preview id. */
-export async function listDemoModeOrgIds(supabase: OrgIdQuery): Promise<string[]> {
+/** Orgs that isDemoOrTest would block, plus the public preview id. */
+export async function listDemoModeOrgIds(supabase: DemoLookup): Promise<string[]> {
   const ids = new Set<string>([DEMO_ORG_ID]);
   try {
-    const { data, error } = await supabase
-      .from("organization_pricing_settings")
-      .select("organization_id")
-      .eq("demo_mode_enabled", true);
-    if (error) {
-      console.error("[demo-guard] demo org list failed", error.message ?? error);
+    const [flagsRes, orgsRes, profilesRes] = await Promise.all([
+      supabase.from("organization_pricing_settings").select("organization_id, demo_mode_enabled").eq("demo_mode_enabled", true),
+      supabase.from("organizations").select("id, name, slug, owner_id"),
+      supabase.from("profiles").select("id, email"),
+    ]);
+    if (flagsRes.error || orgsRes.error || profilesRes.error) {
+      console.error(
+        "[demo-guard] demo org list failed",
+        flagsRes.error?.message || orgsRes.error?.message || profilesRes.error?.message,
+      );
       return [...ids];
     }
-    for (const row of data ?? []) {
-      if (row.organization_id) ids.add(row.organization_id);
+    const flagged = new Set(
+      asRows(flagsRes.data).map((row) => text(row.organization_id)).filter((id): id is string => !!id),
+    );
+    const emails = new Map<string, string | null>();
+    for (const row of asRows(profilesRes.data)) {
+      const id = text(row.id);
+      if (id) emails.set(id, text(row.email));
+    }
+    for (const id of flagged) ids.add(id);
+    for (const row of asRows(orgsRes.data)) {
+      const id = text(row.id);
+      if (!id) continue;
+      const ownerId = text(row.owner_id);
+      if (isDemoOrTest({
+        organizationId: id,
+        demoModeEnabled: flagged.has(id),
+        name: text(row.name),
+        slug: text(row.slug),
+        ownerEmail: ownerId ? emails.get(ownerId) ?? null : null,
+      })) ids.add(id);
     }
   } catch (err) {
     console.error("[demo-guard] demo org list threw", err);

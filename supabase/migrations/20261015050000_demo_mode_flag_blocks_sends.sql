@@ -5,10 +5,10 @@
 -- turn demo mode back on from the dashboard.
 --
 -- is_demo_or_test is the classifier for demo and test organizations.
--- An active or past_due Stripe subscription whose plan is not Lifetime
--- is a paying customer and must never count as demo or test, even if
--- the name looks like a sandbox or demo mode was left on.
--- Lifetime (plan = 'lifetime') can still be demo. trialing is not enough.
+-- demo_mode_enabled wins even when the organization is paying. Turning
+-- the flag on blocks texts, email, payments, and edits. A name, slug,
+-- or owner email that looks like a sandbox still counts. Masking
+-- (tw-mask-names) is a separate device setting and is not this flag.
 
 UPDATE public.organization_pricing_settings
 SET demo_mode_enabled = false
@@ -34,16 +34,6 @@ BEGIN
   -- In-memory Harbor & Pine preview. Same id as DEMO_ORG_ID in the app.
   IF p_org_id = 'd00000de-0000-4000-8000-000000000001'::uuid THEN
     RETURN true;
-  END IF;
-
-  IF EXISTS (
-    SELECT 1
-    FROM public.stripe_subscriptions s
-    WHERE s.organization_id = p_org_id
-      AND lower(s.status) IN ('active', 'past_due')
-      AND lower(coalesce(s.plan, '')) <> 'lifetime'
-  ) THEN
-    RETURN false;
   END IF;
 
   SELECT coalesce(ops.demo_mode_enabled, false)

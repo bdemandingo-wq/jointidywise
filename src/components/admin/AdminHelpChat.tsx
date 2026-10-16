@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { demoAwareFetch } from "@/lib/demo/edgeFetch";
 import { useAuth } from "@/hooks/useAuth";
 import { useOrganization } from "@/contexts/OrganizationContext";
 
@@ -159,7 +160,7 @@ export default function AdminHelpChat() {
     let assistantSoFar = "";
 
     try {
-      const resp = await fetch(CHAT_URL, {
+      const resp = await demoAwareFetch(CHAT_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

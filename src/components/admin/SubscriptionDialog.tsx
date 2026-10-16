@@ -141,7 +141,9 @@ export function SubscriptionDialog({
     }
     setCheckingOut("lifetime");
     try {
-      const { data, error } = await supabase.functions.invoke("create-lifetime-checkout");
+      const { data, error } = await supabase.functions.invoke("create-lifetime-checkout", {
+        body: organizationId ? { organization_id: organizationId } : {},
+      });
       if (error) {
         if (await isAlreadyLifetimeError(error)) {
           toast.success(ALREADY_LIFETIME_MESSAGE);

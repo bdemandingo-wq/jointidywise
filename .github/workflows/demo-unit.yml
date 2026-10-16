@@ -15,3 +15,42 @@ jobs:
           node-version: 22
       - name: Demo, opt-out, and browser-gate tests
         run: npm run test:demo
+
+  deno:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: deno check demo-gated edge functions
+        run: |
+          set -euo pipefail
+          # These are the functions this change can break, including the
+          # invoice webhook whose admin alert used an out-of-scope id.
+          # A full-tree check is still red on older functions (for example
+          # openphone-webhook) for client-type errors that predate this PR.
+          files=(
+            supabase/functions/_shared/demo-org.ts
+            supabase/functions/_shared/demo-guard.ts
+            supabase/functions/_shared/send-org-email.ts
+            supabase/functions/stripe-invoice-webhook/index.ts
+            supabase/functions/stripe-subscription-webhook/index.ts
+            supabase/functions/buy-lifetime/index.ts
+            supabase/functions/create-lifetime-checkout/index.ts
+            supabase/functions/upgrade-now/index.ts
+            supabase/functions/change-subscription-plan/index.ts
+            supabase/functions/resume-subscription/index.ts
+            supabase/functions/customer-portal/index.ts
+            supabase/functions/delete-my-organization/index.ts
+            supabase/functions/create-stripe-invoice/index.ts
+            supabase/functions/send-invoice/index.ts
+            supabase/functions/process-campaign-queue/index.ts
+            supabase/functions/broadcast-dispatch/index.ts
+            supabase/functions/process-review-sms-queue/index.ts
+            supabase/functions/process-rebooking-reminders/index.ts
+            supabase/functions/process-recurring-offers/index.ts
+          )
+          for file in "${files[@]}"; do
+            deno check "$file"
+          done

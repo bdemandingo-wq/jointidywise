@@ -1,4 +1,5 @@
 import { createStripeClient } from "../_shared/stripe-client.ts";
+import { isDemoSendBlocked, pickActingOrganizationId, requestedOrganizationId } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
@@ -44,7 +45,31 @@ serve(async (req) => {
     if (!user?.email) throw new Error("User not authenticated or email not available");
     logStep("User authenticated", { userId: user.id, email: user.email });
 
-    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
+    let requestedOrgId: string | null = null;
+    try {
+      requestedOrgId = requestedOrganizationId(await req.json());
+    } catch {
+      requestedOrgId = null;
+    }
+    const { data: memberships, error: membershipError } = await supabaseClient
+      .from("org_memberships")
+      .select("organization_id")
+      .eq("user_id", user.id);
+    if (membershipError) {
+      return new Response(
+        JSON.stringify({ error: "Could not verify the organization before checkout." }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
+      );
+    }
+    const picked = pickActingOrganizationId(memberships ?? [], requestedOrgId);
+    if (picked.status) {
+      return new Response(JSON.stringify({ error: picked.error }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: picked.status,
+      });
+    }
+    const organizationId = picked.organizationId;
+    const stripe = await createStripeClient(stripeKey, { organizationId, apiVersion: "2025-08-27.basil" });
     const customers = await stripe.customers.list({ email: user.email, limit: 1 });
     if (customers.data.length === 0) {
       return new Response(JSON.stringify({
@@ -70,6 +95,12 @@ serve(async (req) => {
       status: 200,
     });
   } catch (error) {
+    if (isDemoSendBlocked(error)) {
+      return new Response(JSON.stringify({ success: false, skipped: true, reason: "demo_mode" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
     const errorMessage = error instanceof Error ? error.message : String(error);
     logStep("ERROR in customer-portal", { message: errorMessage });
     return new Response(JSON.stringify({ error: errorMessage }), {

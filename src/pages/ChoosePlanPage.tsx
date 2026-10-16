@@ -22,7 +22,7 @@ import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckou
 import { shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
 import { DemoModeBanner } from '@/components/admin/DemoModeBanner';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { isPublicDemoActive, isSampleDemoOn, subscribeDemoMode } from '@/lib/demo/session';
+import { endPublicDemo, isPublicDemoActive, isSampleDemoOn, subscribeDemoMode } from '@/lib/demo/session';
 import {
   hasAnswer,
   normalizeAnswers,
@@ -182,7 +182,8 @@ export default function ChoosePlanPage() {
   // Not logged in → login. Already has access → dashboard.
   // The public preview has no account; it still shows this paywall.
   useEffect(() => {
-    if (publicDemo) return;
+    if (publicDemo && !user) return;
+    if (user && isPublicDemoActive()) endPublicDemo();
     if (authLoading || subLoading) return;
     if (!user) {
       navigate('/login', { replace: true });
@@ -201,6 +202,10 @@ export default function ChoosePlanPage() {
   }, [authLoading, subLoading, user, hasFullAccess, upgradeRequested, navigate, publicDemo]);
 
   async function startCheckout(planId: PlanId) {
+    if (isSampleDemoOn()) {
+      toast('Disabled in demo mode');
+      return;
+    }
     if (isRedirectingRef.current || checkoutBusy) return;
     isRedirectingRef.current = true;
     setCheckoutBusy(planId);
@@ -231,7 +236,9 @@ export default function ChoosePlanPage() {
       // the last one went while this page was open. The billing interval is
       // meaningless for it and is not sent.
       const { data, error } = planId === 'lifetime'
-        ? await supabase.functions.invoke('buy-lifetime', { body: {} })
+        ? await supabase.functions.invoke('buy-lifetime', {
+            body: organization?.id ? { organization_id: organization.id } : {},
+          })
         : await supabase.functions.invoke('create-subscription', {
             body: {
               plan: planId,

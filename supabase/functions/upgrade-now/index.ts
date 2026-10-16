@@ -1,5 +1,5 @@
 import { createStripeClient } from "../_shared/stripe-client.ts";
-import { isDemoSendBlocked } from "../_shared/demo-org.ts";
+import { isDemoSendBlocked, pickActingOrganizationId, requestedOrganizationId } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -59,20 +59,31 @@ serve(async (req) => {
     if (!user?.email) throw new Error("User not authenticated or email not available");
     logStep("User authenticated", { userId: user.id, email: user.email });
 
-    const { data: membership, error: membershipError } = await supabaseClient
+    let requestedOrgId: string | null = null;
+    try {
+      requestedOrgId = requestedOrganizationId(await req.json());
+    } catch {
+      requestedOrgId = null;
+    }
+
+    const { data: memberships, error: membershipError } = await supabaseClient
       .from("org_memberships")
       .select("organization_id")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (membershipError || !membership?.organization_id) {
+      .eq("user_id", user.id);
+    if (membershipError) {
       return new Response(
         JSON.stringify({ error: "Could not verify the organization before checkout." }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
       );
     }
-    const organizationId = membership.organization_id as string;
+    const picked = pickActingOrganizationId(memberships ?? [], requestedOrgId);
+    if (picked.status) {
+      return new Response(JSON.stringify({ error: picked.error }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: picked.status,
+      });
+    }
+    const organizationId = picked.organizationId;
 
     const stripe = await createStripeClient(stripeKey, { organizationId, apiVersion: "2025-08-27.basil" });
 

@@ -3,8 +3,8 @@
  * They never call the network.
  */
 
-import { DEMO_ORG_ID } from '@/lib/demo/session';
-import { getDemoTables } from '@/lib/demo/dataset';
+import { DEMO_ORG_ID } from './session.ts';
+import { getDemoTables } from './dataset.ts';
 
 export function demoFunctionData(name: string): unknown | undefined {
   if (name === 'public-booking-data') {

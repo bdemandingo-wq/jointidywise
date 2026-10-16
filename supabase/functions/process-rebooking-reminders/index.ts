@@ -1,5 +1,5 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
-import { demoQueueDeferUntil, excludeOrgFilter, isDemoSendBlocked } from "../_shared/demo-org.ts";
+import { demoQueueDeferUntil, demoQueueHoldPlan, excludeOrgFilter, isDemoSendBlocked } from "../_shared/demo-org.ts";
 import { listDemoModeOrgIds } from "../_shared/demo-guard.ts";
 import {
   resolveTemplate,
@@ -43,7 +43,7 @@ const handler = async (req: Request): Promise<Response> => {
     while (processedTotal < MAX_PER_RUN) {
       let due = supabase
         .from("rebooking_reminder_queue")
-        .select("id, booking_id, customer_id, organization_id, defer_count, deferred_until")
+        .select("id, booking_id, customer_id, organization_id, defer_count, deferred_until, created_at")
         .eq("sent", false)
         .eq("cancelled", false)
         .lte("send_at", now)
@@ -289,8 +289,17 @@ const handler = async (req: Request): Promise<Response> => {
         console.log(`[process-rebooking-reminders] Sent rebooking reminder for booking ${item.booking_id} to ${formattedPhone}`);
       } catch (itemError: any) {
         if (isDemoSendBlocked(itemError)) {
+          if (demoQueueHoldPlan({ createdAt: item.created_at, deferCount: item.defer_count }) === "expire") {
+            const { error: expireErr } = await supabase.from("rebooking_reminder_queue")
+              .update({ sent: true, sent_at: now, error: "expired while demo mode was on" })
+              .eq("id", item.id);
+            if (expireErr) {
+              console.error(`[process-rebooking-reminders] failed to expire demo-blocked item ${item.id}:`, expireErr);
+            }
+            continue;
+          }
           const { error: deferErr } = await supabase.from("rebooking_reminder_queue")
-            .update({ deferred_until: demoQueueDeferUntil() })
+            .update({ deferred_until: demoQueueDeferUntil(), defer_count: (item.defer_count ?? 0) + 1 })
             .eq("id", item.id);
           if (deferErr) {
             console.error(`[process-rebooking-reminders] failed to defer demo-blocked item ${item.id}:`, deferErr);

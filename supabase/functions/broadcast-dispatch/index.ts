@@ -150,9 +150,14 @@ serve(async (req: Request) => {
         }
       } catch (err) {
         if (isDemoSendBlocked(err)) {
+          const attempts = r.attempts + 1;
           await supabase
             .from("broadcast_recipients")
-            .update({ status: "queued", updated_at: new Date().toISOString() })
+            .update(
+              attempts >= MAX_ATTEMPTS
+                ? { status: "failed", error_message: "demo_mode", updated_at: new Date().toISOString() }
+                : { status: "queued", updated_at: new Date().toISOString() },
+            )
             .eq("id", r.id);
           continue;
         }

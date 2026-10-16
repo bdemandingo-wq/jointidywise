@@ -1,5 +1,5 @@
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
-import { demoQueueDeferUntil, excludeOrgFilter, isDemoSendBlocked } from "../_shared/demo-org.ts";
+import { demoQueueDeferUntil, demoQueueHoldPlan, excludeOrgFilter, isDemoSendBlocked } from "../_shared/demo-org.ts";
 import { listDemoModeOrgIds } from "../_shared/demo-guard.ts";
 import {
   resolveTemplate,
@@ -41,7 +41,7 @@ serve(async (req: Request) => {
     while (processedTotal < MAX_PER_RUN) {
       let due = supabase
         .from("recurring_offer_queue")
-        .select("id, booking_id, customer_id, organization_id, defer_count, deferred_until")
+        .select("id, booking_id, customer_id, organization_id, defer_count, deferred_until, created_at")
         .eq("sent", false)
         .eq("cancelled", false)
         .lte("send_at", now)
@@ -301,8 +301,17 @@ serve(async (req: Request) => {
         console.log(`[process-recurring-offers] Sent recurring offer to customer ${item.customer_id} at ${formattedPhone}`);
       } catch (itemError: any) {
         if (isDemoSendBlocked(itemError)) {
+          if (demoQueueHoldPlan({ createdAt: item.created_at, deferCount: item.defer_count }) === "expire") {
+            const { error: expireErr } = await supabase.from("recurring_offer_queue")
+              .update({ sent: true, sent_at: now, error: "expired while demo mode was on" })
+              .eq("id", item.id);
+            if (expireErr) {
+              console.error(`[process-recurring-offers] failed to expire demo-blocked item ${item.id}:`, expireErr);
+            }
+            continue;
+          }
           const { error: deferErr } = await supabase.from("recurring_offer_queue")
-            .update({ deferred_until: demoQueueDeferUntil() })
+            .update({ deferred_until: demoQueueDeferUntil(), defer_count: (item.defer_count ?? 0) + 1 })
             .eq("id", item.id);
           if (deferErr) {
             console.error(`[process-recurring-offers] failed to defer demo-blocked item ${item.id}:`, deferErr);

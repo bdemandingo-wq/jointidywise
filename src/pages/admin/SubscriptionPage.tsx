@@ -64,7 +64,7 @@ export function SubscriptionPanel() {
     setResuming(true);
     try {
       const { data, error } = await supabase.functions.invoke("resume-subscription", {
-        body: {},
+        body: organization?.id ? { organization_id: organization.id } : {},
       });
       if (error) throw new Error(await readEdgeFunctionError(error, "Could not resume subscription"));
       if ((data as { error?: string } | null)?.error) throw new Error((data as { error?: string }).error);
@@ -82,7 +82,9 @@ export function SubscriptionPanel() {
   async function openBillingPortal() {
     setOpeningPortal(true);
     try {
-      const { data, error } = await supabase.functions.invoke("customer-portal", { body: {} });
+      const { data, error } = await supabase.functions.invoke("customer-portal", {
+        body: organization?.id ? { organization_id: organization.id } : {},
+      });
       if (error) {
         const body = await readEdgeFunctionErrorBody(error);
         if (body?.code === "no_customer") {

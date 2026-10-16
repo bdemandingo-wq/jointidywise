@@ -1,4 +1,5 @@
 import { createStripeClient } from "../_shared/stripe-client.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@18.5.0";
@@ -15,12 +16,12 @@ const corsHeaders = {
  * after the customer thinks they've cancelled.
  */
 async function cancelOrgStripeSubscriptions(
-  supabase: ReturnType<typeof createClient>,
+  supabase: { from: (table: string) => any },
   organizationId: string,
 ): Promise<string[]> {
   const stripeKey = billingSecretKey();
   if (!stripeKey) return [];
-  const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
+  const stripe = await createStripeClient(stripeKey, { organizationId, apiVersion: "2025-08-27.basil" });
   const cancelled: string[] = [];
   try {
     const { data: subs } = await supabase
@@ -145,6 +146,11 @@ serve(async (req) => {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
+    if (isDemoSendBlocked(e)) {
+      return new Response(JSON.stringify({ success: false, skipped: true, reason: "demo_mode" }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[delete-my-organization] error", msg);
     return new Response(JSON.stringify({ error: msg }), {

@@ -1,4 +1,5 @@
 import { createStripeClient } from "../_shared/stripe-client.ts";
+import { isDemoSendBlocked } from "../_shared/demo-org.ts";
 // Switch an existing Stripe subscription to a different tier.
 //
 //   mode = "upgrade"   → apply immediately with proration, charge now,
@@ -98,8 +99,6 @@ serve(async (req) => {
       );
     }
 
-    const stripe = await createStripeClient(stripeKey, { apiVersion: "2025-08-27.basil" });
-
     // Trialing / past_due subscriptions are still upgradable. Filtering on
     // status:"active" only meant trial users got a bare 400 on upgrade.
     const CHANGEABLE = ["active", "trialing", "past_due", "unpaid"];
@@ -112,23 +111,11 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
 
-    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
-    if (customers.data.length === 0) return noSub();
-    const customerId = customers.data[0].id;
-
-    const subs = await stripe.subscriptions.list({
-      customer: customerId,
-      status: "all",
-      limit: 20,
-    });
-    const subscription = subs.data.find((s) => CHANGEABLE.includes(s.status));
-    if (!subscription) return noSub();
-    const itemId = subscription.items.data[0].id;
-
     // Resolve WHICH organization this plan change applies to. A user can
     // belong to several orgs, so we never "guess" with maybeSingle() — that
     // returns null on multi-row and would silently skip the lifetime guard.
-    const requestedOrgId = (body as { organization_id?: string }).organization_id;
+    const requestedOrgId = (body as { organization_id?: string; organizationId?: string }).organization_id
+      ?? (body as { organizationId?: string }).organizationId;
 
     const { data: memberships, error: memErr } = await supabase
       .from("org_memberships")
@@ -176,6 +163,23 @@ serve(async (req) => {
       );
     }
 
+    const stripe = await createStripeClient(stripeKey, {
+      organizationId: membership.organization_id,
+      apiVersion: "2025-08-27.basil",
+    });
+
+    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+    if (customers.data.length === 0) return noSub();
+    const customerId = customers.data[0].id;
+
+    const subs = await stripe.subscriptions.list({
+      customer: customerId,
+      status: "all",
+      limit: 20,
+    });
+    const subscription = subs.data.find((s: { status: string }) => CHANGEABLE.includes(s.status));
+    if (!subscription) return noSub();
+    const itemId = subscription.items.data[0].id;
 
     // Resolve discount (optional)
     let promotionCodeId: string | undefined;
@@ -305,7 +309,7 @@ serve(async (req) => {
       proration_behavior: "none",
       phases: [
         {
-          items: currentPhase.items.map((i) => ({
+          items: currentPhase.items.map((i: { price: unknown; quantity?: number }) => ({
             price: i.price as string,
             quantity: i.quantity,
           })),
@@ -359,6 +363,12 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
+    if (isDemoSendBlocked(err)) {
+      return new Response(JSON.stringify({ success: false, skipped: true, reason: "demo_mode" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log("ERROR", { msg });
     return new Response(JSON.stringify({ error: msg }), {

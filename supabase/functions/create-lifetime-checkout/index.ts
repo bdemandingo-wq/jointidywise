@@ -1,5 +1,5 @@
 import { createStripeClient } from "../_shared/stripe-client.ts";
-import { isDemoSendBlocked } from "../_shared/demo-org.ts";
+import { isDemoSendBlocked, pickActingOrganizationId, requestedOrganizationId } from "../_shared/demo-org.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
@@ -41,7 +41,8 @@ serve(async (req) => {
     const { data: userData, error: userError } = await supabase.auth.getUser(token);
     if (userError || !userData.user?.email) throw new Error("User not authenticated");
     const user = userData.user;
-    logStep("User authenticated", { userId: user.id, email: user.email });
+    const email = user.email as string;
+    logStep("User authenticated", { userId: user.id, email: email });
 
     // Check spots remaining
     const { count, error: countError } = await supabase
@@ -62,7 +63,7 @@ serve(async (req) => {
     const { data: existingPurchase } = await supabase
       .from("lifetime_access_purchases")
       .select("id")
-      .eq("email", user.email.toLowerCase())
+      .eq("email", email.toLowerCase())
       .maybeSingle();
 
     if (existingPurchase) {
@@ -82,26 +83,37 @@ serve(async (req) => {
       );
     }
 
-    const { data: membership, error: membershipError } = await supabase
+    let requestedOrgId: string | null = null;
+    try {
+      requestedOrgId = requestedOrganizationId(await req.json());
+    } catch {
+      requestedOrgId = null;
+    }
+
+    const { data: memberships, error: membershipError } = await supabase
       .from("org_memberships")
       .select("organization_id")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (membershipError || !membership?.organization_id) {
+      .eq("user_id", user.id);
+    if (membershipError) {
       return new Response(
         JSON.stringify({ error: "Could not verify the organization before checkout." }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 503 },
       );
     }
-    const organizationId = membership.organization_id as string;
+    const picked = pickActingOrganizationId(memberships ?? [], requestedOrgId);
+    if (picked.status) {
+      return new Response(JSON.stringify({ error: picked.error }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: picked.status,
+      });
+    }
+    const organizationId = picked.organizationId;
 
     const stripe = await createStripeClient(stripeKey, { organizationId, apiVersion: "2025-08-27.basil" });
     const origin = req.headers.get("origin") || Deno.env.get("APP_URL") || "https://jointidywise.com";
 
     // Get or create Stripe customer
-    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+    const customers = await stripe.customers.list({ email: email, limit: 1 });
     const customerId = customers.data.length > 0 ? customers.data[0].id : undefined;
 
     const publishableKey = readPublishableKey();
@@ -116,7 +128,7 @@ serve(async (req) => {
 
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       customer: customerId,
-      customer_email: customerId ? undefined : user.email,
+      customer_email: customerId ? undefined : email,
       mode: "payment",
       ...embeddedCheckoutParams(origin),
       // Same dispute protection as buy-lifetime: always challenge the card.
@@ -125,13 +137,13 @@ serve(async (req) => {
       },
       metadata: {
         user_id: user.id,
-        email: user.email,
+        email: email,
         plan: "lifetime",
       },
       payment_intent_data: {
         metadata: {
           user_id: user.id,
-          email: user.email,
+          email: email,
           plan: "lifetime",
         },
       },

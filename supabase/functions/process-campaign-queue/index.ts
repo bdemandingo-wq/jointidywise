@@ -945,6 +945,14 @@ Deno.serve(async (req) => {
             run_id: run.id,
             customer_id: payload.customer_id,
           })
+          const attempts = attemptCount(msg) + 1
+          if (attempts >= MAX_RETRIES) {
+            await moveToDlq(supabase, msg, "skipped: demo_mode")
+            claimed.delete(msg.msg_id)
+          } else {
+            const requeued = await requeueWithAttempt(supabase, msg)
+            if (requeued) claimed.delete(msg.msg_id)
+          }
           continue
         }
         sendError = err instanceof Error ? err.message : String(err)

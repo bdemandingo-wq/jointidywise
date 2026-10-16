@@ -23,7 +23,9 @@ import {
   stripeClientBlockReason,
   batchSendErrorPlan,
   demoQueueDeferUntil,
+  demoQueueHoldPlan,
   excludeOrgFilter,
+  pickActingOrganizationId,
   DEMO_QUEUE_DEFER_MS,
 } from './demo-org.ts';
 
@@ -155,15 +157,18 @@ test('a skipped demo send is not recorded as sent', () => {
   assert.doesNotMatch(openphone, /status:\s*200/);
 });
 
-test('paying non-lifetime subscriptions are never demo or test', () => {
+test('the demo flag wins even when the organization is paying', () => {
   const paying = { status: 'active', plan: 'pro' };
-  assert.equal(isDemoOrTest({
+  const payingInput = {
     demoModeEnabled: true,
     name: 'Demo Cleaning',
     slug: 'demo-cleaning',
     ownerEmail: 'qa@tidywise1.com',
     subscriptions: [paying],
-  }), false);
+  };
+  assert.equal(isDemoOrTest(payingInput), true);
+  assert.equal(stripeClientBlockReason(payingInput), 'demo_mode_enabled');
+  assert.equal(demoSendBlockReason(payingInput), 'demo_mode_enabled');
   assert.equal(isDemoOrTest({
     name: 'Harbor Cleaning',
     subscriptions: [{ status: 'past_due', plan: null }],
@@ -183,23 +188,14 @@ test('paying non-lifetime subscriptions are never demo or test', () => {
     subscriptions: [],
   }), false);
   const migration = fs.readFileSync(
-    path.resolve(functionsRoot, '../migrations/20261015000000_demo_mode_off_and_paid_not_demo.sql'),
+    path.resolve(functionsRoot, '../migrations/20261015050000_demo_mode_flag_blocks_sends.sql'),
     'utf8',
   );
   assert.match(migration, /demo_mode_enabled = false/);
-  assert.match(migration, /status\) IN \('active', 'past_due'\)/);
-  assert.match(migration, /<> 'lifetime'/);
+  assert.doesNotMatch(migration, /status\) IN \('active', 'past_due'\)/);
+  assert.doesNotMatch(migration, /<> 'lifetime'/);
   assert.match(migration, /REVOKE ALL ON FUNCTION public\.is_demo_or_test/);
   assert.match(migration, /d00000de-0000-4000-8000-000000000001/);
-  const payingInput = {
-    demoModeEnabled: true,
-    name: 'Demo Cleaning',
-    slug: 'demo-cleaning',
-    ownerEmail: 'qa@tidywise1.com',
-    subscriptions: [paying],
-  };
-  assert.equal(stripeClientBlockReason(payingInput), null);
-  assert.equal(demoSendBlockReason(payingInput), null);
   assert.equal(isDemoOrTest({ organizationId: DEMO_ORG_ID, subscriptions: [paying] }), true);
   assert.equal(stripeClientBlockReason({ organizationId: DEMO_ORG_ID, subscriptions: [paying] }), 'demo_org');
   const flagged = {
@@ -217,6 +213,23 @@ test('paying non-lifetime subscriptions are never demo or test', () => {
   assert.equal(isDemoOrTest(named), true);
   assert.equal(stripeClientBlockReason(named), 'demo_org');
   assert.equal(demoSendBlockReason(named), 'demo_org');
+});
+
+test('checkout uses the acting organization and does not guess the oldest membership', () => {
+  assert.deepEqual(pickActingOrganizationId([], null), { organizationId: null });
+  assert.deepEqual(pickActingOrganizationId([{ organization_id: 'a' }], null), { organizationId: 'a' });
+  const ambiguous = pickActingOrganizationId([{ organization_id: 'a' }, { organization_id: 'b' }], null);
+  assert.equal(ambiguous.organizationId, null);
+  assert.equal(ambiguous.status, 400);
+  assert.equal(pickActingOrganizationId([{ organization_id: 'a' }, { organization_id: 'b' }], 'b').organizationId, 'b');
+  assert.equal(pickActingOrganizationId([{ organization_id: 'a' }], 'b').status, 403);
+});
+
+test('a demo-held queue row expires instead of sending weeks later', () => {
+  const now = Date.parse('2026-10-16T00:00:00.000Z');
+  assert.equal(demoQueueHoldPlan({ createdAt: '2026-10-15T00:00:00.000Z', deferCount: 0, now }), 'defer');
+  assert.equal(demoQueueHoldPlan({ createdAt: '2026-10-01T00:00:00.000Z', deferCount: 1, now }), 'expire');
+  assert.equal(demoQueueHoldPlan({ createdAt: '2026-10-15T00:00:00.000Z', deferCount: 7, now }), 'expire');
 });
 
 test('a phone suppression is written only for a real opt-out', () => {
@@ -381,9 +394,31 @@ test('demo check runs before Stripe objects and database writes', () => {
     const clientAt = text.indexOf('await createStripeClient');
     assert.ok(memberAt !== -1 && clientAt > memberAt, rel);
     assert.match(text, /await createStripeClient\([\s\S]{0,160}organizationId/, rel);
+    assert.match(text, /pickActingOrganizationId/);
+    assert.doesNotMatch(text, /\.order\("created_at"/);
     const sessionAt = text.indexOf('checkout.sessions.create');
     assert.ok(sessionAt > clientAt, rel);
   }
+  for (const rel of [
+    'change-subscription-plan/index.ts',
+    'resume-subscription/index.ts',
+    'customer-portal/index.ts',
+  ]) {
+    const text = fs.readFileSync(path.join(functionsRoot, rel), 'utf8');
+    const memberAt = text.indexOf('from("org_memberships")');
+    const clientAt = text.indexOf('await createStripeClient');
+    assert.ok(memberAt !== -1 && clientAt > memberAt, rel);
+    assert.match(text, /await createStripeClient\([\s\S]{0,200}organizationId/, rel);
+  }
+  const deleteOrg = fs.readFileSync(path.join(functionsRoot, 'delete-my-organization/index.ts'), 'utf8');
+  assert.match(deleteOrg, /createStripeClient\(stripeKey, \{ organizationId/);
+  const deleteMemberAt = deleteOrg.indexOf('from("org_memberships")');
+  const deleteCancelAt = deleteOrg.indexOf('await cancelOrgStripeSubscriptions');
+  assert.ok(deleteMemberAt !== -1 && deleteCancelAt > deleteMemberAt);
+  const invoice = fs.readFileSync(path.join(functionsRoot, 'create-stripe-invoice/index.ts'), 'utf8');
+  const invoiceSkip = invoice.indexOf('demoSendShouldSkip');
+  const invoiceClient = invoice.indexOf('await createStripeClient');
+  assert.ok(invoiceSkip !== -1 && invoiceSkip < invoiceClient);
 });
 
 test('Gmail SMTP is checked for demo mode before the client opens', () => {

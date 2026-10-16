@@ -161,7 +161,7 @@ serve(async (req) => {
         if (openphoneApiKey && openphonePhoneNumberId) {
           for (const phone of ADMIN_PHONES) {
             try {
-              const res = await sendOpenPhoneMessage( { organizationId: membership.organization_id,
+              const res = await sendOpenPhoneMessage( { organizationId: null,
                 method: "POST",
                 headers: {
                   Authorization: openphoneApiKey.trim().replace(/^Bearer\s+/i, ""),

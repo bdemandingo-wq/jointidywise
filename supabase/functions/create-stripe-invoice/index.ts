@@ -1,5 +1,6 @@
 import { createStripeClient } from "../_shared/stripe-client.ts";
 import { isDemoSendBlocked } from "../_shared/demo-org.ts";
+import { demoSendShouldSkip } from "../_shared/demo-guard.ts";
 import { sendOpenPhoneMessage } from "../_shared/send-openphone.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
@@ -98,6 +99,19 @@ const handler = async (req: Request): Promise<Response> => {
     // Determine send channels (default: both if not specified, for backward compat)
     const wantsEmail = data.sendEmail !== false;
     const wantsSms = data.sendSms !== false;
+
+    const skipReason = await demoSendShouldSkip({
+      channel: "stripe-invoice",
+      organizationId: data.organizationId,
+      recipients: [data.customerEmail, data.customerPhone],
+      supabase,
+    });
+    if (skipReason) {
+      return new Response(JSON.stringify({ skipped: true, reason: "demo_mode" }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const stripe = await createStripeClient(stripeApiKey, { organizationId: data.organizationId, apiVersion: "2025-08-27.basil" });
 
@@ -290,6 +304,12 @@ const handler = async (req: Request): Promise<Response> => {
           );
         }
       } catch (smsError: any) {
+        if (isDemoSendBlocked(smsError)) {
+          return new Response(JSON.stringify({ skipped: true, reason: "demo_mode" }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
         console.error("Failed to send invoice SMS:", smsError);
         return new Response(
           JSON.stringify({ error: `Failed to send SMS: ${smsError?.message || smsError}` }),

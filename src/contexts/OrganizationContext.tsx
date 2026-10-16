@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useMemo, useRef, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, useRef, useEffect, ReactNode } from 'react';
 import { useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
@@ -20,6 +20,7 @@ import {
 } from '@/lib/startupCache';
 import {
   demoOrganization,
+  endPublicDemo,
   isPublicDemoActive,
   publicDemoMembership,
   subscribeDemoMode,
@@ -76,6 +77,9 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth();
   const publicDemo = useSyncExternalStore(subscribeDemoMode, isPublicDemoActive, () => false);
   const userId = user?.id ?? null;
+  useEffect(() => {
+    if (userId && isPublicDemoActive()) endPublicDemo();
+  }, [userId]);
   const cached = userId ? readStartupSection<OrgBundle>(userId, 'org') : null;
 
   const query = useQuery({

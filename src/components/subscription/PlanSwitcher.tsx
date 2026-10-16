@@ -191,7 +191,9 @@ export function PlanSwitcher() {
   async function openPortal() {
     setCheckoutBusy("portal");
     try {
-      const { data, error } = await supabase.functions.invoke("customer-portal", { body: {} });
+      const { data, error } = await supabase.functions.invoke("customer-portal", {
+        body: organizationId ? { organization_id: organizationId } : {},
+      });
       if (error) {
         const body = await readEdgeFunctionErrorBody(error);
         if (body?.code === "no_customer") {
