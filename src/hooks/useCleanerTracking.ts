@@ -96,17 +96,25 @@ const ARRIVAL_THRESHOLD_METERS = 100;
 const MIN_WRITE_INTERVAL_MS = 8_000; // throttle DB writes to ≤ 1 per 8 s
 
 /** Best-effort. The column arrives with a migration that is not applied by publishing the app. */
-async function markNativeBackgroundHeartbeat(trackingId: string | null) {
+async function writeNativeBackground(trackingId: string | null, enabled: boolean) {
   if (!trackingId) return;
   const { error } = await supabase
     .from('cleaner_location_tracking')
-    .update({ native_background: true } as never)
+    .update({ native_background: enabled } as never)
     .eq('id', trackingId)
     .eq('is_active', true);
   if (!error) return;
   const code = (error as { code?: string }).code;
   if (code === '42703' || code === 'PGRST204') return;
   console.warn('[GPS] could not mark native heartbeat', error);
+}
+
+function markNativeBackgroundHeartbeat(trackingId: string | null) {
+  return writeNativeBackground(trackingId, true);
+}
+
+function clearNativeBackgroundHeartbeat(trackingId: string | null) {
+  return writeNativeBackground(trackingId, false);
 }
 
 function trackingStartedAtMs(createdAt: unknown): number {
@@ -450,37 +458,20 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       const transition = beginTripWatch(sessionRef.current, 'foreground');
       sessionRef.current = transition.session;
       setBackgroundSharing(false);
+      // Always was downgraded to While Using. This row no longer heartbeats
+      // while the phone is locked, so the 15 minute reaper must not close it.
+      void clearNativeBackgroundHeartbeat(trackingIdRef.current);
       if (transition.stopBackground) {
         void releaseBackgroundWatcher().finally(() => { void startForegroundWatch(); });
       }
-    }, (reason, sms, watcher) => {
+    }, (reason, sms) => {
       if (reason === 'arrived') {
         // Native calls send-arrival-sms and leaves the watcher running until
         // that call succeeds. Retry from JS only when it failed. A second
-        // success is claimed by the reminder row. If native had already
-        // stopped (watcher "stopped") and the retry also fails, drop the
-        // JS session so the next On My Way can start. Do not write
-        // arrived_at or close the row on that failure.
+        // success is claimed by the reminder row. A failed send does not
+        // write arrived_at. 409 is in-flight and does not toast.
         if (sms === 'failed') {
-          void (async () => {
-            const result = await fireArrival('native');
-            const payload = result.data as { success?: boolean } | null;
-            const sendFailed = Boolean(result.error) || payload?.success === false;
-            if (!sendFailed || watcher !== 'stopped') return;
-            // The native watcher is already gone and the text did not send.
-            // Reset this session so another On My Way can start. Leave the
-            // tracking row active: a failed send does not write arrived_at.
-            setBackgroundSharing(false);
-            setIsTracking(false);
-            arrivedRef.current = false;
-            setHasArrived(false);
-            if (wakeLockRef.current) {
-              try { await wakeLockRef.current.release(); } catch { /* already released */ }
-              wakeLockRef.current = null;
-            }
-            clearBrowserWatch();
-            await releaseBackgroundWatcher();
-          })();
+          void fireArrival('native');
           return;
         }
         arrivedRef.current = true;
@@ -504,7 +495,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     });
     backgroundTokenRef.current = token;
     void markNativeBackgroundHeartbeat(trackingIdRef.current);
-  }, [bookingId, staffId, clearBrowserWatch, fireArrival, releaseBackgroundWatcher, startForegroundWatch]);
+  }, [bookingId, staffId, fireArrival, releaseBackgroundWatcher, startForegroundWatch]);
 
   const startWatch = useCallback(async () => {
     if (watchModeRef.current === 'background') {
@@ -530,6 +521,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       const transition = beginTripWatch(sessionRef.current, 'foreground');
       sessionRef.current = transition.session;
       if (transition.stopBackground) {
+        void clearNativeBackgroundHeartbeat(trackingIdRef.current);
         try { await releaseBackgroundWatcher(); } catch { /* ignore */ }
       }
       setBackgroundSharing(false);

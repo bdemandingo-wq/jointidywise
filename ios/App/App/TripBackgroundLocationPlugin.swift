@@ -660,7 +660,16 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
             stopForDeadline()
             return
         }
-        if !nativeWriteInFlight, let location = lastKnownFix {
+        // A parked phone stops delivering fixes, so a failed arrival text
+        // would never retry. The heartbeat still runs. Once the retry gap
+        // has passed, try again from the last point inside the radius.
+        if let location = lastKnownFix,
+           withinArrivalRadius(location),
+           let arrivalRetryNotBefore,
+           Date() >= arrivalRetryNotBefore {
+            handleArrival(location)
+        }
+        if updating, !nativeWriteInFlight, let location = lastKnownFix {
             writeCoordinate(location, recordedAt: iso8601(Date()), heartbeat: true)
         }
         // A stop during the write cancels the timer. Don't schedule a new one.
@@ -744,10 +753,10 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
                 }
                 return
             }
-            self.sendArrivalSms(url: url, anonKey: anon, token: token, bookingId: booking, staffId: staff) { sent in
+            self.sendArrivalSms(url: url, anonKey: anon, token: token, bookingId: booking, staffId: staff) { outcome in
                 DispatchQueue.main.async {
                     guard epoch == self.watchEpoch else { return }
-                    if sent && self.updating {
+                    if outcome == .sent && self.updating {
                         let recordedAt = self.iso8601(Date())
                         self.stopUpdating()
                         self.patchArrival(
@@ -761,6 +770,13 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
                             allowRefresh: true
                         )
                         self.emitArrival(epoch: epoch, trackingId: rowId, sms: "sent", watcher: "stopped")
+                        return
+                    }
+                    // 409 means another send holds the claim. Sharing stays
+                    // up, and this does not look like a failed text.
+                    if outcome == .inFlight && self.updating {
+                        self.arrivalInFlight = false
+                        self.arrivalRetryNotBefore = Date().addingTimeInterval(self.arrivalRetryDelay)
                         return
                     }
                     guard self.updating else {
@@ -832,10 +848,10 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         bookingId: String,
         staffId: String,
         allowRefresh: Bool = true,
-        completion: @escaping (Bool) -> Void
+        completion: @escaping (ArrivalSmsOutcome) -> Void
     ) {
         guard let endpoint = URL(string: "\(url)/functions/v1/send-arrival-sms") else {
-            completion(false)
+            completion(.failed)
             return
         }
         var request = URLRequest(url: endpoint)
@@ -852,12 +868,12 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401 && allowRefresh {
                 guard let self else {
-                    completion(false)
+                    completion(.failed)
                     return
                 }
                 self.accessToken(url: url, anonKey: anonKey, forceRefresh: true) { refreshed in
                     guard let refreshed else {
-                        completion(false)
+                        completion(.failed)
                         return
                     }
                     self.sendArrivalSms(
@@ -872,6 +888,10 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
                 }
                 return
             }
+            if status == 409 {
+                completion(.inFlight)
+                return
+            }
             var success = false
             if let data,
                let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -880,8 +900,14 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
             }
             // A 2xx body with success false (or no body) did not send.
             // Stopping the trip on that response would end sharing early.
-            completion((200..<300).contains(status) && success)
+            completion((200..<300).contains(status) && success ? .sent : .failed)
         }.resume()
+    }
+
+    private enum ArrivalSmsOutcome {
+        case sent
+        case inFlight
+        case failed
     }
 
     private func emitArrival(epoch: Int, trackingId: String, sms: String, watcher: String) {

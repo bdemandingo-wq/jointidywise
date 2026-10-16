@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { nextArrivalErrorToast, runArrivalAttempt, type ArrivalSendResult, type ArrivalStatusRead } from './arrivalAttempt.ts';
+import { isArrivalInFlight, nextArrivalErrorToast, runArrivalAttempt, type ArrivalSendResult, type ArrivalStatusRead } from './arrivalAttempt.ts';
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => {};
@@ -148,6 +148,41 @@ test('a successful send stops the watch after the notice', async () => {
     },
   });
   assert.deepEqual(events, ['send', 'stop-arrived']);
+});
+
+test('a 409 in-flight send does not toast or stop the watch', async () => {
+  const claim = { current: false };
+  let watchRunning = true;
+  let failedNotices = 0;
+  let released = 0;
+  const result = await runArrivalAttempt(claim, {
+    onClaimed: () => {},
+    onReleased: () => {
+      released += 1;
+    },
+    onSendFailed: () => {
+      failedNotices += 1;
+    },
+    readStatus: async () => ({ status: 'confirmed', failed: false }),
+    stopWatch: async () => {
+      watchRunning = false;
+    },
+    send: async () => ({
+      data: { success: false, error: 'Arrival send already in progress' },
+      error: { name: 'FunctionsHttpError', context: { status: 409 } },
+    }),
+  });
+
+  assert.equal(isArrivalInFlight(result), true);
+  assert.equal(isArrivalInFlight({
+    data: null,
+    error: { context: { status: 409 } },
+  }), true);
+  assert.equal(isArrivalInFlight({ data: { success: false }, error: { message: 'sms failed' } }), false);
+  assert.equal(watchRunning, true);
+  assert.equal(failedNotices, 0);
+  assert.equal(released, 1);
+  assert.equal(claim.current, false);
 });
 
 test('an arrival failure streak toasts once until a success', () => {
