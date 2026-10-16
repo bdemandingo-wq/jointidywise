@@ -55,7 +55,6 @@ import { StaffPhoneVisibilityCard } from '@/components/admin/StaffPhoneVisibilit
 import { YourProfileCard } from '@/components/admin/YourProfileCard';
 import { SubscriptionPanel } from '@/pages/admin/SubscriptionPage';
 import { useOrgRole } from '@/hooks/useOrgRole';
-import { usePlatform } from '@/hooks/usePlatform';
 import { DemoModeSettingsCard } from '@/components/admin/DemoModeSettingsCard';
 import { MobileBottomNavSettings } from '@/components/admin/MobileBottomNavSettings';
 import { BookingFormShareCard } from '@/components/admin/BookingFormShareCard';
@@ -305,7 +304,6 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const { organization, refetch: refetchOrganization } = useOrganization();
   const { hasFinancialAccess, loading: roleLoading } = useOrgRole();
-  const { canShowPaymentFlows } = usePlatform();
   const [settings, setSettings] = useState<BusinessSettings>(defaultSettings);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
@@ -667,19 +665,19 @@ export default function SettingsPage() {
     >
       <div className="portal-v2">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        {/* Prominent Subscription / Billing entry — the Subscription tab
-            below can scroll off the right edge when there are many tabs,
-            making it easy to miss. This row keeps it always visible. */}
+        {/* Prominent Plan & billing entry — the tab below can scroll off
+            the right edge when there are many tabs, making it easy to miss.
+            This row keeps it always visible. */}
         {showBilling && (
         <div className="flex items-center justify-between gap-3 rounded-lg border bg-card p-4">
           <div className="min-w-0 flex-1">
-            <p className="font-medium truncate">Subscription &amp; billing</p>
+            <p className="font-medium truncate">Plan &amp; billing</p>
             <p className="text-sm text-muted-foreground">
-              Update your payment method, change plan, or view invoices.
+              Your current plan, trial, and invoices.
             </p>
           </div>
-          <Button size="sm" variant="premium" className="shrink-0" onClick={() => setActiveTab('subscription')}>
-            Manage
+          <Button variant="outline" className="h-11 min-h-[44px] shrink-0 px-4 md:h-11" onClick={() => setActiveTab('subscription')}>
+            View
           </Button>
         </div>
         )}
@@ -718,7 +716,7 @@ export default function SettingsPage() {
             <TabsTrigger className="shrink-0 min-h-11" value="refer">Refer & earn</TabsTrigger>
             {showBilling && (
               <TabsTrigger className="shrink-0 min-h-11" value="subscription">
-                Subscription
+                Plan &amp; billing
               </TabsTrigger>
             )}
             <TabsTrigger className="shrink-0 min-h-11" value="team">Team</TabsTrigger>
@@ -741,18 +739,7 @@ export default function SettingsPage() {
 
         {showBilling && (
           <TabsContent value="subscription" className="space-y-6">
-            {canShowPaymentFlows ? (
-              <SubscriptionPanel />
-            ) : (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Subscription</CardTitle>
-                  <CardDescription>
-                    Plans and billing are managed in a browser at jointidywise.com.
-                  </CardDescription>
-                </CardHeader>
-              </Card>
-            )}
+            <SubscriptionPanel />
           </TabsContent>
         )}
 

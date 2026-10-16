@@ -18,10 +18,12 @@ import { RedeemAccessCodeCard } from "@/components/subscription/RedeemAccessCode
 import { StripeModeBadge } from "@/components/subscription/StripeModeBadge";
 import { readEdgeFunctionError, readEdgeFunctionErrorBody } from "@/lib/edgeFunctionError";
 import { billingNextStep, hasChangeableStripeSubscription, isActiveOrgTrial } from "@/lib/stripeMode";
+import { usePlatform } from "@/hooks/usePlatform";
 
 export function SubscriptionPanel() {
   const { subscription, checkSubscription } = useAuth();
   const { organization } = useOrganization();
+  const { canShowPaymentFlows } = usePlatform();
   const navigate = useNavigate();
   const [cancelOpen, setCancelOpen] = useState(false);
   const [resuming, setResuming] = useState(false);
@@ -61,6 +63,7 @@ export function SubscriptionPanel() {
   }, [organization?.id]);
 
   async function resumeEarly() {
+    if (!canShowPaymentFlows) return;
     setResuming(true);
     try {
       const { data, error } = await supabase.functions.invoke("resume-subscription", {
@@ -80,6 +83,7 @@ export function SubscriptionPanel() {
   }
 
   async function openBillingPortal() {
+    if (!canShowPaymentFlows || nextStep !== "portal") return;
     setOpeningPortal(true);
     try {
       const { data, error } = await supabase.functions.invoke("customer-portal", { body: {} });
@@ -117,10 +121,35 @@ export function SubscriptionPanel() {
 
   return (
     <>
-      <div className="mx-auto max-w-2xl space-y-4">
+      <div className="mx-auto max-w-2xl space-y-4" id="plan-billing">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Plan &amp; billing</h2>
+            {!canShowPaymentFlows && (
+              <p className="text-sm text-muted-foreground">
+                Plans and billing are managed in a browser at jointidywise.com.
+              </p>
+            )}
+          </div>
+          {canShowPaymentFlows && nextStep === "portal" && (
+            <Button
+              variant="outline"
+              onClick={() => void openBillingPortal()}
+              disabled={openingPortal}
+              className="h-11 min-h-[44px] w-full px-4 md:h-11 sm:w-auto"
+            >
+              {openingPortal ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <CreditCard className="mr-1 h-4 w-4" />
+              )}
+              Manage billing
+            </Button>
+          )}
+        </div>
         <StripeModeBadge />
         <PlanSwitcher />
-        <RedeemAccessCodeCard />
+        {canShowPaymentFlows && <RedeemAccessCodeCard />}
 
         <Card>
           <CardHeader>
@@ -152,11 +181,12 @@ export function SubscriptionPanel() {
                 <LoyaltyPriceSummary state={loyalty} />
 
                 <div className="flex flex-wrap gap-2">
-                  {showResume && (
+                  {canShowPaymentFlows && showResume && (
                     <Button
                       variant="outline"
                       onClick={resumeEarly}
                       disabled={resuming}
+                      className="h-11 min-h-[44px] md:h-11"
                     >
                       {resuming ? (
                         <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -166,30 +196,17 @@ export function SubscriptionPanel() {
                       Resume now
                     </Button>
                   )}
-                  {nextStep === "portal" && !onTrial ? (
-                    <Button
-                      variant="outline"
-                      onClick={openBillingPortal}
-                      disabled={openingPortal}
-                    >
-                      {openingPortal ? (
-                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                      ) : (
-                        <CreditCard className="mr-1 h-4 w-4" />
-                      )}
-                      Update payment method
-                    </Button>
-                  ) : nextStep === "checkout" ? (
-                    <Button variant="premium" onClick={() => navigate("/choose-plan?upgrade=1")}>
+                  {canShowPaymentFlows && nextStep === "checkout" ? (
+                    <Button variant="premium" className="h-11 min-h-[44px] md:h-11" onClick={() => navigate("/choose-plan?upgrade=1")}>
                       <CreditCard className="mr-1 h-4 w-4" />
                       Choose a plan
                     </Button>
                   ) : null}
-                  {showPauseOrCancel && (
+                  {canShowPaymentFlows && showPauseOrCancel && (
                     <Button
                       variant="ghost"
                       onClick={() => setCancelOpen(true)}
-                      className="text-muted-foreground"
+                      className="h-11 min-h-[44px] text-muted-foreground md:h-11"
                     >
                       <PauseCircle className="mr-1 h-4 w-4" />
                       Pause or cancel
@@ -208,17 +225,8 @@ export function SubscriptionPanel() {
                         ? "This account's access is comped. There is no card on file to update."
                         : "There is no card on file yet. Choose a plan and Stripe Checkout will collect it. Nothing is charged until you finish that page."}
                 </p>
-                {nextStep === "portal" ? (
-                  <Button onClick={openBillingPortal} disabled={openingPortal}>
-                    {openingPortal ? (
-                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                    ) : (
-                      <CreditCard className="mr-1 h-4 w-4" />
-                    )}
-                    Update payment method
-                  </Button>
-                ) : nextStep === "checkout" ? (
-                  <Button variant="premium" onClick={() => navigate("/choose-plan?upgrade=1")}>
+                {canShowPaymentFlows && nextStep === "checkout" ? (
+                  <Button variant="premium" className="h-11 min-h-[44px] md:h-11" onClick={() => navigate("/choose-plan?upgrade=1")}>
                     <CreditCard className="mr-1 h-4 w-4" />
                     Choose a plan
                   </Button>

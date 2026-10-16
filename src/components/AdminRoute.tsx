@@ -4,7 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { useAuth } from '@/hooks/useAuth';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useSubscription } from '@/hooks/useSubscription';
-import { subscriptionRenderGate } from '@/lib/dashboardAccess';
+import { billingPaywallPath, dashboardHomeKeepsExpiredTrial, subscriptionRenderGate } from '@/lib/dashboardAccess';
 import { Loader2 } from 'lucide-react';
 
 interface AdminRouteProps {
@@ -157,22 +157,24 @@ export function AdminRoute({ children }: AdminRouteProps) {
   // On native, always send to /dashboard/subscription (the trial-expired
   // wall). On web, existing customers go to /dashboard/subscription to
   // update their card; new users go to /choose-plan to pick a plan.
-  const isExistingCustomer =
-    !!subscription?.payment_failed ||
-    !!subscription?.subscription_end ||
-    (!!subscription?.product_id && subscription.product_id !== 'org_trial');
+  const paywallDestination = billingPaywallPath({
+    native: Capacitor.isNativePlatform(),
+    paymentFailed: subscription?.payment_failed,
+    subscriptionEnd: subscription?.subscription_end,
+    productId: subscription?.product_id,
+  });
 
-  const paywallDestination = Capacitor.isNativePlatform()
-    ? '/dashboard/subscription'
-    : isExistingCustomer ? '/dashboard/subscription' : '/choose-plan';
+  // The dashboard home stays put so an expired trial sees the upgrade nudge.
+  // Every other admin route still leaves for the paywall.
+  const keepDashboardHome = dashboardHomeKeepsExpiredTrial(location.pathname);
 
   // Imperative one-shot redirect, keyed on pathname.
   useEffect(() => {
-    if (!needsPaywallRedirect) return;
+    if (!needsPaywallRedirect || keepDashboardHome) return;
     if (paywallRedirectRef.current === location.pathname) return;
     paywallRedirectRef.current = location.pathname;
     navigate(paywallDestination, { replace: true, state: { from: location.pathname } });
-  }, [needsPaywallRedirect, location.pathname, navigate, paywallDestination]);
+  }, [needsPaywallRedirect, keepDashboardHome, location.pathname, navigate, paywallDestination]);
 
 
   // Auth has to resolve before we know whose cache to trust. Org and billing
@@ -307,7 +309,7 @@ export function AdminRoute({ children }: AdminRouteProps) {
     );
   }
 
-  if (needsPaywallRedirect) {
+  if (needsPaywallRedirect && !keepDashboardHome) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

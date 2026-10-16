@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { hasPaidDashboardAccess, subscriptionRenderGate } from "./dashboardAccess.ts";
+import { billingPaywallPath, dashboardHomeKeepsExpiredTrial, hasPaidDashboardAccess, subscriptionRenderGate } from "./dashboardAccess.ts";
 
 test("a card-free org trial opens the dashboard", () => {
   assert.equal(
@@ -97,6 +97,31 @@ test("a failed check with nothing cached stays locked", () => {
     subscriptionRenderGate({ paywallAllowed: false, hasSubscription: false, check: "error" }),
     "error",
   );
+});
+
+test("the paywall path matches the native and existing-customer rules", () => {
+  assert.equal(billingPaywallPath({ native: true }), "/dashboard/subscription");
+  assert.equal(
+    billingPaywallPath({ native: false, productId: "prod_example" }),
+    "/dashboard/subscription",
+  );
+  assert.equal(
+    billingPaywallPath({ native: false, productId: "org_trial" }),
+    "/choose-plan",
+  );
+  assert.equal(billingPaywallPath({ native: false, productId: null }), "/choose-plan");
+  assert.equal(
+    billingPaywallPath({ native: false, paymentFailed: true }),
+    "/dashboard/subscription",
+  );
+});
+
+test("an expired trial stays on the dashboard home and leaves every other route", () => {
+  assert.equal(dashboardHomeKeepsExpiredTrial("/dashboard"), true);
+  assert.equal(dashboardHomeKeepsExpiredTrial("/dashboard/"), true);
+  assert.equal(dashboardHomeKeepsExpiredTrial("/dashboard/bookings"), false);
+  assert.equal(dashboardHomeKeepsExpiredTrial("/dashboard/settings"), false);
+  assert.equal(dashboardHomeKeepsExpiredTrial("/choose-plan"), false);
 });
 
 test("billing pages stay reachable while the check is unknown", () => {
