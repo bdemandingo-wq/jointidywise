@@ -9,7 +9,12 @@ import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
 import { nextArrivalErrorToast, runArrivalAttempt } from '@/lib/arrivalAttempt';
 import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
 import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
-import { readAlwaysExplainerDeclined, rememberAlwaysExplainerDeclined } from '@/lib/alwaysLocationPrompt';
+import {
+  readAlwaysExplainerDeclined,
+  readAlwaysLocationRequested,
+  rememberAlwaysExplainerDeclined,
+  rememberAlwaysLocationRequested,
+} from '@/lib/alwaysLocationPrompt';
 import { SUPABASE_PUBLIC_ANON_KEY, SUPABASE_PUBLIC_URL } from '@/lib/supabasePublicEnv';
 import {
   readTripLocationAuth,
@@ -217,6 +222,9 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     }
     if (!trackingIdRef.current) return;
     if (Capacitor.getPlatform() === 'web' && !webShareShouldReadGeolocation(webSharePhaseRef.current)) return;
+    // Arrival is not on the 8 second write throttle. A fix inside the
+    // geofence stops the trip even when the last coordinate write was recent.
+    void checkArrival(latitude, longitude);
     const now = Date.now();
     if (now - lastWriteRef.current < MIN_WRITE_INTERVAL_MS) return;
     lastWriteRef.current = now;
@@ -231,8 +239,6 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       if (error.code === '42501') void stopTrackingRef.current('consent_revoked');
       return;
     }
-
-    void checkArrival(latitude, longitude);
   }, [checkArrival]);
 
   writePositionRef.current = writePosition;
@@ -512,6 +518,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
           requestAlways: requestTripAlwaysAuthorization,
           explainerDeclined: await readAlwaysExplainerDeclined(),
           rememberDecline: rememberAlwaysExplainerDeclined,
+          alwaysRequested: await readAlwaysLocationRequested(),
+          rememberRequested: rememberAlwaysLocationRequested,
         });
         if (mode === 'none') return { ok: false, reason: 'os_denied' };
         watchModeRef.current = mode;
@@ -637,7 +645,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       }
       return { ok: false, reason: 'unavailable' };
     }
-  }, [bookingId, staffId, organizationId, destinationAddress, destinationLat, destinationLng, orgCountry, checkArrival, startWatch, acquireWakeLock]);
+  }, [bookingId, staffId, organizationId, destinationAddress, destinationLat, destinationLng, orgCountry, checkArrival, startWatch, acquireWakeLock, stopTracking]);
 
   // Re-acquire wake lock when app comes back to foreground
   useEffect(() => {

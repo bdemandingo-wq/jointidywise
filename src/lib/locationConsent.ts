@@ -21,7 +21,7 @@ export const LOCATION_CONSENT_COPY =
 
 /** NSLocationAlwaysAndWhenInUseUsageDescription. Legal wording, used exactly. */
 export const IOS_ALWAYS_LOCATION_USAGE_DESCRIPTION =
-  "TidyWise shares your location with your business and its customer only during an On My Way trip, including when the app is closed or your phone is locked, so they know when you'll arrive. It stops when you arrive or the job starts. Location is also recorded when you clock in or out and take job photos.";
+  "TidyWise shares your location with your business and its customer only during an On My Way trip, including when the app is closed or your phone is locked, so they know when you'll arrive. It stops when you arrive, the job starts, the job ends, or after 3 hours. Location is also recorded when you clock in or out and take job photos.";
 
 /**
  * NSLocationWhenInUseUsageDescription. Same trip, recipients, stop, and
@@ -29,7 +29,7 @@ export const IOS_ALWAYS_LOCATION_USAGE_DESCRIPTION =
  * sharing continues while the app is closed.
  */
 export const IOS_WHEN_IN_USE_LOCATION_USAGE_DESCRIPTION =
-  "TidyWise shares your location with your business and its customer only during an On My Way trip, so they know when you'll arrive. It stops when you arrive or the job starts. Location is also recorded when you clock in or out and take job photos.";
+  "TidyWise shares your location with your business and its customer only during an On My Way trip, so they know when you'll arrive. It stops when you arrive, the job starts, the job ends, or after 3 hours. Location is also recorded when you clock in or out and take job photos.";
 
 /** System prompt copy. Shipped in Info.plist; a new iOS build is required. */
 export const PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION = IOS_ALWAYS_LOCATION_USAGE_DESCRIPTION;

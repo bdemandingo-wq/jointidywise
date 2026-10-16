@@ -65,8 +65,10 @@ test('Always is requested only on iOS after the explainer, and While Using stays
   assert.equal(ALWAYS_LOCATION_EXPLAINER_HEADING, 'Keep sharing while your phone is locked?');
   assert.equal(
     ALWAYS_LOCATION_EXPLAINER_BODY,
-    "To keep your customer updated, TidyWise can share your location during On My Way even if the app is closed or your phone is locked. It only runs during a trip and stops when you arrive. You'll see a blue location indicator while it's on.",
+    "To keep your customer updated, TidyWise can share your location during On My Way even if the app is closed or your phone is locked. It only runs during a trip and stops when you arrive, the job starts, the job ends, or after 3 hours. You'll see a blue location indicator while it's on.",
   );
+  assert.match(ALWAYS_LOCATION_EXPLAINER_BODY, /job ends/);
+  assert.match(ALWAYS_LOCATION_EXPLAINER_BODY, /3 hours/);
   assert.equal(TRIP_MAX_DURATION_MS, 3 * 60 * 60 * 1000);
   assert.equal(tripTimedOut(1_000, 1_000 + TRIP_MAX_DURATION_MS - 1), false);
   assert.equal(tripTimedOut(1_000, 1_000 + TRIP_MAX_DURATION_MS), true);
@@ -74,6 +76,8 @@ test('Always is requested only on iOS after the explainer, and While Using stays
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'always', explainerDeclined: true, explainerAccepted: null }).action, 'background');
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'whenInUse', explainerDeclined: true, explainerAccepted: null }).action, 'foreground');
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'whenInUse', explainerAccepted: null }).action, 'explain');
+  assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'whenInUse', explainerAccepted: null, alwaysRequested: true }).action, 'foreground');
+  assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'always', explainerAccepted: null, alwaysRequested: true }).action, 'background');
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'whenInUse', explainerAccepted: false }).action, 'foreground');
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'whenInUse', explainerAccepted: true }).action, 'request-always');
   assert.equal(planAlwaysPrompt({ platform: 'ios', auth: 'denied', explainerAccepted: null }).action, 'none');
@@ -182,6 +186,34 @@ test('Always is requested only on iOS after the explainer, and While Using stays
   assert.equal(remembered, false);
 
   calls.length = 0;
+  let requested = false;
+  const requestedWatch = () => chooseTripWatch({
+    platform: 'ios',
+    alwaysRequested: requested,
+    readAuth: async () => {
+      calls.push('read');
+      return 'whenInUse';
+    },
+    explain: async () => {
+      calls.push('explain');
+      return true;
+    },
+    requestAlways: async () => {
+      calls.push('request');
+      return 'whenInUse';
+    },
+    rememberRequested: async () => {
+      calls.push('remember-request');
+      requested = true;
+    },
+  });
+  assert.equal(await requestedWatch(), 'foreground');
+  assert.deepEqual(calls, ['read', 'explain', 'request', 'remember-request']);
+  calls.length = 0;
+  assert.equal(await requestedWatch(), 'foreground');
+  assert.deepEqual(calls, ['read']);
+
+  calls.length = 0;
   assert.equal(await chooseTripWatch({
     platform: 'ios',
     explainerDeclined: true,
@@ -206,9 +238,12 @@ test('the pause banner stays unless iOS background sharing is active', () => {
   assert.equal(locationShareBanner('android', true), FOREGROUND_LOCATION_SHARE_BANNER);
   assert.equal(locationShareBanner('ios', false), FOREGROUND_LOCATION_SHARE_BANNER);
   assert.match(FOREGROUND_LOCATION_SHARE_BANNER, /Sharing pauses if you leave the app/);
+  assert.match(FOREGROUND_LOCATION_SHARE_BANNER, /customer/);
+  assert.equal(/even with the app closed/.test(FOREGROUND_LOCATION_SHARE_BANNER), false);
   assert.equal(locationShareBanner('ios', true), BACKGROUND_LOCATION_SHARE_BANNER);
   assert.equal(/pauses if you leave the app/.test(BACKGROUND_LOCATION_SHARE_BANNER), false);
-  assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /phone is locked/);
+  assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /customer/);
+  assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /even with the app closed/);
 });
 
 test('the hook starts background updates on the shared write path and stops them on every stop', () => {
@@ -218,6 +253,7 @@ test('the hook starts background updates on the shared write path and stops them
   const swift = read('../../ios/App/App/TripBackgroundLocationPlugin.swift');
   const plist = read('../../ios/App/App/Info.plist');
   const delegate = read('../../ios/App/App/AppDelegate.swift');
+  const entry = read('../../src/main.tsx');
 
   assert.match(hook, /chooseTripWatch\(/);
   assert.match(hook, /if \(Capacitor\.getPlatform\(\) === 'ios'\)/);
@@ -236,6 +272,12 @@ test('the hook starts background updates on the shared write path and stops them
   assert.match(hook, /cancelLabel: 'Not now'/);
   assert.match(hook, /readAlwaysExplainerDeclined\(\)/);
   assert.match(hook, /rememberDecline: rememberAlwaysExplainerDeclined/);
+  assert.match(hook, /readAlwaysLocationRequested\(\)/);
+  assert.match(hook, /rememberRequested: rememberAlwaysLocationRequested/);
+  const writeAt = hook.indexOf('const writePosition');
+  const arrivalAt = hook.indexOf('void checkArrival(latitude, longitude);', writeAt);
+  const throttleAt = hook.indexOf('MIN_WRITE_INTERVAL_MS', writeAt);
+  assert.ok(writeAt >= 0 && arrivalAt > writeAt && throttleAt > arrivalAt);
   assert.match(hook, /stopTrackingRef\.current\('timeout'\)/);
   assert.match(hook, /TRIP_MAX_DURATION_MS/);
   assert.match(hook, /select\('id, tracking_token, created_at'\)/);
@@ -260,11 +302,18 @@ test('the hook starts background updates on the shared write path and stops them
 
   assert.match(wrapper, /distanceFilter: TRIP_DISTANCE_FILTER_METERS/);
   assert.match(wrapper, /TripBackgroundLocation\.stop\(\)/);
+  assert.match(wrapper, /stopIdleNativeTripWatcher/);
+  assert.match(wrapper, /await idleStop/);
+  assert.match(entry, /stopIdleNativeTripWatcher\(\)/);
 
   assert.match(swift, /allowsBackgroundLocationUpdates = true/);
   assert.match(swift, /showsBackgroundLocationIndicator = true/);
   assert.match(swift, /activityType = \.automotiveNavigation/);
-  assert.match(swift, /pausesLocationUpdatesAutomatically = true/);
+  assert.match(swift, /pausesLocationUpdatesAutomatically = false/);
+  assert.match(swift, /var seconds/);
+  assert.match(swift, /wallDeadline: DispatchWallTime\.now\(\)/);
+  assert.match(swift, /tripDeadline/);
+  assert.match(swift, /Date\(\) >= tripDeadline/);
   assert.match(swift, /authorizationStatus == \.authorizedAlways/);
   assert.match(swift, /requestAlwaysAuthorization\(\)/);
   assert.match(swift, /startUpdatingLocation\(\)/);

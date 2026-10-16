@@ -52,9 +52,11 @@ test('arrival stops the live watch', () => {
   assert.match(hook, /if \(arrivedRef\.current\) return/);
 });
 
-test('the privacy manifest stays non-tracking and names the data the app collects', () => {
+test('the privacy manifest declares precise location and stays non-tracking', () => {
   const privacy = read('../../ios/App/App/PrivacyInfo.xcprivacy');
   assert.match(privacy, /<key>NSPrivacyTracking<\/key>\s*<false\/>/);
+  assert.match(privacy, /NSPrivacyCollectedDataTypePreciseLocation/);
+  assert.equal(/NSPrivacyCollectedDataTypePurposeAdvertising/.test(privacy), false);
   assert.match(privacy, /<key>NSPrivacyTrackingDomains<\/key>\s*<array\/>/);
   assert.equal(privacy.includes('<key>NSPrivacyCollectedDataTypes</key>\n\t<array/>'), false);
   for (const type of [

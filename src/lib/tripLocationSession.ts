@@ -4,7 +4,8 @@
  * The watcher runs only on iOS, only during an active trip, and only after
  * Always is granted. Web and Android stay on the foreground watch. While
  * Using stays on the foreground watch too. A declined Always explainer stays
- * declined. Every stop, including the 3 hour limit, ends the watcher.
+ * declined. Once Always has been requested, later trips skip the explainer.
+ * Every stop, including the 3 hour limit, ends the watcher.
  */
 
 export const TRIP_DISTANCE_FILTER_METERS = 25;
@@ -15,13 +16,13 @@ export const TRIP_MAX_DURATION_MS = 3 * 60 * 60 * 1000;
 export const ALWAYS_LOCATION_EXPLAINER_HEADING = 'Keep sharing while your phone is locked?';
 
 export const ALWAYS_LOCATION_EXPLAINER_BODY =
-  "To keep your customer updated, TidyWise can share your location during On My Way even if the app is closed or your phone is locked. It only runs during a trip and stops when you arrive. You'll see a blue location indicator while it's on.";
+  "To keep your customer updated, TidyWise can share your location during On My Way even if the app is closed or your phone is locked. It only runs during a trip and stops when you arrive, the job starts, the job ends, or after 3 hours. You'll see a blue location indicator while it's on.";
 
 export const FOREGROUND_LOCATION_SHARE_BANNER =
-  'Sharing your location with your company admins while this screen is open. Sharing pauses if you leave the app.';
+  'Sharing your location with your company admins and the customer while this screen is open. Sharing pauses if you leave the app.';
 
 export const BACKGROUND_LOCATION_SHARE_BANNER =
-  'Sharing your location with your company admins until you arrive or the job starts, including while your phone is locked.';
+  'Sharing your location with your company admins and the customer until you arrive or the job starts, even with the app closed.';
 
 export type TripPlatform = 'ios' | 'android' | 'web';
 
@@ -89,6 +90,8 @@ export function planAlwaysPrompt(input: {
   auth: TripLocationAuth;
   /** True after the cleaner taps Not now. Later trips skip the explainer. */
   explainerDeclined?: boolean;
+  /** True after requestAlways has already been shown. Later trips skip the explainer. */
+  alwaysRequested?: boolean;
   explainerAccepted: boolean | null;
 }): AlwaysPromptPlan {
   if (input.platform !== 'ios') return { action: 'foreground' };
@@ -96,6 +99,7 @@ export function planAlwaysPrompt(input: {
   if (input.auth === 'unavailable') return { action: 'foreground' };
   if (input.auth === 'denied' || input.auth === 'restricted') return { action: 'none' };
   if (input.explainerDeclined) return { action: 'foreground' };
+  if (input.alwaysRequested) return { action: 'foreground' };
   if (input.explainerAccepted === null) return { action: 'explain' };
   if (input.explainerAccepted === false) return { action: 'foreground' };
   return { action: 'request-always' };
@@ -116,6 +120,10 @@ export interface ChooseTripWatchInput {
   explainerDeclined?: boolean;
   /** Persists Not now so the next trip does not ask again. */
   rememberDecline?: () => Promise<void>;
+  /** Always was already requested. Skips the explainer on later trips. */
+  alwaysRequested?: boolean;
+  /** Persists that requestAlways ran, so the next trip does not explain again. */
+  rememberRequested?: () => Promise<void>;
 }
 
 /**
@@ -137,6 +145,7 @@ export async function chooseTripWatch(input: ChooseTripWatchInput): Promise<Trip
     platform: 'ios',
     auth,
     explainerDeclined: input.explainerDeclined,
+    alwaysRequested: input.alwaysRequested,
     explainerAccepted: null,
   });
   if (plan.action === 'explain') {
@@ -159,6 +168,7 @@ export async function chooseTripWatch(input: ChooseTripWatchInput): Promise<Trip
       platform: 'ios',
       auth,
       explainerDeclined: input.explainerDeclined || (answered && !accepted),
+      alwaysRequested: input.alwaysRequested,
       explainerAccepted: accepted,
     });
   }
@@ -169,6 +179,11 @@ export async function chooseTripWatch(input: ChooseTripWatchInput): Promise<Trip
 
   try {
     const next = await input.requestAlways();
+    try {
+      await input.rememberRequested?.();
+    } catch {
+      // This trip already has its answer. The next launch may explain once more.
+    }
     return watchModeAfterAlwaysRequest(next);
   } catch {
     return 'foreground';

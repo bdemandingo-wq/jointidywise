@@ -49,9 +49,9 @@ test('consent copy is version v4 and states the On My Way window', () => {
 
 test('the iOS usage strings match the legal Always and When In Use sentences', () => {
   const always =
-    "TidyWise shares your location with your business and its customer only during an On My Way trip, including when the app is closed or your phone is locked, so they know when you'll arrive. It stops when you arrive or the job starts. Location is also recorded when you clock in or out and take job photos.";
+    "TidyWise shares your location with your business and its customer only during an On My Way trip, including when the app is closed or your phone is locked, so they know when you'll arrive. It stops when you arrive, the job starts, the job ends, or after 3 hours. Location is also recorded when you clock in or out and take job photos.";
   const whenInUseCopy =
-    "TidyWise shares your location with your business and its customer only during an On My Way trip, so they know when you'll arrive. It stops when you arrive or the job starts. Location is also recorded when you clock in or out and take job photos.";
+    "TidyWise shares your location with your business and its customer only during an On My Way trip, so they know when you'll arrive. It stops when you arrive, the job starts, the job ends, or after 3 hours. Location is also recorded when you clock in or out and take job photos.";
   assert.equal(IOS_ALWAYS_LOCATION_USAGE_DESCRIPTION, always);
   assert.equal(IOS_WHEN_IN_USE_LOCATION_USAGE_DESCRIPTION, whenInUseCopy);
   assert.equal(

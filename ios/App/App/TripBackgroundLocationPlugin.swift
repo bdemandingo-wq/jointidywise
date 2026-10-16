@@ -36,6 +36,9 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
     private var deliveryTask: UIBackgroundTaskIdentifier = .invalid
     private var deliveryEpoch = 0
     private var tripTimeout: DispatchWorkItem?
+    /// Wall-clock end of the 3 hour trip. Checked on each fix because a
+    /// suspended timer does not fire until the app is running again.
+    private var tripDeadline: Date?
     private var trackingRowId: String?
     private var supabaseUrl: String?
     private var supabaseAnonKey: String?
@@ -92,7 +95,8 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
 
     /// Starts updates only for an Always grant. Battery settings: 25 m
     /// filter unless the caller passes one, automotive navigation, and
-    /// pause while stationary. The blue pill is on.
+    /// updates that keep running while the device is stationary. The blue
+    /// pill is on. A trip already running keeps its original deadline.
     @objc func start(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
             let manager = self.manager()
@@ -110,12 +114,12 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
             manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
             manager.distanceFilter = filter > 0 ? filter : 25
             manager.activityType = .automotiveNavigation
-            manager.pausesLocationUpdatesAutomatically = true
+            manager.pausesLocationUpdatesAutomatically = false
             manager.allowsBackgroundLocationUpdates = true
             manager.showsBackgroundLocationIndicator = true
             self.updating = true
             self.rememberWriteTarget(call)
-            let seconds = call.getDouble("maxDurationSeconds") ?? Double(3 * 60 * 60)
+            var seconds = call.getDouble("maxDurationSeconds") ?? Double(3 * 60 * 60)
             if seconds < 0 { seconds = 0 }
             self.scheduleTripTimeout(seconds)
             manager.startUpdatingLocation()
@@ -151,6 +155,10 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard updating, let location = locations.last else { return }
+        if let tripDeadline, Date() >= tripDeadline {
+            stopForDeadline()
+            return
+        }
         // The WebView is suspended while the phone is locked, so JavaScript
         // cannot write. Post the latest fix from here. While the app is
         // active, the existing JS path keeps the 8 second throttle.
@@ -165,10 +173,6 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         noteBackgroundFix(location)
     }
 
-    public func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
-        // Stationary. The trip stays open; iOS resumes when the device moves.
-    }
-
     private func manager() -> CLLocationManager {
         if let locationManager { return locationManager }
         let created = CLLocationManager()
@@ -177,22 +181,30 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         return created
     }
 
-    /// Hard stop. A trip already running keeps its original deadline.
-    /// The default is 3 hours. A resumed trip can pass the time it has left.
+    /// Hard stop on the wall clock. `.now()` pauses while the phone sleeps,
+    /// so a locked 3 hour trip would run long. A trip already running keeps
+    /// its original deadline. The default is 3 hours. A resumed trip can
+    /// pass the time it has left.
     private func scheduleTripTimeout(_ seconds: Double) {
         tripTimeout?.cancel()
+        tripDeadline = Date().addingTimeInterval(seconds)
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.updating else { return }
-            self.stopUpdating()
-            self.notifyListeners("timeout", data: ["reason": "timeout"], retainUntilConsumed: true)
+            self?.stopForDeadline()
         }
         tripTimeout = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+        DispatchQueue.main.asyncAfter(wallDeadline: DispatchWallTime.now() + seconds, execute: work)
+    }
+
+    private func stopForDeadline() {
+        guard updating else { return }
+        stopUpdating()
+        notifyListeners("timeout", data: ["reason": "timeout"], retainUntilConsumed: true)
     }
 
     private func cancelTripTimeout() {
         tripTimeout?.cancel()
         tripTimeout = nil
+        tripDeadline = nil
     }
 
     private func stopUpdating() {

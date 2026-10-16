@@ -171,3 +171,19 @@ test('tracking rows are readable by an org admin and by the cleaner who owns the
   assert.doesNotMatch(afterDrop, /cleaner_location_tracking[\s\S]{0,400}USING \(true\)/);
   assert.doesNotMatch(afterDrop, /CREATE POLICY "[^"]*customer[^"]*"\s+ON public\.cleaner_location_tracking/i);
 });
+
+test('a tracking row must use the staff member org and a booking in that org', () => {
+  const sql = readFileSync(
+    join(process.cwd(), 'supabase/migrations/20261016150000_cleaner_location_tracking_staff_org.sql'),
+    'utf8',
+  );
+  assert.match(sql, /SECURITY DEFINER/);
+  assert.match(sql, /s\.user_id = auth\.uid\(\)/);
+  assert.match(sql, /s\.organization_id = _organization_id/);
+  assert.match(sql, /b\.organization_id = s\.organization_id/);
+  assert.match(sql, /REVOKE ALL ON FUNCTION public\.cleaner_location_matches_staff_org/);
+  assert.match(sql, /CREATE POLICY "Staff can insert their own tracking"[\s\S]*cleaner_location_matches_staff_org/);
+  assert.match(sql, /CREATE POLICY "Staff can update their own tracking"[\s\S]*WITH CHECK \([\s\S]*cleaner_location_matches_staff_org/);
+  assert.equal(/GRANT EXECUTE[\s\S]*TO authenticated, anon/.test(sql) || /TO anon/.test(sql), true);
+  assert.equal(sql.includes('TO service_role'), false);
+});

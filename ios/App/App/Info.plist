@@ -48,9 +48,9 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>TidyWise shares your location with your business and its customer only during an On My Way trip, so they know when you'll arrive. It stops when you arrive or the job starts. Location is also recorded when you clock in or out and take job photos.</string>
+	<string>TidyWise shares your location with your business and its customer only during an On My Way trip, so they know when you'll arrive. It stops when you arrive, the job starts, the job ends, or after 3 hours. Location is also recorded when you clock in or out and take job photos.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>TidyWise shares your location with your business and its customer only during an On My Way trip, including when the app is closed or your phone is locked, so they know when you'll arrive. It stops when you arrive or the job starts. Location is also recorded when you clock in or out and take job photos.</string>
+	<string>TidyWise shares your location with your business and its customer only during an On My Way trip, including when the app is closed or your phone is locked, so they know when you'll arrive. It stops when you arrive, the job starts, the job ends, or after 3 hours. Location is also recorded when you clock in or out and take job photos.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>TidyWise needs camera access to take before/after photos for cleaning jobs.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
@@ -61,8 +61,8 @@
 	  Background modes: fetch, remote push, and location.
 	  location is used only during an active On My Way trip.
 	  TripBackgroundLocationPlugin starts CLLocationManager when that trip
-	  starts and stops it on arrival, when the job starts, or when tracking
-	  stops. showsBackgroundLocationIndicator is on, so iOS shows the blue
+	  starts and stops it on arrival, when the job starts, when the job
+	  ends, or after 3 hours. showsBackgroundLocationIndicator is on, so iOS shows the blue
 	  location pill while the watcher is running. The usage strings stay the
 	  legal disclosure: shared during On My Way, and recorded at clock in/out
 	  and job photos.

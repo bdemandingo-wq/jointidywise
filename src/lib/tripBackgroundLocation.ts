@@ -1,4 +1,4 @@
-import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
+import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import {
   TRIP_DISTANCE_FILTER_METERS,
   TRIP_MAX_DURATION_MS,
@@ -43,6 +43,8 @@ type TimeoutHandler = () => void;
 
 let generation = 0;
 let started = false;
+let idleStopStarted = false;
+let idleStop: Promise<void> = Promise.resolve();
 let positionHandler: PositionHandler | null = null;
 let authorizationHandler: AuthorizationHandler | null = null;
 let timeoutHandler: TimeoutHandler | null = null;
@@ -66,6 +68,25 @@ async function removeListeners(): Promise<void> {
   if (timeout) {
     try { await timeout.remove(); } catch { /* already gone */ }
   }
+}
+
+/**
+ * JS startup has no active trip. Stop a native watcher left running by a
+ * previous webview. start waits for this so the two calls cannot overlap.
+ */
+export function stopIdleNativeTripWatcher(): Promise<void> {
+  if (Capacitor.getPlatform() !== 'ios') return Promise.resolve();
+  if (started || idleStopStarted) return idleStop;
+  idleStopStarted = true;
+  idleStop = (async () => {
+    if (started) return;
+    try {
+      await TripBackgroundLocation.stop();
+    } catch {
+      // stop is idempotent; a missing plugin must not block startup
+    }
+  })();
+  return idleStop;
 }
 
 export async function readTripLocationAuth(): Promise<TripLocationAuth> {
@@ -98,6 +119,8 @@ export async function startTripBackgroundUpdates(
   writeTarget?: TripBackgroundWriteTarget,
 ): Promise<number> {
   const token = ++generation;
+  await idleStop;
+  if (token !== generation) return token;
   positionHandler = onPosition;
   authorizationHandler = onAuthorization ?? null;
   timeoutHandler = onTimeout ?? null;
