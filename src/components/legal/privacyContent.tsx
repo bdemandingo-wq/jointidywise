@@ -89,8 +89,8 @@ export function PrivacyPolicyBody({
       <p>
         When you sign up, we record how you found us. That includes the ad or link you came from, its campaign tags, and
         any ad click identifiers (such as Google&apos;s gclid, Meta&apos;s fbclid or TikTok&apos;s ttclid). We use this to
-        measure our own marketing. If your browser sends a Global Privacy Control signal, we don&apos;t keep ad click
-        identifiers.
+        measure our own marketing. If your browser sends a Global Privacy Control signal, we don&apos;t save ad click
+        identifiers from that visit.
       </p>
 
       <h2>How we use information</h2>
