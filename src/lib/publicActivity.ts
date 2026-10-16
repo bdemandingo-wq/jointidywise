@@ -502,14 +502,39 @@ export function eventsForTicker(
   return fresh;
 }
 
-/** Sentences for the landing ticker. Empty means the ticker stays hidden. */
-export function tickerLines(events: readonly PublicActivityEvent[], now = Date.now()): string[] {
-  const lines: string[] = [];
+export interface TickerLine {
+  text: string;
+  kind: PublicActivityKind;
+}
+
+/** Sentences for the landing ticker, each with its kind. Empty hides the ticker. */
+export function tickerLines(events: readonly PublicActivityEvent[], now = Date.now()): TickerLine[] {
+  const lines: TickerLine[] = [];
   for (const event of enforceActivityOrder(eventsForTicker(events, now))) {
-    const line = activitySentence(event);
-    if (line) lines.push(line);
+    const text = activitySentence(event);
+    if (text) lines.push({ text, kind: event.kind });
   }
   return lines;
+}
+
+/**
+ * Line to show after the list changes.
+ * The sentence on screen is found and the following line of a different kind
+ * is chosen. If that sentence is gone, the search starts at the first line
+ * and still skips the kind that was showing.
+ */
+export function tickerIndexAfterChange(
+  lines: readonly TickerLine[],
+  shown: { text: string; kind: string } | null,
+): number {
+  if (lines.length === 0 || shown == null) return 0;
+  const found = lines.findIndex((line) => line.text === shown.text);
+  const start = found === -1 ? 0 : (found + 1) % lines.length;
+  for (let step = 0; step < lines.length; step++) {
+    const index = (start + step) % lines.length;
+    if (lines[index].kind !== shown.kind) return index;
+  }
+  return found === -1 ? 0 : found;
 }
 
 export function shouldShowWeeklySignups(

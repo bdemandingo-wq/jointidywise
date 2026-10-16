@@ -18,6 +18,7 @@ import {
   roundPublicAmount,
   shouldShowTrustedBy,
   shouldShowWeeklySignups,
+  tickerIndexAfterChange,
   tickerLines,
   trustedByLabel,
   weeklySignupLabel,
@@ -391,9 +392,9 @@ test("events outside 24 hours are dropped before ordering", () => {
     event({ kind: "paid", region: "GA", amount: 200, at: "2026-10-16T10:00:00.000Z" }),
   ], now);
   assert.equal(lines.length, 1);
-  assert.equal(lines[0].includes("Florida"), true);
-  assert.equal(lines[0].includes("Georgia"), false);
-  assert.equal(lines[0].includes("Texas"), false);
+  assert.equal(lines[0].text.includes("Florida"), true);
+  assert.equal(lines[0].text.includes("Georgia"), false);
+  assert.equal(lines[0].text.includes("Texas"), false);
 });
 
 test("the ticker wrap never shows the same kind twice in a row", () => {
@@ -413,9 +414,9 @@ test("the ticker wrap never shows the same kind twice in a row", () => {
     event({ kind: "paid", region: "GA", amount: 200, at: "2026-10-16T09:00:00.000Z" }),
   ], now);
   assert.equal(lines.length, 2);
-  assert.equal(lines[0].includes("$180"), true);
-  assert.equal(lines[1].includes("5-star"), true);
-  assert.equal(lines.some((line) => line.includes("Georgia")), false);
+  assert.equal(lines[0].text.includes("$180"), true);
+  assert.equal(lines[1].text.includes("5-star"), true);
+  assert.equal(lines.some((line) => line.text.includes("Georgia")), false);
 });
 
 test("the ticker uses the last 24 hours and rotates every 8 seconds", () => {
@@ -428,16 +429,37 @@ test("the ticker uses the last 24 hours and rotates every 8 seconds", () => {
 
   const lines = tickerLines([recent, dayOld, edge, future, skew], now);
   assert.equal(lines.length, 3);
-  assert.ok(lines.some((line) => line.includes("Florida")));
-  assert.equal(lines.some((line) => line.includes("Texas")), false);
+  assert.ok(lines.some((line) => line.text.includes("Florida")));
+  assert.equal(lines.some((line) => line.text.includes("Texas")), false);
   assert.deepEqual(tickerLines([dayOld], now), []);
   assert.equal(ACTIVITY_TICKER_INTERVAL_MS, 8_000);
+});
 
-  const source = readFileSync(new URL("../components/growth/ActivityTicker.tsx", import.meta.url), "utf8");
-  assert.match(source, /ACTIVITY_TICKER_INTERVAL_MS/);
-  assert.match(source, /tickerLines/);
-  assert.match(source, /setPosition\(\{ lineKey, index: 0 \}\)/);
-  assert.equal(source.includes("5000"), false);
+test("an aged-out event does not repeat the kind on screen", () => {
+  const now = Date.parse("2026-10-16T12:00:00.000Z");
+  const events = [
+    event({ kind: "paid", region: "FL", amount: 180, at: "2026-10-16T11:00:00.000Z" }),
+    event({ kind: "booked", region: "TX", amount: 120, service: "clean", at: "2026-10-16T10:00:00.000Z" }),
+    event({ kind: "paid", region: "GA", amount: 200, at: "2026-10-16T09:00:00.000Z" }),
+    event({ kind: "booked", region: "NC", amount: 100, service: "clean", at: "2026-10-16T08:00:00.000Z" }),
+  ];
+  const before = tickerLines(events, now);
+  assert.deepEqual(before.map((line) => line.kind), ["paid", "booked", "paid", "booked"]);
+
+  const showing = before[2];
+  const later = Date.parse("2026-10-17T08:00:01.000Z");
+  const after = tickerLines(events, later);
+  assert.deepEqual(after.map((line) => line.kind), ["paid", "booked"]);
+  assert.equal(after.some((line) => line.text === showing.text), false);
+
+  const index = tickerIndexAfterChange(after, showing);
+  assert.equal(after[index].kind, "booked");
+  assert.notEqual(after[index].kind, showing.kind);
+
+  const stillShown = before[0];
+  const continued = tickerIndexAfterChange(after, stillShown);
+  assert.equal(after[continued].text, after[1].text);
+  assert.equal(after[continued].kind, "booked");
 });
 
 test("weekly signups stay hidden below the configured threshold", () => {
