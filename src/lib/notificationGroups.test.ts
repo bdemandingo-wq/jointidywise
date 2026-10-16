@@ -203,6 +203,8 @@ test('system bell rows map only for events the owner can silence', () => {
   assert.equal(systemNotificationCatalogKey('staff_activity'), 'staff.activity');
   assert.equal(systemNotificationCatalogKey('booking.new'), 'booking.new');
   assert.equal(systemNotificationCatalogKey('job.arrived'), 'job.arrived');
+  assert.equal(systemNotificationCatalogKey('booking.confirmed'), undefined);
+  assert.equal(systemNotificationCatalogKey('lead.new'), undefined);
   assert.equal(systemNotificationCatalogKey('email_change_request'), undefined);
   assert.equal(systemNotificationCatalogKey('trial_reminder'), undefined);
   assert.equal(systemNotificationCatalogKey('email_send_failure'), undefined);

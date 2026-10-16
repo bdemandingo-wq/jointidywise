@@ -214,15 +214,6 @@ export const SYSTEM_NOTIFICATION_CATALOG_KEYS: Record<string, string> = {
   staff_activity: 'staff.activity',
 };
 
-export function systemNotificationCatalogKey(type: string | null | undefined): string | undefined {
-  if (!type) return undefined;
-  const mapped = SYSTEM_NOTIFICATION_CATALOG_KEYS[type];
-  if (mapped) return mapped;
-  // Owner alerts store the catalog key itself (booking.new, job.arrived, …).
-  if (typeByKey(type)) return type;
-  return undefined;
-}
-
 /**
  * Owner texts are off until the owner turns on "Also text me" for that event.
  * These are the events notifyOwner can text. Customer texts are not in this list.
@@ -235,6 +226,15 @@ export const OWNER_TEXT_EVENTS: readonly { key: string; label: string }[] = [
   { key: 'job.arrived', label: 'Cleaner arrived' },
   { key: 'job.completed', label: 'Job completed' },
 ];
+
+export function systemNotificationCatalogKey(type: string | null | undefined): string | undefined {
+  if (!type) return undefined;
+  const mapped = SYSTEM_NOTIFICATION_CATALOG_KEYS[type];
+  if (mapped) return mapped;
+  // Owner alerts store the catalog key itself. Other catalog keys stay visible.
+  if (OWNER_TEXT_EVENTS.some((event) => event.key === type)) return type;
+  return undefined;
+}
 
 /** True only when this event's matrix sms flag is explicitly on and the text master is on. */
 export function ownerTextMeEnabled(

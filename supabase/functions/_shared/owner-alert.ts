@@ -149,8 +149,12 @@ function eventSnoozed(snoozed: unknown, eventKey: string, now: number): boolean 
 
 export function openPhoneFromId(raw: string | null | undefined): string {
   const trimmed = (raw ?? "").trim();
-  const match = trimmed.match(/phone-numbers\/([A-Za-z0-9]+)/);
-  return match ? match[1] : trimmed;
+  // Saved values are a bare id, a phone-numbers URL, or a my.openphone.com/inbox URL.
+  const pathMatch = trimmed.match(/(?:phone-numbers|inbox)\/([A-Za-z0-9]+)/);
+  if (pathMatch) return pathMatch[1];
+  const pnMatch = trimmed.match(/(PN[A-Za-z0-9]+)/);
+  if (pnMatch) return pnMatch[1];
+  return trimmed;
 }
 
 function textField(row: Row | null, key: string): string | null {
@@ -296,13 +300,21 @@ async function defaultSendSms(args: {
   apiKey: string;
 }): Promise<{ sent: number }> {
   const auth = args.apiKey.trim().replace(/^Bearer\s+/i, "");
-  let sent = 0;
-  for (const to of args.phones) {
-    const response = await fetch("https://api.openphone.com/v1/messages", {
+  const send = (authorization: string, to: string) =>
+    fetch("https://api.openphone.com/v1/messages", {
       method: "POST",
-      headers: { Authorization: auth, "Content-Type": "application/json" },
+      headers: { Authorization: authorization, "Content-Type": "application/json" },
       body: JSON.stringify({ from: args.from, to: [to], content: args.content }),
     });
+
+  let sent = 0;
+  for (const to of args.phones) {
+    // OpenPhone auth varies across tokens: raw key first, Bearer once on 401.
+    let response = await send(auth, to);
+    if (response.status === 401) {
+      await response.text();
+      response = await send(`Bearer ${auth}`, to);
+    }
     if (response.ok) {
       sent += 1;
     } else {

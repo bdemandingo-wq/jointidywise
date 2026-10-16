@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 import { formatDistance } from '@/lib/distanceUtils';
 import { useDistanceUnit, useOrgCountryCode } from '@/hooks/useDistanceUnit';
 import { useNotificationPreferences, useUpdateNotificationPreferences } from '@/hooks/useNotificationPreferences';
+import { ownerDeliveryEnabled, ownerDeliveryPatch } from '@/lib/notificationGroups';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { formatInTimezone, formatTimestampWithZone } from '@/lib/timezoneUtils';
 import { orgEndOfDay, orgStartOfDay } from '@/lib/orgDateRange';
@@ -836,6 +837,16 @@ export default function TrackingPage() {
     }];
   }), [visibleHistory]);
 
+  const handleOwnerText = (eventKey: 'job.on_the_way' | 'job.arrived', on: boolean) => {
+    const enableMaster = on && !ownerDeliveryEnabled('sms', prefs.channels);
+    void saveNotificationPrefs({
+      notification_matrix: { [eventKey]: { sms: on } },
+      ...(enableMaster ? { channels: ownerDeliveryPatch('sms', true) } : {}),
+    }).then((res) => {
+      if (res?.error) toast.error('Failed to save setting');
+    });
+  };
+
   const handleToggle = async (field: keyof SmsSettings, value: boolean) => {
     setSavingToggle(true);
     const updated = { ...smsSettings, [field]: value };
@@ -886,11 +897,7 @@ export default function TrackingPage() {
               <Switch
                 id="notify-admin"
                 checked={prefs.notification_matrix?.['job.on_the_way']?.sms === true}
-                onCheckedChange={(v) => {
-                  void saveNotificationPrefs({ notification_matrix: { 'job.on_the_way': { sms: v } } }).then((res) => {
-                    if (res?.error) toast.error('Failed to save setting');
-                  });
-                }}
+                onCheckedChange={(v) => handleOwnerText('job.on_the_way', v)}
                 disabled={savingToggle || !prefs.loaded}
               />
               <Label htmlFor="notify-admin" className="text-sm cursor-pointer">
@@ -934,11 +941,7 @@ export default function TrackingPage() {
               <Switch
                 id="notify-admin-arrived"
                 checked={prefs.notification_matrix?.['job.arrived']?.sms === true}
-                onCheckedChange={(v) => {
-                  void saveNotificationPrefs({ notification_matrix: { 'job.arrived': { sms: v } } }).then((res) => {
-                    if (res?.error) toast.error('Failed to save setting');
-                  });
-                }}
+                onCheckedChange={(v) => handleOwnerText('job.arrived', v)}
                 disabled={savingToggle || !prefs.loaded}
               />
               <Label htmlFor="notify-admin-arrived" className="text-sm cursor-pointer">

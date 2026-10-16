@@ -6,6 +6,7 @@ import {
   ownerAlertDedupeKey,
   ownerAlertEmailAllowed,
   ownerAlertNeedsEmail,
+  openPhoneFromId,
   ownerAlertPhones,
   ownerAlertSmsAllowed,
   type OwnerAlertContext,
@@ -137,6 +138,15 @@ test("email is the fallback when there is no operator iPhone or push delivered n
   }), false);
 });
 
+test("openPhoneFromId reads phone-numbers and inbox URLs", () => {
+  assert.equal(openPhoneFromId("PNabc"), "PNabc");
+  assert.equal(openPhoneFromId("https://my.openphone.com/settings/phone-numbers/PNabc"), "PNabc");
+  assert.equal(openPhoneFromId("https://my.openphone.com/inbox/PNinbox"), "PNinbox");
+  assert.equal(openPhoneFromId("https://my.openphone.com/inbox/ID123"), "ID123");
+  assert.equal(openPhoneFromId("  "), "");
+  assert.equal(openPhoneFromId(null), "");
+});
+
 test("alert phones use every personal number and fall back to the company line", () => {
   assert.deepEqual(ownerAlertPhones("5551110001, 555-111-0002", "5559990000"), ["+15551110001", "+15551110002"]);
   assert.deepEqual(ownerAlertPhones("  ", "(555) 999-0000"), ["+15559990000"]);
@@ -227,6 +237,48 @@ test("a turned-off email does not send even when push delivered zero", async () 
   }, deps);
   assert.equal(result.email, false);
   assert.deepEqual(email, []);
+});
+
+test("OpenPhone sends the raw key and retries with Bearer after a 401", async () => {
+  const auths: string[] = [];
+  globalThis.fetch = async (_input, init) => {
+    const authorization = new Headers(init?.headers).get("Authorization") ?? "";
+    auths.push(authorization);
+    const status = authorization.startsWith("Bearer ") ? 200 : 401;
+    return new Response(status === 401 ? "unauthorized" : "{}", { status });
+  };
+  const loaded = harness(context({
+    matrix: { "booking.new": { sms: true } },
+    notificationPhone: "+15551110001",
+    operatorIosTokens: 1,
+  }), { push: true });
+  delete loaded.deps.sendSms;
+  const result = await notifyOwner(org, "booking.new", {
+    title: "New booking",
+    body: "Alex booked a clean",
+  }, loaded.deps);
+  assert.equal(result.sms, true);
+  assert.deepEqual(auths, ["op-key", "Bearer op-key"]);
+});
+
+test("OpenPhone does not retry when the raw key is accepted", async () => {
+  const auths: string[] = [];
+  globalThis.fetch = async (_input, init) => {
+    auths.push(new Headers(init?.headers).get("Authorization") ?? "");
+    return new Response("{}", { status: 200 });
+  };
+  const loaded = harness(context({
+    matrix: { "booking.new": { sms: true } },
+    notificationPhone: "+15551110001",
+    operatorIosTokens: 1,
+  }), { push: true });
+  delete loaded.deps.sendSms;
+  const result = await notifyOwner(org, "booking.new", {
+    title: "New booking",
+    body: "Alex booked a clean",
+  }, loaded.deps);
+  assert.equal(result.sms, true);
+  assert.deepEqual(auths, ["op-key"]);
 });
 
 test("a duplicate event for the same booking does not text or email again", async () => {

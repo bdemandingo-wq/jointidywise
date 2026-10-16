@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
-import { notifyOwner } from "../_shared/owner-alert.ts";
+import { notifyOwner, ownerAlertPhones } from "../_shared/owner-alert.ts";
 import { jobEventCopy } from "../_shared/job-event-copy.ts";
 
 /**
@@ -96,7 +96,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     const { data: businessSettings } = await supabase
       .from('business_settings')
-      .select('company_name')
+      .select('company_name, notification_phone, company_phone')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
 
@@ -128,7 +128,10 @@ const handler = async (req: Request): Promise<Response> => {
       || office.smsSkippedReason === "SMS not configured"
       || office.smsSkippedReason === "No alert phone configured";
     const smsSkippedReason = office.sms || !textingUnavailable ? null : office.smsSkippedReason;
-    const recipientPhone = '';
+    const recipientPhone = ownerAlertPhones(
+      businessSettings?.notification_phone,
+      businessSettings?.company_phone,
+    )[0] || 'push';
     const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
       booking_id: bookingId,
       organization_id: booking.organization_id,
