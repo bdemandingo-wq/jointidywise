@@ -5,7 +5,7 @@ import { REFUND_POLICY, CANCELLATION_POLICY, POLICY_DISCLOSURE, TOS_VERSION } fr
 import { rejectReason, isVested } from "../_shared/referral-eligibility.ts";
 import { recordReferralInvoicePaid, recordReferralReversal, type BalanceClient } from "../_shared/saas-referral-db.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
-import { billingStripe, verifyStripeWebhook } from "../_shared/billing-stripe.ts";
+import { verifyStripeWebhook } from "../_shared/billing-stripe.ts";
 import {
   cascadeCancelAdSubscriptionsIfDowngraded,
   downgradeOrgOnSubscriptionDeleted,
@@ -17,6 +17,7 @@ import {
   guardedBillingWrite,
   invoiceIdOf,
   isMissingBillingColumn,
+  isMissingRelation,
   laterBillingEventAt,
   saasRefundDrafts,
   saasRefundInsertRows,
@@ -317,7 +318,7 @@ const handler = async (req: Request): Promise<Response> => {
             current != null,
           );
           if (outcome === "failed") subscriptionStateFailed = true;
-          else notifyAfterMirror = true;
+          else if (outcome === "wrote") notifyAfterMirror = true;
         } else {
           await logSubscriptionOrphan(
             supabase, supabaseUrl, supabaseServiceKey,
@@ -848,7 +849,7 @@ const handler = async (req: Request): Promise<Response> => {
               if (orgId) {
                 const outcome = await upsertStripeSubscription(supabase, orgId, fullSub, event.created, true);
                 if (outcome === "failed") subscriptionStateFailed = true;
-                else checkoutMirrored = true;
+                else if (outcome === "wrote") checkoutMirrored = true;
               }
             }
           } catch (mirrorErr) {
@@ -1295,7 +1296,7 @@ const handler = async (req: Request): Promise<Response> => {
       // event: the idempotency row is released below so Stripe's retry
       // writes the refund.
       try {
-        const saved = await persistSaasRefunds(supabase, refundedCharge, event.created, event.account);
+        const saved = await persistSaasRefunds(supabase, stripe, refundedCharge, event.created, event.account);
         if (!saved) subscriptionStateFailed = true;
       } catch (e) {
         console.error("[stripe-invoice-webhook] saas refund persist failed:", e);
@@ -1676,8 +1677,20 @@ const handler = async (req: Request): Promise<Response> => {
 
         const organizationId = await organizationIdForDeletedSubscription(supabase, sub);
         if (!organizationId) {
+          // A subscription that was never mirrored has no org to downgrade.
+          // 500 would make Stripe retry it for days. Record the orphan and
+          // ack, the same way created and updated do.
           console.error("[stripe-invoice-webhook] subscription delete could not resolve an org", { subscriptionId: sub.id });
-          subscriptionStateFailed = true;
+          await logSubscriptionOrphan(
+            supabase,
+            supabaseUrl,
+            supabaseServiceKey,
+            sub,
+            event.id,
+            event.type,
+            email,
+            [{ step: "organizationIdForDeletedSubscription", result: "miss" }],
+          );
         } else {
               // Mark the org's subscription row from the SaaS subscription
               // as it is now. An older delete must not rewind a newer
@@ -2148,12 +2161,6 @@ async function logSubscriptionOrphan(
 }
 
 /**
- * Upsert a row into public.stripe_subscriptions. This is the source of truth
- * that has_active_subscription() reads to decide whether an org may create
- * bookings / customers / invoices. Called on subscription created/updated/
- * deleted and on invoice.paid.
- */
-/**
  * Read the subscription with the client that verified this event's
  * signature. Retrieve only — no update, invoice, or refund. Null when
  * Stripe cannot be read; the caller then keeps the event payload behind
@@ -2168,6 +2175,13 @@ async function readCurrentSaasSubscription(stripe: Stripe, id: string): Promise<
   }
 }
 
+/**
+ * Upsert a row into public.stripe_subscriptions. This is the source of truth
+ * that has_active_subscription() reads to decide whether an org may create
+ * bookings / customers / invoices. Called from subscription created,
+ * subscription updated, and checkout.session.completed. invoice.paid does
+ * not call it. eventCreatedSec and authoritative are required.
+ */
 async function upsertStripeSubscription(
   supabase: any,
   orgId: string,
@@ -2266,12 +2280,16 @@ async function upsertStripeSubscription(
 /**
  * Writes charge.refunded onto platform_subscription_refunds.
  * Org linkage is a lookup on stripe_subscriptions, not a Stripe call.
- * A missing refund_kind column (42703 / PGRST204) is written again
- * without that column. Any other write error returns false so the
- * webhook releases its claim and Stripe retries.
+ * A missing refunds table (42P01 / PGRST205) or a missing refund_kind
+ * column (42703 / PGRST204) is logged and acknowledged, so deploying
+ * the function before the SQL editor migration does not make Stripe
+ * retry charge.refunded until the endpoint is disabled. A transient
+ * invoice retrieve or lifetime-purchase lookup returns false so the
+ * claim is released and Stripe retries. Any other write error does too.
  */
 async function persistSaasRefunds(
   supabase: any,
+  stripe: Stripe,
   charge: Stripe.Charge,
   eventCreatedSec: number,
   eventAccount: string | null | undefined,
@@ -2289,11 +2307,12 @@ async function persistSaasRefunds(
     resolvedSubscriptionId = subscriptionIdFromInvoice(invoice);
   } else if (typeof invoice === "string" && invoice) {
     try {
-      const loaded = await billingStripe().invoices.retrieve(invoice);
+      const loaded = await stripe.invoices.retrieve(invoice);
       resolvedSubscriptionId = subscriptionIdFromInvoice(loaded);
       purpose = loaded.metadata?.purpose ?? null;
     } catch (err) {
-      console.error("[stripe-invoice-webhook] invoice retrieve failed; refund counts only if it is a lifetime purchase:", err);
+      console.error("[stripe-invoice-webhook] invoice retrieve failed; Stripe will retry the refund:", err);
+      return false;
     }
   }
 
@@ -2309,7 +2328,8 @@ async function persistSaasRefunds(
       .eq("stripe_payment_intent_id", paymentIntentId)
       .limit(1);
     if (error) {
-      console.error("[stripe-invoice-webhook] lifetime purchase lookup failed:", error);
+      console.error("[stripe-invoice-webhook] lifetime purchase lookup failed; Stripe will retry the refund:", error);
+      return false;
     } else if (data && data.length > 0) {
       linkedLifetimePurchase = true;
       lifetimeOrgId = data[0].organization_id ?? null;
@@ -2334,7 +2354,11 @@ async function persistSaasRefunds(
       .from("platform_subscription_refunds")
       .select("stripe_refund_id")
       .eq("stripe_charge_id", charge.id);
-    if (storedErr && !isMissingBillingColumn(storedErr)) {
+    if (storedErr && (isMissingRelation(storedErr) || isMissingBillingColumn(storedErr))) {
+      console.log("[stripe-invoice-webhook] platform_subscription_refunds is not migrated yet");
+      return true;
+    }
+    if (storedErr) {
       console.error("[stripe-invoice-webhook] refund id lookup failed:", storedErr);
       return false;
     }
@@ -2351,7 +2375,9 @@ async function persistSaasRefunds(
       .from("stripe_subscriptions")
       .select("organization_id")
       .eq("stripe_customer_id", customerId)
+      .not("organization_id", "is", null)
       .order("updated_at", { ascending: false })
+      .order("id", { ascending: true })
       .limit(1);
     if (error) {
       console.error("[stripe-invoice-webhook] refund org lookup failed:", error);
@@ -2372,7 +2398,11 @@ async function persistSaasRefunds(
       .from("platform_subscription_refunds")
       .delete()
       .eq("stripe_refund_id", unitemizedRefundId(charge.id));
-    if (dropErr && !isMissingBillingColumn(dropErr)) {
+    if (dropErr && (isMissingRelation(dropErr) || isMissingBillingColumn(dropErr))) {
+      console.log("[stripe-invoice-webhook] platform_subscription_refunds is not migrated yet");
+      return true;
+    }
+    if (dropErr) {
       console.error("[stripe-invoice-webhook] unitemized refund delete failed:", dropErr);
       return false;
     }
@@ -2384,12 +2414,20 @@ async function persistSaasRefunds(
   const { error } = await supabase
     .from("platform_subscription_refunds")
     .upsert(rows, { onConflict: "stripe_refund_id" });
+  if (error && isMissingRelation(error)) {
+    console.log("[stripe-invoice-webhook] platform_subscription_refunds is not migrated yet");
+    return true;
+  }
   if (error && isMissingBillingColumn(error)) {
     const withoutKind = rows.map(({ refund_kind: _kind, ...rest }) => rest);
     const { error: fallbackError } = await supabase
       .from("platform_subscription_refunds")
       .upsert(withoutKind, { onConflict: "stripe_refund_id" });
-    if (fallbackError && !isMissingBillingColumn(fallbackError)) {
+    if (fallbackError && (isMissingRelation(fallbackError) || isMissingBillingColumn(fallbackError))) {
+      console.log("[stripe-invoice-webhook] platform_subscription_refunds is not migrated yet");
+      return true;
+    }
+    if (fallbackError) {
       console.error("[stripe-invoice-webhook] platform_subscription_refunds upsert failed:", fallbackError);
       return false;
     }

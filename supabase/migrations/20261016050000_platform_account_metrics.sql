@@ -217,7 +217,12 @@ COMMENT ON FUNCTION public.platform_monthly_billed_cents(bigint, integer, text, 
 -- ---------------------------------------------------------------------------
 -- The view. security_invoker so a stray GRANT still runs as the caller.
 -- Grants below remove anon, authenticated, and service_role.
+-- CREATE OR REPLACE cannot change a view's column list. Drop any copy
+-- created from an earlier run of this migration first. CASCADE also drops
+-- platform_account_metrics(), which is recreated below.
 -- ---------------------------------------------------------------------------
+
+DROP VIEW IF EXISTS public.platform_account_metrics_v CASCADE;
 
 CREATE OR REPLACE VIEW public.platform_account_metrics_v
 WITH (security_invoker = true) AS

@@ -510,6 +510,10 @@ CREATE TABLE public.stripe_webhook_events (
   processed_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Prod may not have named the old primary key stripe_webhook_events_pkey.
+ALTER TABLE public.stripe_webhook_events
+  RENAME CONSTRAINT stripe_webhook_events_pkey TO stripe_webhook_events_event_id_pk;
+
 \ir ../migrations/20261016050100_stripe_webhook_events_source_key.sql
 
 INSERT INTO public.stripe_webhook_events (event_id, event_type, source) VALUES

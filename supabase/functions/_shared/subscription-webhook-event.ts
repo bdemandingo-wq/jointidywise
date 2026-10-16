@@ -388,8 +388,11 @@ async function releaseSubscriptionWebhookEvent(supabase: any, eventId: string | 
 
 /**
  * Org for this subscription, not "the first membership of this email".
- * Same order as the invoice webhook's deleted-subscription resolver:
- * the stored stripe_subscriptions row, then metadata, then email.
+ * The first two steps match the invoice webhook's deleted-subscription
+ * resolver: the stored stripe_subscriptions row, then metadata.
+ * The third step here is an exact email match and the earliest
+ * owner/admin membership. The delete resolver's third step is the
+ * Stripe customer id, ordered by updated_at then id.
  * A missing profile or membership is reported by returning null so the
  * caller can ask Stripe to retry instead of acknowledging the event.
  */

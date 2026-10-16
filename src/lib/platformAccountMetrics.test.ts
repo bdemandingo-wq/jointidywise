@@ -13,6 +13,7 @@ import {
   incomingBillingIsNewer,
   invoiceIdOf,
   isMissingBillingColumn,
+  isMissingRelation,
   subscriptionIdFromInvoice,
   normalizeMonthlyBilledCents,
   replaySubscriptionEvents,
@@ -34,6 +35,7 @@ import {
   mrrDollars,
   type AccountMetricsRow,
 } from "./platformAccountMetricsExport.ts";
+import { PLATFORM_OWNER_EMAIL } from "./platformOwner.ts";
 
 const migration = readFileSync(
   new URL("../../supabase/migrations/20261016050000_platform_account_metrics.sql", import.meta.url),
@@ -587,7 +589,10 @@ test("created and deleted side effects run only after the subscription mirror", 
   const updatedAt = invoice.indexOf('event.type === "customer.subscription.updated"');
   const created = invoice.slice(createdAt, updatedAt);
   const mirrorAt = created.indexOf("upsertStripeSubscription(");
+  const wroteAt = created.indexOf('outcome === "wrote"');
   const gateAt = created.indexOf("if (notifyAfterMirror)");
+  assert.ok(wroteAt > mirrorAt);
+  assert.ok(gateAt > wroteAt);
   const adminAt = created.indexOf("sendAdminNotification", gateAt);
   const emailAt = created.indexOf("hook.us2.make.com");
   assert.ok(mirrorAt > 0);
@@ -662,6 +667,8 @@ test("platform admin is the support address only", () => {
   const allowlist = sql.slice(sql.indexOf("lower(email) IN"), sql.indexOf("REVOKE EXECUTE"));
   assert.match(allowlist, /support@tidywisecleaning\.com/);
   assert.doesNotMatch(allowlist, /@gmail\.com/);
+  assert.equal(PLATFORM_OWNER_EMAIL, "support@tidywisecleaning.com");
+  assert.match(allowlist, new RegExp(PLATFORM_OWNER_EMAIL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   const access = readFileSync(
     new URL("../../supabase/tests/platform_account_metrics_access.sql", import.meta.url),
     "utf8",
@@ -675,7 +682,13 @@ test("a missing billing column is only 42703 or PGRST204", () => {
   assert.equal(isMissingBillingColumn({ code: "PGRST204", message: "Could not find the 'refund_kind' column of 'platform_subscription_refunds' in the schema cache" }), true);
   assert.equal(isMissingBillingColumn({ message: "column billing_event_at does not exist" }), false);
   assert.equal(isMissingBillingColumn({ code: "42P01", message: "relation platform_subscription_refunds does not exist" }), false);
+  assert.equal(isMissingBillingColumn({ code: "PGRST205", message: "Could not find the table 'public.platform_subscription_refunds' in the schema cache" }), false);
   assert.equal(isMissingBillingColumn(null), false);
+  assert.equal(isMissingRelation({ code: "42P01", message: "relation platform_subscription_refunds does not exist" }), true);
+  assert.equal(isMissingRelation({ code: "PGRST205", message: "Could not find the table in the schema cache" }), true);
+  assert.equal(isMissingRelation({ code: "42703", message: "column refund_kind does not exist" }), false);
+  assert.equal(isMissingRelation({ code: "PGRST204", message: "column missing" }), false);
+  assert.equal(isMissingRelation(null), false);
 });
 
 test("an equal-timestamp terminal delete still downgrades when retrieve failed", () => {
@@ -724,6 +737,12 @@ test("invoice delete uses the downgrade helper and checkout notifies after the m
   assert.match(deleted, /subscriptionDeleteShouldDowngrade\(/);
   assert.match(deleted, /downgradeOrgOnSubscriptionDeleted\(/);
   assert.doesNotMatch(deleted, /if \(applyState && !subscriptionStateFailed/);
+  const unresolved = deleted.slice(
+    deleted.indexOf("if (!organizationId)"),
+    deleted.indexOf("Mark the org's subscription row"),
+  );
+  assert.match(unresolved, /logSubscriptionOrphan\(/);
+  assert.doesNotMatch(unresolved, /subscriptionStateFailed/);
   const reader = invoice.slice(
     invoice.indexOf("async function readCurrentSaasSubscription"),
     invoice.indexOf("async function upsertStripeSubscription"),
@@ -746,9 +765,34 @@ test("invoice delete uses the downgrade helper and checkout notifies after the m
   const refund = invoice.slice(refundAt, disputeAt);
   assert.match(refund, /persistSaasRefunds\(/);
   assert.match(refund, /if \(!saved\) subscriptionStateFailed = true/);
-  const persist = invoice.slice(invoice.indexOf("async function persistSaasRefunds"));
+  const persist = invoice.slice(
+    invoice.indexOf("async function persistSaasRefunds"),
+    invoice.indexOf("function resolvePlanTierFromSubscription"),
+  );
   assert.match(persist, /saasRefundInsertRows\(/);
+  assert.match(persist, /stripe\.invoices\.retrieve/);
+  assert.doesNotMatch(persist, /billingStripe\(/);
+  assert.match(persist, /invoice retrieve failed; Stripe will retry the refund/);
+  assert.match(persist, /lifetime purchase lookup failed; Stripe will retry the refund/);
+  assert.match(persist, /isMissingRelation\(/);
+  assert.match(persist, /platform_subscription_refunds is not migrated yet/);
+  assert.match(persist, /\.not\("organization_id", "is", null\)/);
+  assert.match(persist, /\.order\("id", \{ ascending: true \}\)/);
   assert.match(persist, /return false/);
+  assert.equal((invoice.match(/await upsertStripeSubscription\(/g) ?? []).length, 3);
+  assert.doesNotMatch(
+    invoice.slice(invoice.indexOf('event.type === "invoice.paid"')),
+    /await upsertStripeSubscription\(/,
+  );
+  for (const source of [
+    invoice,
+    readFileSync(new URL("../../supabase/functions/_shared/subscription-deleted-plan.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../../supabase/functions/_shared/subscription-webhook-event.ts", import.meta.url), "utf8"),
+  ]) {
+    const releases = [...source.matchAll(/from\("stripe_webhook_events"\)\s*\.delete\(\)([\s\S]{0,240})/g)];
+    assert.ok(releases.length > 0);
+    for (const release of releases) assert.match(release[1], /\.eq\("source"/);
+  }
 });
 
 test("a subscription refund persists kind and replaces the placeholder row", () => {
@@ -799,6 +843,9 @@ test("metrics function returns the view and the claim key is per source", () => 
     "utf8",
   );
   assert.match(claim, /PRIMARY KEY \(event_id, source\)/);
+  assert.match(claim, /c\.conname/);
+  assert.match(claim, /DROP CONSTRAINT %I/);
+  assert.match(migration, /DROP VIEW IF EXISTS public\.platform_account_metrics_v CASCADE/);
   const admin = "20261016040000_platform_admin_support_only.sql";
   const metrics = "20261016050000_platform_account_metrics.sql";
   const afterMain = "20261015040000_sms_message_opt_out_review.sql";

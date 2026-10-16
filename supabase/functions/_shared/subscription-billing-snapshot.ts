@@ -483,6 +483,16 @@ export function isMissingBillingColumn(error: { code?: string; message?: string 
   return code === "42703" || code === "PGRST204";
 }
 
+/**
+ * True when the table itself is absent. 42P01 is undefined_table.
+ * PGRST205 is the schema-cache miss for a relation. A missing column
+ * stays 42703 / PGRST204 and is not this error.
+ */
+export function isMissingRelation(error: { code?: string; message?: string } | null | undefined): boolean {
+  const code = error?.code;
+  return code === "42P01" || code === "PGRST205";
+}
+
 function intervalMonths(interval: string | null, intervalCount: number | null): number | null {
   const count = intervalCount && intervalCount > 0 ? intervalCount : 1;
   switch ((interval ?? "").toLowerCase()) {

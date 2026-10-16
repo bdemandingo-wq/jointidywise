@@ -48,9 +48,11 @@ function fakeDb(opts: {
   const ilikePatterns = opts.ilikePatterns ?? [];
   const supabase = {
     from(table: string) {
+      const filters: Array<{ column: string; value: string }> = [];
+      let pendingDelete = false;
       const api: {
         select: () => typeof api;
-        eq: () => typeof api;
+        eq: (column?: string, value?: string) => typeof api;
         ilike: (column: string, pattern: string) => typeof api;
         in: () => typeof api;
         order: () => typeof api;
@@ -65,7 +67,10 @@ function fakeDb(opts: {
         ) => Promise<unknown>;
       } = {
         select() { return api; },
-        eq() { return api; },
+        eq(column?: string, value?: string) {
+          if (typeof column === "string") filters.push({ column, value: String(value ?? "") });
+          return api;
+        },
         ilike(_column: string, pattern: string) {
           ilikePatterns.push(pattern);
           return api;
@@ -90,7 +95,7 @@ function fakeDb(opts: {
         },
         delete() {
           writes.push(`delete:${table}`);
-          if (table === "stripe_webhook_events") claims.clear();
+          pendingDelete = true;
           return api;
         },
         maybeSingle() {
@@ -109,6 +114,11 @@ function fakeDb(opts: {
           return Promise.resolve({ data: null, error: null });
         },
         then(onFulfilled, onRejected) {
+          if (pendingDelete && table === "stripe_webhook_events") {
+            const eventId = filters.find((filter) => filter.column === "event_id")?.value;
+            const source = filters.find((filter) => filter.column === "source")?.value;
+            if (eventId && source) claims.delete(claimKey(source, eventId));
+          }
           const error = table === "stripe_subscriptions" ? (opts.billingWriteError ?? null) : null;
           return Promise.resolve({ data: null, error }).then(onFulfilled, onRejected);
         },
@@ -371,7 +381,7 @@ test("a throw after the claim releases it so the retry is not a duplicate", asyn
   assert.deepEqual(retry.planCalls, ["pro"]);
 });
 
-test("the same event id can be claimed by each webhook source", async () => {
+test("an invoice claim of the same event id does not block the subscription handler", async () => {
   const stored = new Date(1_000 * 1000).toISOString();
   const claims = new Set<string>([claimKey(INVOICE_SOURCE, "evt_shared")]);
   const subscriptionFirst = await run({
@@ -385,14 +395,37 @@ test("the same event id can be claimed by each webhook source", async () => {
   assert.equal(subscriptionFirst.body.duplicate, undefined);
   assert.equal(claims.has(claimKey(SUBSCRIPTION_SOURCE, "evt_shared")), true);
   assert.equal(claims.has(claimKey(INVOICE_SOURCE, "evt_shared")), true);
+});
 
-  const invoiceThenSubscription = new Set<string>();
-  invoiceThenSubscription.add(claimKey(SUBSCRIPTION_SOURCE, "evt_other"));
-  const invoiceKey = claimKey(INVOICE_SOURCE, "evt_other");
-  assert.equal(invoiceThenSubscription.has(invoiceKey), false);
-  invoiceThenSubscription.add(invoiceKey);
-  assert.equal(invoiceThenSubscription.has(claimKey(SUBSCRIPTION_SOURCE, "evt_other")), true);
-  assert.equal(invoiceThenSubscription.has(invoiceKey), true);
+test("releasing a subscription claim leaves the invoice claim of the same event", async () => {
+  const stored = new Date(1_000 * 1000).toISOString();
+  const claims = new Set<string>([
+    claimKey(INVOICE_SOURCE, "evt_fail"),
+    claimKey(SUBSCRIPTION_SOURCE, "evt_other"),
+  ]);
+  const failed = await run({
+    created: 2_000,
+    eventId: "evt_fail",
+    retrieve: async () => subscriptionObject(),
+    billing: { billing_event_at: stored, updated_at: stored },
+    planResult: { updated: false, skipped: "permission denied" },
+    claims,
+  });
+  assert.equal(failed.response.status, 500);
+  assert.equal(claims.has(claimKey(SUBSCRIPTION_SOURCE, "evt_fail")), false);
+  assert.equal(claims.has(claimKey(INVOICE_SOURCE, "evt_fail")), true);
+  assert.equal(claims.has(claimKey(SUBSCRIPTION_SOURCE, "evt_other")), true);
+
+  const retry = await run({
+    created: 2_000,
+    eventId: "evt_fail",
+    retrieve: async () => subscriptionObject(),
+    billing: { billing_event_at: stored, updated_at: stored },
+    claims,
+  });
+  assert.equal(retry.response.status, 200);
+  assert.equal(retry.body.duplicate, undefined);
+  assert.equal(claims.has(claimKey(INVOICE_SOURCE, "evt_fail")), true);
 });
 
 test("the stored subscription org wins over metadata, and email wildcards are escaped", async () => {
