@@ -75,7 +75,7 @@ export default function CompareBookingKoala() {
     <div className="min-h-screen bg-background">
       <SEOHead 
         title="TidyWise vs BookingKoala 2026: Which Wins for Cleaners?"
-        description="Compare TIDYWISE vs BookingKoala for cleaning businesses. Payroll, P&L reports, and AI tools. Plans from $49/mo."
+        description="Compare TIDYWISE vs BookingKoala for cleaning businesses. Basic starts at $49/mo. Payroll, P&L reports, and AI tools are on Pro at $97/mo."
         canonical="/compare/booking-koala"
         ogImage="/images/tidywise-og.png"
       />
@@ -127,7 +127,7 @@ export default function CompareBookingKoala() {
             <span className="text-primary">The Better Alternative</span>
           </h1>
           <p className="text-lg sm:text-xl text-muted-foreground mb-8 max-w-3xl mx-auto">
-            Looking for a BookingKoala alternative? TIDYWISE offers <strong>automated payroll, P&L reports, and AI revenue tools</strong> on plans from $49/mo.
+            Looking for a BookingKoala alternative? TIDYWISE Basic starts at $49/mo. <strong>Automated payroll, P&L reports, and AI revenue tools</strong> are on Pro at $97/mo.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button size="lg" className="h-12 px-8" onClick={handleStartFreeTrial}>
@@ -330,7 +330,7 @@ export default function CompareBookingKoala() {
             "priceCurrency": "USD",
             "priceValidUntil": "2026-12-31"
           },
-          "description": "The best BookingKoala alternative for cleaning businesses. Automated payroll, P&L reports, and flat $49/month pricing."
+          "description": "The best BookingKoala alternative for cleaning businesses. Basic is $49/mo. Automated payroll and P&L reports are on Pro at $97/mo."
         })
       }} />
     </div>

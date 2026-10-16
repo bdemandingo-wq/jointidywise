@@ -158,7 +158,7 @@ export default function MaidServiceSoftware() {
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-6 mt-8">
               <h3 className="text-lg font-semibold text-foreground mb-2">TIDYWISE — Built for Maid Services</h3>
               <p className="text-muted-foreground text-sm mb-4">
-                Online booking, scheduling, invoicing, payroll, GPS tracking, and client management — from $49/mo, with Pro at $97/mo and Custom at $197/mo. Built specifically for residential cleaning businesses, not adapted from a general tool.
+                Online booking, scheduling, invoicing, and client management from $49/mo. Payroll and GPS tracking are on Pro at $97/mo. Custom is $197/mo. Built specifically for residential cleaning businesses, not adapted from a general tool.
               </p>
               <Button asChild><Link to="/signup">Get started →</Link></Button>
               <p className="text-sm text-muted-foreground mt-3">

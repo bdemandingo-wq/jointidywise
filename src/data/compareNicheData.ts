@@ -341,7 +341,7 @@ export const NICHES: Record<string, NicheData> = {
       {
         title: "One Flat Price, Everything Included",
         description:
-          "Booking, scheduling, invoicing, reminders, and reviews for $49/month. No per-user fees, no add-ons, no surprise tier upgrades as you grow.",
+          "Booking, scheduling, and invoicing are $49/month on Basic, with no per-user fees. Automated reminders and review requests are on Pro at $97/month.",
       },
       {
         title: "Automated Reminders & Review Requests",
@@ -378,7 +378,7 @@ export const NICHES: Record<string, NicheData> = {
       {
         question: "How does the pricing compare for solo operators?",
         answer:
-          "TidyWise is a flat $49/month. Review requests, SMS, and reporting are included. Check {competitor}'s site for their current price.",
+          "TidyWise Basic is $49/month for booking, scheduling, and invoicing. Review requests and reporting are on Pro at $97/month. Check {competitor}'s site for their current price.",
       },
       {
         question: "Can clients book online without me answering the phone?",

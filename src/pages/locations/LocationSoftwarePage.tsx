@@ -87,14 +87,14 @@ export default function LocationSoftwarePage() {
     {
       "@type": "SoftwareApplication",
       name: "TidyWise",
-      description: `Cleaning business software for ${data.name} from $49/mo. Scheduling, invoicing, automated payroll, GPS tracking, and client management built specifically for cleaning companies.`,
+      description: `Cleaning business software for ${data.name}. Scheduling and invoicing from $49/mo. Automated payroll and GPS tracking are on Pro at $97/mo.`,
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web, iOS, Android",
       offers: {
         "@type": "Offer",
-        price: "0",
+        price: "49",
         priceCurrency: "USD",
-        description: "Plans from $49/mo — unlimited users",
+        description: "Basic from $49/mo. Payroll and GPS are on Pro at $97/mo.",
       },
     },
     {
@@ -132,7 +132,7 @@ export default function LocationSoftwarePage() {
     <div className="min-h-screen bg-background">
       <SEOHead
         title={`Cleaning Business Software for ${data.name} | TidyWise`}
-        description={data.seoDescription ?? `Cleaning business software for ${data.name} from $49/mo — booking, scheduling, payroll, GPS, and CRM. ${isState ? `Used by cleaning companies across ${data.name}.` : `Built for ${data.name}${data.stateAbbr ? ", " + data.stateAbbr : ""} cleaners.`}`}
+        description={data.seoDescription ?? `Cleaning business software for ${data.name}. Booking and scheduling from $49/mo. Payroll and GPS are on Pro at $97/mo. ${isState ? `Used by cleaning companies across ${data.name}.` : `Built for ${data.name}${data.stateAbbr ? ", " + data.stateAbbr : ""} cleaners.`}`}
         canonical={canonicalPath}
         schemaJson={schemaJson}
       />
@@ -332,7 +332,7 @@ export default function LocationSoftwarePage() {
             <div className="grid sm:grid-cols-2 gap-6 max-w-2xl mx-auto text-left">
               <div className="p-6 bg-card rounded-xl border border-border">
                 <div className="text-lg font-bold text-foreground mb-1">Basic</div>
-                <div className="text-3xl font-bold text-foreground mb-4">$0<span className="text-base font-normal text-muted-foreground">/month</span></div>
+                <div className="text-3xl font-bold text-foreground mb-4">$49<span className="text-base font-normal text-muted-foreground">/month</span></div>
                 <ul className="space-y-2 text-sm text-muted-foreground">
                   {[
                     "Online booking page",
@@ -340,9 +340,7 @@ export default function LocationSoftwarePage() {
                     "Client invoicing",
                     "Stripe payment collection",
                     "Cleaner mobile app",
-                    "GPS check-ins",
-                    "SMS reminders",
-                    "Client portal",
+                    "Unlimited users",
                   ].map((item) => (
                     <li key={item} className="flex items-center gap-2">
                       <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />
@@ -355,18 +353,16 @@ export default function LocationSoftwarePage() {
                 <div className="absolute top-3 right-3 text-xs bg-white/20 px-2 py-0.5 rounded-full font-medium">
                   Most Popular
                 </div>
-                <div className="text-lg font-bold mb-1">Premium</div>
-                <div className="text-3xl font-bold mb-4">$49<span className="text-base font-normal opacity-80">/month</span></div>
+                <div className="text-lg font-bold mb-1">Pro</div>
+                <div className="text-3xl font-bold mb-4">$97<span className="text-base font-normal opacity-80">/month</span></div>
                 <ul className="space-y-2 text-sm opacity-90">
                   {[
                     "Everything in Basic",
+                    "Automated reminders",
                     "Automated payroll",
+                    "GPS tracking",
                     "P&L reporting",
-                    "AI pricing tools",
-                    "Inventory tracking",
-                    "In-app SMS inbox",
-                    "Route optimization",
-                    "Priority support",
+                    "Client portal",
                   ].map((item) => (
                     <li key={item} className="flex items-center gap-2">
                       <CheckCircle2 className="h-4 w-4 shrink-0" />

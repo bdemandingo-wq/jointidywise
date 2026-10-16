@@ -115,7 +115,7 @@ export default function BookingKoalaVsJobberVsTidywise() {
           <div className="bg-primary/10 border border-primary/20 rounded-xl p-6 mb-12">
             <h2 className="text-xl font-bold text-foreground mb-3">🏆 Quick Verdict</h2>
             <p className="text-muted-foreground mb-4">
-              TIDYWISE is built for cleaning businesses. Plans start at $49/mo, with Pro at $97/mo and Custom at $197/mo, including P&L reports, inventory tracking, and offline mode.
+              TIDYWISE is built for cleaning businesses. Plans start at $49/mo. Pro at $97/mo adds P&L reports and inventory tracking. Custom is $197/mo.
             </p>
             <Button asChild>
               <Link to="/auth">See TIDYWISE Plans <ArrowRight className="ml-2 h-4 w-4" /></Link>

@@ -110,8 +110,8 @@ test("weekly signups stay hidden below the configured threshold", () => {
 });
 
 test("trusted-by uses the real organization count and hides when it is missing", () => {
-  assert.equal(trustedByLabel(131), "Trusted by 131 cleaning businesses");
-  assert.equal(trustedByLabel(1), "Trusted by 1 cleaning business");
+  assert.equal(trustedByLabel(131), "131 cleaning businesses have signed up");
+  assert.equal(trustedByLabel(1), "1 cleaning business has signed up");
   assert.equal(shouldShowTrustedBy(131), true);
   assert.equal(shouldShowTrustedBy(0), false);
   assert.equal(shouldShowTrustedBy(null), false);

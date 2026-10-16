@@ -31,7 +31,7 @@ const comparisonData = [
 
 const testimonials = [
   {
-    quote: "TidyWise is $49/month for my whole team. Same core features for our cleaning business.",
+    quote: "TidyWise Basic is $49/month for my whole team. Payroll and GPS are on Pro at $97/month.",
     author: "Kevin T.",
     role: "Clean & Bright Services",
     rating: 5
@@ -136,7 +136,7 @@ export default function CompareServiceTitan() {
                 <span className="font-bold text-foreground text-lg">TIDYWISE</span>
               </div>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                {["$49/month (Basic) — all users included", "Built specifically for cleaning businesses", "Operational in hours, not weeks", "30 days of Pro, no card", "Square footage and room-based pricing", "Automated payroll included"].map(p => (
+                {["Basic is $49/mo — all users included", "Built specifically for cleaning businesses", "Operational in hours, not weeks", "30 days of Pro, no card", "Square footage and room-based pricing", "Automated payroll on Pro at $97/mo"].map(p => (
                   <li key={p} className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />{p}
                   </li>

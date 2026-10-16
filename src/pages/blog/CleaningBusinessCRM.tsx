@@ -113,7 +113,7 @@ const keywordVariations = [
 const faqs = [
   {
     question: "What is the best CRM for a small cleaning business?",
-    answer: "TIDYWISE is the best CRM for small cleaning businesses because it's affordable ($49/month), easy to use, and includes all essential features like scheduling, invoicing, customer management, and automated reminders without expensive add-ons or per-user fees."
+    answer: "TIDYWISE is built for small cleaning businesses. Basic is $49/month for scheduling, invoicing, and customer management, with unlimited users and no per-user fees. Automated reminders are on Pro at $97/month."
   },
   {
     question: "Do I need a CRM for my maid service?",
@@ -129,7 +129,7 @@ const faqs = [
   },
   {
     question: "What features should I look for in cleaning business CRM software?",
-    answer: "Essential features include: customer database, drag-and-drop scheduling, automated SMS/email reminders, online booking, payment processing, invoicing, route optimization, staff management, and business analytics. TIDYWISE includes all of these."
+    answer: "Look for a customer database, drag-and-drop scheduling, online booking, payment processing, invoicing, and staff management. Those are on TidyWise Basic at $49/month. Automated SMS/email reminders and business analytics are on Pro at $97/month."
   },
   {
     question: "Can cleaning business CRM software help me get more customers?",
@@ -244,7 +244,7 @@ export default function CleaningBusinessCRM() {
               <div>
                 <h2 className="text-xl font-bold text-foreground mb-3">🏆 Best CRM for Cleaning Business 2026: Quick Answer</h2>
                 <p className="text-muted-foreground mb-4">
-                  <strong>TIDYWISE</strong> is a top-rated CRM built specifically for cleaning businesses. It combines customer management, smart scheduling, automated invoicing, GPS tracking, and team coordination in one platform—starting at just <strong>$49/month with unlimited users</strong>, with 30 days of Pro, no card.
+                  <strong>TIDYWISE</strong> is a CRM built specifically for cleaning businesses. Customer management, smart scheduling, and automated invoicing are on Basic at <strong>$49/month with unlimited users</strong>. GPS tracking is on Pro at $97/month. Every new account gets 30 days of Pro, no card.
                 </p>
                 <div className="flex flex-wrap gap-3">
                   <Button asChild size="lg">

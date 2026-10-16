@@ -53,7 +53,7 @@ export const STATIC_ROUTE_META: Record<string, RouteMeta> = {
   "/": {
     title: "TidyWise — Cleaning Business Software & CRM",
     description:
-      "All-in-one cleaning business software: online booking, scheduling, invoicing, payroll, GPS tracking, and CRM. Plans from $49/mo, or a one-time Lifetime spot at $300.",
+      "All-in-one cleaning business software: online booking, scheduling, invoicing, and CRM from $49/mo. Payroll and GPS tracking are on Pro at $97/mo. Or a one-time Lifetime spot at $300.",
     h1: "Run your cleaning business on one platform",
     noscriptBody: `
       <nav aria-label="Features">
@@ -321,7 +321,7 @@ export const STATIC_ROUTE_META: Record<string, RouteMeta> = {
   "/compare/launch27": {
     title: "TidyWise vs Launch27 — Flat-Rate Alternative",
     description:
-      "See how TidyWise compares with Launch27. TidyWise plans start at $49/mo and include payroll and a mobile app.",
+      "See how TidyWise compares with Launch27. Basic starts at $49/mo and includes the mobile app. Payroll is on Pro at $97/mo.",
     h1: "TidyWise vs Launch27",
   },
 
@@ -402,7 +402,7 @@ export function locationRouteMeta(
   const title = `Cleaning Business Software in ${loc.name} | ${BRAND}`.slice(0, 60);
   const description =
     loc.seoDescription ??
-    `Cleaning business software for ${place} — scheduling, payroll, invoicing, and CRM built for local cleaners. Plans from $49/mo.`.slice(0, 160);
+    `Cleaning business software for ${place} — scheduling, invoicing, and CRM from $49/mo. Payroll is on Pro at $97/mo.`.slice(0, 160);
   const h1 = isCity
     ? `Cleaning Business Software in ${place}`
     : `Cleaning Business Software in ${loc.name}`;
@@ -427,7 +427,7 @@ export function compareNicheRouteMeta(c: {
 }): RouteMeta {
   const title = `TidyWise vs ${c.name} for ${n.name}`.slice(0, 60);
   const description =
-    `${c.name} vs TidyWise for ${n.inline}: features, payroll, and what each is best at. TidyWise plans start at $49/mo.`.slice(0, 160);
+    `${c.name} vs TidyWise for ${n.inline}. Basic starts at $49/mo. Payroll is on Pro at $97/mo.`.slice(0, 160);
   const h1 = `TidyWise vs ${c.name} for ${n.name}`;
   return { title, description, h1 };
 }

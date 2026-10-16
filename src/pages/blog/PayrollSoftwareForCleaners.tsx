@@ -105,7 +105,7 @@ export default function PayrollSoftwareForCleaners() {
             </p>
             <p className="text-muted-foreground">
               <strong className="text-foreground">Best for:</strong> Cleaning businesses that want payroll, scheduling, CRM, and invoicing in one place.<br />
-              <strong className="text-foreground">Price:</strong> Plans from $49/mo.
+              <strong className="text-foreground">Price:</strong> Pro at $97/mo. Payroll is not included on Basic ($49/mo).
             </p>
 
             <h3 className="text-xl font-semibold mt-6">2. Gusto — Best for Full-Service Payroll</h3>
@@ -155,7 +155,7 @@ export default function PayrollSoftwareForCleaners() {
               If you're running payroll manually in a spreadsheet, you're losing hours every two weeks — and introducing errors. The best payroll software for your cleaning business depends on your size and how integrated you want your tools to be.
             </p>
             <p className="text-muted-foreground">
-              For most cleaning companies under 20 cleaners, TIDYWISE covers payroll, scheduling, and invoicing in one affordable platform (plans from $49/mo). Larger operations or those with complex tax situations may want to add Gusto for full-service compliance support.
+              For most cleaning companies under 20 cleaners, TIDYWISE covers scheduling and invoicing on Basic at $49/mo, and payroll on Pro at $97/mo. Larger operations or those with complex tax situations may want to add Gusto for full-service compliance support.
             </p>
 
             <div className="bg-primary/5 border border-primary/20 rounded-xl p-6 mt-8">

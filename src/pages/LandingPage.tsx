@@ -194,7 +194,7 @@ export default function LandingPage() {
     <div className="portal-v2 portal-v2-scroll min-h-screen bg-background overflow-x-hidden pb-20">
       <SEOHead 
         title="Cleaning Business CRM & Scheduling Software | TidyWise"
-        description="Smart scheduling, automated payroll, CRM, GPS tracking and online booking for cleaning businesses. Start free — 30 days of Pro, no card. Plans from $49/mo."
+        description="Smart scheduling, CRM, and online booking from $49/mo. Automated payroll and GPS tracking are on Pro at $97/mo. Start free — 30 days of Pro, no card."
         canonical="/"
         ogImage="https://www.jointidywise.com/images/og/og-home.png"
         schemaJson={[
@@ -709,7 +709,7 @@ export default function LandingPage() {
             {[
               {
                 q: "How much does TidyWise cost?",
-                a: "Two plans. Basic ($49/month, unlimited users) covers online booking, scheduling, invoicing, payments, the cleaner mobile app, GPS check-ins, SMS reminders, and the client portal. Pro ($97/month) adds automated payroll, P&L reporting, AI pricing tools, inventory, route optimization, loyalty programs, the in-app SMS inbox, and priority support."
+                a: "Basic is $49/month with unlimited users. It covers online booking, scheduling, invoicing, payments, and the cleaner mobile app. Pro is $97/month and adds automated reminders, payroll, GPS tracking, the client portal, and advanced reports."
               },
               {
                 q: "How does TidyWise compare to Jobber?",

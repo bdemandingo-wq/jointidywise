@@ -138,7 +138,7 @@ export default function CompareZenMaid() {
                 <span className="font-bold text-foreground text-lg">TIDYWISE</span>
               </div>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                {["$49/month — doesn't increase with bookings", "Automated payroll built-in", "P&L reporting and profit per job", "AI revenue and pricing tools", "Inventory tracking", "30 days of Pro, no card"].map(p => (
+                {["Basic is $49/mo — price does not rise with bookings", "Payroll, P&L, and AI are on Pro at $97/mo", "30 days of Pro, no card"].map(p => (
                   <li key={p} className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />{p}
                   </li>

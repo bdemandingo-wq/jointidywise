@@ -40,7 +40,7 @@ export default function CompareNichePage() {
   const path = `/compare/${competitor.slug}/for/${niche.slug}`;
   const pageTitle = `TidyWise vs ${competitor.name} for ${niche.name}`.slice(0, 60);
   const description =
-    `${competitor.name} vs TidyWise for ${niche.inline}: ${niche.tableRows[1]?.toLowerCase() ?? "features"}, payroll, and what each is best at. TidyWise plans start at $49/mo.`.slice(
+    `${competitor.name} vs TidyWise for ${niche.inline}. Basic starts at $49/mo. Payroll is on Pro at $97/mo.`.slice(
       0,
       160
     );
@@ -195,8 +195,7 @@ export default function CompareNichePage() {
             <div className="rounded-lg border border-border p-4">
               <p className="font-semibold text-foreground mb-2">TidyWise pricing:</p>
               <p>
-                Flat $49/month (Basic) with every feature above included. Pro at $97/mo adds unlimited
-                users. No per-booking fees, no per-user seats, no add-on charges.
+                Basic is $49/month for booking, scheduling, and invoicing, with unlimited users. Payroll, GPS tracking, and automated reminders are on Pro at $97/mo. No per-booking fees and no per-user seats.
               </p>
             </div>
           </div>

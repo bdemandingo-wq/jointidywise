@@ -96,7 +96,7 @@ export default function CompareLaunch27() {
               TIDYWISE vs Launch27
             </h1>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Launch27 is an established booking platform for maid services. TIDYWISE includes payroll, P&L reporting, a mobile app, and AI tools. Plans start at $49/mo.
+              Launch27 is an established booking platform for maid services. The mobile app is included from $49/mo (Basic). Payroll, P&L reporting, and AI tools are on Pro at $97/mo.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center mt-8">
               <Button size="lg" onClick={handleStartFreeTrial}>
@@ -118,7 +118,7 @@ export default function CompareLaunch27() {
                 <span className="font-bold text-foreground text-lg">TIDYWISE</span>
               </div>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                {["$49/month — every feature included", "Automated payroll built-in", "Mobile app included at every tier", "P&L reporting and profit per job", "AI revenue and pricing tools", "30 days of Pro, no card"].map(p => (
+                {["Basic is $49/mo — booking, scheduling, and invoicing", "Payroll, P&L, and AI are on Pro at $97/mo", "Mobile app included at every tier", "30 days of Pro, no card"].map(p => (
                   <li key={p} className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />{p}
                   </li>
@@ -207,9 +207,9 @@ export default function CompareLaunch27() {
             <h2 className="text-2xl font-bold text-foreground mb-6">Where TIDYWISE Wins</h2>
             <div className="space-y-4">
               {[
-                { icon: <DollarSign className="h-5 w-5 text-primary" />, title: "One price, everything included", body: "TIDYWISE includes payroll, mobile app, GPS check-ins, and P&L reports. Plans start at $49/mo." },
+                { icon: <DollarSign className="h-5 w-5 text-primary" />, title: "Payroll and GPS are on Pro", body: "The mobile app is included from $49/mo (Basic). Payroll, GPS check-ins, and P&L reports are on Pro at $97/mo." },
                 { icon: <Clock className="h-5 w-5 text-primary" />, title: "P&L reporting Launch27 doesn't offer at any price", body: "Launch27's analytics track bookings and revenue. TIDYWISE generates profit-and-loss statements by service type and per job, so you know which clients and job types actually make money — not just how much you billed." },
-                { icon: <Smartphone className="h-5 w-5 text-primary" />, title: "Mobile app included", body: "Field teams live on their phones. TIDYWISE ships its app to every customer, with GPS check-ins included." },
+                { icon: <Smartphone className="h-5 w-5 text-primary" />, title: "Mobile app included", body: "Field teams live on their phones. TIDYWISE ships its app on every plan, from $49/mo. GPS check-ins are on Pro at $97/mo." },
               ].map((item, i) => (
                 <div key={i} className="flex gap-4 p-5 bg-card rounded-xl border border-border">
                   <div className="flex-shrink-0 mt-0.5">{item.icon}</div>
@@ -229,7 +229,7 @@ export default function CompareLaunch27() {
               <div className="bg-primary/5 border border-primary/20 rounded-xl p-6">
                 <h3 className="font-bold text-foreground mb-3">Choose TIDYWISE if:</h3>
                 <ul className="space-y-2 text-sm text-muted-foreground">
-                  {["You want payroll and a mobile app without paying tier upgrades", "You need P&L reports to manage profitability", "Your cleaners need GPS check-ins in the field", "You want AI tools for pricing and revenue", "You want one flat price as you grow"].map(p => (
+                  {["You want the mobile app on Basic at $49/mo", "You want payroll, P&L, GPS, and AI on Pro at $97/mo", "You want unlimited users on every plan"].map(p => (
                     <li key={p} className="flex items-start gap-2">
                       <CheckCircle2 className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />{p}
                     </li>

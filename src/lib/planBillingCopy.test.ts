@@ -2,7 +2,8 @@
 //   node --experimental-strip-types --test src/lib/planBillingCopy.test.ts
 // tsconfig.app.json sets allowImportingTsExtensions and excludes *.test.ts,
 // so `tsc -p tsconfig.app.json` does not typecheck this import. Node does.
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -310,6 +311,8 @@ test("the charge preview uses the server clock and the discounted cents", () => 
   assert.match(choose, /orgTrialCheckout && !contactPlan \? todayChargeCopy/);
   assert.match(choose, /contactPlan \? null : renewalDisclosure/);
   assert.match(dialogs, /contactPlan \? null : renewalDisclosure/);
+  assert.match(dialogs, /enabled: open && canShowPaymentFlows && orgTrialCheckout/);
+  assert.match(dialogs, /if \(!open \|\| !targetPlan \|\| !canShowPaymentFlows\) return/);
   assert.match(dialogs, /if \(!targetPlan \|\| !canShowPaymentFlows\) return/);
   assert.match(dialogs, /This app cannot take a card/);
   assert.doesNotMatch(dialogs, /CHARGE_TODAY_NO_AMOUNT/);
@@ -481,6 +484,31 @@ test("lifetime and grandfathered accounts do not see the plan grid", () => {
   assert.equal(showPlanChoices({ lifetime: false, grandfathered: false }), true);
   assert.equal(showPlanChoices({ lifetime: true, grandfathered: false }), false);
   assert.equal(showPlanChoices({ lifetime: false, grandfathered: true }), false);
+});
+
+test("a $49 sentence does not include payroll, GPS, or automated reminders", () => {
+  const root = new URL("../", import.meta.url);
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const name of readdirSync(dir)) {
+      if (name === "node_modules" || name === "dist") continue;
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.(ts|tsx)$/.test(name) && !name.endsWith(".test.ts")) files.push(full);
+    }
+  };
+  walk(root.pathname);
+  const bad: string[] = [];
+  for (const file of files) {
+    const lines = readFileSync(file, "utf8").split("\n");
+    lines.forEach((line, index) => {
+      if (!/\$49/.test(line)) return;
+      if (!/(payroll|GPS|automated reminder)/i.test(line)) return;
+      if (/\$97/.test(line)) return;
+      bad.push(`${file}:${index + 1}: ${line.trim()}`);
+    });
+  }
+  assert.deepEqual(bad, []);
 });
 
 test("lifetime spots stay hidden unless both the count and the cap are real", () => {

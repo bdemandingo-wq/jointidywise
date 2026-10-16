@@ -24,12 +24,12 @@ export const HOME_FAQS: FaqItem[] = [
   {
     question: "Can I manage my cleaning team with TidyWise?",
     answer:
-      "Yes. TidyWise includes staff scheduling, automated payroll, GPS check-ins, on-the-way SMS, performance tracking, and a dedicated cleaner mobile app so your whole team works from one system.",
+      "Yes. Basic at $49/mo includes staff scheduling and the cleaner mobile app. Pro at $97/mo adds automated payroll and GPS check-ins, so the whole team can work from one system.",
   },
   {
     question: "Does TidyWise work for solo cleaners?",
     answer:
-      "Absolutely. Solo cleaners use TidyWise for online booking, automated reminders, invoicing, card payments, and recurring jobs — without any team setup required.",
+      "Absolutely. Solo cleaners use Basic at $49/mo for online booking, invoicing, card payments, and recurring jobs — without any team setup required. Automated reminders are on Pro at $97/mo.",
   },
   {
     question: "What happens after my free trial ends?",
@@ -117,7 +117,7 @@ export function softwareApplicationSchema(opts?: {
     operatingSystem: "Web, iOS, Android",
     description:
       opts?.description ??
-      "All-in-one cleaning business software: booking, scheduling, CRM, invoicing, payroll, and GPS tracking. Plans from $49/mo.",
+      "All-in-one cleaning business software: booking, scheduling, CRM, and invoicing from $49/mo. Payroll and GPS tracking are on Pro at $97/mo.",
     featureList: opts?.featureList ?? CORE_FEATURES,
     offers: withOfferList
       ? PRICING_OFFERS.map((o) => ({

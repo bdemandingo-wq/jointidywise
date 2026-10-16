@@ -103,23 +103,23 @@ export function UpgradePlanDialog({
   const { canShowPaymentFlows } = usePlatform();
   const orgTrialCheckout = organization?.plan_type === "trial";
   const chargePreview = useSubscriptionChargePreview({
-    enabled: open && orgTrialCheckout && !!targetPlan,
+    enabled: open && canShowPaymentFlows && orgTrialCheckout && !!targetPlan,
     organizationId,
     items: targetPlan ? [{ plan: targetPlan.id, interval: "monthly" }] : [],
   });
 
 
   useEffect(() => {
-    if (!open || !targetPlan) return;
+    if (!open || !targetPlan || !canShowPaymentFlows) return;
     setDiscountCode("");
     setAppliedCode(null);
     setNeedsCheckout(false);
     void fetchPreview(undefined);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchPreview/targetPlan are recreated each render; runs when dialog opens or plan id changes
-  }, [open, targetPlan?.id]);
+  }, [open, targetPlan?.id, canShowPaymentFlows]);
 
   async function fetchPreview(code: string | undefined) {
-    if (!targetPlan) return;
+    if (!targetPlan || !canShowPaymentFlows) return;
     setLoading(true);
     setPreviewError(null);
     setNeedsCheckout(false);
