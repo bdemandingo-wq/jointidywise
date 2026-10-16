@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { withStaffCustomers, withStaffCustomer, fetchStaffCustomers } from '@/lib/staffCustomers';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { resolveCleanerPay } from '@/lib/wageCalculation';
 import { useHourCaps } from '@/hooks/useHourCaps';
@@ -67,7 +68,7 @@ export default function StaffJobDetailPage() {
           total_amount, subtotal, discount_amount,
           cleaner_wage, cleaner_wage_type, cleaner_actual_payment, cleaner_pay_expected,
           cleaner_override_hours, cleaner_checkin_at, cleaner_checkout_at,
-          customer:customers(first_name, last_name, phone),
+          customer_id,
           service:services(name)
         `)
         .eq('id', id!)

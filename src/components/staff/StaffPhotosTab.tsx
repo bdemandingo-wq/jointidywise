@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { SignedImage } from '@/components/ui/signed-image';
 import { supabase } from '@/lib/supabase';
+import { withStaffCustomers, withStaffCustomer, fetchStaffCustomers } from '@/lib/staffCustomers';
 import { getUploadErrorMessage, isVideoFile } from '@/lib/bookingMediaUpload';
 import { dismissQueuedPhoto, photoVisibleToOrg } from '@/lib/photoUploadQueue';
 import { usePhotoUploadQueue } from '@/hooks/usePhotoUploadQueue';
@@ -103,7 +104,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
 
       const { data, error } = await supabase
         .from('bookings')
-        .select('id, booking_number, scheduled_at, status, cleaner_checkout_at, customer:customers(first_name, last_name), service:services(name)')
+        .select('id, booking_number, scheduled_at, status, cleaner_checkout_at, customer_id, service:services(name)')
         .eq('staff_id', staffId)
         .eq('organization_id', organizationId)
         .in('status', ['pending', 'confirmed', 'in_progress', 'completed'])
@@ -111,7 +112,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
         .limit(20);
 
       if (error) throw error;
-      return (data || []) as BookingOption[];
+      return (await withStaffCustomers(data)) as unknown as BookingOption[];
     },
     enabled: !!staffId && !!organizationId,
   });
@@ -143,7 +144,7 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
             organization_id,
             booking_number,
             scheduled_at,
-            customer:customers!bookings_customer_id_fkey(first_name, last_name)
+            customer_id
           )
         `;
       // Proof columns are not in the generated types until the migration runs.

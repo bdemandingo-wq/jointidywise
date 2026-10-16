@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { QueryError } from '@/components/QueryError';
 import { supabase } from '@/lib/supabase';
+import { withStaffCustomers, withStaffCustomer, fetchStaffCustomers } from '@/lib/staffCustomers';
 import { saveBlob } from '@/lib/fileActions';
 import { matrixToCsv } from '@/lib/orgDataExport';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -133,7 +134,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
           cleaner_checkin_at, cleaner_checkout_at, cleaner_override_hours,
           staff_id,
           service:services(name),
-          customer:customers(first_name, last_name)
+          customer_id
         `)
         .eq('staff_id', staffId)
         .neq('status', 'cancelled')
@@ -168,14 +169,14 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
           cleaner_checkin_at, cleaner_checkout_at, cleaner_override_hours,
           staff_id,
           service:services(name),
-          customer:customers(first_name, last_name)
+          customer_id
         `)
         .in('id', bookingIds)
         .neq('status', 'cancelled')
         .gte('scheduled_at', upcomingWeekStart.toISOString())
         .lte('scheduled_at', wEnd.toISOString());
       if (bErr) throw bErr;
-      return (bookings || []).map((b: any) => {
+      return (await withStaffCustomers(bookings)).map((b: any) => {
         const a = assignments.find((x) => x.booking_id === b.id)!;
         return { booking: b as Booking, payShare: a.pay_share };
       });
@@ -251,7 +252,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
           cleaner_actual_payment, cleaner_pay_expected, cleaner_wage, cleaner_wage_type, pay_locked,
           cleaner_checkin_at, cleaner_checkout_at, cleaner_override_hours,
           service:services(name),
-          customer:customers(first_name, last_name)
+          customer_id
         `)
         .eq('staff_id', staffId)
         .eq('status', 'completed');
@@ -259,7 +260,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
       if (toISO)   query = query.lte('scheduled_at', toISO);
       const { data, error } = await query.order('scheduled_at', { ascending: false });
       if (error) throw error;
-      return data as Booking[];
+      return (await withStaffCustomers(data)) as unknown as Booking[];
     },
     enabled: !!staffId,
   });
@@ -282,7 +283,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
           cleaner_checkin_at, cleaner_checkout_at, cleaner_override_hours,
           staff_id,
           service:services(name),
-          customer:customers(first_name, last_name)
+          customer_id
         `)
         .in('id', bookingIds)
         .eq('status', 'completed');
@@ -290,7 +291,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
       if (toISO)   bQuery = bQuery.lte('scheduled_at', toISO);
       const { data: bookings, error: bErr } = await bQuery.order('scheduled_at', { ascending: false });
       if (bErr) throw bErr;
-      return (bookings || []).map((b: any) => {
+      return (await withStaffCustomers(bookings)).map((b: any) => {
         const a = assignments.find((x) => x.booking_id === b.id)!;
         return { booking: b as Booking, payShare: a.pay_share, isPrimary: a.is_primary };
       });

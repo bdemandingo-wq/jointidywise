@@ -2,6 +2,7 @@ import { MyPayoutsCard } from '@/components/payroll/MyPayoutsCard';
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { withStaffCustomers, withStaffCustomer, fetchStaffCustomers } from '@/lib/staffCustomers';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -223,7 +224,7 @@ export function StaffPayoutSetup({ staffId, organizationId }: StaffPayoutSetupPr
           id, booking_number, scheduled_at, total_amount,
           cleaner_actual_payment, cleaner_wage, cleaner_wage_type,
           payment_status, status,
-          customer:customers(first_name, last_name)
+          customer_id
         `)
         .eq('staff_id', staffId)
         .eq('organization_id', organizationId)
@@ -232,7 +233,7 @@ export function StaffPayoutSetup({ staffId, organizationId }: StaffPayoutSetupPr
         .limit(20);
 
       if (error) throw error;
-      return data || [];
+      return withStaffCustomers(data);
     },
     enabled: payoutStatus?.status === 'active',
   });
@@ -262,7 +263,7 @@ export function StaffPayoutSetup({ staffId, organizationId }: StaffPayoutSetupPr
         throw new Error(serverError);
       }
 
-      return data as { url: string; accountId: string };
+      return (await withStaffCustomers(data)) as unknown as { url: string; accountId: string };
     },
     onSuccess: (data) => {
       setOnboardingUrl(data.url);
