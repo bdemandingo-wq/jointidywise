@@ -418,6 +418,26 @@ test("classifyChannel checks UTM, then click id, then in-app browser, then refer
   assert.equal(classifyChannel({ ttclid: "abc", fbclid: "def", referrer: "https://www.google.com/search?q=1" }).channel, "tiktok");
   assert.equal(classifyChannel({ fbclid: "1" }).channel, "facebook");
   assert.equal(classifyChannel({ gclid: "1" }).channel, "google_ads");
+  assert.equal(
+    classifyChannel({ fbclid: "IwAR", userAgent: "Mozilla/5.0 Instagram 1.0" }).channel,
+    "instagram",
+  );
+  assert.equal(
+    classifyChannel({ fbclid: "IwAR", userAgent: "Mozilla/5.0 Instagram 1.0" }).detected_via,
+    "user_agent",
+  );
+  assert.equal(
+    classifyChannel({ fbclid: "IwAR", referrer: "https://l.instagram.com/reel/1" }).channel,
+    "instagram",
+  );
+  assert.equal(
+    classifyChannel({ fbclid: "IwAR", referrer: "https://l.instagram.com/reel/1" }).detected_via,
+    "referrer",
+  );
+  assert.equal(classifyChannel({ fbclid: "IwAR", userAgent: "FBAN/FBIOS" }).channel, "facebook");
+  assert.equal(classifyChannel({ ttclid: "tt", userAgent: "Instagram 1.0" }).channel, "tiktok");
+  assert.equal(classifyChannel({ gclid: "g", userAgent: "Instagram 1.0" }).channel, "google_ads");
+  assert.equal(classifyChannel({ utm_source: "reddit", fbclid: "IwAR", userAgent: "Instagram" }).channel, "reddit");
   assert.equal(classifyChannel({ gclid: "1" }).detected_via, "click_id");
 
   assert.equal(classifyChannel({ userAgent: "Something Instagram 1.0 FBAN/FBIOS" }).channel, "instagram");
@@ -445,6 +465,13 @@ test("classifyChannel checks UTM, then click id, then in-app browser, then refer
   assert.equal(classifyChannel({ referrer: "https://example.com/post" }).detected_via, "referrer");
   assert.equal(classifyChannel({ referrer: "https://jointidywise.com/pricing" }).channel, "direct");
   assert.equal(classifyChannel({ referrer: "https://app.jointidywise.com/" }).channel, "direct");
+  assert.equal(classifyChannel({ referrer: "https://accounts.google.com/o/oauth2/auth" }).channel, "direct");
+  assert.equal(classifyChannel({ referrer: "https://appleid.apple.com/auth/authorize" }).channel, "direct");
+  assert.equal(classifyChannel({ referrer: "https://abcdefgh.supabase.co/auth/v1/callback" }).channel, "direct");
+  assert.equal(classifyChannel({ referrer: "https://checkout.stripe.com/c/pay/cs_test" }).channel, "direct");
+  assert.equal(classifyChannel({ referrer: "https://preview.lovable.app/" }).channel, "direct");
+  assert.equal(classifyChannel({ referrer: "https://accounts.google.com/", native: true }).channel, "ios_app");
+  assert.equal(classifyChannel({ referrer: "https://www.google.com/search?q=clean" }).channel, "organic_search");
   assert.equal(classifyChannel({}).channel, "direct");
   assert.equal(classifyChannel({ native: true }).channel, "ios_app");
   assert.equal(classifyChannel({ native: true }).detected_via, "native");
@@ -527,4 +554,32 @@ test("signup args keep an allowlisted stored label and drop a user agent stuffed
   assert.match(sql, /p_native boolean/);
   assert.match(sql, /channel := 'ios_app'/);
   assert.match(sql, /detected_via := 'native'/);
+  assert.match(sql, /v_channel = 'direct'/);
+  assert.match(sql, /v_client_channel = 'instagram'/);
+  assert.match(sql, /v_channel = 'facebook'/);
+  assert.match(sql, /accounts\.google\.com/);
+  assert.match(sql, /appleid\.apple\.com/);
+  assert.match(sql, /checkout\.stripe\.com/);
+  assert.match(sql, /supabase\.co/);
+  assert.match(sql, /lovable\.app/);
+  assert.match(sql, /COALESCE\(public\.normalize_utm_value\(v_source_raw\), 'direct'\)/);
+  assert.doesNotMatch(sql, /v_utm_source := left\(v_channel/);
+  assert.doesNotMatch(sql, /utm_source = CASE/);
+  const saveAt = sql.indexOf("Instagram's in-app label beats");
+  const instagramAt = sql.indexOf("v_client_channel = 'instagram'", saveAt);
+  const nativeAt = sql.indexOf("v_channel = 'direct'", saveAt);
+  assert.ok(saveAt > 0 && instagramAt > saveAt && nativeAt > instagramAt);
+
+  const proof = readFileSync(
+    new URL("../../supabase/tests/signup_source_attribution.sql", import.meta.url),
+    "utf8",
+  );
+  const body = (source, name) => {
+    const start = source.indexOf(`FUNCTION public.${name}(`);
+    const end = source.indexOf("\n$$;", start);
+    return source.slice(start, end).replace(/--[^\n]*/g, "").replace(/\s+/g, " ").trim();
+  };
+  assert.equal(body(proof, "signup_classify_channel"), body(sql, "signup_classify_channel"));
+  assert.match(proof, /save_how_heard wrote a second org/);
+  assert.match(proof, /not_sure was overwritten/);
 });

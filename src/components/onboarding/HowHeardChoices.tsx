@@ -35,6 +35,7 @@ export function HowHeardChoices({
               onClick={() => onChange(option, option === 'other' ? other : '')}
               className={cn(
                 'min-h-11 rounded-xl border px-3 py-2 text-left text-sm font-medium transition-colors',
+                option === 'not_sure' && 'col-span-2',
                 selected
                   ? 'border-primary bg-primary/10 text-foreground'
                   : 'border-border text-muted-foreground hover:border-primary/50',

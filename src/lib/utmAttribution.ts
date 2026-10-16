@@ -386,6 +386,19 @@ function isOwnHost(host: string): boolean {
   return bare === "jointidywise.com" || bare.endsWith(".jointidywise.com");
 }
 
+/** OAuth, checkout, and preview hosts are our own flow, not a referral. */
+function isIgnoredHost(host: string): boolean {
+  const bare = bareHost(host);
+  return isOwnHost(host)
+    || bare === "accounts.google.com"
+    || bare === "appleid.apple.com"
+    || bare === "checkout.stripe.com"
+    || bare === "supabase.co"
+    || bare.endsWith(".supabase.co")
+    || bare === "lovable.app"
+    || bare.endsWith(".lovable.app");
+}
+
 function channelFromUtm(source: string | null, medium: string | null): { channel: string; channel_source: string | null } {
   const paid = medium != null && PAID_MEDIUMS.has(medium);
   let channel = "utm";
@@ -418,6 +431,7 @@ function channelFromUserAgent(userAgent: string): ChannelClassification | null {
 }
 
 function channelFromReferrer(host: string): ChannelClassification | null {
+  if (isIgnoredHost(host)) return null;
   const bare = bareHost(host);
   if (
     /^google\.[a-z.]+$/.test(bare)
@@ -458,9 +472,10 @@ function channelFromReferrer(host: string): ChannelClassification | null {
 
 /**
  * First match wins:
- * UTM, then click id, then in-app user agent, then referrer, then
- * iOS app when the visit would otherwise be direct, then direct or referral.
- * The returned object is labels only. The user agent is not copied into it.
+ * UTM, then ttclid, then an Instagram in-app label or Instagram referrer
+ * ahead of fbclid, then fbclid, then gclid, then any other in-app label,
+ * then referrer, then iOS when the visit would otherwise be direct, then direct.
+ * OAuth and checkout hosts are ignored. The returned object is labels only.
  */
 export function classifyChannel(input: ClassifyChannelInput): ChannelClassification {
   const source = normalizeUtmValue(input.utm_source);
@@ -477,24 +492,25 @@ export function classifyChannel(input: ClassifyChannelInput): ChannelClassificat
     };
   }
 
+  const userAgent = presentText(input.userAgent);
+  const host = referrerDomain(input.referrer);
+  const fromAgent = userAgent ? channelFromUserAgent(userAgent) : null;
+  const fromReferrer = host ? channelFromReferrer(host) : null;
+
   if (presentText(input.ttclid)) return { channel: "tiktok", channel_source: "ttclid", detected_via: "click_id" };
-  if (presentText(input.fbclid)) return { channel: "facebook", channel_source: "fbclid", detected_via: "click_id" };
+  if (presentText(input.fbclid)) {
+    // Instagram's in-app browser appends fbclid. That click id must not hide Instagram.
+    if (fromAgent?.channel === "instagram") return fromAgent;
+    if (fromReferrer?.channel === "instagram") return fromReferrer;
+    return { channel: "facebook", channel_source: "fbclid", detected_via: "click_id" };
+  }
   if (presentText(input.gclid)) return { channel: "google_ads", channel_source: "gclid", detected_via: "click_id" };
 
-  const userAgent = presentText(input.userAgent);
-  if (userAgent) {
-    const fromAgent = channelFromUserAgent(userAgent);
-    if (fromAgent) return fromAgent;
-  }
-
-  const host = referrerDomain(input.referrer);
-  if (host) {
-    const fromReferrer = channelFromReferrer(host);
-    if (fromReferrer) return fromReferrer;
-  }
+  if (fromAgent) return fromAgent;
+  if (fromReferrer) return fromReferrer;
 
   const native = input.native === true || (userAgent != null && /TidyWise-iOS/i.test(userAgent));
-  if (host && !isOwnHost(host)) {
+  if (host && !isIgnoredHost(host)) {
     return { channel: "referral", channel_source: host, detected_via: "referrer" };
   }
   if (native) return { channel: "ios_app", channel_source: "ios", detected_via: "native" };

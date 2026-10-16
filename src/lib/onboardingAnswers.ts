@@ -47,6 +47,7 @@ export const HOW_HEARD_VALUES = [
   "google",
   "referral",
   "other",
+  "not_sure",
 ] as const;
 
 export type HowHeardValue = (typeof HOW_HEARD_VALUES)[number];
@@ -167,16 +168,16 @@ export function readHowHeardOther(raw: unknown): string {
   return normalizeHowHeardOther((raw as Record<string, unknown>).howHeardOther);
 }
 
-/** Set by save_how_heard, including the Not sure escape that leaves howHeard empty. */
+/** Set when the owner answers, including not_sure. */
 export function readHowHeardAskedAt(raw: unknown): string | null {
   if (!raw || typeof raw !== "object") return null;
   const value = (raw as Record<string, unknown>).howHeardAskedAt;
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-/** True when a source slug is stored. Not sure does not count: howHeard stays empty. */
+/** True when a real source slug is stored. not_sure is an answer, but not a source. */
 export function hasHowHeardAnswer(raw: unknown): boolean {
-  return normalizeAnswers(raw).howHeard.length > 0;
+  return normalizeAnswers(raw).howHeard.some((value) => value !== "not_sure");
 }
 
 /**
@@ -185,6 +186,7 @@ export function hasHowHeardAnswer(raw: unknown): boolean {
  */
 export function shouldAskHowHeard(raw: unknown): boolean {
   if (readHowHeardAskedAt(raw)) return false;
+  if (normalizeAnswers(raw).howHeard.includes("not_sure")) return false;
   return !hasHowHeardAnswer(raw);
 }
 
@@ -197,9 +199,14 @@ export function isHowHeardComplete(value: string, other: string): boolean {
 
 export type OnboardingAnswersPayload = Record<QualifyingKey, string[]> & {
   howHeardOther: string;
+  howHeardAskedAt?: string;
 };
 
-export function buildAnswersPayload(a: OnboardingAnswers, howHeardOther?: unknown): OnboardingAnswersPayload {
+export function buildAnswersPayload(
+  a: OnboardingAnswers,
+  howHeardOther?: unknown,
+  askedAt?: string,
+): OnboardingAnswersPayload {
   const payload = {} as OnboardingAnswersPayload;
   for (const key of QUALIFYING_KEYS) {
     payload[key] = [...(a[key] ?? [])];
@@ -207,6 +214,10 @@ export function buildAnswersPayload(a: OnboardingAnswers, howHeardOther?: unknow
   const picked = chosenHowHeard(payload.howHeard);
   payload.howHeard = picked ? [picked] : [];
   payload.howHeardOther = picked === "other" ? normalizeHowHeardOther(howHeardOther ?? readHowHeardOther(a)) : "";
+  if (picked === "not_sure") {
+    const stamp = typeof askedAt === "string" ? askedAt.trim() : "";
+    payload.howHeardAskedAt = stamp || new Date().toISOString();
+  }
   return payload;
 }
 
@@ -262,6 +273,7 @@ export const OPTION_LABELS: Record<QualifyingKey, Record<string, string>> = {
     google: "Google",
     referral: "Friend/referral",
     other: "Other",
+    not_sure: "Not sure",
     fb_ad: "Facebook",
     fb_group: "Facebook",
   },
@@ -329,7 +341,7 @@ export function summariseSource(raw: unknown): { primary: string; extraCount: nu
 
 /**
  * Share of rows that named a source. Zero rows is 0%, not NaN.
- * Not sure is unanswered: howHeard was left empty on purpose.
+ * not_sure is stored, and it does not count as a named source.
  */
 export function howHeardAnsweredSummary(rows: Array<{ onboarding_answers?: unknown }>): {
   answered: number;

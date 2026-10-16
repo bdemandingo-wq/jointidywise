@@ -2,8 +2,10 @@
 --
 -- authenticated cannot UPDATE organizations in general (table UPDATE was
 -- revoked; only a few columns were re-granted). This function is the late
--- answer path: the caller must own the org, the value must be on the list,
--- and an existing howHeard answer is never overwritten.
+-- answer path: the caller must own the named org, the value must be on the
+-- list, and a stored howHeard slug is left as it is. not_sure is stored as
+-- ["not_sure"] plus howHeardAskedAt. It is not an empty field that a later
+-- call can fill in.
 --
 -- Run after 20260814011951 (onboarding_answers column).
 -- Does not send email, SMS, or push. Does not touch Stripe.
@@ -21,8 +23,10 @@
 --   5. select public.save_how_heard('<this org uuid>'::uuid, 'other', '   ');     -- 22023
 --   6. On an org whose howHeard is empty:
 --      select public.save_how_heard('<this org uuid>'::uuid, 'not_sure', null);
---      -- howHeard stays empty, howHeardAskedAt is set
---   7. As a non-owner, or with another owner's org id: the same call changes zero rows.
+--      -- howHeard is ["not_sure"], howHeardAskedAt is set
+--   7. select public.save_how_heard('<this org uuid>'::uuid, 'tiktok', null);
+--      -- still ["not_sure"]
+--   8. As a non-owner, or with another owner's org id: the same call changes zero rows.
 
 CREATE OR REPLACE FUNCTION public.how_heard_is_present(p_answers jsonb)
 RETURNS boolean
@@ -80,19 +84,14 @@ BEGIN
       USING ERRCODE = '22023';
   END IF;
 
-  -- This organization only, and only when the caller owns it. Writes the
-  -- source only while howHeard is empty, and always records that we asked
-  -- so Not sure does not come back on the next device.
+  -- This organization only, and only when the caller owns it. A stored
+  -- howHeard slug, including not_sure, is not replaced.
   UPDATE public.organizations AS org
   SET onboarding_answers =
     COALESCE(org.onboarding_answers, '{}'::jsonb)
-    || CASE
-      WHEN v_value = 'not_sure' THEN '{}'::jsonb
-      ELSE jsonb_build_object('howHeard', jsonb_build_array(v_value))
-    END
+    || jsonb_build_object('howHeard', jsonb_build_array(v_value))
     || CASE
       WHEN v_value = 'other' THEN jsonb_build_object('howHeardOther', v_other)
-      WHEN v_value = 'not_sure' THEN '{}'::jsonb
       ELSE jsonb_build_object('howHeardOther', ''::text)
     END
     || jsonb_build_object('howHeardAskedAt', to_jsonb(now()))
@@ -106,4 +105,4 @@ REVOKE ALL ON FUNCTION public.save_how_heard(uuid, text, text) FROM PUBLIC, anon
 GRANT EXECUTE ON FUNCTION public.save_how_heard(uuid, text, text) TO authenticated;
 
 COMMENT ON FUNCTION public.save_how_heard(uuid, text, text) IS
-  'Owner-only. Saves a single howHeard slug (or Not sure) onto the named organization when owner_id is auth.uid() and howHeard is still empty. Sets howHeardAskedAt. Other requires non-blank text, capped at 200 characters. Does not grant a general organizations update.';
+  'Owner-only. Saves one howHeard slug onto the named organization when owner_id is auth.uid() and howHeard is still empty. not_sure is stored as ["not_sure"] and sets howHeardAskedAt. A later call does not replace it. Other requires non-blank text, capped at 200 characters. Does not grant a general organizations update.';

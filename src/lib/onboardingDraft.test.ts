@@ -95,6 +95,8 @@ test("a legacy howHeard array restores one current option", () => {
   });
   assert.equal(other?.howHeard, "other");
   assert.equal(other?.howHeardOther.length, 200);
+  const skipped = parseOnboardingDraft({ step: 1, businessName: "Sparkle Co", howHeard: "not_sure" });
+  assert.equal(skipped?.howHeard, "not_sure");
 });
 
 test("the how-heard prompt seen flag is per user and org", () => {

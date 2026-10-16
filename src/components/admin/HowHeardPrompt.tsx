@@ -13,6 +13,7 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { isDemoAccount } from '@/hooks/useSubscription';
 import { useOrganization } from '@/contexts/OrganizationContext';
+import { Sentry } from '@/lib/sentry';
 import { supabase } from '@/lib/supabase';
 import { isHowHeardComplete, shouldAskHowHeard } from '@/lib/onboardingAnswers';
 import { readHowHeardSeen, writeHowHeardSeen } from '@/lib/onboardingDraft';
@@ -20,7 +21,7 @@ import { readHowHeardSeen, writeHowHeardSeen } from '@/lib/onboardingDraft';
 /**
  * One-time question for an org owner who never named a source.
  * Staff routes, the customer portal, and demo/Apple-review accounts never see it.
- * Not sure records that we asked and leaves howHeard empty.
+ * Not sure stores not_sure and howHeardAskedAt. It does not leave the question blank.
  */
 export function HowHeardPrompt() {
   const { user } = useAuth();
@@ -55,6 +56,9 @@ export function HowHeardPrompt() {
       if (cancelled) return;
       if (error) {
         console.error('[how-heard] lookup failed', error.message);
+        Sentry.captureException(error, {
+          tags: { feature: 'how-heard', step: 'lookup' },
+        });
         return;
       }
       if (shouldAskHowHeard(data?.onboarding_answers)) setOpen(true);
@@ -145,9 +149,6 @@ export function HowHeardPrompt() {
             Save
           </Button>
         )}
-        <Button type="button" variant="ghost" disabled={saving} onClick={() => void save('not_sure', '')}>
-          Not sure
-        </Button>
       </DialogContent>
     </Dialog>
   );

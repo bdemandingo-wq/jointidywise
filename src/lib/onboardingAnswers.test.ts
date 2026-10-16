@@ -113,7 +113,7 @@ test("howHeard is one of the five qualifying keys", () => {
 test("howHeard offers the single-choice options, with organic social first", () => {
   assert.deepEqual(
     [...HOW_HEARD_VALUES],
-    ["tiktok", "instagram", "facebook", "reddit", "google", "referral", "other"],
+    ["tiktok", "instagram", "facebook", "reddit", "google", "referral", "other", "not_sure"],
   );
 });
 
@@ -148,6 +148,15 @@ test("other is required text, capped at 200 characters", () => {
   const otherPayload = buildAnswersPayload(normalizeAnswers({ howHeard: ["other"] }), "  from a reel  ");
   assert.deepEqual(otherPayload.howHeard, ["other"]);
   assert.equal(otherPayload.howHeardOther, "from a reel");
+  assert.equal(isHowHeardComplete("not_sure", ""), true);
+  const skipped = buildAnswersPayload(
+    normalizeAnswers({ howHeard: ["not_sure"] }),
+    "ignored",
+    "2026-10-16T12:00:00.000Z",
+  );
+  assert.deepEqual(skipped.howHeard, ["not_sure"]);
+  assert.equal(skipped.howHeardOther, "");
+  assert.equal(skipped.howHeardAskedAt, "2026-10-16T12:00:00.000Z");
 });
 
 test("the owner prompt asks only when howHeard is empty and we have not asked", () => {
@@ -155,7 +164,9 @@ test("the owner prompt asks only when howHeard is empty and we have not asked", 
   assert.equal(shouldAskHowHeard({ howHeard: [] }), true);
   assert.equal(shouldAskHowHeard({ howHeard: ["tiktok"] }), false);
   assert.equal(shouldAskHowHeard({ howHeard: [], howHeardAskedAt: "2026-10-16T00:00:00.000Z" }), false);
+  assert.equal(shouldAskHowHeard({ howHeard: ["not_sure"] }), false);
   assert.equal(hasHowHeardAnswer({ howHeard: "facebook" }), true);
+  assert.equal(hasHowHeardAnswer({ howHeard: ["not_sure"] }), false);
   assert.equal(readHowHeardOther({ howHeard: ["other"], howHeardOther: "podcast" }), "podcast");
 });
 
@@ -430,6 +441,9 @@ test("the answered rate is the share of rows that named a source", () => {
   ];
   assert.deepEqual(howHeardAnsweredSummary(rows), { answered: 2, total: 4, percent: 50 });
   assert.deepEqual(howHeardAnsweredSummary([]), { answered: 0, total: 0, percent: 0 });
+  const withSkip = [...rows, { onboarding_answers: { howHeard: ["not_sure"], howHeardAskedAt: "2026-10-16T00:00:00.000Z" } }];
+  assert.deepEqual(howHeardAnsweredSummary(withSkip), { answered: 2, total: 5, percent: 40 });
+  assert.equal(summariseSource({ howHeard: ["not_sure"] })?.primary, "Not sure");
 });
 
 test("display helpers do not mutate what they are given", () => {
@@ -450,6 +464,8 @@ test("save_how_heard writes only the named organization the caller owns", () => 
   assert.match(sql, /WHERE org\.id = p_organization_id/);
   assert.match(sql, /AND org\.owner_id = v_uid/);
   assert.match(sql, /SET search_path = public/);
+  assert.match(sql, /jsonb_build_array\(v_value\)/);
+  assert.doesNotMatch(sql, /WHEN v_value = 'not_sure' THEN '\{\}'/);
   assert.doesNotMatch(sql, /WHERE org\.owner_id = v_uid\s+AND NOT/);
   const prompt = readFileSync(
     new URL("../components/admin/HowHeardPrompt.tsx", import.meta.url),

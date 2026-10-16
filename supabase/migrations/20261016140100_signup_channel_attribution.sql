@@ -17,9 +17,11 @@
 --      order by column_name;
 --      -- six rows
 --   2. select utm_source, referrer, channel from public.account_signup_attribution
---      where utm_source = 'direct' and utm_source_raw is null and referrer is not null
---        and referrer !~ '(^|\.)jointidywise\.com$';
---      -- zero rows: a real referrer is no longer labeled direct
+--      where utm_source_raw is null and referrer is not null and channel = 'direct'
+--        and referrer !~ '(^|\.)(jointidywise\.com|supabase\.co|lovable\.app)$'
+--        and referrer not in ('accounts.google.com', 'appleid.apple.com', 'checkout.stripe.com');
+--      -- zero rows: channel is not direct when a real referrer exists.
+--      -- utm_source may still be direct. It is the UTM parameter, not the channel.
 --   3. select channel, detected_via, count(*) from public.account_signup_attribution
 --      group by 1, 2 order by 3 desc;
 --   4. select how_heard, how_heard_other, channel, detected_via
@@ -47,11 +49,14 @@ COMMENT ON COLUMN public.account_signup_attribution.fbclid IS
 COMMENT ON COLUMN public.account_signup_attribution.ttclid IS
   'TikTok click id, capped. Null when the landing had none.';
 
--- Same order as classifyChannel() in src/lib/utmAttribution.ts for UTM,
--- click id, referrer, then iOS when p_native is true and the visit would
--- otherwise be direct. There is no user-agent argument: the browser turns
--- that into an allowlisted label, and save_signup_attribution applies it
--- only when this function did not already return utm or click_id.
+-- Same order as classifyChannel() in src/lib/utmAttribution.ts for signals
+-- this function can see: UTM, ttclid, an Instagram referrer ahead of fbclid,
+-- fbclid, gclid, other referrers, then ios_app when p_native is true and the
+-- visit would otherwise be direct. OAuth and checkout hosts are ignored.
+-- There is no user-agent argument. save_signup_attribution applies an
+-- allowlisted in-app label after this, including Instagram over fbclid, and
+-- applies the native label only when the channel is still direct. That keeps
+-- the native label behind the user-agent label, matching the client.
 DROP FUNCTION IF EXISTS public.signup_classify_channel(text, text, text, text, text, text, text, text, text);
 
 CREATE OR REPLACE FUNCTION public.signup_classify_channel(
@@ -76,12 +81,21 @@ DECLARE
   v_term text := public.normalize_utm_value(p_utm_term);
   v_content text := public.normalize_utm_value(p_utm_content);
   v_host text := public.signup_referrer_domain(p_referrer);
-  v_bare text;
+  v_bare text := regexp_replace(COALESCE(v_host, ''), '^www\.', '');
+  v_ignored boolean;
   v_paid boolean;
   v_channel text;
   v_source_label text;
 BEGIN
   v_paid := v_medium IN ('cpc', 'ppc', 'paid', 'paidsocial', 'paid_social', 'cpm', 'cpa', 'display', 'ads');
+  v_ignored := v_host IS NOT NULL AND (
+    v_bare = 'jointidywise.com' OR right(v_bare, 17) = '.jointidywise.com'
+    OR v_bare = 'accounts.google.com'
+    OR v_bare = 'appleid.apple.com'
+    OR v_bare = 'checkout.stripe.com'
+    OR v_bare = 'supabase.co' OR right(v_bare, 12) = '.supabase.co'
+    OR v_bare = 'lovable.app' OR right(v_bare, 12) = '.lovable.app'
+  );
 
   IF v_source IS NOT NULL OR v_medium IS NOT NULL OR v_campaign IS NOT NULL
      OR v_term IS NOT NULL OR v_content IS NOT NULL THEN
@@ -110,6 +124,11 @@ BEGIN
     RETURN NEXT; RETURN;
   END IF;
   IF NULLIF(btrim(COALESCE(p_fbclid, '')), '') IS NOT NULL THEN
+    -- Instagram links inside the app carry fbclid. The Instagram referrer wins.
+    IF NOT v_ignored AND v_bare ~ '(^|\.)instagram\.com$' THEN
+      channel := 'instagram'; channel_source := v_host; detected_via := 'referrer';
+      RETURN NEXT; RETURN;
+    END IF;
     channel := 'facebook'; channel_source := 'fbclid'; detected_via := 'click_id';
     RETURN NEXT; RETURN;
   END IF;
@@ -118,9 +137,7 @@ BEGIN
     RETURN NEXT; RETURN;
   END IF;
 
-  v_bare := regexp_replace(COALESCE(v_host, ''), '^www\.', '');
-
-  IF v_host IS NOT NULL THEN
+  IF v_host IS NOT NULL AND NOT v_ignored THEN
     IF v_bare ~ '^google\.[a-z.]+$'
        OR v_bare ~ '(^|\.)bing\.com$'
        OR v_bare ~ '(^|\.)duckduckgo\.com$'
@@ -145,7 +162,7 @@ BEGIN
        OR v_bare ~ '(^|\.)twitter\.com$' OR v_bare ~ '(^|\.)x\.com$' THEN
       channel := 'x'; channel_source := v_host; detected_via := 'referrer';
       RETURN NEXT; RETURN;
-    ELSIF v_bare <> 'jointidywise.com' AND right(v_bare, 17) <> '.jointidywise.com' THEN
+    ELSE
       channel := 'referral'; channel_source := v_host; detected_via := 'referrer';
       RETURN NEXT; RETURN;
     END IF;
@@ -244,35 +261,45 @@ BEGIN
     p_gclid,
     p_fbclid,
     p_ttclid,
-    v_client_via = 'native' AND v_client_channel = 'ios_app'
+    false
   ) AS c;
 
-  -- The database never sees the user agent. Trust only an allowlisted label,
-  -- and only when UTM and click ids did not already classify the visit.
-  -- Native iOS is p_native on signup_classify_channel, so a real referrer
-  -- stays a referral.
-  IF v_detected_via NOT IN ('utm', 'click_id')
+  -- The database never sees the user agent. Instagram's in-app label beats
+  -- fbclid, and it does not beat UTM or a TikTok click id. Other in-app
+  -- labels apply only when UTM and click ids did not already classify the
+  -- visit. Native is last, and only when the channel is still direct, so a
+  -- referrer stays a referral. That is the same order as classifyChannel().
+  IF v_client_via = 'user_agent' AND v_client_channel = 'instagram'
+     AND (
+       v_detected_via NOT IN ('utm', 'click_id')
+       OR (v_detected_via = 'click_id' AND v_channel = 'facebook')
+     ) THEN
+    v_channel := 'instagram';
+    v_channel_source := 'Instagram';
+    v_detected_via := 'user_agent';
+  ELSIF v_detected_via NOT IN ('utm', 'click_id')
      AND v_client_via = 'user_agent'
-     AND v_client_channel IN ('tiktok', 'instagram', 'facebook', 'reddit') THEN
+     AND v_client_channel IN ('tiktok', 'facebook', 'reddit') THEN
     v_channel := v_client_channel;
     v_channel_source := CASE v_client_channel
       WHEN 'tiktok' THEN 'TikTok'
-      WHEN 'instagram' THEN 'Instagram'
       WHEN 'facebook' THEN 'Facebook'
       ELSE 'Reddit'
     END;
     v_detected_via := 'user_agent';
   END IF;
 
-  -- 'direct' is only the normalized source when nothing else identified the visit.
-  v_utm_source := public.normalize_utm_value(v_source_raw);
-  IF v_utm_source IS NULL THEN
-    IF v_channel IS NOT NULL AND v_channel <> 'direct' THEN
-      v_utm_source := left(v_channel, 64);
-    ELSE
-      v_utm_source := 'direct';
-    END IF;
+  IF v_channel = 'direct'
+     AND v_client_via = 'native'
+     AND v_client_channel = 'ios_app' THEN
+    v_channel := 'ios_app';
+    v_channel_source := 'ios';
+    v_detected_via := 'native';
   END IF;
+
+  -- utm_source stays the normalized UTM parameter. direct means that parameter
+  -- was absent. The classified visit lives in channel, not in utm_source.
+  v_utm_source := COALESCE(public.normalize_utm_value(v_source_raw), 'direct');
 
   BEGIN
     INSERT INTO public.account_signup_attribution (
@@ -361,23 +388,15 @@ GRANT EXECUTE ON FUNCTION public.save_signup_attribution(
 COMMENT ON FUNCTION public.save_signup_attribution(
   text, text, text, text, text, text, text, timestamptz, text, text, text, text, text, text
 ) IS
-  'First-touch signup attribution. Stores UTM, referrer host, landing path, click ids, and classified channel labels. Does not store a user agent. utm_source is direct only when no source and no external referrer were identified.';
+  'First-touch signup attribution. Inserts once per user and does not replace an existing row. Stores UTM, referrer host, landing path, click ids, and classified channel labels. Does not store a user agent. utm_source is the normalized utm_source parameter, or direct when that parameter was absent. It is not copied from channel.';
 
--- Backfill channel from the signals already stored. A row whose normalized
--- source was forced to direct, with no raw utm_source, takes the classified
--- channel instead whenever a referrer (or other signal) identified one.
+-- Backfill the channel columns from signals already stored. utm_source is
+-- left as the real UTM value, including direct when no utm_source was received.
 UPDATE public.account_signup_attribution AS a
 SET
   channel = c.channel,
   channel_source = c.channel_source,
   detected_via = c.detected_via,
-  utm_source = CASE
-    WHEN a.utm_source = 'direct'
-      AND a.utm_source_raw IS NULL
-      AND c.channel IS DISTINCT FROM 'direct'
-    THEN c.channel
-    ELSE a.utm_source
-  END,
   updated_at = now()
 FROM (
   SELECT
