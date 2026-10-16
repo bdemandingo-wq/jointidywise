@@ -26,7 +26,9 @@ function PolicyLink({
   newTab?: boolean;
   children: React.ReactNode;
 }) {
-  const newTabProps = newTab ? { target: "_blank" as const, rel: "noopener noreferrer" } : {};
+  // A mailto link opens the mail app. target="_blank" on it opens a blank tab as well.
+  const openInNewTab = Boolean(newTab) && !to.startsWith("mailto:");
+  const newTabProps = openInNewTab ? { target: "_blank" as const, rel: "noopener noreferrer" } : {};
   if (to.startsWith("mailto:") || to.startsWith("http")) {
     return (
       <a href={to} className={linkClass} {...newTabProps}>
@@ -83,7 +85,7 @@ export function PrivacyPolicyBody({
         <li><strong>Payment information:</strong> processed by our payment provider (Stripe). We do not store full payment card numbers on our servers.</li>
         <li><strong>Location information:</strong> described in detail in the &quot;Location&quot; section below.</li>
         <li><strong>Device and usage information:</strong> device type, app version, push-notification tokens, crash and error reports, and basic log data.</li>
-        <li>On our home page we use ipapi.co to estimate your city from your IP address so we can show local information. We don&apos;t store the result with your identity.</li>
+        <li><strong>ipapi.co:</strong> On our home page we use ipapi.co to estimate your city from your IP address so we can show local information. We don&apos;t store the result with your identity.</li>
         <li><strong>Marketing attribution:</strong> when a business signs up, we store the UTM parameters and referral source from the link they used (for example, which ad or website sent them) so we can measure which marketing works.</li>
       </ul>
       <p>
@@ -141,6 +143,9 @@ export function PrivacyPolicyBody({
 
       <h2>Analytics, advertising, and your California privacy rights (CCPA/CPRA)</h2>
       <p>
+        We use Google Analytics, Google Ads and Meta Pixel on our website and signup pages, and to record one signup and trial event on onboarding and the dashboard.
+      </p>
+      <p>
         When you sign up and start your trial, Google and Meta may receive that event along with standard technical data
         such as your IP address, browser, cookies and the page URL. We don&apos;t send them your name, email, customers&apos;
         information or anything you enter in the app.
@@ -172,8 +177,7 @@ export function PrivacyPolicyBody({
 
       <h2>Cookies</h2>
       <p>
-        We use cookies to keep you signed in and remember your preferences. On our website, signup and onboarding pages,
-        we may also use Google and Meta analytics and advertising cookies to measure our marketing. You can opt out at
+        We use cookies to keep you signed in and remember your preferences. We use Google Analytics, Google Ads and Meta Pixel on our website and signup pages, and to record one signup and trial event on onboarding and the dashboard. You can opt out at
         any time with the &quot;Do Not Sell or Share My Personal Information&quot; link, and we honor Global Privacy
         Control signals automatically. You can also block cookies in your browser.
       </p>
@@ -184,14 +188,14 @@ export function PrivacyPolicyBody({
         <li><strong>Stripe</strong> – payment processing, subscriptions, and payouts.</li>
         <li><strong>Supabase</strong> – hosting, database, authentication, and file storage.</li>
         <li><strong>OpenPhone</strong> – business phone calls and SMS.</li>
-        <li><strong>Resend</strong> – customer and staff email when a business is not sending through its own Gmail, including invoices, booking messages, review requests, and team invitations, plus messages we send directly such as subscription receipts and staff welcome mail. Resend receives the recipient&apos;s email address, the subject, and the message. A staff welcome message can include login details. Signup confirmations, sign-in links, password resets, and email-change messages are not sent through Resend.</li>
+        <li><strong>Resend</strong> – customer and staff email when a business is not sending through its own Gmail, including invoices, booking messages, review requests, and team invitations, plus messages we send directly such as subscription receipts and staff welcome mail. Resend receives the recipient&apos;s email address, the subject, and the message. A staff welcome message can include login details. Staff password-setup links and client portal reset links are sent through Resend.</li>
         <li><strong>Apple Push Notification service</strong> – push notifications on iPhone.</li>
         <li><strong>Google Maps Platform</strong> – address lookup, geocoding, and driving time estimates.</li>
         <li><strong>Sentry</strong> – error and performance monitoring, including a recording of the screen with text and inputs masked when an error happens, and timing data from a sample of page loads.</li>
         <li><strong>Anthropic</strong> – AI features (for example, message drafting, AI SMS replies, and business insights). Content you submit to AI features is sent to Anthropic to generate a response.</li>
         <li><strong>Google (Gmail)</strong> – only if a business chooses to connect its Gmail account to send email from TidyWise.</li>
-        <li><strong>Google Analytics, Google Ads, Meta</strong> – marketing and signup pages only (see above).</li>
-        <li><strong>Lovable</strong> – website hosting, Google and Apple sign-in on the web, and account email. Signup confirmations, sign-in links, password resets, email-change messages, and auth invitations are sent through Lovable, which receives the recipient&apos;s email address, the message, and the confirmation, sign-in, or reset link.</li>
+        <li><strong>Google Analytics, Google Ads, Meta</strong> – We use Google Analytics, Google Ads and Meta Pixel on our website and signup pages, and to record one signup and trial event on onboarding and the dashboard.</li>
+        <li><strong>Lovable</strong> – website hosting, Google and Apple sign-in on the web, and account email. Owner and admin signup, sign-in, and password-reset mail is sent through Lovable, which receives the recipient&apos;s email address, the message, and the confirmation, sign-in, or reset link.</li>
         <li><strong>SitePong</strong> – error reporting (error details, page URL and browser type).</li>
         <li><strong>Meta (Facebook Lead Ads)</strong> – if a business connects its Facebook lead forms, we receive the name, email, phone and any details the person submitted, and store them as a lead for that business.</li>
         <li><strong>Make.com</strong> – internal automation; we send a new subscriber&apos;s name, email, business name and subscription status to keep our own records and follow-ups.</li>
@@ -235,10 +239,15 @@ export function PrivacyPolicyBody({
 
       <h2>Account deletion</h2>
       <p>
-        Account owners can delete their account in Settings. Cleaners, team members and customers of a business can ask
-        that business to delete their information, or email{" "}
+        Account owners can delete their account in Settings. You can also request deletion on our{" "}
+        <PolicyLink to="/delete-account" newTab={openLinksInNewTab}>Account Deletion page</PolicyLink>.
+        Cleaners, team members and customers of a business can ask that business to delete their information, or email{" "}
         <PolicyLink to={`mailto:${SUPPORT_EMAIL}`} newTab={openLinksInNewTab}>{SUPPORT_EMAIL}</PolicyLink> and we will
-        pass the request to the business and respond within 45 days.
+        pass the request to the business. We process deletion requests within 7 business days.
+      </p>
+      <p>
+        Copies of deleted information may remain in our encrypted backups for a limited period until those backups are
+        overwritten on their regular schedule. We do not use backup copies for any other purpose.
       </p>
 
       <h2>Children&apos;s privacy</h2>
