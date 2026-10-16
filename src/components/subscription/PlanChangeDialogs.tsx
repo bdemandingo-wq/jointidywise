@@ -27,9 +27,10 @@ import {
   type CheckoutPlanId,
 } from "@/lib/startSubscriptionCheckout";
 import { CustomPriceMissing, isCustomPriceMissing } from "@/lib/priceNotConfigured";
-import { renewalDisclosure, trialFirstChargeLine } from "@/lib/planBillingCopy";
+import { renewalDisclosure, trialBillsOnCheckout, trialFirstChargeLine } from "@/lib/planBillingCopy";
 import { isActiveOrgTrial } from "@/lib/stripeMode";
 import { useAuth } from "@/hooks/useAuth";
+import { useOrganization } from "@/contexts/OrganizationContext";
 import { useOrgTimezone } from "@/hooks/useOrgTimezone";
 
 /**
@@ -98,6 +99,7 @@ export function UpgradePlanDialog({
   const { organizationId } = useOrgId();
   const navigate = useNavigate();
   const { subscription } = useAuth();
+  const { organization } = useOrganization();
   const { timezone: orgTimezone } = useOrgTimezone();
 
 
@@ -198,11 +200,15 @@ export function UpgradePlanDialog({
 
   if (!targetPlan) return null;
 
-  const onTrial = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
-  const trialLine = onTrial
+  const orgTrialCheckout = organization?.plan_type === "trial" || isActiveOrgTrial(subscription);
+  const trialEndIso = subscription?.trial_end ?? null;
+  const nowMs = Date.now();
+  const trialLine = orgTrialCheckout
     ? trialFirstChargeLine({
-        trialEndIso: subscription?.trial_end,
+        trialEndIso,
         timeZone: orgTimezone,
+        price: trialBillsOnCheckout(trialEndIso, nowMs) ? targetPlan.monthlyPrice : undefined,
+        nowMs,
       })
     : null;
 

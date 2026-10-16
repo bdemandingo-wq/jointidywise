@@ -41,6 +41,7 @@ import {
   planChoicesFooter,
   renewalDisclosure,
   showPlanChoices,
+  trialBillsOnCheckout,
   trialFirstChargeLine,
 } from "@/lib/planBillingCopy";
 
@@ -194,12 +195,14 @@ export function PlanSwitcher() {
     !!downgrade.to && !!targetDowngradePlan && planChoicesVisible && canShowPaymentFlows;
   const canChangePlan = hasChangeableStripeSubscription(subscription);
   const choosingFirstPlan = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
-  // trial_end is the stored profile/org trial end returned by check-subscription.
-  const trialDateLine = choosingFirstPlan && planChoicesVisible
-    ? trialFirstChargeLine({
-        trialEndIso: subscription?.trial_end,
-        timeZone: orgTimezone,
-      })
+  // create-subscription applies the 48-hour rule only when organizations.plan_type
+  // is trial. trial_end is the profile trial end check-subscription already returns.
+  const orgTrialCheckout = currentPlanId === "trial" || isActiveOrgTrial(subscription);
+  const trialEndIso = subscription?.trial_end ?? null;
+  const nowMs = Date.now();
+  const billsNow = orgTrialCheckout && planChoicesVisible && trialBillsOnCheckout(trialEndIso, nowMs);
+  const trialDateLine = orgTrialCheckout && planChoicesVisible && !billsNow
+    ? trialFirstChargeLine({ trialEndIso, timeZone: orgTimezone, nowMs })
     : null;
 
   async function subscribe(plan: PlanInfo) {
@@ -462,6 +465,16 @@ export function PlanSwitcher() {
               </ul>
 
               {planButton}
+              {billsNow && showRenewal && planBillingAction(plan.id) === "checkout" && plan.monthlyPrice > 0 && (
+                <p className="mt-2 whitespace-nowrap text-center text-xs text-muted-foreground">
+                  {trialFirstChargeLine({
+                    trialEndIso,
+                    timeZone: orgTimezone,
+                    price: plan.monthlyPrice,
+                    nowMs,
+                  })}
+                </p>
+              )}
               {downgradeNote && (
                 <p className="mt-2 text-center text-xs text-muted-foreground">
                   {DOWNGRADE_EFFECT_NOTE}

@@ -38,7 +38,7 @@ import {
 
 import { LIFETIME_FEATURES, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
 import { isActiveOrgTrial } from '@/lib/stripeMode';
-import { renewalDisclosure, trialFirstChargeLine } from '@/lib/planBillingCopy';
+import { renewalDisclosure, trialBillsOnCheckout, trialFirstChargeLine } from '@/lib/planBillingCopy';
 import { formatLoyaltyDollars, LOYALTY_PRICING, pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
 
 type Interval = 'monthly' | 'yearly';
@@ -162,14 +162,14 @@ export default function PricingPage() {
   const navigate = useNavigate();
   const { user, subscription } = useAuth();
   const { timezone: orgTimezone } = useOrgTimezone();
-  const onTrial = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
-  const trialDateLine = onTrial
-    ? trialFirstChargeLine({
-        trialEndIso: subscription?.trial_end,
-        timeZone: orgTimezone,
-      })
-    : null;
   const { organization } = useOrganization();
+  const orgTrialCheckout = organization?.plan_type === 'trial' || isActiveOrgTrial(subscription);
+  const trialEndIso = subscription?.trial_end ?? null;
+  const nowMs = Date.now();
+  const billsNow = orgTrialCheckout && trialBillsOnCheckout(trialEndIso, nowMs);
+  const trialDateLine = orgTrialCheckout && !billsNow
+    ? trialFirstChargeLine({ trialEndIso, timeZone: orgTimezone, nowMs })
+    : null;
   const [searchParams, setSearchParams] = useSearchParams();
   // billingInterval / setBillingInterval — NOT named "setInterval" so it
   // doesn't shadow the global timer function. Renaming because the prior
@@ -650,12 +650,24 @@ export default function PricingPage() {
                     )}
                   </Button>
                   <div className="mb-6 space-y-1 text-center">
+                    {billsNow && (
+                      <p className="whitespace-nowrap text-[11px] text-muted-foreground">
+                        {trialFirstChargeLine({
+                          trialEndIso,
+                          timeZone: orgTimezone,
+                          price: chargePrice,
+                          nowMs,
+                        })}
+                      </p>
+                    )}
                     <p className="text-[11px] text-muted-foreground">
                       {renewalDisclosure(chargePrice, billingInterval)}
                     </p>
-                    <p className="text-[11px] text-muted-foreground">
-                      No card to start. After 30 days of Pro the app asks you to pick a plan.
-                    </p>
+                    {!orgTrialCheckout && (
+                      <p className="text-[11px] text-muted-foreground">
+                        No card to start. After 30 days of Pro the app asks you to pick a plan.
+                      </p>
+                    )}
                   </div>
 
                   <ul className="space-y-2.5 text-sm">
