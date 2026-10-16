@@ -209,9 +209,11 @@ interface SortableNavItemProps {
   accent?: boolean;
   /** Grip handles only while the owner is reordering the menu. */
   reorderMode?: boolean;
+  /** True when rendered as a child inside an expanded section group. */
+  nested?: boolean;
 }
 
-function SortableNavItem({ item, isActive, isOpen, isMobile, onNavClick, reorderMode = false }: SortableNavItemProps) {
+function SortableNavItem({ item, isActive, isOpen, isMobile, onNavClick, reorderMode = false, nested = false }: SortableNavItemProps) {
   const {
     attributes,
     listeners,
@@ -251,12 +253,13 @@ function SortableNavItem({ item, isActive, isOpen, isMobile, onNavClick, reorder
         onClick={onNavClick}
         className={cn(
           'sidebar-link flex-1 min-h-[44px] pointer-events-auto touch-manipulation',
+          nested && 'sidebar-link-child',
           isActive && 'active',
           !isOpen && !isMobile && 'justify-center px-2'
         )}
         title={!isOpen && !isMobile ? item.name : undefined}
       >
-        <item.icon className="w-5 h-5 flex-shrink-0" />
+        <item.icon className={cn('flex-shrink-0', nested ? 'w-4 h-4' : 'w-5 h-5')} />
         {(isOpen || isMobile) && <span>{item.name}</span>}
         {item.badge !== undefined && item.badge > 0 && (
           <BadgeWithReasons count={item.badge} reasons={item.breakdown} />
@@ -266,7 +269,7 @@ function SortableNavItem({ item, isActive, isOpen, isMobile, onNavClick, reorder
   );
 }
 
-function StaticNavItem({ item, isActive, isOpen, isMobile, onNavClick, accent }: SortableNavItemProps) {
+function StaticNavItem({ item, isActive, isOpen, isMobile, onNavClick, accent, nested = false }: SortableNavItemProps) {
   return (
     <Link
       to={item.href}
@@ -275,12 +278,13 @@ function StaticNavItem({ item, isActive, isOpen, isMobile, onNavClick, accent }:
       className={cn(
         'sidebar-link min-h-[44px] pointer-events-auto touch-manipulation',
         accent && 'sidebar-link-help',
+        nested && 'sidebar-link-child',
         isActive && 'active',
         !isOpen && !isMobile && 'justify-center px-2'
       )}
       title={!isOpen && !isMobile ? item.name : undefined}
     >
-      <item.icon className="w-5 h-5 flex-shrink-0" />
+      <item.icon className={cn('flex-shrink-0', nested ? 'w-4 h-4' : 'w-5 h-5')} />
       {(isOpen || isMobile) && <span>{item.name}</span>}
       {item.badge !== undefined && item.badge > 0 && (
         <BadgeWithReasons count={item.badge} reasons={item.breakdown} />
@@ -594,11 +598,12 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
               isMobile,
               onNavClick: handleNavClick,
               reorderMode: sortable,
+              nested,
             };
             const node = sortable
               ? <SortableNavItem key={item.href} {...shared} />
               : <StaticNavItem key={item.href} {...shared} />;
-            return nested ? <div key={item.href} className="pl-3">{node}</div> : node;
+            return nested ? <div key={item.href} className="pl-2">{node}</div> : node;
           };
           const list = (
             <div className="space-y-0.5">
@@ -636,8 +641,9 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
                       onClick={() => toggleSection(group.id)}
                       aria-expanded={open}
                       className={cn(
-                        'sidebar-link w-full min-h-[44px]',
+                        'sidebar-link sidebar-link-section w-full min-h-[44px]',
                         groupActive && !open && 'active',
+                        groupActive && open && 'section-contains-active',
                       )}
                     >
                       <Icon className="w-5 h-5 flex-shrink-0" />
@@ -650,13 +656,17 @@ export function AdminSidebar({ isOpen, onToggle }: AdminSidebarProps) {
                       <ChevronDown className={cn('w-4 h-4 flex-shrink-0 transition-transform', open && 'rotate-180')} />
                     </button>
                     {open && (
-                      reorderMode && !isMobile ? (
-                        <SortableContext items={group.items.map((item) => item.href)} strategy={verticalListSortingStrategy}>
-                          {children}
-                        </SortableContext>
-                      ) : (
-                        children
-                      )
+                      <div className="sidebar-group-expanded">
+                        <div className="sidebar-group-rail">
+                          {reorderMode && !isMobile ? (
+                            <SortableContext items={group.items.map((item) => item.href)} strategy={verticalListSortingStrategy}>
+                              {children}
+                            </SortableContext>
+                          ) : (
+                            children
+                          )}
+                        </div>
+                      </div>
                     )}
                   </div>
                 );

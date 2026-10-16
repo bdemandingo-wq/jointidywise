@@ -1183,9 +1183,9 @@ export default function PublicBookingPage() {
                             <span className="font-medium text-sm mb-1 text-foreground">{extra.name}</span>
                             {extra.price > 0 ? (
                               <span className="text-primary font-semibold text-base">{`+$${extra.price}`}</span>
-                            ) : extra.note ? (
-                              <span className="text-xs text-muted-foreground">{extra.note}</span>
-                            ) : null}
+                            ) : (
+                              <span className="text-xs text-muted-foreground">{extra.note || 'Free'}</span>
+                            )}
                           </button>
                         ))}
                       </div>
@@ -1622,9 +1622,9 @@ export default function PublicBookingPage() {
                           <span className="flex-1">{extra.name}</span>
                           {extra.price > 0 ? (
                             <span>{`+$${extra.price}`}</span>
-                          ) : extra.note ? (
-                            <span>{extra.note}</span>
-                          ) : null}
+                          ) : (
+                            <span className="text-muted-foreground">{extra.note || 'Free'}</span>
+                          )}
                         </div>
                       );
                     })}

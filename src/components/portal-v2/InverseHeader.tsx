@@ -37,7 +37,7 @@ export function InverseHeader({
   const badge = notifications > 9 ? '9+' : String(notifications);
 
   return (
-    <header className="rounded-b-[26px] bg-[hsl(var(--pv-inverse))] px-5 pb-4 pt-4 dark:border-b dark:border-[hsl(var(--pv-inverse-border))]">
+    <header className="rounded-b-[26px] bg-[hsl(var(--pv-inverse))] px-5 pb-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] dark:border-b dark:border-[hsl(var(--pv-inverse-border))]">
       <div className="flex items-center gap-3">
         <button
           type="button"

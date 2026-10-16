@@ -14,7 +14,7 @@ export function DetailHeader({
   onBack?: () => void;
 }) {
   return (
-    <header className="flex items-center gap-3 px-5 pb-3 pt-4">
+    <header className="flex items-center gap-3 px-5 pb-3 pt-[calc(env(safe-area-inset-top,0px)+1rem)]">
       <button
         type="button"
         onClick={onBack}
