@@ -45,7 +45,6 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { CleanerCalendar } from '@/components/staff/CleanerCalendar';
 import { useOrgId } from '@/hooks/useOrgId';
 import { cn } from '@/lib/utils';
@@ -118,7 +117,6 @@ export default function StaffPage() {
   // src/lib/staffColumns.ts); owners read it through this RPC-backed hook.
   const { wagesById } = useOrgStaffWages();
   const queryClient = useQueryClient();
-  const { isTestMode, maskName, maskEmail, maskPhone } = useTestMode();
   const { organizationId } = useOrgId();
   const { data: pendingTimeOff = 0, error: pendingTimeOffError } = useQuery({
     queryKey: ['time-off-pending-count', organizationId],
@@ -438,11 +436,11 @@ export default function StaffPage() {
                             </AvatarFallback>
                           </Avatar>
                           <div>
-                            <h3 className="font-semibold">{maskName(member.name)}</h3>
+                            <h3 className="font-semibold">{member.name}</h3>
                             <div className="flex items-center gap-2">
                               {hasFinancialAccess && ((wagesById.get(member.id)?.base_wage ?? null) || member.hourly_rate) && (
                                 <span className="text-sm text-muted-foreground">
-                                  {isTestMode ? '$XX/hr' : `$${wagesById.get(member.id)?.base_wage ?? member.hourly_rate}/hr`}
+                                  {`$${wagesById.get(member.id)?.base_wage ?? member.hourly_rate}/hr`}
                                 </span>
                               )}
 
@@ -498,18 +496,18 @@ export default function StaffPage() {
                       <div className="space-y-3">
                         <div className="flex items-center gap-2 text-sm">
                           <Mail className="w-4 h-4 text-muted-foreground" />
-                          <span className="truncate">{maskEmail(member.email)}</span>
+                          <span className="truncate">{member.email}</span>
                         </div>
                         {member.phone && (
                           <div className="flex items-center gap-2 text-sm">
                             <Phone className="w-4 h-4 text-muted-foreground" />
-                            <span>{maskPhone(member.phone)}</span>
+                            <span>{member.phone}</span>
                           </div>
                         )}
                         {member.home_address && (
                           <div className="flex items-center gap-2 text-sm">
                             <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                            <span className="truncate">{isTestMode ? '123 Test St, City, ST' : member.home_address}</span>
+                            <span className="truncate">{member.home_address}</span>
                           </div>
                         )}
                         {member.bio && (

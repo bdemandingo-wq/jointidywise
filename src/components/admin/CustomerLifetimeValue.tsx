@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { BookingWithDetails } from '@/hooks/useBookings';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
@@ -55,7 +54,6 @@ const tierBadgeStyles = {
 };
 
 export function CustomerLifetimeValue({ bookings, customers }: CustomerLifetimeValueProps) {
-  const { isTestMode, maskName } = useTestMode();
 
   const customerCLVData = useMemo(() => {
     const customerMap = new Map<string, CustomerCLV>();
@@ -184,11 +182,11 @@ export function CustomerLifetimeValue({ bookings, customers }: CustomerLifetimeV
 
   const topCustomersChartData = useMemo(() => {
     return customerCLVData.slice(0, 10).map(c => ({
-      name: isTestMode ? 'Customer' : c.name,
+      name: c.name,
       value: c.totalSpent,
       tier: c.tier
     }));
-  }, [customerCLVData, isTestMode]);
+  }, [customerCLVData]);
 
   return (
     <div className="space-y-6">
@@ -202,7 +200,7 @@ export function CustomerLifetimeValue({ bookings, customers }: CustomerLifetimeV
             <div>
               <p className="text-sm text-muted-foreground">Avg Customer Value</p>
               <p className="text-2xl font-bold">
-                {isTestMode ? '$XXX' : `${fmt(clvMetrics.avgCLV)}`}
+                {`${fmt(clvMetrics.avgCLV)}`}
               </p>
             </div>
           </div>
@@ -216,7 +214,7 @@ export function CustomerLifetimeValue({ bookings, customers }: CustomerLifetimeV
             <div>
               <p className="text-sm text-muted-foreground">Total CLV</p>
               <p className="text-2xl font-bold">
-                {isTestMode ? '$XX,XXX' : `${fmt(clvMetrics.totalCLV)}`}
+                {`${fmt(clvMetrics.totalCLV)}`}
               </p>
             </div>
           </div>
@@ -230,7 +228,7 @@ export function CustomerLifetimeValue({ bookings, customers }: CustomerLifetimeV
             <div>
               <p className="text-sm text-muted-foreground">Avg Bookings/Customer</p>
               <p className="text-2xl font-bold">
-                {isTestMode ? 'X.X' : clvMetrics.avgBookings.toFixed(1)}
+                {clvMetrics.avgBookings.toFixed(1)}
               </p>
             </div>
           </div>
@@ -244,7 +242,7 @@ export function CustomerLifetimeValue({ bookings, customers }: CustomerLifetimeV
             <div>
               <p className="text-sm text-muted-foreground">Avg Days Between Visits</p>
               <p className="text-2xl font-bold">
-                {isTestMode ? 'XX' : clvMetrics.avgDaysBetween.toFixed(0)}
+                {clvMetrics.avgDaysBetween.toFixed(0)}
               </p>
             </div>
           </div>
@@ -282,7 +280,7 @@ export function CustomerLifetimeValue({ bookings, customers }: CustomerLifetimeV
                       border: '1px solid hsl(var(--border))',
                       borderRadius: '8px',
                     }}
-                    formatter={(value: number) => [isTestMode ? '$XXX' : `${fmt(value)}`, 'Total Spent']}
+                    formatter={(value: number) => [`${fmt(value)}`, 'Total Spent']}
                   />
                   <Bar dataKey="value" radius={[0, 4, 4, 0]}>
                     {topCustomersChartData.map((entry, index) => (
@@ -291,7 +289,7 @@ export function CustomerLifetimeValue({ bookings, customers }: CustomerLifetimeV
                     <LabelList
                       dataKey="value"
                       position="right"
-                      formatter={(v: any) => (isTestMode ? '$XXX' : fmt(v))}
+                      formatter={(v: any) => (fmt(v))}
                       fill="hsl(var(--foreground))"
                       fontSize={11}
                     />
@@ -357,8 +355,8 @@ export function CustomerLifetimeValue({ bookings, customers }: CustomerLifetimeV
                 <tr key={customer.id} className="border-b border-border/50 last:border-0">
                   <td className="py-3">
                     <div>
-                      <p className="font-medium">{maskName(customer.name)}</p>
-                      <p className="text-sm text-muted-foreground">{isTestMode ? 'xxx@xxx.com' : customer.email}</p>
+                      <p className="font-medium">{customer.name}</p>
+                      <p className="text-sm text-muted-foreground">{customer.email}</p>
                     </div>
                   </td>
                   <td className="py-3">
@@ -368,18 +366,18 @@ export function CustomerLifetimeValue({ bookings, customers }: CustomerLifetimeV
                     </Badge>
                   </td>
                   <td className="py-3 text-right font-semibold text-success">
-                    {isTestMode ? '$XXX' : `${fmt(customer.totalSpent)}`}
+                    {`${fmt(customer.totalSpent)}`}
                   </td>
-                  <td className="py-3 text-right">{isTestMode ? 'X' : customer.bookingCount}</td>
+                  <td className="py-3 text-right">{customer.bookingCount}</td>
                   <td className="py-3 text-right">
-                    {isTestMode ? '$XX' : `${fmt(customer.avgBookingValue)}`}
+                    {`${fmt(customer.avgBookingValue)}`}
                   </td>
                   <td className="py-3">
                     <Badge variant="secondary">{customer.frequency}</Badge>
                   </td>
                   <td className="py-3 text-right">
                     <span className={customer.daysSinceLastBooking > 60 ? 'text-destructive' : ''}>
-                      {isTestMode ? 'XX' : customer.daysSinceLastBooking}
+                      {customer.daysSinceLastBooking}
                     </span>
                   </td>
                   <td className="py-3 text-right">
@@ -393,7 +391,7 @@ export function CustomerLifetimeValue({ bookings, customers }: CustomerLifetimeV
                           }} 
                         />
                       </div>
-                      <span className="text-sm font-medium w-8">{isTestMode ? 'XX' : customer.clvScore}</span>
+                      <span className="text-sm font-medium w-8">{customer.clvScore}</span>
                     </div>
                   </td>
                 </tr>

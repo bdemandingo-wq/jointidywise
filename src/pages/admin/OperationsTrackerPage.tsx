@@ -29,7 +29,6 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { format, startOfWeek, endOfWeek, isWithinInterval, parseISO, startOfMonth, endOfMonth, isSameDay, subDays } from 'date-fns';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { cn } from '@/lib/utils';
 import { matrixToCsv } from '@/lib/orgDataExport';
 import { useOrganization } from '@/contexts/OrganizationContext';
@@ -37,6 +36,7 @@ import { SEOHead } from '@/components/SEOHead';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { orgStartOfWeek, orgEndOfWeek, orgStartOfMonth, orgEndOfMonth, orgDateKey, calendarDayKey } from '@/lib/orgDateRange';
 import { confirmDialog } from "@/components/AppDialogs";
+import { fmt } from '@/lib/activeCurrency';
 // Import functionality has been removed
 
 
@@ -66,7 +66,6 @@ export default function OperationsTrackerPage() {
     to: new Date()
   });
   const queryClient = useQueryClient();
-  const { isTestMode, maskAmount } = useTestMode();
   const { organization } = useOrganization();
 
   const { data: entries = [], isLoading, error: entriesError } = useQuery({
@@ -267,7 +266,7 @@ export default function OperationsTrackerPage() {
               <Phone className="w-4 h-4 text-blue-500" />
               <span className="text-xs text-muted-foreground">Weekly Calls</span>
             </div>
-            <p className="text-2xl font-bold">{isTestMode ? 'XX' : stats.weeklyTotals.calls}</p>
+            <p className="text-2xl font-bold">{stats.weeklyTotals.calls}</p>
           </CardContent>
         </Card>
         <Card>
@@ -276,7 +275,7 @@ export default function OperationsTrackerPage() {
               <Target className="w-4 h-4 text-green-500" />
               <span className="text-xs text-muted-foreground">Weekly Closes</span>
             </div>
-            <p className="text-2xl font-bold">{isTestMode ? 'XX' : stats.weeklyTotals.deals}</p>
+            <p className="text-2xl font-bold">{stats.weeklyTotals.deals}</p>
           </CardContent>
         </Card>
         <Card>
@@ -285,7 +284,7 @@ export default function OperationsTrackerPage() {
               <TrendingUp className="w-4 h-4 text-purple-500" />
               <span className="text-xs text-muted-foreground">Close Rate</span>
             </div>
-            <p className="text-2xl font-bold">{isTestMode ? 'XX%' : `${stats.weeklyCloseRate}%`}</p>
+            <p className="text-2xl font-bold">{`${stats.weeklyCloseRate}%`}</p>
           </CardContent>
         </Card>
         <Card>
@@ -294,7 +293,7 @@ export default function OperationsTrackerPage() {
               <DollarSign className="w-4 h-4 text-emerald-500" />
               <span className="text-xs text-muted-foreground">Weekly Rev</span>
             </div>
-            <p className="text-2xl font-bold">{maskAmount(stats.weeklyTotals.revenue)}</p>
+            <p className="text-2xl font-bold">{fmt(stats.weeklyTotals.revenue)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -303,7 +302,7 @@ export default function OperationsTrackerPage() {
               <MessageSquare className="w-4 h-4 text-orange-500" />
               <span className="text-xs text-muted-foreground">Cold Outreach</span>
             </div>
-            <p className="text-2xl font-bold">{isTestMode ? 'XX' : stats.weeklyTotals.coldEmails}</p>
+            <p className="text-2xl font-bold">{stats.weeklyTotals.coldEmails}</p>
           </CardContent>
         </Card>
         <Card>
@@ -312,7 +311,7 @@ export default function OperationsTrackerPage() {
               <Users className="w-4 h-4 text-cyan-500" />
               <span className="text-xs text-muted-foreground">Follow-ups</span>
             </div>
-            <p className="text-2xl font-bold">{isTestMode ? 'XX' : stats.weeklyTotals.followups}</p>
+            <p className="text-2xl font-bold">{stats.weeklyTotals.followups}</p>
           </CardContent>
         </Card>
         </div>
@@ -369,19 +368,19 @@ export default function OperationsTrackerPage() {
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="text-center p-4 bg-secondary/50 rounded-lg">
-                <p className="text-3xl font-bold">{isTestMode ? 'XX' : stats.monthlyTotals.calls}</p>
+                <p className="text-3xl font-bold">{stats.monthlyTotals.calls}</p>
                 <p className="text-sm text-muted-foreground">Total Calls</p>
               </div>
               <div className="text-center p-4 bg-secondary/50 rounded-lg">
-                <p className="text-3xl font-bold">{isTestMode ? 'XX' : stats.monthlyTotals.deals}</p>
+                <p className="text-3xl font-bold">{stats.monthlyTotals.deals}</p>
                 <p className="text-sm text-muted-foreground">Total Closes</p>
               </div>
               <div className="text-center p-4 bg-secondary/50 rounded-lg">
-                <p className="text-3xl font-bold text-primary">{isTestMode ? 'XX%' : `${stats.monthlyCloseRate}%`}</p>
+                <p className="text-3xl font-bold text-primary">{`${stats.monthlyCloseRate}%`}</p>
                 <p className="text-sm text-muted-foreground">Close %</p>
               </div>
               <div className="text-center p-4 bg-secondary/50 rounded-lg">
-                <p className="text-3xl font-bold text-emerald-600">{maskAmount(stats.monthlyTotals.revenue)}</p>
+                <p className="text-3xl font-bold text-emerald-600">{fmt(stats.monthlyTotals.revenue)}</p>
                 <p className="text-sm text-muted-foreground">Total Revenue</p>
               </div>
             </div>
@@ -396,15 +395,15 @@ export default function OperationsTrackerPage() {
                     return (
                       <div className="grid grid-cols-3 gap-2 text-sm">
                         <div className="text-center p-2 bg-blue-50 dark:bg-blue-950 rounded">
-                          <p className="font-bold">{isTestMode ? 'X' : dayEntry.incoming_calls}</p>
+                          <p className="font-bold">{dayEntry.incoming_calls}</p>
                           <p className="text-xs text-muted-foreground">Calls</p>
                         </div>
                         <div className="text-center p-2 bg-green-50 dark:bg-green-950 rounded">
-                          <p className="font-bold">{isTestMode ? 'X' : dayEntry.closed_deals}</p>
+                          <p className="font-bold">{dayEntry.closed_deals}</p>
                           <p className="text-xs text-muted-foreground">Deals</p>
                         </div>
                         <div className="text-center p-2 bg-emerald-50 dark:bg-emerald-950 rounded">
-                          <p className="font-bold">{maskAmount(Number(dayEntry.revenue_booked))}</p>
+                          <p className="font-bold">{fmt(Number(dayEntry.revenue_booked))}</p>
                           <p className="text-xs text-muted-foreground">Revenue</p>
                         </div>
                       </div>
@@ -457,12 +456,12 @@ export default function OperationsTrackerPage() {
                     <TableCell className="font-medium">
                       {format(parseISO(entry.track_date), 'EEE, MMM d')}
                     </TableCell>
-                    <TableCell className="text-center">{isTestMode ? 'X' : entry.incoming_calls}</TableCell>
-                    <TableCell className="text-center">{isTestMode ? 'X' : entry.closed_deals}</TableCell>
-                    <TableCell className="text-right font-medium">{maskAmount(Number(entry.revenue_booked))}</TableCell>
-                    <TableCell className="text-center">{isTestMode ? 'X' : entry.cold_emails_sent}</TableCell>
-                    <TableCell className="text-center">{isTestMode ? 'X' : entry.cold_calls_made}</TableCell>
-                    <TableCell className="text-center">{isTestMode ? 'X' : entry.leads_followed_up}</TableCell>
+                    <TableCell className="text-center">{entry.incoming_calls}</TableCell>
+                    <TableCell className="text-center">{entry.closed_deals}</TableCell>
+                    <TableCell className="text-right font-medium">{fmt(Number(entry.revenue_booked))}</TableCell>
+                    <TableCell className="text-center">{entry.cold_emails_sent}</TableCell>
+                    <TableCell className="text-center">{entry.cold_calls_made}</TableCell>
+                    <TableCell className="text-center">{entry.leads_followed_up}</TableCell>
                     <TableCell>
                       <div className="flex gap-1">
                         <Button

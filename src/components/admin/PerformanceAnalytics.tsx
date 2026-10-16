@@ -7,8 +7,8 @@ import {
 import { Trophy, TrendingUp, Phone, Target, DollarSign, ArrowUpDown } from 'lucide-react';
 import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO, eachWeekOfInterval, eachMonthOfInterval } from 'date-fns';
 import { Button } from '@/components/ui/button';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { Area, AreaChart, ResponsiveContainer } from 'recharts';
+import { fmt } from '@/lib/activeCurrency';
 
 interface OperationsEntry {
   id: string;
@@ -61,7 +61,6 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
 }
 
 export function PerformanceAnalytics({ entries }: PerformanceAnalyticsProps) {
-  const { isTestMode, maskAmount } = useTestMode();
   const [weekSort, setWeekSort] = useState<{ field: SortField; dir: 'asc' | 'desc' }>({ field: 'label', dir: 'desc' });
   const [monthSort, setMonthSort] = useState<{ field: SortField; dir: 'asc' | 'desc' }>({ field: 'label', dir: 'desc' });
 
@@ -199,12 +198,12 @@ export function PerformanceAnalytics({ entries }: PerformanceAnalyticsProps) {
       {/* All-Time Bests */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
-          { title: 'Best Week (Rev)', value: allTimeBests.bestRevWeek ? maskAmount(allTimeBests.bestRevWeek.revenue) : '—', sub: allTimeBests.bestRevWeek?.label, icon: DollarSign },
-          { title: 'Best Month (Rev)', value: allTimeBests.bestRevMonth ? maskAmount(allTimeBests.bestRevMonth.revenue) : '—', sub: allTimeBests.bestRevMonth?.label, icon: DollarSign },
+          { title: 'Best Week (Rev)', value: allTimeBests.bestRevWeek ? fmt(allTimeBests.bestRevWeek.revenue) : '—', sub: allTimeBests.bestRevWeek?.label, icon: DollarSign },
+          { title: 'Best Month (Rev)', value: allTimeBests.bestRevMonth ? fmt(allTimeBests.bestRevMonth.revenue) : '—', sub: allTimeBests.bestRevMonth?.label, icon: DollarSign },
           { title: 'Best Close % (Wk)', value: allTimeBests.bestCloseWeek ? `${allTimeBests.bestCloseWeek.closeRate.toFixed(1)}%` : '—', sub: allTimeBests.bestCloseWeek?.label, icon: Target },
           { title: 'Best Close % (Mo)', value: allTimeBests.bestCloseMonth ? `${allTimeBests.bestCloseMonth.closeRate.toFixed(1)}%` : '—', sub: allTimeBests.bestCloseMonth?.label, icon: Target },
-          { title: 'Most Calls (Wk)', value: allTimeBests.mostCallsWeek ? `${isTestMode ? 'XX' : allTimeBests.mostCallsWeek.calls}` : '—', sub: allTimeBests.mostCallsWeek?.label, icon: Phone },
-          { title: 'Most Deals (Wk)', value: allTimeBests.mostDealsWeek ? `${isTestMode ? 'XX' : allTimeBests.mostDealsWeek.deals}` : '—', sub: allTimeBests.mostDealsWeek?.label, icon: Target },
+          { title: 'Most Calls (Wk)', value: allTimeBests.mostCallsWeek ? `${allTimeBests.mostCallsWeek.calls}` : '—', sub: allTimeBests.mostCallsWeek?.label, icon: Phone },
+          { title: 'Most Deals (Wk)', value: allTimeBests.mostDealsWeek ? `${allTimeBests.mostDealsWeek.deals}` : '—', sub: allTimeBests.mostDealsWeek?.label, icon: Target },
         ].map((card, i) => (
           <Card key={i} className="border-amber-500/20 bg-amber-500/5">
             <CardContent className="p-3">
@@ -212,7 +211,7 @@ export function PerformanceAnalytics({ entries }: PerformanceAnalyticsProps) {
                 <Trophy className="w-3.5 h-3.5 text-amber-500" />
                 <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 uppercase tracking-wide">{card.title}</span>
               </div>
-              <p className="text-lg font-bold">{isTestMode && card.icon === DollarSign ? 'X.XK' : card.value}</p>
+              <p className="text-lg font-bold">{card.value}</p>
               <p className="text-[10px] text-muted-foreground truncate">{card.sub || ''}</p>
             </CardContent>
           </Card>
@@ -246,18 +245,18 @@ export function PerformanceAnalytics({ entries }: PerformanceAnalyticsProps) {
                   {sortRows(weeklyRows, weekSort).map((row, idx) => (
                     <TableRow key={idx}>
                       <TableCell className="font-medium text-xs">{row.label}</TableCell>
-                      <TableCell className="text-center">{isTestMode ? 'X' : row.calls}</TableCell>
-                      <TableCell className="text-center">{isTestMode ? 'X' : row.deals}</TableCell>
+                      <TableCell className="text-center">{row.calls}</TableCell>
+                      <TableCell className="text-center">{row.deals}</TableCell>
                       <TableCell className="text-right font-medium">
-                        {maskAmount(row.revenue)}
+                        {fmt(row.revenue)}
                         {isBestRevenue(row, allTimeBests.bestRevWeek) && <BestBadge />}
                       </TableCell>
                       <TableCell className="text-center">
-                        {isTestMode ? 'XX%' : `${row.closeRate.toFixed(1)}%`}
+                        {`${row.closeRate.toFixed(1)}%`}
                         {isBestCloseRate(row, allTimeBests.bestCloseWeek) && <BestBadge />}
                       </TableCell>
-                      <TableCell className="text-center">{isTestMode ? 'X' : row.coldOutreach}</TableCell>
-                      <TableCell className="text-center">{isTestMode ? 'X' : row.followups}</TableCell>
+                      <TableCell className="text-center">{row.coldOutreach}</TableCell>
+                      <TableCell className="text-center">{row.followups}</TableCell>
                       <TableCell className="hidden md:table-cell">
                         <div className="flex gap-1 items-center justify-center">
                           <Sparkline data={weeklySparkData.revenue.slice(-8)} color="hsl(142, 76%, 36%)" />
@@ -294,18 +293,18 @@ export function PerformanceAnalytics({ entries }: PerformanceAnalyticsProps) {
                   {sortRows(monthlyRows, monthSort).map((row, idx) => (
                     <TableRow key={idx}>
                       <TableCell className="font-medium text-xs">{row.label}</TableCell>
-                      <TableCell className="text-center">{isTestMode ? 'X' : row.calls}</TableCell>
-                      <TableCell className="text-center">{isTestMode ? 'X' : row.deals}</TableCell>
+                      <TableCell className="text-center">{row.calls}</TableCell>
+                      <TableCell className="text-center">{row.deals}</TableCell>
                       <TableCell className="text-right font-medium">
-                        {maskAmount(row.revenue)}
+                        {fmt(row.revenue)}
                         {isBestRevenue(row, allTimeBests.bestRevMonth) && <BestBadge />}
                       </TableCell>
                       <TableCell className="text-center">
-                        {isTestMode ? 'XX%' : `${row.closeRate.toFixed(1)}%`}
+                        {`${row.closeRate.toFixed(1)}%`}
                         {isBestCloseRate(row, allTimeBests.bestCloseMonth) && <BestBadge />}
                       </TableCell>
-                      <TableCell className="text-center">{isTestMode ? 'X' : row.coldOutreach}</TableCell>
-                      <TableCell className="text-center">{isTestMode ? 'X' : row.followups}</TableCell>
+                      <TableCell className="text-center">{row.coldOutreach}</TableCell>
+                      <TableCell className="text-center">{row.followups}</TableCell>
                       <TableCell className="hidden md:table-cell">
                         <div className="flex gap-1 items-center justify-center">
                           <Sparkline data={monthlySparkData.revenue.slice(-6)} color="hsl(142, 76%, 36%)" />

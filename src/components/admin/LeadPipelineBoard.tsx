@@ -73,9 +73,6 @@ interface LeadPipelineBoardProps {
   onEdit: (lead: Lead) => void;
   onDelete: (leadId: string) => void;
   onConvert: (lead: Lead) => void;
-  maskName: (name: string) => string;
-  maskEmail: (email: string) => string;
-  maskPhone: (phone: string) => string;
 }
 
 export function LeadPipelineBoard({
@@ -84,9 +81,6 @@ export function LeadPipelineBoard({
   onEdit,
   onDelete,
   onConvert,
-  maskName,
-  maskEmail,
-  maskPhone,
 }: LeadPipelineBoardProps) {
   const isMobile = useIsMobile();
   // Resolved once for the whole board. Calling this inside LeadCard would fire
@@ -283,9 +277,6 @@ export function LeadPipelineBoard({
                   onDelete={onDelete}
                   onConvert={onConvert}
                   memberNames={memberNames}
-                  maskName={maskName}
-                  maskEmail={maskEmail}
-                  maskPhone={maskPhone}
                   showDelete={true}
                 />
               ))}
@@ -368,9 +359,6 @@ function LeadCard({
   onEdit,
   onDelete,
   onConvert,
-  maskName,
-  maskEmail,
-  maskPhone,
   showDelete,
 }: {
   lead: Lead;
@@ -381,9 +369,6 @@ function LeadCard({
   onEdit: (lead: Lead) => void;
   onDelete: (id: string) => void;
   onConvert: (lead: Lead) => void;
-  maskName: (name: string) => string;
-  maskEmail: (email: string) => string;
-  maskPhone: (phone: string) => string;
   showDelete: boolean;
 }) {
   return (
@@ -401,7 +386,7 @@ function LeadCard({
         <div className="flex items-start justify-between gap-1">
           <div className="flex items-center gap-1.5 min-w-0">
             <GripVertical className="w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0" />
-            <span className="text-[13px] font-extrabold truncate">{maskName(lead.name)}</span>
+            <span className="text-[13px] font-extrabold truncate">{lead.name}</span>
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -436,12 +421,12 @@ function LeadCard({
         <div className="space-y-0.5">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Mail className="w-3 h-3 flex-shrink-0" />
-            <span className="truncate">{lead.email ? maskEmail(lead.email) : 'No email'}</span>
+            <span className="truncate">{lead.email ? lead.email : 'No email'}</span>
           </div>
           {lead.phone && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Phone className="w-3 h-3 flex-shrink-0" />
-              <span>{maskPhone(lead.phone)}</span>
+              <span>{lead.phone}</span>
             </div>
           )}
         </div>

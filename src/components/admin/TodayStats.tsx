@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { fmt } from '@/lib/activeCurrency';
 
 interface TodayStatsProps {
@@ -16,7 +15,6 @@ export function TodayStats({ grossVolume, payments, customers }: TodayStatsProps
   // effect and — with realtime updates arriving after adding a client —
   // the card pulsed continuously until you left the page.
   const prevValuesRef = useRef({ grossVolume, payments, customers });
-  const { isTestMode } = useTestMode();
 
   // Pulse once when a value actually changes
   useEffect(() => {
@@ -49,7 +47,7 @@ export function TodayStats({ grossVolume, payments, customers }: TodayStatsProps
               "truncate text-base md:text-2xl font-bold transition-colors duration-300",
               isPulsing && "text-primary"
             )}>
-              {isTestMode ? '$X,XXX.XX' : `${fmt(grossVolume)}`}
+              {`${fmt(grossVolume)}`}
             </p>
           </div>
           <div className="min-w-0 text-center px-2 md:px-4">
@@ -58,7 +56,7 @@ export function TodayStats({ grossVolume, payments, customers }: TodayStatsProps
               "truncate text-base md:text-2xl font-bold transition-colors duration-300",
               isPulsing && "text-primary"
             )}>
-              {isTestMode ? 'XX' : payments}
+              {payments}
             </p>
           </div>
           <div className="min-w-0 text-center px-2 md:px-4">
@@ -67,7 +65,7 @@ export function TodayStats({ grossVolume, payments, customers }: TodayStatsProps
               "truncate text-base md:text-2xl font-bold transition-colors duration-300",
               isPulsing && "text-primary"
             )}>
-              {isTestMode ? 'XX' : customers}
+              {customers}
             </p>
           </div>
         </div>

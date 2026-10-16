@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -31,7 +30,6 @@ import {
 } from '@/components/ui/table';
 import { Plus, Trash2, Percent, DollarSign, Tag, Loader2 } from 'lucide-react';
 import { useDiscounts, Discount } from '@/hooks/useDiscounts';
-import { useOrganizationSettings } from '@/hooks/useOrganizationSettings';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { SEOHead } from '@/components/SEOHead';
@@ -39,7 +37,6 @@ import { AIDiscountSuggestions } from '@/components/admin/AIDiscountSuggestions'
 
 export default function DiscountsPage() {
   const { discounts, loading, createDiscount, deleteDiscount, updateDiscount } = useDiscounts();
-  const { settings } = useOrganizationSettings();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [newDiscount, setNewDiscount] = useState({
     code: '',
@@ -99,7 +96,6 @@ export default function DiscountsPage() {
       valid_from: newDiscount.valid_from ? new Date(newDiscount.valid_from).toISOString() : new Date().toISOString(),
       valid_until: newDiscount.valid_until ? new Date(newDiscount.valid_until).toISOString() : null,
       is_active: true,
-      is_test: settings?.demo_mode_enabled ?? false,
     });
 
     if (result) {
@@ -157,15 +153,6 @@ export default function DiscountsPage() {
 <div className="portal-v2 portal-v2-scroll">
       <SEOHead title="Discounts | TidyWise" description="Manage promotional codes and discounts" noIndex />
       <PlanFeatureGate feature="discounts_advanced">
-        {settings?.demo_mode_enabled && (
-          <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg flex items-center gap-2">
-            <Tag className="w-5 h-5 text-yellow-600" />
-            <span className="text-sm text-yellow-700 dark:text-yellow-400">
-              Demo Mode Active - New discounts will be flagged as test data
-            </span>
-          </div>
-        )}
-
         {/* AI Suggestions */}
         <div className="mb-6">
           <AIDiscountSuggestions onCreateDiscount={openWithPrefill} />
@@ -321,11 +308,6 @@ export default function DiscountsPage() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <code className="font-mono font-bold">{discount.code}</code>
-                          {discount.is_test && (
-                            <Badge variant="outline" className="text-yellow-600 border-yellow-600">
-                              Test
-                            </Badge>
-                          )}
                         </div>
                         {discount.description && (
                           <p className="text-xs text-muted-foreground">{discount.description}</p>

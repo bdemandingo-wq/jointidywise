@@ -16,7 +16,6 @@ import { OrganizationProvider } from "@/contexts/OrganizationContext";
 import { WarmListQueries } from "@/components/admin/WarmListQueries";
 import { AiCreditLimitModal } from "@/components/ai-credits/AiCreditLimitModal";
 import { CurrencySync } from "@/components/CurrencySync";
-import { TestModeProvider } from "@/contexts/TestModeContext";
 import { ClientPortalProvider } from "@/contexts/ClientPortalContext";
 import { AdminRoute } from "@/components/AdminRoute";
 import { FinancialRoute } from "@/components/FinancialRoute";
@@ -373,8 +372,7 @@ const App = () => (
             <OrganizationProvider>
               <WarmListQueries />
               <CurrencySync />
-              <TestModeProvider>
-                <ClientPortalProvider>
+              <ClientPortalProvider>
                 <AppDialogsProvider>
                 <TooltipProvider>
                 <Toaster />
@@ -734,7 +732,6 @@ const App = () => (
               </TooltipProvider>
                 </AppDialogsProvider>
               </ClientPortalProvider>
-              </TestModeProvider>
             </OrganizationProvider>
           </SessionTrackerProvider>
         </AuthProvider>

@@ -39,7 +39,6 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { supabase } from '@/lib/supabase';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -147,7 +146,6 @@ export default function CustomersPage() {
   */
   const customersOffline = customersFetchStatus === 'paused' && customers.length === 0;
   const deleteCustomer = useDeleteCustomer();
-  const { maskName, maskEmail, maskPhone, maskAddress, isTestMode, maskAmount } = useTestMode();
   const { organization, isAdmin } = useOrganization();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -1099,10 +1097,10 @@ export default function CustomersPage() {
                               <div className="flex items-center justify-between gap-2">
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-1.5">
-                                    <p className="font-medium text-sm truncate">{maskName(`${customer.first_name} ${customer.last_name}`)}</p>
+                                    <p className="font-medium text-sm truncate">{`${customer.first_name} ${customer.last_name}`}</p>
                                     {isDupe && <AlertTriangle className="w-3.5 h-3.5 text-warning flex-shrink-0" />}
                                   </div>
-                                  <p className="text-xs text-muted-foreground truncate">{maskPhone(displayPhone(customer.phone || ''))}</p>
+                                  <p className="text-xs text-muted-foreground truncate">{displayPhone(customer.phone || '')}</p>
                                 </div>
                                 <div className="flex flex-col items-end gap-0.5 shrink-0">
                                   <StatusBadgeMenu customer={customer} />
@@ -1112,7 +1110,7 @@ export default function CustomersPage() {
                               {cStats && (
                                 <div className="flex gap-3 mt-1.5 text-xs text-muted-foreground">
                                   <span>{cStats.total_bookings} bookings</span>
-                                  <span>{maskAmount(cStats.total_revenue)}</span>
+                                  <span>{fmt(cStats.total_revenue)}</span>
                                   {cStats.last_booking_date && <span>Last: {format(new Date(cStats.last_booking_date), 'MMM d')}</span>}
                                 </div>
                               )}
@@ -1227,7 +1225,7 @@ export default function CustomersPage() {
                                 </Avatar>
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-1.5">
-                                    <p className="font-medium text-sm truncate">{maskName(`${customer.first_name} ${customer.last_name}`)}</p>
+                                    <p className="font-medium text-sm truncate">{`${customer.first_name} ${customer.last_name}`}</p>
                                     {isDupe && (
                                       <Tooltip>
                                         <TooltipTrigger><AlertTriangle className="w-3.5 h-3.5 text-warning" /></TooltipTrigger>
@@ -1273,7 +1271,7 @@ export default function CustomersPage() {
                                 {customer.email ? (
                                   <a href={`mailto:${customer.email}`} className="flex items-center gap-2 text-sm hover:text-primary transition-colors">
                                     <Mail className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                                    <span className="truncate">{maskEmail(customer.email)}</span>
+                                    <span className="truncate">{customer.email}</span>
                                   </a>
                                 ) : (
                                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1285,7 +1283,7 @@ export default function CustomersPage() {
                                   <div className="flex items-center gap-2 text-sm">
                                     <a href={`tel:${customer.phone}`} className="flex items-center gap-2 hover:text-primary transition-colors">
                                       <Phone className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                                      {maskPhone(displayPhone(customer.phone))}
+                                      {displayPhone(customer.phone)}
                                     </a>
                                     <Tooltip>
                                       <TooltipTrigger asChild>
@@ -1330,10 +1328,10 @@ export default function CustomersPage() {
                               )}
                             </TableCell>
                             <TableCell className="text-center">
-                              <span className="text-sm font-medium">{isTestMode ? '$XXX' : `${fmt((cStats?.total_revenue || 0))}`}</span>
+                              <span className="text-sm font-medium">{`${fmt((cStats?.total_revenue || 0))}`}</span>
                             </TableCell>
                             <TableCell className="text-center">
-                              <span className="text-sm">{isTestMode ? 'X' : (cStats?.total_bookings || 0)}</span>
+                              <span className="text-sm">{cStats?.total_bookings || 0}</span>
                             </TableCell>
                             <TableCell>
                               <span className="text-sm text-muted-foreground">
@@ -1482,7 +1480,7 @@ export default function CustomersPage() {
           <DialogHeader>
             <DialogTitle>Message {messageCustomer?.name || 'customer'}</DialogTitle>
             <DialogDescription>
-              Sends via OpenPhone to {messageCustomer ? maskPhone(messageCustomer.phone) : ''}.
+              Sends via OpenPhone to {messageCustomer ? messageCustomer.phone : ''}.
             </DialogDescription>
           </DialogHeader>
           <Textarea

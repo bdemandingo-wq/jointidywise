@@ -35,7 +35,6 @@ import { toast } from 'sonner';
 import { handleSmsError } from '@/lib/smsErrorHandler';
 import { format, addDays } from 'date-fns';
 import { useCustomers, useServices } from '@/hooks/useBookings';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { fmt } from '@/lib/activeCurrency';
 import { orgAddDays, orgDateKey } from '@/lib/orgDateRange';
@@ -76,7 +75,6 @@ export function QuotesTabContent() {
   const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
   const [sendingReminder, setSendingReminder] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const { isTestMode, maskName, maskEmail, maskAmount } = useTestMode();
   const { organization } = useOrganization();
 
   const { data: customers = [] } = useCustomers();
@@ -400,7 +398,7 @@ export function QuotesTabContent() {
               </div>
               <span className="text-sm font-medium text-muted-foreground">Total Value</span>
             </div>
-            <p className="text-3xl font-bold">{fmt(isTestMode ? 0 : stats.totalValue)}</p>
+            <p className="text-3xl font-bold">{fmt(stats.totalValue)}</p>
           </CardContent>
         </Card>
       </div>
@@ -462,10 +460,10 @@ export function QuotesTabContent() {
                       {quote.customer ? (
                         <div>
                           <p className="font-medium">
-                            {maskName(`${quote.customer.first_name} ${quote.customer.last_name}`)}
+                            {`${quote.customer.first_name} ${quote.customer.last_name}`}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {maskEmail(quote.customer.email)}
+                            {quote.customer.email}
                           </p>
                         </div>
                       ) : (
@@ -474,7 +472,7 @@ export function QuotesTabContent() {
                     </TableCell>
                     <TableCell>{quote.service?.name || '-'}</TableCell>
                     <TableCell className="font-semibold">
-                      ${(isTestMode ? 0 : quote.total_amount).toFixed(2)}
+                      ${(quote.total_amount).toFixed(2)}
                     </TableCell>
                     <TableCell>
                       {quote.valid_until 

@@ -32,7 +32,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { format, addDays } from 'date-fns';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { orgDateKey, orgAddDays, formatInOrgTz } from '@/lib/orgDateRange';
 import { useOrganization } from '@/contexts/OrganizationContext';
@@ -166,7 +165,6 @@ export default function InvoicesPage() {
   const [viewingInvoice, setViewingInvoice] = useState<Invoice | null>(null);
   const [sendingInvoice, setSendingInvoice] = useState<string | null>(null);
   const queryClient = useQueryClient();
-  const { isTestMode, maskName, maskEmail, maskAmount } = useTestMode();
   // Invoice due dates are calendar dates in the BUSINESS's calendar — a
   // payment deadline the customer sees, not a device-local one.
   const { timezone: orgTimezone } = useOrgTimezone();
@@ -444,8 +442,8 @@ export default function InvoicesPage() {
           <StatFilterCard icon={<Clock className="w-4 h-4 text-primary" />} label="Sent" value={stats.sent} active={statusFilter === 'sent'} onClick={() => setStatusFilter(statusFilter === 'sent' ? null : 'sent')} />
           <StatFilterCard icon={<AlertCircle className="w-4 h-4 text-destructive" />} label="Overdue" value={stats.overdue} active={statusFilter === 'overdue'} onClick={() => setStatusFilter(statusFilter === 'overdue' ? null : 'overdue')} />
           <StatFilterCard icon={<CheckCircle2 className="w-4 h-4 text-primary" />} label="Paid" value={stats.paid} active={statusFilter === 'paid'} onClick={() => setStatusFilter(statusFilter === 'paid' ? null : 'paid')} />
-          <Card><CardContent className="p-4"><div className="flex items-center gap-2"><DollarSign className="w-4 h-4 text-primary" /><span className="text-sm text-muted-foreground">Total Paid</span></div><p className="text-2xl font-bold mt-1">{isTestMode ? '$XXX' : `${fmt(stats.totalPaid)}`}</p></CardContent></Card>
-          <Card><CardContent className="p-4"><div className="flex items-center gap-2"><AlertCircle className="w-4 h-4 text-primary" /><span className="text-sm text-muted-foreground">Outstanding</span></div><p className="text-2xl font-bold mt-1">{isTestMode ? '$XXX' : `${fmt(stats.totalOutstanding)}`}</p></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="flex items-center gap-2"><DollarSign className="w-4 h-4 text-primary" /><span className="text-sm text-muted-foreground">Total Paid</span></div><p className="text-2xl font-bold mt-1">{`${fmt(stats.totalPaid)}`}</p></CardContent></Card>
+          <Card><CardContent className="p-4"><div className="flex items-center gap-2"><AlertCircle className="w-4 h-4 text-primary" /><span className="text-sm text-muted-foreground">Outstanding</span></div><p className="text-2xl font-bold mt-1">{`${fmt(stats.totalOutstanding)}`}</p></CardContent></Card>
         </div>
 
         {(statusFilter || customerFilter) && (
@@ -511,11 +509,11 @@ export default function InvoicesPage() {
                         <TableCell className="font-medium">{formatInvoiceNumber(invoice.invoice_number)}</TableCell>
                         <TableCell>
                           <div>
-                            <p className="font-medium">{maskName(contact.name)}</p>
-                            <p className="text-sm text-muted-foreground">{maskEmail(contact.email)}</p>
+                            <p className="font-medium">{contact.name}</p>
+                            <p className="text-sm text-muted-foreground">{contact.email}</p>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-medium">{maskAmount(invoice.total_amount)}</TableCell>
+                        <TableCell className="text-right font-medium">{fmt(invoice.total_amount)}</TableCell>
                         <TableCell>
                           <Badge variant={statusConfig.variant} className="gap-1">
                             <StatusIcon className="w-3 h-3" />
@@ -585,8 +583,8 @@ export default function InvoicesPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="font-semibold truncate">{formatInvoiceNumber(invoice.invoice_number)}</div>
-                        <div className="text-lg font-bold">{maskAmount(invoice.total_amount)}</div>
-                        <div className="text-sm text-muted-foreground truncate">{maskName(contact.name)}</div>
+                        <div className="text-lg font-bold">{fmt(invoice.total_amount)}</div>
+                        <div className="text-sm text-muted-foreground truncate">{contact.name}</div>
                         <div className="text-xs text-muted-foreground">{format(new Date(invoice.created_at), 'MMM d, yyyy')}</div>
                         {invoice.due_date && <div className="text-xs text-muted-foreground">Due {formatInOrgTz(new Date(invoice.due_date + 'T12:00:00Z'), orgTimezone, { month: 'short', day: 'numeric', year: 'numeric' })}</div>}
                       </div>

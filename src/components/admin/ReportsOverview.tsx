@@ -27,7 +27,6 @@ import {
 } from '@/lib/orgDateRange';
 import { sumBookingRevenue } from '@/lib/bookingRevenue';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { QueryError } from '@/components/QueryError';
 
 type TimePeriod = '1W' | '4W' | '1Y' | 'MTD' | 'QTD' | 'YTD' | 'ALL';
@@ -40,7 +39,6 @@ interface ReportsOverviewProps {
 export function ReportsOverview({ bookings, customers }: ReportsOverviewProps) {
   const { timezone: orgTimezone, error: tzError } = useOrgTimezone();
   const [period, setPeriod] = useState<TimePeriod>('ALL');
-  const { isTestMode } = useTestMode();
 
   const periods: TimePeriod[] = ['1W', '4W', '1Y', 'MTD', 'QTD', 'YTD', 'ALL'];
 
@@ -257,40 +255,40 @@ export function ReportsOverview({ bookings, customers }: ReportsOverviewProps) {
       <div className="min-w-0 space-y-2">
         <MetricChart
           title="Gross volume"
-          value={isTestMode ? 'X.XK' : totals.grossVolume}
+          value={totals.grossVolume}
           data={chartData.grossVolume}
           dateRange={dateRangeLabel}
-          isCurrency={!isTestMode}
+          isCurrency={true}
         />
         
         <MetricChart
           title="Net volume from sales"
-          value={isTestMode ? 'X.XK' : totals.netVolume}
+          value={totals.netVolume}
           data={chartData.netVolume}
           dateRange={dateRangeLabel}
-          isCurrency={!isTestMode}
+          isCurrency={true}
         />
         
         <MetricChart
           title="New customers"
-          value={isTestMode ? 'XX' : totals.newCustomersCount}
+          value={totals.newCustomersCount}
           data={chartData.newCustomers}
           dateRange={dateRangeLabel}
         />
         
         <MetricChart
           title="Successful payments"
-          value={isTestMode ? 'XX' : totals.successfulPayments}
+          value={totals.successfulPayments}
           data={chartData.successfulPayments}
           dateRange={dateRangeLabel}
         />
         
         <MetricChart
           title="Spend per customer"
-          value={isTestMode ? 'XXX' : totals.spendPerCustomer}
+          value={totals.spendPerCustomer}
           data={chartData.spendPerCustomer}
           dateRange={dateRangeLabel}
-          isCurrency={!isTestMode}
+          isCurrency={true}
         />
       </div>
     </div>

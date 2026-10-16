@@ -13,7 +13,6 @@ import { isAfter, format, startOfMonth, endOfMonth, isWithinInterval, subMonths 
 import { BookingWithDetails } from '@/hooks/useBookings';
 import { cn } from '@/lib/utils';
 import { DateRange } from 'react-day-picker';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { fmt } from '@/lib/activeCurrency';
 
 interface CleanerPerformanceDashboardProps {
@@ -58,7 +57,6 @@ export function CleanerPerformanceDashboard({ bookings, staff }: CleanerPerforma
     to: endOfMonth(new Date()),
     /* eslint-enable local/no-device-local-dates */
   });
-  const { isTestMode, maskName, maskAmount } = useTestMode();
 
   const cleanerStats = useMemo(() => {
     return staff
@@ -217,7 +215,7 @@ export function CleanerPerformanceDashboard({ bookings, staff }: CleanerPerforma
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Team Revenue</p>
-                <p className="text-2xl font-bold text-foreground">{isTestMode ? '$XXX' : `${fmt(totalTeamRevenue)}`}</p>
+                <p className="text-2xl font-bold text-foreground">{`${fmt(totalTeamRevenue)}`}</p>
               </div>
               <div className="p-2 rounded-lg bg-success/10">
                 <TrendingUp className="w-5 h-5 text-success" />
@@ -231,7 +229,7 @@ export function CleanerPerformanceDashboard({ bookings, staff }: CleanerPerforma
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total Paid Out</p>
-                <p className="text-2xl font-bold text-foreground">{isTestMode ? '$XXX' : `${fmt(totalTeamEarnings)}`}</p>
+                <p className="text-2xl font-bold text-foreground">{`${fmt(totalTeamEarnings)}`}</p>
               </div>
               <div className="p-2 rounded-lg bg-primary/10">
                 <DollarSign className="w-5 h-5 text-primary" />
@@ -271,14 +269,14 @@ export function CleanerPerformanceDashboard({ bookings, staff }: CleanerPerforma
               <Avatar className="h-12 w-12">
                 <AvatarImage src={topPerformer.avatarUrl || undefined} />
                 <AvatarFallback className="bg-warning/10 text-warning">
-                  {maskName(topPerformer.name).split(' ').map(n => n[0]).join('')}
+                  {topPerformer.name.split(' ').map(n => n[0]).join('')}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1">
-                <p className="font-semibold text-lg">{maskName(topPerformer.name)}</p>
+                <p className="font-semibold text-lg">{topPerformer.name}</p>
                 <div className="flex items-center gap-4 text-sm text-muted-foreground">
                   <span>{topPerformer.completedBookings} jobs completed</span>
-                  <span className="text-warning font-semibold">{maskAmount(topPerformer.totalEarnings)}</span>
+                  <span className="text-warning font-semibold">{fmt(topPerformer.totalEarnings)}</span>
                 </div>
               </div>
               <Badge className="bg-warning/10 text-warning border-warning/20">
@@ -298,11 +296,11 @@ export function CleanerPerformanceDashboard({ bookings, staff }: CleanerPerforma
               <Avatar className="h-10 w-10">
                   <AvatarImage src={cleaner.avatarUrl || undefined} />
                   <AvatarFallback className="bg-primary/10 text-primary">
-                    {maskName(cleaner.name).split(' ').map(n => n[0]).join('')}
+                    {cleaner.name.split(' ').map(n => n[0]).join('')}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold truncate">{maskName(cleaner.name)}</p>
+                  <p className="font-semibold truncate">{cleaner.name}</p>
                   <p className="text-sm text-muted-foreground">
                     {cleaner.upcomingBookings} upcoming
                   </p>
@@ -353,14 +351,14 @@ export function CleanerPerformanceDashboard({ bookings, staff }: CleanerPerforma
                     <DollarSign className="w-3 h-3" />
                     Total Earned
                   </div>
-                  <p className="font-semibold text-success">{maskAmount(cleaner.totalEarnings)}</p>
+                  <p className="font-semibold text-success">{fmt(cleaner.totalEarnings)}</p>
                 </div>
                 <div className="p-2 rounded-lg bg-secondary/50">
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
                     <Clock className="w-3 h-3" />
                     Avg/Job
                   </div>
-                  <p className="font-semibold">{maskAmount(cleaner.avgEarningsPerJob)}</p>
+                  <p className="font-semibold">{fmt(cleaner.avgEarningsPerJob)}</p>
                 </div>
               </div>
 

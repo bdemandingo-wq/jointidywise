@@ -56,7 +56,6 @@ import { toast } from 'sonner';
 import { useBookings, useUpdateBooking, useDeleteBooking, BookingWithDetails } from '@/hooks/useBookings';
 import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, addMonths, subMonths, startOfMonth, endOfMonth, addDays } from 'date-fns';
 import { AddBookingDialog } from './AddBookingDialog';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useQuery } from '@tanstack/react-query';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
@@ -274,7 +273,6 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
   const [searchResultsOpen, setSearchResultsOpen] = useState(false);
   const [activeBooking, setActiveBooking] = useState<BookingWithDetails | null>(null);
   const [dayBookingsPopup, setDayBookingsPopup] = useState<{ date: Date; bookings: BookingWithDetails[] } | null>(null);
-  const { isTestMode, maskName, maskEmail, maskAddress } = useTestMode();
   const { organization } = useOrganization();
   const { timezone: orgTimezone } = useOrgTimezone();
 
@@ -872,7 +870,7 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
                         <div className="flex items-center justify-between">
                           <span className="font-medium">
                             {booking.customer 
-                              ? maskName(`${booking.customer.first_name} ${booking.customer.last_name}`)
+                              ? `${booking.customer.first_name} ${booking.customer.last_name}`
                               : 'Unknown'}
                           </span>
                           <Badge className={cn('text-xs', statusColors[booking.status])}>
@@ -1077,7 +1075,7 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
                       }}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-medium" style={{ color }}>{maskName(fullName)}</span>
+                        <span className="font-medium" style={{ color }}>{fullName}</span>
                         <Badge className={cn('text-xs', statusColors[booking.status])}>
                           {statusLabels[booking.status] || booking.status}
                         </Badge>
@@ -1086,7 +1084,7 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
                         <span>{formatInTimezone(booking.scheduled_at, orgTimezone, { hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' })}</span>
                         <span>•</span>
                         <span>{booking.service?.name || 'Service'}</span>
-                        {!isTestMode && booking.total_amount > 0 && (
+                        {booking.total_amount > 0 && (
                           <>
                             <span>•</span>
                             <span>{fmt(Number(booking.total_amount))}</span>
@@ -1120,11 +1118,9 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
                 
                 <div className="flex items-center justify-between text-sm text-muted-foreground">
                   <span>Booking #{selectedBooking.booking_number}</span>
-                  {!isTestMode && (
-                    <span className="font-semibold text-foreground text-base">
-                      ${Number(selectedBooking.total_amount).toFixed(2)}
-                    </span>
-                  )}
+                  <span className="font-semibold text-foreground text-base">
+                    ${Number(selectedBooking.total_amount).toFixed(2)}
+                  </span>
                 </div>
                 
                 <div className="space-y-3">
@@ -1133,12 +1129,12 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
                     <div>
                       <p className="font-medium">
                         {selectedBooking.customer 
-                          ? maskName(`${selectedBooking.customer.first_name} ${selectedBooking.customer.last_name}`)
+                          ? `${selectedBooking.customer.first_name} ${selectedBooking.customer.last_name}`
                           : 'Unknown Customer'
                         }
                       </p>
                       <p className="text-muted-foreground">
-                        {selectedBooking.customer ? maskEmail(selectedBooking.customer.email) : 'No email'}
+                        {selectedBooking.customer ? selectedBooking.customer.email : 'No email'}
                       </p>
                     </div>
                   </div>
@@ -1158,7 +1154,7 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
                   {getFullAddress(selectedBooking) && (
                     <div className="flex items-center gap-3 text-sm">
                       <MapPin className="w-4 h-4 text-muted-foreground" />
-                      <p>{maskAddress(getFullAddress(selectedBooking))}</p>
+                      <p>{getFullAddress(selectedBooking)}</p>
                     </div>
                   )}
 
@@ -1173,12 +1169,12 @@ export function SchedulerCalendar({ searchTerm = '', onSearchChange, statusFilte
                           <p className="font-medium">Assigned Staff</p>
                           {selectedBooking.staff && (
                             <p className="text-muted-foreground">
-                              {maskName(selectedBooking.staff.name)}{additionalTeam.length > 0 ? ' (Primary)' : ''}
+                              {selectedBooking.staff.name}{additionalTeam.length > 0 ? ' (Primary)' : ''}
                             </p>
                           )}
                           {additionalTeam.map((member: any) => (
                             <p key={member.id} className="text-muted-foreground">
-                              {maskName(member.name)} (Team)
+                              {member.name} (Team)
                             </p>
                           ))}
                         </div>

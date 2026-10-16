@@ -19,7 +19,6 @@ import {
   endOfYear,
 } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
@@ -55,7 +54,6 @@ export function PnLCalendar() {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [viewMode, setViewMode] = useState<'month' | 'year'>('month');
   const [metricMode, setMetricMode] = useState<MetricMode>('revenue');
-  const { isTestMode } = useTestMode();
   const { organization } = useOrganization();
   const organizationId = organization?.id;
   const { timezone, error: tzError } = useOrgTimezone();
@@ -434,7 +432,7 @@ export function PnLCalendar() {
             </Button>
             <div className="text-center">
               <span className="text-sm font-medium">{formatInOrgTz(currentMonth, timezone, { month: 'long', year: 'numeric' })}</span>
-              {!isTestMode && !isLoading && (
+              {!isLoading && (
                 <span className={cn(
                   "ml-2 text-sm font-bold",
                   getValueColor(monthTotal, monthTotal !== 0)
@@ -516,15 +514,13 @@ export function PnLCalendar() {
                     </span>
                     {isLoading && inMonth ? (
                       <Skeleton className="h-3 w-10 mt-0.5" />
-                    ) : hasData && !isTestMode ? (
+                    ) : hasData ? (
                       <span className={cn(
                         "text-[11px] sm:text-xs font-bold mt-0.5",
                         getValueColor(dayValue, true)
                       )}>
                         {formatAmount(dayValue, false)}
                       </span>
-                    ) : hasData && isTestMode ? (
-                      <span className="text-[11px] text-muted-foreground mt-0.5">$--</span>
                     ) : inMonth ? (
                       <span className="text-[10px] text-muted-foreground/50 mt-0.5">--</span>
                     ) : null}
@@ -566,15 +562,13 @@ export function PnLCalendar() {
                   <span className="text-sm font-medium">{formatInOrgTz(monthDate, timezone, { month: 'short' })}</span>
                   {isLoading ? (
                     <Skeleton className="h-4 w-12 mt-1" />
-                  ) : !isTestMode ? (
+                  ) : (
                     <span className={cn(
                       'text-sm font-bold mt-1',
                       getValueColor(value, hasData)
                     )}>
                       {hasData ? formatAmount(value, false) : '--'}
                     </span>
-                  ) : (
-                    <span className="text-sm text-muted-foreground mt-1">$--</span>
                   )}
                 </button>
               );

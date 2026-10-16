@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { BookingWithDetails } from '@/hooks/useBookings';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -47,7 +46,6 @@ interface StaffMetrics {
 }
 
 export function StaffProductivityMetrics({ bookings, staff }: StaffProductivityMetricsProps) {
-  const { isTestMode, maskName } = useTestMode();
 
   const staffMetrics = useMemo(() => {
     const metricsMap = new Map<string, StaffMetrics>();
@@ -225,7 +223,7 @@ export function StaffProductivityMetrics({ bookings, staff }: StaffProductivityM
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Active Staff</p>
-              <p className="text-2xl font-bold">{isTestMode ? 'X' : staffMetrics.length}</p>
+              <p className="text-2xl font-bold">{staffMetrics.length}</p>
             </div>
           </div>
         </Card>
@@ -237,7 +235,7 @@ export function StaffProductivityMetrics({ bookings, staff }: StaffProductivityM
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Avg Jobs/Staff</p>
-              <p className="text-2xl font-bold">{isTestMode ? 'XX' : teamAverages.avgJobs.toFixed(0)}</p>
+              <p className="text-2xl font-bold">{teamAverages.avgJobs.toFixed(0)}</p>
             </div>
           </div>
         </Card>
@@ -249,7 +247,7 @@ export function StaffProductivityMetrics({ bookings, staff }: StaffProductivityM
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Avg Efficiency</p>
-              <p className="text-2xl font-bold">{isTestMode ? '$XX' : `${fmt(teamAverages.avgEfficiency)}/hr`}</p>
+              <p className="text-2xl font-bold">{`${fmt(teamAverages.avgEfficiency)}/hr`}</p>
             </div>
           </div>
         </Card>
@@ -262,7 +260,7 @@ export function StaffProductivityMetrics({ bookings, staff }: StaffProductivityM
             <div>
               <p className="text-sm text-muted-foreground">On-Time Rate</p>
               <p className="text-2xl font-bold">
-                {isTestMode ? 'XX%' : teamAverages.avgOnTime === null ? '—' : `${teamAverages.avgOnTime.toFixed(0)}%`}
+                {teamAverages.avgOnTime === null ? '—' : `${teamAverages.avgOnTime.toFixed(0)}%`}
               </p>
             </div>
           </div>
@@ -275,7 +273,7 @@ export function StaffProductivityMetrics({ bookings, staff }: StaffProductivityM
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Team Score</p>
-              <p className="text-2xl font-bold">{isTestMode ? 'XX' : teamAverages.avgScore.toFixed(0)}</p>
+              <p className="text-2xl font-bold">{teamAverages.avgScore.toFixed(0)}</p>
             </div>
           </div>
         </Card>
@@ -311,7 +309,7 @@ export function StaffProductivityMetrics({ bookings, staff }: StaffProductivityM
         {/* Top Performer Radar */}
         <Card className="p-4">
           <h3 className="font-semibold mb-4">
-            Top Performer: {topPerformer ? maskName(topPerformer.name) : 'N/A'}
+            Top Performer: {topPerformer ? topPerformer.name : 'N/A'}
           </h3>
           <div className="h-[300px]">
             {radarData.length === 0 ? (
@@ -366,13 +364,13 @@ export function StaffProductivityMetrics({ bookings, staff }: StaffProductivityM
                       <span className="font-medium">#{index + 1}</span>
                     </div>
                   </td>
-                  <td className="py-3 font-medium">{maskName(staff.name)}</td>
-                  <td className="py-3 text-right">{isTestMode ? 'XX' : staff.completedJobs}</td>
+                  <td className="py-3 font-medium">{staff.name}</td>
+                  <td className="py-3 text-right">{staff.completedJobs}</td>
                   <td className="py-3 text-right font-semibold text-success">
-                    {isTestMode ? '$X,XXX' : `${fmt(staff.totalRevenue)}`}
+                    {`${fmt(staff.totalRevenue)}`}
                   </td>
                   <td className="py-3 text-right">
-                    {isTestMode ? '$XX' : `${fmt(staff.efficiency)}/hr`}
+                    {`${fmt(staff.efficiency)}/hr`}
                   </td>
                   <td className="py-3 text-right">
                     {staff.onTimeRate === null ? (
@@ -380,19 +378,19 @@ export function StaffProductivityMetrics({ bookings, staff }: StaffProductivityM
                     ) : (
                       <div className="flex items-center justify-end gap-1.5">
                         <Badge variant={staff.onTimeRate >= 90 ? 'default' : staff.onTimeRate >= 75 ? 'secondary' : 'destructive'}>
-                          {isTestMode ? 'XX%' : `${staff.onTimeRate.toFixed(0)}%`}
+                          {`${staff.onTimeRate.toFixed(0)}%`}
                         </Badge>
                         <span className="text-xs text-muted-foreground whitespace-nowrap">
-                          {isTestMode ? '(X of XX)' : `(${staff.onTimeCheckins} of ${staff.completedJobs})`}
+                          {`(${staff.onTimeCheckins} of ${staff.completedJobs})`}
                         </span>
                       </div>
                     )}
                   </td>
-                  <td className="py-3 text-right">{isTestMode ? 'X.X' : staff.jobsPerWeek.toFixed(1)}</td>
+                  <td className="py-3 text-right">{staff.jobsPerWeek.toFixed(1)}</td>
                   <td className="py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <Progress value={staff.productivityScore} className="w-16 h-2" />
-                      <span className="font-bold w-8">{isTestMode ? 'XX' : staff.productivityScore}</span>
+                      <span className="font-bold w-8">{staff.productivityScore}</span>
                     </div>
                   </td>
                 </tr>

@@ -32,7 +32,6 @@ import { StaffProductivityMetrics } from '@/components/admin/StaffProductivityMe
 import { RevenueForecasting } from '@/components/admin/RevenueForecasting';
 import { PnLOverview } from '@/components/admin/PnLOverview';
 import { supabase } from '@/lib/supabase';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as DatePicker } from '@/components/ui/calendar';
@@ -122,7 +121,6 @@ export default function ReportsPage() {
   // and recurringRevenue with it — both were hardcoded 0 and read by nothing,
   // which is its own trap waiting for someone to believe them.
   const [recurringPlans, setRecurringPlans] = useState<number>(0);
-  const { isTestMode, maskName } = useTestMode();
   const [dateRange, setDateRange] = useState<{ from: Date; to: Date }>({
     // Placeholder; corrected below once the org's timezone resolves.
     /* eslint-disable-next-line local/no-device-local-dates -- provisional; the effect below re-sets both once the org zone resolves */
@@ -425,7 +423,7 @@ export default function ReportsPage() {
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 md:gap-4 mb-6">
         <StatCard
           title="Total Revenue"
-          value={isTestMode ? '$X,XXX' : `${fmt(totalStats.totalRevenue)}`}
+          value={`${fmt(totalStats.totalRevenue)}`}
           change={revenueChange ?? undefined}
           changeLabel={revenueChange === null ? undefined : 'vs prior period'}
           trend={trendDirection(revenueChange)}
@@ -433,7 +431,7 @@ export default function ReportsPage() {
         />
         <StatCard
           title="Total Bookings"
-          value={isTestMode ? 'XX' : totalStats.totalBookings}
+          value={totalStats.totalBookings}
           change={bookingsChange ?? undefined}
           changeLabel={bookingsChange === null ? undefined : 'vs prior period'}
           trend={trendDirection(bookingsChange)}
@@ -441,18 +439,18 @@ export default function ReportsPage() {
         />
         <StatCard
           title={`Recurring Cleans (${orgYMD(new Date(), orgTimezone).y})`}
-          value={isTestMode ? 'XX' : recurringCleansCount}
-          changeLabel={isTestMode ? '$X,XXX revenue' : `${fmt(recurringCleansRevenue)} revenue`}
+          value={recurringCleansCount}
+          changeLabel={`${fmt(recurringCleansRevenue)} revenue`}
           icon={<Repeat className="w-6 h-6" />}
         />
         <StatCard
           title="Recurring Plans"
-          value={isTestMode ? 'XX' : recurringPlans}
+          value={recurringPlans}
           icon={<UserCheck className="w-6 h-6" />}
         />
         <StatCard
           title="Avg Booking Value"
-          value={isTestMode ? '$XXX' : `${fmt(totalStats.avgBookingValue)}`}
+          value={`${fmt(totalStats.avgBookingValue)}`}
           change={avgChange ?? undefined}
           changeLabel={avgChange === null ? undefined : 'vs prior period'}
           trend={trendDirection(avgChange)}
@@ -460,7 +458,7 @@ export default function ReportsPage() {
         />
         <StatCard
           title="Completion Rate"
-          value={isTestMode ? 'XX%' : `${totalStats.conversionRate}%`}
+          value={`${totalStats.conversionRate}%`}
           change={completionChange ?? undefined}
           changeLabel={completionChange === null ? undefined : 'vs prior period'}
           trend={trendDirection(completionChange)}
@@ -468,13 +466,13 @@ export default function ReportsPage() {
         />
         <StatCard
           title="Cancellations"
-          value={isTestMode ? 'XX' : totalStats.cancelledCount}
+          value={totalStats.cancelledCount}
           changeLabel="in date range"
           icon={<XCircle className="w-6 h-6" />}
         />
         <StatCard
           title="Cancellation Rate"
-          value={isTestMode ? 'XX%' : `${totalStats.cancellationRate}%`}
+          value={`${totalStats.cancellationRate}%`}
           changeLabel="of total bookings"
           icon={<Percent className="w-6 h-6" />}
         />
@@ -584,7 +582,7 @@ export default function ReportsPage() {
                       <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
                       <span className="flex-1 min-w-0 truncate text-muted-foreground">{s.name}</span>
                       <span className={`shrink-0 font-medium ${s.revenue < 0 ? 'text-destructive' : 'text-foreground'}`}>
-                        {isTestMode ? '$XX' : fmt(s.revenue)}
+                        {fmt(s.revenue)}
                       </span>
                     </div>
                   ))}
@@ -623,20 +621,20 @@ export default function ReportsPage() {
                           <td className="py-3">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium text-muted-foreground">#{index + 1}</span>
-                              <span className="font-medium">{maskName(staffMember.name)}</span>
+                              <span className="font-medium">{staffMember.name}</span>
                             </div>
                           </td>
-                          <td className="py-3 text-right">{isTestMode ? 'X' : staffMember.bookings}</td>
+                          <td className="py-3 text-right">{staffMember.bookings}</td>
                           <td className="py-3 text-right">
                             <span className="px-2 py-1 rounded-full text-xs bg-info/10 text-info">
-                              {isTestMode ? 'X' : staffMember.upcomingCleans}
+                              {staffMember.upcomingCleans}
                             </span>
                           </td>
                           <td className="py-3 text-right font-semibold text-success">
-                            {isTestMode ? '$XXX' : `${fmt(staffMember.payment)}`}
+                            {`${fmt(staffMember.payment)}`}
                           </td>
                           <td className="py-3 text-right">
-                            {isTestMode ? '$XX' : `$${staffMember.bookings > 0 ? (staffMember.payment / staffMember.bookings).toFixed(0) : 0}`}
+                            {`$${staffMember.bookings > 0 ? (staffMember.payment / staffMember.bookings).toFixed(0) : 0}`}
                           </td>
                         </tr>
                       ))}
@@ -681,10 +679,10 @@ export default function ReportsPage() {
                           {formatInTimezone(b.cancelled_at || b.scheduled_at, orgTimezone, { month: 'short', day: 'numeric', year: 'numeric' })}
                         </td>
                         <td className="py-2.5">
-                          {maskName(`${b.customer?.first_name || ''} ${b.customer?.last_name || ''}`.trim() || 'Unknown')}
+                          {`${b.customer?.first_name || ''} ${b.customer?.last_name || ''}`.trim() || 'Unknown'}
                         </td>
                         <td className="py-2.5">
-                          {b.staff?.name ? maskName(b.staff.name) : <span className="text-muted-foreground">Unassigned</span>}
+                          {b.staff?.name ? b.staff.name : <span className="text-muted-foreground">Unassigned</span>}
                         </td>
                         <td className="py-2.5">
                           <span className="px-2 py-0.5 rounded-full text-xs bg-rose-500/10 text-rose-600">

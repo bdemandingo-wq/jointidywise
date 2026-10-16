@@ -17,10 +17,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useNavigate } from 'react-router-dom';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { formatInOrgTz } from '@/lib/orgDateRange';
 import { FarCheckinNotice } from '@/components/admin/FarCheckinNotice';
+import { fmt } from '@/lib/activeCurrency';
 
 interface UpcomingBookingsProps {
   bookings: BookingWithDetails[];
@@ -75,7 +75,6 @@ export function UpcomingBookings({ bookings }: UpcomingBookingsProps) {
   const [mountBookingDialog, setMountBookingDialog] = useState(false);
   if (editingCustomer && !mountCustomerDialog) setMountCustomerDialog(true);
   if (editingBooking && !mountBookingDialog) setMountBookingDialog(true);
-  const { isTestMode, maskName, maskEmail, maskAddress, maskAmount } = useTestMode();
   const { organization } = useOrganization();
   const { timezone: orgTimezone } = useOrgTimezone();
 
@@ -273,7 +272,7 @@ export function UpcomingBookings({ bookings }: UpcomingBookingsProps) {
                           <User className="w-3.5 h-3.5" />
                           <span className="truncate">
                             {booking.customer 
-                              ? maskName(`${booking.customer.first_name} ${booking.customer.last_name}`)
+                              ? `${booking.customer.first_name} ${booking.customer.last_name}`
                               : 'Unknown'}
                         </span>
                       </button>
@@ -322,12 +321,12 @@ export function UpcomingBookings({ bookings }: UpcomingBookingsProps) {
                     <div>
                       <p className="font-medium">
                         {selectedBooking.customer 
-                          ? maskName(`${selectedBooking.customer.first_name} ${selectedBooking.customer.last_name}`)
+                          ? `${selectedBooking.customer.first_name} ${selectedBooking.customer.last_name}`
                           : 'Unknown Customer'
                         }
                       </p>
                       <p className="text-muted-foreground">
-                        {selectedBooking.customer ? maskEmail(selectedBooking.customer.email) : 'No email'}
+                        {selectedBooking.customer ? selectedBooking.customer.email : 'No email'}
                       </p>
                     </div>
                   </div>
@@ -354,7 +353,7 @@ export function UpcomingBookings({ bookings }: UpcomingBookingsProps) {
                 {getFullAddress(selectedBooking) && (
                   <div className="flex items-center gap-3 text-sm">
                     <MapPin className="w-4 h-4 text-muted-foreground" />
-                    <p>{maskAddress(getFullAddress(selectedBooking))}</p>
+                    <p>{getFullAddress(selectedBooking)}</p>
                   </div>
                 )}
 
@@ -362,15 +361,15 @@ export function UpcomingBookings({ bookings }: UpcomingBookingsProps) {
                   <div className="flex items-center gap-3 text-sm">
                     <User className="w-4 h-4 text-muted-foreground" />
                     <div>
-                      <p className="font-medium">Assigned: {maskName(selectedBooking.staff.name)}</p>
-                      <p className="text-muted-foreground">{maskEmail(selectedBooking.staff.email)}</p>
+                      <p className="font-medium">Assigned: {selectedBooking.staff.name}</p>
+                      <p className="text-muted-foreground">{selectedBooking.staff.email}</p>
                     </div>
                   </div>
                 )}
               </div>
 
               <div className="pt-4 border-t">
-                <span className="text-lg font-bold block mb-3">{maskAmount(selectedBooking.total_amount)}</span>
+                <span className="text-lg font-bold block mb-3">{fmt(selectedBooking.total_amount)}</span>
                 <div className="grid grid-cols-3 gap-2">
                   <Button
                     size="sm"

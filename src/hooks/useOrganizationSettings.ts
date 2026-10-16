@@ -26,7 +26,6 @@ export interface OrganizationPricingSettings {
   show_home_condition: boolean;
   show_bed_bath_on_booking: boolean;
   sales_tax_percent: number;
-  demo_mode_enabled: boolean;
   loyalty_program_enabled: boolean;
   booking_form_theme: string;
   form_bg_color: string | null;
@@ -50,7 +49,6 @@ const defaultSettings: Omit<OrganizationPricingSettings, 'organization_id'> = {
   show_home_condition: true,
   show_bed_bath_on_booking: true,
   sales_tax_percent: 0,
-  demo_mode_enabled: false,
   loyalty_program_enabled: true,
   booking_form_theme: 'dark',
   form_bg_color: null,
@@ -93,7 +91,6 @@ export function useOrganizationSettings() {
           show_home_condition: data.show_home_condition ?? true,
           show_bed_bath_on_booking: data.show_bed_bath_on_booking ?? true,
           sales_tax_percent: Number(data.sales_tax_percent) || 0,
-          demo_mode_enabled: data.demo_mode_enabled ?? false,
           loyalty_program_enabled: (data as any).loyalty_program_enabled ?? true,
           booking_form_theme: (data as any).booking_form_theme ?? 'dark',
           form_bg_color: (data as any).form_bg_color ?? null,
@@ -147,6 +144,8 @@ export function useOrganizationSettings() {
         return (settings as any)?.[key] ?? fallback;
       };
 
+      // demo_mode_enabled stays on the row and is unused. Leave it out of the
+      // payload so a settings save does not rewrite the column.
       const settingsData = {
         organization_id: organization.id,
         show_sqft_on_booking: pick('show_sqft_on_booking', true),
@@ -156,7 +155,6 @@ export function useOrganizationSettings() {
         show_home_condition: pick('show_home_condition', true),
         show_bed_bath_on_booking: pick('show_bed_bath_on_booking', true),
         sales_tax_percent: pick('sales_tax_percent', 0),
-        demo_mode_enabled: pick('demo_mode_enabled', false),
         loyalty_program_enabled: pick('loyalty_program_enabled', true),
         booking_form_theme: pick('booking_form_theme', 'dark'),
         form_bg_color: updates.form_bg_color !== undefined ? updates.form_bg_color : (base.form_bg_color ?? settings?.form_bg_color ?? null),
@@ -193,7 +191,6 @@ export function useOrganizationSettings() {
         show_home_condition: data.show_home_condition ?? true,
         show_bed_bath_on_booking: data.show_bed_bath_on_booking ?? true,
         sales_tax_percent: Number(data.sales_tax_percent) || 0,
-        demo_mode_enabled: data.demo_mode_enabled ?? false,
         loyalty_program_enabled: (data as any).loyalty_program_enabled ?? true,
         booking_form_theme: (data as any).booking_form_theme ?? 'dark',
         form_bg_color: (data as any).form_bg_color ?? null,
@@ -218,16 +215,10 @@ export function useOrganizationSettings() {
     }
   };
 
-  const toggleDemoMode = async () => {
-    const newValue = !settings?.demo_mode_enabled;
-    return saveSettings({ demo_mode_enabled: newValue });
-  };
-
   return {
     settings,
     loading,
     saveSettings,
-    toggleDemoMode,
     refetch: fetchSettings,
   };
 }
