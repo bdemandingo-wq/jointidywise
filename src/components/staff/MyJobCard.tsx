@@ -28,15 +28,11 @@ import { GpsCheckin } from './GpsCheckin';
 import { PropertyInspectionUpload } from './PropertyInspectionUpload';
 import { useMapsNavigation } from '@/hooks/useMapsNavigation';
 import { useCleanerTracking } from '@/hooks/useCleanerTracking';
-import { useLocationConsent } from '@/hooks/useLocationConsent';
 import { useLocationSharingGate } from '@/hooks/useLocationSharingGate';
 import { useLocationPermission } from '@/hooks/useLocationPermission';
 import { LocationSharingOffNote } from '@/components/staff/LocationConsentSheet';
-import {
-  consentLogsForAction,
-  onMyWayLocationPlan,
-  type LocationConsentSource,
-} from '@/lib/locationConsent';
+import { onMyWayLocationPlan } from '@/lib/locationConsent';
+import { recordOsPermissionRevoke } from '@/lib/recordLocationConsent';
 import { osStateFromKind, readOsLocationState } from '@/lib/osLocationState';
 import { staffLocationSearch } from '@/lib/locationPermission';
 import { supabase } from '@/lib/supabase';
@@ -146,9 +142,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
     destinationLng: (booking as { longitude?: number | null }).longitude,
   });
   const sharing = useLocationSharingGate();
-  const consent = useLocationConsent(staffInfo.id, sharing.trackingEnabled);
   const loc = useLocationPermission(staffInfo.id);
-  const consentOrgId = booking.organization_id || organizationId;
 
   // Stop tracking when the job starts, is finished, or is cancelled.
   useEffect(() => {
@@ -172,20 +166,6 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
       toast.error('Could not send arrival notification. Please try again.');
     } finally {
       setIsMarkingArrived(false);
-    }
-  };
-
-  const logConsentRows = async (
-    rows: { decision: 'granted' | 'declined' | 'toggled_on' | 'toggled_off' | 'os_denied'; source: LocationConsentSource }[],
-  ) => {
-    if (!staffInfo.id || !consentOrgId) throw new Error('Staff profile is still loading');
-    for (const row of rows) {
-      await consent.logDecision({
-        staffId: staffInfo.id,
-        organizationId: consentOrgId,
-        decision: row.decision,
-        source: row.source,
-      });
     }
   };
 
@@ -213,16 +193,12 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
           });
           if (started.ok) {
             trackingResult = started;
-          } else if (started.reason === 'os_denied') {
+          } else if (started.reason === 'os_denied' && staffInfo.id) {
             try {
-              const latest = await consent.loadLatest();
-              const followUp = consentLogsForAction({
-                latest: latest.decision,
-                action: { type: 'os_turned_off' },
-              });
-              if (followUp.length > 0) await logConsentRows(followUp);
+              await recordOsPermissionRevoke(staffInfo.id);
             } catch (logError) {
-              console.error('[location-consent] could not record OS denial', logError);
+              console.error('[location-consent] could not record revoked permission', logError);
+              toast.error('Location is off, but that change could not be saved.');
             }
           }
         } catch (gpsError) {
@@ -311,16 +287,12 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
       await sendOnTheWay(true);
       return;
     }
-    if (osState === 'denied') {
+    if (osState === 'denied' && staffInfo.id) {
       try {
-        const latest = await consent.loadLatest();
-        const followUp = consentLogsForAction({
-          latest: latest.decision,
-          action: { type: 'os_turned_off' },
-        });
-        if (followUp.length > 0) await logConsentRows(followUp);
+        await recordOsPermissionRevoke(staffInfo.id);
       } catch (err) {
-        console.error('[location-consent] could not record OS denial', err);
+        console.error('[location-consent] could not record revoked permission', err);
+        toast.error('Location is off, but that change could not be saved.');
       }
     }
     await sendOnTheWay(false);

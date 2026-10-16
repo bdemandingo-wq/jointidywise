@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
-import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
+import { recordOsPermissionGrant, recordOsPermissionRevoke } from '@/lib/recordLocationConsent';
 import {
   IOS_APP_SETTINGS_URL,
   classifyPermissionFailure,
@@ -151,18 +151,35 @@ export function useLocationPermission(staffId?: string): LocationPermissionState
   }, []);
 
   const refresh = useCallback(async () => {
-    apply(await readLocation());
-  }, [apply]);
+    const next = await readLocation();
+    apply(next);
+    if (staffId && next.kind === 'off') {
+      try {
+        await recordOsPermissionRevoke(staffId);
+      } catch (err) {
+        console.error('[location] could not record revoked permission', err);
+        toast.error('Location is off, but that change could not be saved. Try again.');
+      }
+    }
+  }, [apply, staffId]);
 
   useEffect(() => {
     let cancelled = false;
-    void readLocation().then((next) => {
-      if (!cancelled) apply(next);
+    void readLocation().then(async (next) => {
+      if (cancelled) return;
+      apply(next);
+      if (!staffId || next.kind !== 'off') return;
+      try {
+        await recordOsPermissionRevoke(staffId);
+      } catch (err) {
+        console.error('[location] could not record revoked permission', err);
+        toast.error('Location is off, but that change could not be saved. Try again.');
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [apply]);
+  }, [apply, staffId]);
 
   useEffect(() => {
     let remove: (() => void) | undefined;
@@ -223,6 +240,14 @@ export function useLocationPermission(staffId?: string): LocationPermissionState
         } catch (err) {
           console.error('[location] could not record consent', err);
           toast.error('Location is on, but sharing could not be saved. Try again.');
+        }
+      }
+      if (staffId && next.kind === 'off') {
+        try {
+          await recordOsPermissionRevoke(staffId);
+        } catch (err) {
+          console.error('[location] could not record revoked permission', err);
+          toast.error('Location is off, but that change could not be saved. Try again.');
         }
       }
       return next.kind;

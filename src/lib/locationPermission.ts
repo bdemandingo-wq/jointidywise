@@ -49,7 +49,7 @@ const ANDROID_STEPS = [
 export const IOS_APP_SETTINGS_URL = 'app-settings:';
 
 export const LOCATION_WHY =
-  'Used to clock you in and out at the job, and to tell the owner when you arrive.';
+  'TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. It is deleted after 30 days. You can turn this off in iPhone Settings or in your browser settings.';
 
 export function classifyPluginStatus(status: PluginPermissionStatus): ClassifiedLocation {
   const location = status.location ?? '';
@@ -204,13 +204,13 @@ export function locationBannerCopy(
   if (kind === 'off') {
     return {
       title: 'Location is off',
-      body: 'Turn it on to clock in at the job and to send the owner an arrival alert.',
+      body: 'Turn it on to share On My Way with the business owner and the customer. You can turn it off again in iPhone Settings or your browser settings.',
     };
   }
   if (kind === 'not-asked') {
     return {
       title: 'Location is not on yet',
-      body: 'Turn it on to clock in at the job and to send the owner an arrival alert.',
+      body: 'Turn it on to share On My Way with the business owner and the customer. You can turn it off again in iPhone Settings or your browser settings.',
     };
   }
   if (kind === 'unavailable') {

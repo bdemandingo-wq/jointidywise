@@ -1,10 +1,7 @@
 import { useState } from 'react';
-import { MapPin, Loader2, CheckCircle } from 'lucide-react';
+import { CheckCircle, Loader2, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
-import { useOrgCountryCode } from '@/hooks/useDistanceUnit';
-import { geoFailureCode, geoFailureLabel, getPositionWithFallback } from '@/lib/geo';
-import { isFarFromProperty, propertyDistancePhrase } from '@/lib/usDistance';
 import { toast } from 'sonner';
 
 interface GpsCheckinProps {
@@ -18,121 +15,35 @@ interface GpsCheckinProps {
   disabledReason?: string;
 }
 
-const NEARBY_METERS = 0.25 * 1609.344; // ~0.25 miles still counts as at the property
-
-function toRad(deg: number) { return deg * (Math.PI / 180); }
-
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371000;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-export function GpsCheckin({ bookingId, staffId, organizationId, bookingAddress, type, onSuccess, disabled, disabledReason }: GpsCheckinProps) {
-  // Staff surfaces have no OrganizationContext, so pass the id explicitly.
-  const orgCountry = useOrgCountryCode(organizationId);
+export function GpsCheckin({ bookingId, staffId, organizationId, type, onSuccess, disabled, disabledReason }: GpsCheckinProps) {
   const [loading, setLoading] = useState(false);
-  const [statusText, setStatusText] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-
-  const saveWithoutGps = async (code: ReturnType<typeof geoFailureCode>) => {
-    const { error: fallbackErr } = await (supabase.from('booking_checkins' as any) as any).insert({
-      booking_id: bookingId,
-      staff_id: staffId,
-      organization_id: organizationId,
-      checkin_type: type,
-      address_match: null,
-      gps_error: code,
-    });
-    if (fallbackErr) {
-      console.error('[GpsCheckin] failed to save no-GPS check-in:', fallbackErr);
-      toast.error('Could not save check-in. Please try again or notify your admin.');
-      return;
-    }
-    setDone(true);
-    onSuccess?.();
-    const verb = type === 'check_in' ? 'Checked in' : 'Checked out';
-    toast.info(`${verb} without a location fix. ${geoFailureLabel(code)}`);
-  };
 
   const handleCheckin = async () => {
     setLoading(true);
-    setStatusText('Getting your location…');
     try {
-      // Coarse fix first (works indoors), then GPS. Native iOS uses
-      // @capacitor/geolocation rather than the WebView geolocation API.
-      const pos = await getPositionWithFallback();
-      setStatusText('Saving check-in…');
-
-      const { latitude, longitude } = pos;
-      let distanceMeters: number | null = null;
-      let addressMatch: boolean | null = null;
-
-      // Geocode the booking address to compare
-      if (bookingAddress) {
-        const { data: geocoded } = await supabase.functions.invoke('geocode-address', {
-          body: { address: bookingAddress, ...(orgCountry ? { country: orgCountry } : {}) },
-        });
-        if (geocoded?.lat && geocoded?.lng) {
-          distanceMeters = Math.round(haversineMeters(latitude, longitude, geocoded.lat, geocoded.lng));
-          addressMatch = distanceMeters <= NEARBY_METERS;
-        }
-      }
-
+      // Clock-in records the time only. Device coordinates are collected
+      // during On My Way and not on this button.
       const { error: checkinErr } = await (supabase.from('booking_checkins' as any) as any).insert({
         booking_id: bookingId,
         staff_id: staffId,
         organization_id: organizationId,
         checkin_type: type,
-        latitude,
-        longitude,
-        address_match: addressMatch,
-        distance_meters: distanceMeters,
+        latitude: null,
+        longitude: null,
+        address_match: null,
+        distance_meters: null,
       });
-
       if (checkinErr) {
-        // Don't show a false success — this used to insert-and-forget,
-        // so a failed write looked identical to a working one.
         console.error('[GpsCheckin] failed to save check-in:', checkinErr);
         toast.error('Could not save check-in. Please try again or notify your admin.');
         return;
       }
-
-      if (distanceMeters !== null && isFarFromProperty(distanceMeters)) {
-        const phrase = propertyDistancePhrase(distanceMeters);
-        toast.warning(
-          `${type === 'check_in' ? 'Checked in' : 'Checked out'} ${phrase}`,
-          { duration: 5000 },
-        );
-        // The row is already saved. The office flag is best-effort: a failed
-        // notify must not look like the check-in itself failed.
-        if (type === 'check_in') {
-          void supabase.functions.invoke('flag-far-checkin', {
-            body: { bookingId, staffId },
-          }).then(({ error: flagError }) => {
-            if (flagError) console.warn('[GpsCheckin] office was not notified of a far check-in', flagError);
-          });
-        }
-      } else {
-        toast.success(type === 'check_in' ? 'Checked in at property' : 'Checked out from property');
-      }
-
+      toast.success(type === 'check_in' ? 'Checked in' : 'Checked out');
       setDone(true);
       onSuccess?.();
-    } catch (e: unknown) {
-      const code = geoFailureCode(e);
-      if (code === 'denied') {
-        toast.error(geoFailureLabel(code));
-        return;
-      }
-      // Both the coarse and the GPS attempt failed. Record the check-in and
-      // say why, instead of a bare "no GPS" after a silent 20s wait.
-      await saveWithoutGps(code);
     } finally {
       setLoading(false);
-      setStatusText(null);
     }
   };
 
@@ -156,11 +67,8 @@ export function GpsCheckin({ bookingId, staffId, organizationId, bookingAddress,
         title={disabled ? disabledReason : undefined}
       >
         {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
-        {loading ? 'Getting location…' : type === 'check_in' ? 'GPS Check-In' : 'GPS Check-Out'}
+        {loading ? 'Saving…' : type === 'check_in' ? 'Check in' : 'Check out'}
       </Button>
-      {loading && statusText && (
-        <p className="text-[11px] text-muted-foreground">{statusText}</p>
-      )}
       {disabled && disabledReason && (
         <p className="text-[11px] text-muted-foreground">{disabledReason}</p>
       )}

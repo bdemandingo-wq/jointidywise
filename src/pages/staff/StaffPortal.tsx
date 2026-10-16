@@ -1544,7 +1544,6 @@ export default function StaffPortal() {
                   staffInfo={staffInfo}
                   userId={user.id}
                   organizationId={staffInfo.organization_id}
-                  businessName={activeStaffOrg?.name ?? organization?.name ?? null}
                 />
               ) : (
                 <TabFallback />

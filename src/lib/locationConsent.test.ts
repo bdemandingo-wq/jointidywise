@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
   CONSENT_COPY_VERSION,
@@ -9,6 +10,7 @@ import {
   buildConsentLogRow,
   canStartLocationTracking,
   consentLogForOsPermissionGrant,
+  consentLogForOsPermissionRevoke,
   consentLogsForAction,
   consentLogsIfSharingOpen,
   formatLocationConsentCopy,
@@ -20,33 +22,34 @@ import {
   settingsToggleOn,
   shouldLogOsDenied,
 } from './locationConsent.ts';
+import { LOCATION_WHY } from './locationPermission.ts';
 
 const APPROVED_COPY =
-  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app.";
+  'TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. It is deleted after 30 days. You can turn this off in iPhone Settings or in your browser settings.';
 
-test('consent copy is version v2 and fills the business name', () => {
-  assert.equal(CONSENT_COPY_VERSION, 'v2');
+test('consent copy is version v3 and states the On My Way window', () => {
+  assert.equal(CONSENT_COPY_VERSION, 'v3');
   assert.equal(LOCATION_CONSENT_COPY, APPROVED_COPY);
+  assert.equal(PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION, LOCATION_CONSENT_COPY);
+  assert.equal(LOCATION_WHY, LOCATION_CONSENT_COPY);
+  assert.match(LOCATION_CONSENT_COPY, /only during On My Way/);
+  assert.match(LOCATION_CONSENT_COPY, /until you arrive or until the job is marked started/);
+  assert.match(LOCATION_CONSENT_COPY, /business owner and the customer/);
+  assert.match(LOCATION_CONSENT_COPY, /deleted after 30 days/);
+  assert.match(LOCATION_CONSENT_COPY, /iPhone Settings or in your browser settings/);
+  assert.equal(/background/i.test(LOCATION_CONSENT_COPY), false);
   assert.equal(LOCATION_CONSENT_HEADING, "Share your location while you're on the way");
   assert.equal(LOCATION_SHARING_OFF_NOTE, 'Location sharing is off. Turn on in Settings.');
-  const filled = formatLocationConsentCopy('Bright Clean');
-  assert.equal(filled.includes('{businessName}'), false);
-  assert.equal(filled.includes('Bright Clean'), true);
-  assert.equal(formatLocationConsentCopy('  '), filled.replace('Bright Clean', 'your company'));
-  assert.equal(formatLocationConsentCopy(null).includes('your company'), true);
+  assert.equal(formatLocationConsentCopy('Bright Clean'), APPROVED_COPY);
 });
 
-test('in-app copy and the proposed iOS string do not mention customers or background use', () => {
-  const texts = [
-    LOCATION_CONSENT_COPY,
-    LOCATION_CONSENT_HEADING,
-    LOCATION_SHARING_OFF_NOTE,
-    PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION,
-  ];
-  for (const text of texts) {
-    assert.equal(/customer/i.test(text), false, text);
-    assert.equal(/background/i.test(text), false, text);
-  }
+test('the iOS usage strings match the location-card sentence', () => {
+  const plist = readFileSync(new URL('../../ios/App/App/Info.plist', import.meta.url), 'utf8');
+  const whenInUse = plist.match(/<key>NSLocationWhenInUseUsageDescription<\/key>\s*<string>([^<]*)<\/string>/);
+  const alwaysKey = plist.match(/<key>NSLocationAlwaysAndWhenInUseUsageDescription<\/key>\s*<string>([^<]*)<\/string>/);
+  assert.equal(whenInUse?.[1], LOCATION_CONSENT_COPY);
+  assert.equal(alwaysKey?.[1], LOCATION_CONSENT_COPY);
+  assert.equal(plist.includes('<string>location</string>'), false);
 });
 
 test('tracking starts from the OS permission, and a grant row is appended only when the latest decision is not already a yes', () => {
@@ -57,12 +60,21 @@ test('tracking starts from the OS permission, and a grant row is appended only w
   assert.equal(canStartLocationTracking({ decision: 'os_denied', osPermissionGranted: false }), false);
   assert.equal(canStartLocationTracking({ decision: 'granted', osPermissionGranted: true }), true);
 
-  assert.deepEqual(consentLogForOsPermissionGrant(null), { decision: 'granted', source: 'first_run_sheet' });
-  assert.deepEqual(consentLogForOsPermissionGrant('declined'), { decision: 'granted', source: 'first_run_sheet' });
-  assert.deepEqual(consentLogForOsPermissionGrant('toggled_off'), { decision: 'granted', source: 'first_run_sheet' });
-  assert.deepEqual(consentLogForOsPermissionGrant('os_denied'), { decision: 'granted', source: 'first_run_sheet' });
+  assert.deepEqual(consentLogForOsPermissionGrant(null), { decision: 'os_permission_granted', source: 'first_run_sheet' });
+  assert.deepEqual(consentLogForOsPermissionGrant('declined'), { decision: 'os_permission_granted', source: 'first_run_sheet' });
+  assert.deepEqual(consentLogForOsPermissionGrant('toggled_off'), { decision: 'os_permission_granted', source: 'first_run_sheet' });
+  assert.deepEqual(consentLogForOsPermissionGrant('os_denied'), { decision: 'os_permission_granted', source: 'first_run_sheet' });
+  assert.deepEqual(consentLogForOsPermissionGrant('revoked'), { decision: 'os_permission_granted', source: 'first_run_sheet' });
   assert.equal(consentLogForOsPermissionGrant('granted'), null);
   assert.equal(consentLogForOsPermissionGrant('toggled_on'), null);
+  assert.equal(consentLogForOsPermissionGrant('os_permission_granted'), null);
+
+  assert.deepEqual(consentLogForOsPermissionRevoke('os_permission_granted'), { decision: 'revoked', source: 'settings' });
+  assert.deepEqual(consentLogForOsPermissionRevoke('granted'), { decision: 'revoked', source: 'settings' });
+  assert.deepEqual(consentLogForOsPermissionRevoke('toggled_on'), { decision: 'revoked', source: 'settings' });
+  assert.equal(consentLogForOsPermissionRevoke('revoked'), null);
+  assert.equal(consentLogForOsPermissionRevoke(null), null);
+  assert.equal(consentLogForOsPermissionRevoke('declined'), null);
 });
 
 test('On My Way does not show a consent sheet; tracking follows the OS permission', () => {
@@ -185,7 +197,7 @@ test('an OS denial is logged once, from a current yes, and the row is append-onl
       organization_id: 'org-1',
       user_id: 'user-1',
       decision: 'declined',
-      copy_version: 'v2',
+      copy_version: 'v3',
       source: 'first_run_sheet',
     },
   );

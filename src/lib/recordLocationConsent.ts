@@ -3,7 +3,9 @@ import {
   buildConsentLogRow,
   consentAllowsTracking,
   consentLogForOsPermissionGrant,
+  consentLogForOsPermissionRevoke,
   consentSnapshot,
+  type ConsentLogEvent,
 } from '@/lib/locationConsent';
 import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
 
@@ -13,7 +15,8 @@ import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvaila
  * No-op when sharing is closed (old iOS build, Android, or the remote switch)
  * or when the latest row is already a yes.
  */
-export async function recordOsPermissionGrant(staffId: string): Promise<void> {
+async function appendConsent(staffId: string, event: ConsentLogEvent | null): Promise<void> {
+  if (!event) return;
   const gate = await readLocationSharingAvailability();
   if (!gate.logConsent) return;
 
@@ -24,21 +27,6 @@ export async function recordOsPermissionGrant(staffId: string): Promise<void> {
     .maybeSingle();
   if (staffError) throw staffError;
   if (!staff?.organization_id) throw new Error('Staff profile has no organization');
-
-  const { data: rows, error: readError } = await supabase
-    .from('cleaner_location_consents')
-    .select('decision')
-    .eq('staff_id', staffId)
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(1);
-  if (readError) throw readError;
-
-  const snapshot = consentSnapshot(!!rows?.[0], rows?.[0]?.decision);
-  if (consentAllowsTracking(snapshot.decision)) return;
-
-  const event = consentLogForOsPermissionGrant(snapshot.decision);
-  if (!event) return;
 
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError) throw userError;
@@ -55,4 +43,32 @@ export async function recordOsPermissionGrant(staffId: string): Promise<void> {
     }),
   );
   if (error) throw error;
+}
+
+async function latestDecision(staffId: string) {
+  const { data: rows, error: readError } = await supabase
+    .from('cleaner_location_consents')
+    .select('decision')
+    .eq('staff_id', staffId)
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(1);
+  if (readError) throw readError;
+  return consentSnapshot(!!rows?.[0], rows?.[0]?.decision);
+}
+
+export async function recordOsPermissionGrant(staffId: string): Promise<void> {
+  const gate = await readLocationSharingAvailability();
+  if (!gate.logConsent) return;
+  const snapshot = await latestDecision(staffId);
+  if (consentAllowsTracking(snapshot.decision)) return;
+  await appendConsent(staffId, consentLogForOsPermissionGrant(snapshot.decision));
+}
+
+/** Appends revoked when the OS permission is removed after a current yes. */
+export async function recordOsPermissionRevoke(staffId: string): Promise<void> {
+  const gate = await readLocationSharingAvailability();
+  if (!gate.logConsent) return;
+  const snapshot = await latestDecision(staffId);
+  await appendConsent(staffId, consentLogForOsPermissionRevoke(snapshot.decision));
 }

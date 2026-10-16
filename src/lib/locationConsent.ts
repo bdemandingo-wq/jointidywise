@@ -2,30 +2,29 @@
  * Cleaner disclosure for sharing location during On My Way.
  *
  * There is no separate in-app toggle. Tracking follows the iOS or browser
- * location permission. A granted row is still appended so the server trigger
- * can see a yes. Copy version v2 is that shorter disclosure.
+ * location permission. An os_permission_granted row is appended so the server
+ * trigger can see a yes. Copy version v3 is the legal disclosure.
  */
-export const CONSENT_COPY_VERSION = 'v2';
+export const CONSENT_COPY_VERSION = 'v3';
 
 export const LOCATION_CONSENT_HEADING = "Share your location while you're on the way";
 
 export const LOCATION_SHARING_OFF_NOTE = 'Location sharing is off. Turn on in Settings.';
 
 /**
- * `{businessName}` is filled from the organization's name.
- * Clock-in and photo coordinates are a separate permission, described on
- * the location card. This sentence is only about On My Way.
+ * Shown on the location card and in NSLocationWhenInUseUsageDescription.
+ * No business-name placeholder: the system prompt cannot fill one, and the
+ * two strings have to be the same text.
  */
 export const LOCATION_CONSENT_COPY =
-  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app.";
+  'TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. It is deleted after 30 days. You can turn this off in iPhone Settings or in your browser settings.';
 
 /**
  * Both NSLocationWhenInUseUsageDescription and
  * NSLocationAlwaysAndWhenInUseUsageDescription in Info.plist.
  * The system prompt uses this only after a new iOS build is shipped.
  */
-export const PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION =
-  "TidyWise uses your location while the app is open to share your ETA with your company's admins after you tap On My Way, to record where you clock in and out, and to record where job photos are taken.";
+export const PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION = LOCATION_CONSENT_COPY;
 
 /**
  * Native builds below this never share On My Way location.
@@ -109,6 +108,8 @@ export const CONSENT_DECISIONS = [
   'toggled_on',
   'toggled_off',
   'os_denied',
+  'os_permission_granted',
+  'revoked',
 ] as const;
 
 export type LocationConsentDecision = (typeof CONSENT_DECISIONS)[number];
@@ -155,7 +156,15 @@ export function formatLocationConsentCopy(businessName: string | null | undefine
 }
 
 export function parseConsentDecision(value: string | null | undefined): LocationConsentDecision | null {
-  if (value === 'granted' || value === 'declined' || value === 'toggled_on' || value === 'toggled_off' || value === 'os_denied') {
+  if (
+    value === 'granted' ||
+    value === 'declined' ||
+    value === 'toggled_on' ||
+    value === 'toggled_off' ||
+    value === 'os_denied' ||
+    value === 'os_permission_granted' ||
+    value === 'revoked'
+  ) {
     return value;
   }
   return null;
@@ -168,7 +177,7 @@ export function consentSnapshot(hasRow: boolean, decision?: string | null): Cons
 }
 
 export function consentAllowsTracking(decision: LocationConsentDecision | null): boolean {
-  return decision === 'granted' || decision === 'toggled_on';
+  return decision === 'granted' || decision === 'toggled_on' || decision === 'os_permission_granted';
 }
 
 /**
@@ -192,7 +201,15 @@ export function consentLogForOsPermissionGrant(
   latest: LocationConsentDecision | null,
 ): ConsentLogEvent | null {
   if (consentAllowsTracking(latest)) return null;
-  return { decision: 'granted', source: 'first_run_sheet' };
+  return { decision: 'os_permission_granted', source: 'first_run_sheet' };
+}
+
+/** One append-only revoked row when a current yes loses the OS permission. */
+export function consentLogForOsPermissionRevoke(
+  latest: LocationConsentDecision | null,
+): ConsentLogEvent | null {
+  if (!consentAllowsTracking(latest)) return null;
+  return { decision: 'revoked', source: 'settings' };
 }
 
 export function settingsToggleOn(decision: LocationConsentDecision | null): boolean {

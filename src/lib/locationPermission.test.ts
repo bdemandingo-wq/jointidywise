@@ -71,7 +71,8 @@ test('iOS denied model has the settings button and three plain steps', () => {
   assert.equal(model.steps?.length, 3);
   assert.match(model.steps?.[2] ?? '', /While Using the App/);
   assert.match(model.steps?.[2] ?? '', /Precise Location/);
-  assert.match(model.why, /clock you in and out/);
+  assert.match(model.why, /only during On My Way/);
+  assert.match(model.why, /deleted after 30 days/);
   assert.match(model.why, /owner/);
 });
 

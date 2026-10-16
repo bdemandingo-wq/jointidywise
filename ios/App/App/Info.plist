@@ -48,9 +48,9 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>TidyWise uses your location while the app is open to share your ETA with your company's admins after you tap On My Way, to record where you clock in and out, and to record where job photos are taken.</string>
+	<string>TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. It is deleted after 30 days. You can turn this off in iPhone Settings or in your browser settings.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>TidyWise uses your location while the app is open to share your ETA with your company's admins after you tap On My Way, to record where you clock in and out, and to record where job photos are taken.</string>
+	<string>TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. It is deleted after 30 days. You can turn this off in iPhone Settings or in your browser settings.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>TidyWise needs camera access to take before/after photos for cleaning jobs.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

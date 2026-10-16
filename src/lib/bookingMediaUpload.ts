@@ -1,11 +1,9 @@
-import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/integrations/supabase/types';
 import { isVideoFile, type MediaType } from '@/lib/bookingMediaErrors';
 import { stampedSiblingPath } from '@/lib/photoDownload';
 import {
   burnProofStamp,
-  chooseStampGps,
   deviceTimeZone,
   formatPropertyAddress,
   isMissingColumn,
@@ -111,41 +109,9 @@ interface ProofColumns {
  * while the photo is ready. A fix that is already granted comes back
  * from cache well inside this window.
  */
+/** Job photos do not store a device location. On My Way is the only share. */
 function readCaptureGps(): Promise<GeoPoint | null> {
-  return new Promise((resolve) => {
-    const giveUp = setTimeout(() => resolve(null), 2500);
-    const finish = (point: GeoPoint | null) => {
-      clearTimeout(giveUp);
-      resolve(point);
-    };
-    void (async () => {
-      try {
-        if (Capacitor.isNativePlatform()) {
-          const { Geolocation } = await import('@capacitor/geolocation');
-          const pos = await Geolocation.getCurrentPosition({
-            enableHighAccuracy: false,
-            timeout: 2500,
-            maximumAge: 120_000,
-          });
-          const latitude = pos.coords.latitude;
-          const longitude = pos.coords.longitude;
-          finish(Number.isFinite(latitude) && Number.isFinite(longitude) ? { latitude, longitude } : null);
-          return;
-        }
-        if (typeof navigator === 'undefined' || !navigator.geolocation) {
-          finish(null);
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(
-          (pos) => finish({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-          () => finish(null),
-          { enableHighAccuracy: false, timeout: 2500, maximumAge: 120_000 },
-        );
-      } catch {
-        finish(null);
-      }
-    })();
-  });
+  return Promise.resolve(null);
 }
 
 async function normalizeImage(file: File): Promise<File> {
@@ -208,21 +174,18 @@ async function preparePhotoFile(args: {
     uploadedAt: args.uploadedAt,
     deviceTimeZone: deviceTimeZone(),
   });
-  const gps = chooseStampGps({
-    exifGps: exif?.latitude != null && exif?.longitude != null
-      ? { latitude: exif.latitude, longitude: exif.longitude }
-      : null,
-    deviceGps: args.deviceGps,
-    liveCapture: args.liveCapture,
-  });
+  // Job photos do not store a location. EXIF and a live device fix stay off
+  // the proof row and the stamp. On My Way is the only saved trail.
+  void args.deviceGps;
+  void args.liveCapture;
   const lines = proofStampLines({
     label: clock.label,
     at: clock.at,
     businessTimeZone: args.businessTimeZone,
     bookingNumber: args.bookingNumber,
     address: args.address,
-    latitude: gps?.latitude ?? null,
-    longitude: gps?.longitude ?? null,
+    latitude: null,
+    longitude: null,
   });
 
   // The unstamped file is what we keep as the original. The painted JPEG
@@ -254,8 +217,8 @@ async function preparePhotoFile(args: {
     proof: {
       captured_at: clock.at.toISOString(),
       timestamp_source: clock.source,
-      capture_latitude: gps?.latitude ?? null,
-      capture_longitude: gps?.longitude ?? null,
+      capture_latitude: null,
+      capture_longitude: null,
       proof_stamped: !!stamped,
     },
   };

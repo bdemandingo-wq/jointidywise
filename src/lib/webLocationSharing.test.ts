@@ -45,7 +45,7 @@ test('web On My Way asks the browser for location without a consent sheet', () =
 });
 
 test('allow and decline rows still carry the current copy version', () => {
-  assert.equal(CONSENT_COPY_VERSION, 'v2');
+  assert.equal(CONSENT_COPY_VERSION, 'v3');
   const decisions = [
     webOnMyWayConsentEvents({ stage: 'continue', osState: 'prompt' }),
     webOnMyWayConsentEvents({ stage: 'continue', osState: 'denied' }),
@@ -61,7 +61,7 @@ test('allow and decline rows still carry the current copy version', () => {
   ];
   for (const events of decisions) {
     const rows = consentRowsForDecisions(events, IDS);
-    assert.equal(everyAllowOrDeclineIsCopyVersion(rows, 'v2'), true);
+    assert.equal(everyAllowOrDeclineIsCopyVersion(rows, 'v3'), true);
     assert.ok(rows.some((row) =>
       row.decision === 'granted' ||
       row.decision === 'declined' ||
@@ -75,14 +75,14 @@ test('allow and decline rows still carry the current copy version', () => {
     IDS,
   );
   assert.deepEqual(allow.map((row) => row.decision), ['granted']);
-  assert.equal(allow[0].copy_version, 'v2');
+  assert.equal(allow[0].copy_version, 'v3');
 
   const decline = consentRowsForDecisions(
     webOnMyWayConsentEvents({ stage: 'not_now', osState: 'prompt' }),
     IDS,
   );
   assert.deepEqual(decline.map((row) => row.decision), ['declined']);
-  assert.equal(decline[0].copy_version, 'v2');
+  assert.equal(decline[0].copy_version, 'v3');
 });
 
 test('web sharing pauses while hidden or unloading and resumes only when visible', () => {

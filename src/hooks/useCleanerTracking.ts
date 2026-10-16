@@ -97,6 +97,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   const watchIdRef       = useRef<string | null>(null);   // Capacitor watchId (string)
   const browserWatchRef  = useRef<number | null>(null);   // browser watchId (number)
   const stopTrackingRef  = useRef<() => Promise<void>>(async () => {});
+  const haltWatchRef = useRef<(markArrivedAt: boolean) => Promise<void>>(async () => {});
   const webSharePhaseRef = useRef<WebSharePhase>('idle');
   const [isTracking, setIsTracking] = useState(false);
   const [hasArrived, setHasArrived] = useState(false);
@@ -130,12 +131,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     setHasArrived(true);
     console.log(`[GPS] Arrival fired (${source})`);
     try {
-      if (trackingIdRef.current) {
-        await supabase
-          .from('cleaner_location_tracking')
-          .update({ arrived_at: new Date().toISOString() } as any)
-          .eq('id', trackingIdRef.current);
-      }
+      await haltWatchRef.current(true);
       const result = await supabase.functions.invoke('send-arrival-sms', { body: { bookingId, staffId } });
       // A hard failure should leave the button usable. A success:true with
       // SMS skipped still notified the office, so the arrival sticks.
@@ -181,6 +177,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   // ── write position to DB ──────────────────────────────────────────────────
 
   const writePosition = useCallback(async (latitude: number, longitude: number) => {
+    if (arrivedRef.current) return;
     if (!trackingIdRef.current) return;
     if (Capacitor.getPlatform() === 'web' && !webShareShouldReadGeolocation(webSharePhaseRef.current)) return;
     const now = Date.now();
@@ -210,9 +207,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     }
   }, []);
 
-  const stopTracking = useCallback(async () => {
+  const haltWatch = useCallback(async (markArrivedAt: boolean) => {
     webSharePhaseRef.current = 'idle';
-    // Clear Capacitor watch
     if (watchIdRef.current !== null) {
       try {
         const { Geolocation } = await import('@capacitor/geolocation');
@@ -221,24 +217,30 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       watchIdRef.current = null;
     }
     clearBrowserWatch();
-    // Release wake lock
     if (wakeLockRef.current) {
       try { await wakeLockRef.current.release(); } catch {}
       wakeLockRef.current = null;
     }
-    // Mark tracking record inactive
     if (trackingIdRef.current) {
+      const patch: { is_active: false; arrived_at?: string } = { is_active: false };
+      if (markArrivedAt) patch.arrived_at = new Date().toISOString();
       await supabase
         .from('cleaner_location_tracking')
-        .update({ is_active: false } as any)
+        .update(patch as any)
         .eq('id', trackingIdRef.current);
       trackingIdRef.current = null;
     }
+    setIsTracking(false);
+  }, [clearBrowserWatch]);
+
+  haltWatchRef.current = haltWatch;
+
+  const stopTracking = useCallback(async () => {
+    await haltWatch(false);
     arrivedRef.current = false;
     setHasArrived(false);
-    setIsTracking(false);
     console.log('[GPS] Tracking stopped');
-  }, [clearBrowserWatch]);
+  }, [haltWatch]);
 
   stopTrackingRef.current = stopTracking;
 

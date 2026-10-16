@@ -31,10 +31,9 @@ interface Props {
   staffInfo: StaffInfo;
   userId: string;
   organizationId: string | null;
-  businessName: string | null;
 }
 
-export function CleanerProfile({ staffInfo, userId, businessName }: Props) {
+export function CleanerProfile({ staffInfo, userId }: Props) {
   const queryClient = useQueryClient();
   const { organizationId } = useOrgId();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -173,7 +172,7 @@ export function CleanerProfile({ staffInfo, userId, businessName }: Props) {
 
   return (
     <div className="space-y-6">
-      <StaffLocationSection staffId={staffInfo.id} businessName={businessName} />
+      <StaffLocationSection staffId={staffInfo.id} />
 
       {/* Profile Photo Card */}
       <Card>
