@@ -418,7 +418,9 @@ export default function StaffPortal() {
         bookingMap.set(b.id, b as Booking);
       }
 
-      const allBookings = Array.from(bookingMap.values()).sort(
+      const allBookings = ((await withStaffCustomers(
+        Array.from(bookingMap.values()) as unknown as { customer_id: string | null }[],
+      )) as unknown as Booking[]).sort(
         (a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
       );
 
