@@ -1,3 +1,4 @@
+// node --experimental-strip-types --test src/lib/dashboardLoad.test.ts
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { dashboardSideReads } from './dashboardLoad.ts';

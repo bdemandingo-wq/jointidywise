@@ -8,6 +8,7 @@ import {
   fetchOrgCustomers,
   fetchDashboardUpcoming,
   bookingsRecentKey,
+  dashboardChartKey,
   dashboardUpcomingKey,
 } from '@/hooks/useBookings';
 import {
@@ -65,7 +66,7 @@ export function WarmListQueries() {
     // wait until the upcoming window has landed so they do not compete with
     // the query the first paint is blocked on.
     const upcomingKey = dashboardUpcomingKey(orgId);
-    const chartKey = ['bookings', 'dashboard-chart', orgId] as const;
+    const chartKey = dashboardChartKey(orgId);
     let started = false;
     let timer = 0;
     const startHeavy = (force = false) => {

@@ -24,6 +24,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { refreshBadges } from '@/lib/badgeRefresh';
 import { OrgTimestamp } from '@/components/OrgTimestamp';
 import { ADMIN_NOTIFICATION_REFRESH } from '@/lib/adminNotificationRefresh';
+import { shouldFetchBellOnOpen } from '@/lib/adminNotificationFetch';
 
 interface AdminNotification {
   id: string;
@@ -506,8 +507,12 @@ export function AdminNotificationBell() {
     return () => window.clearTimeout(t);
   }, []);
 
-  notificationTimezone = orgTimezone;
-  notificationPushAllowed = browserPushAllowed;
+  useEffect(() => {
+    notificationTimezone = orgTimezone;
+    // browserPushAllowed reads prefsRef at call time, so a later prefs
+    // change is visible without writing the module global during render.
+    notificationPushAllowed = browserPushAllowed;
+  }, [orgTimezone, browserPushAllowed]);
 
   useEffect(() => {
     const listener = (orgId: string, list: AdminNotification[]) => {
@@ -528,6 +533,9 @@ export function AdminNotificationBell() {
     let cancelled = false;
     const start = () => {
       if (cancelled) return;
+      // Open may have filled the cache during the wait. A second read would
+      // replace realtime-only rows and undo Clear all.
+      if (!shouldFetchBellOnOpen(notificationCache.has(organizationId))) return;
       void loadAdminNotificationsShared(organizationId, orgTimezone, false)
         .then((list) => {
           if (!cancelled) publishNotifications(organizationId, list);
@@ -551,9 +559,13 @@ export function AdminNotificationBell() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizationId]);
 
-  // Opening the bell before the deferred read should not show an empty list.
+  // Opening before the deferred read should not show an empty list.
+  // Once a list is stored, open must not fetch again: the database read
+  // drops realtime-only rows and undoes Clear all. force=false joins the
+  // in-flight mount batch, so a cold open does not add a second request.
   useEffect(() => {
     if (!isOpen || !organizationId) return;
+    if (!shouldFetchBellOnOpen(notificationCache.has(organizationId))) return;
     let cancelled = false;
     void loadAdminNotificationsShared(organizationId, notificationTimezone, false)
       .then((list) => {
