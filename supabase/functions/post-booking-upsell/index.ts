@@ -156,6 +156,14 @@ const handler = async (req: Request): Promise<Response> => {
 
     const result = await response.json();
 
+    if (result.skipped) {
+      console.log(`[post-booking-upsell] Upsell SMS skipped opted_out booking ${bookingId}`);
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: "opted_out" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     if (result.success) {
       console.log(`[post-booking-upsell] Upsell SMS sent for booking ${bookingId}`);
       return new Response(

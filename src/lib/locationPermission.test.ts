@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
+  LOCATION_CARD_LEARN_MORE,
+  LOCATION_CARD_SUMMARY,
   buildLocationSectionModel,
   classifyPermissionFailure,
   classifyPluginStatus,
@@ -71,12 +74,33 @@ test('iOS denied model has the settings button and three plain steps', () => {
   assert.equal(model.steps?.length, 3);
   assert.match(model.steps?.[2] ?? '', /While Using the App/);
   assert.match(model.steps?.[2] ?? '', /Precise Location/);
-  assert.match(model.why, /only during On My Way/);
-  assert.match(model.why, /deleted after 30 days/);
-  assert.match(model.why, /turn it off anytime/);
-  assert.match(model.why, /last shared location/);
-  assert.match(model.why, /clock in or out/);
-  assert.match(model.why, /job photos/);
+  assert.equal(
+    model.summary,
+    "Location is shared while you're On My Way, even with the app closed, and recorded at clock in, clock out and job photos.",
+  );
+  assert.equal(model.summary, LOCATION_CARD_SUMMARY);
+  assert.equal(model.why, LOCATION_CARD_SUMMARY);
+  assert.equal(
+    model.learnMore,
+    "We share your location with your business and its customer only while you're On My Way. On iPhone this continues if the app is closed or your phone is locked, and stops when you arrive, the job starts or the job ends. If location is on, we also record it when you clock in or out and take job photos. Admins may see your last shared location until the job's start time. Location data is deleted after 30 days. You can turn it off anytime in Settings.",
+  );
+  assert.equal(model.learnMore, LOCATION_CARD_LEARN_MORE);
+  assert.match(model.learnMore, /deleted after 30 days/);
+  assert.match(model.learnMore, /turn it off anytime/);
+  assert.match(model.learnMore, /last shared location/);
+  assert.match(model.learnMore, /clock in or out/);
+  assert.match(model.learnMore, /job photos/);
+});
+
+test('the location card Learn more button stays in the app', () => {
+  const section = readFileSync(new URL('../components/staff/StaffLocationSection.tsx', import.meta.url), 'utf8');
+  assert.match(section, /Learn more/);
+  assert.match(section, /min-h-\[44px\]/);
+  assert.match(section, /<Button/);
+  assert.match(section, /LOCATION_CARD_SUMMARY/);
+  assert.match(section, /LOCATION_CARD_LEARN_MORE/);
+  assert.equal(section.includes('fetch('), false);
+  assert.equal(section.includes('supabase'), false);
 });
 
 test('android denied model explains that Settings must be opened by hand', () => {

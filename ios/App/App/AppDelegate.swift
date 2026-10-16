@@ -20,7 +20,9 @@ class TidyWiseBridgeViewController: CAPBridgeViewController {
             return
         }
         bridge.registerPluginInstance(NotificationAuthPlugin())
+        bridge.registerPluginInstance(TripBackgroundLocationPlugin())
         print("[Push] registered NotificationAuthPlugin")
+        print("[GPS] registered TripBackgroundLocationPlugin")
         registerLinkedPushNotificationsPlugin(on: bridge)
         // A token that arrived before this plugin's load() is posted again
         // so the observer added in load() can still notify JavaScript.

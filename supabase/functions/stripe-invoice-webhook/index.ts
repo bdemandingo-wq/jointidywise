@@ -1,11 +1,13 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { REFUND_POLICY, CANCELLATION_POLICY, POLICY_DISCLOSURE, TOS_VERSION } from "../_shared/policies.ts";
 import { rejectReason, isVested } from "../_shared/referral-eligibility.ts";
 import { recordReferralInvoicePaid, recordReferralReversal, type BalanceClient } from "../_shared/saas-referral-db.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
+import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/send-sms.ts";
 import { verifyStripeWebhook } from "../_shared/billing-stripe.ts";
+import { LIFETIME_SPOT_CAP } from "../_shared/lifetime-cap.ts";
 import {
   cascadeCancelAdSubscriptionsIfDowngraded,
   downgradeOrgOnSubscriptionDeleted,
@@ -633,10 +635,12 @@ const handler = async (req: Request): Promise<Response> => {
             }
           }
 
-          // ── Claim one of the 50 spots (atomic) ───────────────────────
+          // ── Claim one lifetime spot (atomic) ─────────────────────────
           // claim_lifetime_spot() is a single-statement UPDATE; the
-          // table's CHECK(sold_spots <= total_spots) raises when a 51st
-          // attempt tries to land. We catch that and refund the
+          // table's CHECK(sold_spots <= total_spots) raises when a
+          // purchase past the cap tries to land. The cap is the offer
+          // row's total_spots, or LIFETIME_SPOT_CAP when that row is
+          // missing. We catch the failure and refund the
           // unlucky-by-microseconds buyer.
           try {
             const { data: claimed, error: claimErr } = await supabase
@@ -655,11 +659,17 @@ const handler = async (req: Request): Promise<Response> => {
                   metadata: { reason: "lifetime_oversold" },
                 });
               }
+              const { data: offerRow } = await supabase
+                .from("lifetime_offer_state")
+                .select("total_spots")
+                .eq("id", 1)
+                .maybeSingle();
+              const lifetimeCap = offerRow?.total_spots ?? LIFETIME_SPOT_CAP;
               await sendAdminNotification(supabaseUrl, supabaseServiceKey, {
                 organizationName: "LIFETIME OVERSOLD — refunded",
                 ownerEmail: email,
                 subscriptionType:
-                  "Spot #51+ attempted, automatic refund issued. Reach out personally.",
+                  `Purchase past the ${lifetimeCap}-spot cap attempted, automatic refund issued. Reach out personally.`,
               });
             } else {
               const row = Array.isArray(claimed) ? claimed[0] : claimed;
@@ -1927,18 +1937,18 @@ async function sendAdminNotification(
 
   console.log(`[stripe-invoice-webhook] Sending admin notification to ${PLATFORM_ADMIN_PHONE}`);
 
-  const response = await fetch("https://api.openphone.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Authorization": openphoneApiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: openphonePhoneNumberId,
-      to: [PLATFORM_ADMIN_PHONE],
-      content: message,
-    }),
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const sent = await sendOpenPhoneMessage({
+    supabase,
+    organizationId: TIDYWISE_PLATFORM_ORG_ID,
+    to: PLATFORM_ADMIN_PHONE,
+    content: message,
+    from: openphonePhoneNumberId,
+    apiKey: openphoneApiKey,
+    tag: "stripe-invoice-webhook",
   });
+  if (sent.skipped) return;
+  const response = sent.response;
 
   if (!response.ok) {
     const errorText = await response.text();

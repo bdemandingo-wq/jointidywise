@@ -16,6 +16,25 @@ export interface ArrivalSendResult {
   error: unknown;
 }
 
+function arrivalHttpStatus(error: unknown): number | null {
+  if (!error || typeof error !== 'object') return null;
+  const context = (error as { context?: { status?: number } }).context;
+  if (typeof context?.status === 'number') return context.status;
+  const status = (error as { status?: number }).status;
+  return typeof status === 'number' ? status : null;
+}
+
+/**
+ * 409 means another send already holds the reminder row. That is not a
+ * failed text: the watch stays up and the failure toast stays quiet.
+ */
+export function isArrivalInFlight(result: ArrivalSendResult): boolean {
+  const data = result.data as { inFlight?: boolean; error?: string } | null;
+  if (data?.inFlight === true) return true;
+  if (data?.error === 'Arrival send already in progress') return true;
+  return arrivalHttpStatus(result.error) === 409;
+}
+
 /**
  * One arrival notice per job.
  * The claim is set before the status read, so two position updates that
@@ -71,6 +90,11 @@ export async function runArrivalAttempt(
   try {
     const result = await actions.send();
     const data = result.data as { success?: boolean } | null;
+    if (isArrivalInFlight(result)) {
+      claim.current = false;
+      actions.onReleased();
+      return result;
+    }
     if (result.error || data?.success === false) {
       claim.current = false;
       actions.onReleased();

@@ -1,5 +1,6 @@
 import { formatInOrgTz } from "./orgDateRange.ts";
 import { LIFETIME_PRICE } from "./publicPlans.ts";
+import { MIN_STRIPE_TRIAL_LEAD_SEC } from "../../supabase/functions/_shared/trial-end.ts";
 
 // orgDateRange.ts and publicPlans.ts have zero imports, so node:test can
 // load this file without Vite or the @/ alias.
@@ -14,8 +15,13 @@ export function planBillingAction(planId: string): PlanBillingAction {
   return planId === "custom" ? "contact" : "checkout";
 }
 
-export function renewalDisclosure(monthlyPrice: number): string {
-  return `Renews monthly at $${monthlyPrice} until you cancel.`;
+export function renewalDisclosure(
+  price: number,
+  interval: "monthly" | "yearly" = "monthly",
+): string {
+  if (!(price > 0)) return "";
+  const cadence = interval === "yearly" ? "yearly" : "monthly";
+  return `Renews ${cadence} at $${price} until you cancel. Cancel anytime in Settings.`;
 }
 
 /** Shown under a downgrade button. The section footer stays as well. */
@@ -29,36 +35,116 @@ export const DOWNGRADE_EFFECT_NOTE = "Takes effect at your next renewal.";
 export function trialEndDateLabel(
   trialEndIso: string | null | undefined,
   timeZone: string,
+  withYear = false,
 ): string | null {
   if (!trialEndIso || !timeZone) return null;
   const end = Date.parse(trialEndIso);
   if (!Number.isFinite(end)) return null;
   try {
-    return formatInOrgTz(new Date(end), timeZone, { month: "short", day: "numeric" });
+    return formatInOrgTz(new Date(end), timeZone, {
+      month: "short",
+      day: "numeric",
+      ...(withYear ? { year: "numeric" as const } : {}),
+    });
   } catch {
     return null;
   }
 }
 
 /**
- * Trial copy names when Pro access ends. It does not name a first charge.
- *
- * create-subscription already sets Stripe trial_end to profiles.trial_ends_at
- * only when that instant is at least 48 hours away. Inside 48 hours it bills
- * on completion. Promising "your first charge is {trial end}" would be wrong
- * for that case, so this line never says it.
+ * Shown when the server preview says bill_now and the discounted amount
+ * is missing. The dollar figure is never a catalog price.
  */
-export function trialChargeLine(opts: {
-  endDate: string | null;
-  daysLeft: number | null;
-}): string {
-  const days = opts.daysLeft == null
-    ? ""
-    : opts.daysLeft === 1
-      ? " 1 day left."
-      : ` ${opts.daysLeft} days left.`;
-  if (!opts.endDate) return `Free trial of Pro.${days}`;
-  return `Free trial of Pro until ${opts.endDate}.${days}`;
+export const CHARGE_TODAY_NO_AMOUNT = "You'll be charged today.";
+
+/** Drop null and blank copy so a caller does not render an empty paragraph. */
+export function visibleBillingLine(line: string | null | undefined): string | null {
+  if (typeof line !== "string") return null;
+  const trimmed = line.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/** Dollars for a server preview. Whole dollars stay "$97". A half stays "$48.50". Thousands use a comma ("$1,970"). */
+export function formatChargeDollars(cents: number): string | null {
+  if (!Number.isInteger(cents) || cents < 0) return null;
+  const dollars = cents / 100;
+  const formatted = Number.isInteger(dollars)
+    ? dollars.toLocaleString("en-US")
+    : dollars.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `$${formatted}`;
+}
+
+/**
+ * Charge sentence from preview-subscription-charge. The browser does not
+ * decide bill-now. The dollar amount is amount_cents_after_discounts.
+ * Until that amount is known, a today charge has no dollar figure.
+ */
+export function chargeLineFromPreview(opts: {
+  billNow: boolean;
+  firstChargeAt: string | null;
+  amountCents: number | null;
+  timeZone: string;
+}): string | null {
+  if (opts.billNow) {
+    if (opts.amountCents == null) return CHARGE_TODAY_NO_AMOUNT;
+    const amount = formatChargeDollars(opts.amountCents);
+    if (!amount) return CHARGE_TODAY_NO_AMOUNT;
+    return `You'll be charged ${amount} today.`;
+  }
+  const date = trialEndDateLabel(opts.firstChargeAt, opts.timeZone, true);
+  if (!date) return null;
+  return `Your first charge is ${date}.`;
+}
+
+/**
+ * How long to wait before asking preview-subscription-charge again.
+ * The cached bill-now answer goes stale when the trial crosses the same
+ * 48-hour lead create-subscription uses. A future boundary waits until
+ * that moment. A boundary the client clock has already passed is asked
+ * again in a minute, because the server clock is still the decision.
+ */
+export function chargePreviewRefetchMs(
+  previews: Record<string, { bill_now: boolean; first_charge_at: string | null } | undefined> | null | undefined,
+  nowMs = Date.now(),
+): number | false {
+  if (!previews) return false;
+  const leadMs = MIN_STRIPE_TRIAL_LEAD_SEC * 1000;
+  let wait = Infinity;
+  for (const row of Object.values(previews)) {
+    if (!row || row.bill_now || !row.first_charge_at) continue;
+    const boundary = Date.parse(row.first_charge_at) - leadMs;
+    if (!Number.isFinite(boundary)) continue;
+    const delta = boundary - nowMs;
+    wait = Math.min(wait, delta <= 0 ? 60_000 : delta);
+  }
+  if (!Number.isFinite(wait)) return false;
+  return Math.max(1000, Math.min(wait, 24 * 60 * 60 * 1000));
+}
+
+/**
+ * Per-card today sentence. Call it only for an org trial that can check
+ * out on this plan. It renders only after preview-subscription-charge
+ * returns bill_now true. A missing preview, a load, or an error returns
+ * null so the card shows no charge line. When that preview bills today
+ * and the discounted amount is missing, the sentence is "You'll be
+ * charged today." A preview that bills later returns null so the date
+ * line can stand on its own.
+ */
+export function todayChargeCopy(
+  preview: {
+    bill_now: boolean;
+    first_charge_at: string | null;
+    amount_cents_after_discounts: number | null;
+  } | null | undefined,
+  timeZone: string,
+): string | null {
+  if (!preview?.bill_now) return null;
+  return chargeLineFromPreview({
+    billNow: true,
+    firstChargeAt: preview.first_charge_at,
+    amountCents: preview.amount_cents_after_discounts,
+    timeZone,
+  });
 }
 
 /** Dashboard home copy when the account cannot use the product. */

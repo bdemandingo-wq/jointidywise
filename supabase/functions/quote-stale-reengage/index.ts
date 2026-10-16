@@ -213,7 +213,12 @@ serve(async (req: Request): Promise<Response> => {
               }),
             },
           );
-          const result = await res.json() as { success?: boolean; error?: string };
+          const result = await res.json() as { success?: boolean; error?: string; skipped?: boolean };
+          if (result.skipped) {
+            summary.skipped += 1;
+            console.log(`[quote-stale-reengage] SMS skipped opted_out org=${orgId} quote=${quote.id}`);
+            continue;
+          }
           if (!result.success) {
             summary.errors += 1;
             console.warn(

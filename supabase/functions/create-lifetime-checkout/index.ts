@@ -3,13 +3,12 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
+import { countLifetimeSpots } from "../_shared/lifetime-spots.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
-
-const TOTAL_SPOTS = 100;
 
 const logStep = (step: string, details?: any) => {
   console.log(`[CREATE-LIFETIME-CHECKOUT] ${step}${details ? ` - ${JSON.stringify(details)}` : ""}`);
@@ -41,17 +40,13 @@ serve(async (req) => {
     const user = userData.user;
     logStep("User authenticated", { userId: user.id, email: user.email });
 
-    // Check spots remaining
-    const { count, error: countError } = await supabase
-      .from("lifetime_access_purchases")
-      .select("id", { count: "exact", head: true });
+    // Same count as get_lifetime_spots_remaining: total_spots for the cap,
+    // lifetime_access_purchases for how many are sold.
+    const spots = await countLifetimeSpots(supabase);
 
-    if (countError) throw countError;
-    const used = count ?? 0;
-
-    if (used >= TOTAL_SPOTS) {
+    if (!spots.available) {
       return new Response(
-        JSON.stringify({ error: "Sorry — all 100 lifetime spots have been claimed." }),
+        JSON.stringify({ error: `Sorry — all ${spots.total} lifetime spots have been claimed.` }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
       );
     }
@@ -122,12 +117,12 @@ serve(async (req) => {
     };
 
     const session = await stripe.checkout.sessions.create(sessionParams);
-    logStep("Lifetime checkout session created", { sessionId: session.id, spotsLeft: TOTAL_SPOTS - used - 1 });
+    logStep("Lifetime checkout session created", { sessionId: session.id, spotsLeft: spots.remaining - 1 });
 
     return new Response(
       JSON.stringify({
         ...embeddedCheckoutBody(session.client_secret, publishableKey),
-        spotsRemaining: TOTAL_SPOTS - used,
+        spotsRemaining: spots.remaining,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
     );

@@ -20,12 +20,13 @@ import {
   CUSTOMER_NOTIFICATION_TOGGLES,
   OWNER_NOTIFICATION_GROUPS,
   briefsVisual,
-  groupCountsAsOn,
   groupVisual,
   matrixPatchForGroupToggle,
+  OWNER_TEXT_EVENTS,
   ownerDeliveryEnabled,
   ownerDeliveryPatch,
-  ownerSmsColumnUpdates,
+  ownerInstallBanner,
+  ownerTextMeEnabled,
   presetMatrix,
   type NotificationPreset,
   type OwnerDelivery,
@@ -36,14 +37,10 @@ import { NotificationAdvancedPanel } from '@/components/admin/NotificationAdvanc
 type BusinessFlagPatch = {
   notify_morning_brief?: boolean;
   notify_evening_brief?: boolean;
-  notify_new_booking?: boolean;
-  notify_cancellations?: boolean;
   notify_reminders?: boolean;
 };
 
 type SmsFlagPatch = {
-  notify_admin_on_the_way?: boolean;
-  notify_admin_arrived?: boolean;
   notify_client_on_the_way?: boolean;
   notify_client_arrived?: boolean;
   notify_client_distance_eta?: boolean;
@@ -86,6 +83,32 @@ export function NotificationPreferencesCard() {
   const push = usePushNotifications();
   useLegacyNotificationMigration();
 
+  const operatorDevice = useQuery({
+    queryKey: ['operator-ios-device', orgId],
+    enabled: !!orgId,
+    queryFn: async () => {
+      if (!orgId) return false;
+      const { data, error } = await supabase.rpc('org_has_operator_ios_device' as never, {
+        p_organization_id: orgId,
+      } as never);
+      if (error) throw new Error(error.message);
+      return data === true;
+    },
+  });
+
+  const alertEmail = useQuery({
+    queryKey: ['owner-alert-email', orgId],
+    enabled: !!orgId,
+    queryFn: async () => {
+      if (!orgId) return false;
+      const { data, error } = await supabase.rpc('org_has_owner_alert_email' as never, {
+        p_organization_id: orgId,
+      } as never);
+      if (error) throw new Error(error.message);
+      return data === true;
+    },
+  });
+
   const delivery = useQuery({
     queryKey: ['notification-settings-delivery', orgId],
     enabled: !!orgId,
@@ -94,12 +117,12 @@ export function NotificationPreferencesCard() {
       const [business, sms] = await Promise.all([
         supabase
           .from('business_settings')
-          .select('notify_morning_brief, notify_evening_brief, notify_reminders, notify_new_booking, notify_cancellations')
+          .select('notify_morning_brief, notify_evening_brief, notify_reminders')
           .eq('organization_id', orgId)
           .maybeSingle(),
         supabase
           .from('organization_sms_settings')
-          .select('id, notify_client_on_the_way, notify_client_arrived, notify_client_distance_eta, sms_booking_confirmation, sms_appointment_reminder, notify_admin_on_the_way, notify_admin_arrived')
+          .select('id, notify_client_on_the_way, notify_client_arrived, notify_client_distance_eta, sms_booking_confirmation, sms_appointment_reminder')
           .eq('organization_id', orgId)
           .maybeSingle(),
       ]);
@@ -190,24 +213,23 @@ export function NotificationPreferencesCard() {
 
   const handleMaster = (deliveryId: OwnerDelivery, on: boolean) => {
     const patch = ownerDeliveryPatch(deliveryId, on);
-    const nextChannels = { ...channels, ...patch };
-    setChannels(nextChannels);
-    const bookingsOn = groupCountsAsOn(groupVisual('bookings', matrix, lockOpts));
-    const cleanerOn = groupCountsAsOn(groupVisual('cleaner', matrix, lockOpts));
+    setChannels((prev) => ({ ...prev, ...patch }));
     run(async () => {
       const res = await save({ channels: patch });
-      let extra: string | null = null;
-      if (!res?.error && deliveryId === 'sms') {
-        const updates = ownerSmsColumnUpdates({ smsMasterOn: on, bookingsOn, cleanerOn });
-        extra = (await writeBusiness({
-          notify_new_booking: updates.business.notify_new_booking,
-          notify_cancellations: updates.business.notify_cancellations,
-        })) || (await writeSms({
-          notify_admin_on_the_way: updates.sms.notify_admin_on_the_way,
-          notify_admin_arrived: updates.sms.notify_admin_arrived,
-        }));
-      }
-      report(res?.error || extra);
+      report(res?.error);
+    });
+  };
+
+  const handleOwnerText = (eventKey: string, on: boolean) => {
+    setMatrix((prev) => ({ ...prev, [eventKey]: { ...(prev[eventKey] || {}), sms: on } }));
+    const enableMaster = on && !ownerDeliveryEnabled('sms', channels);
+    if (enableMaster) setChannels((prev) => ({ ...prev, ...ownerDeliveryPatch('sms', true) }));
+    run(async () => {
+      const res = await save({
+        notification_matrix: { [eventKey]: { sms: on } },
+        ...(enableMaster ? { channels: ownerDeliveryPatch('sms', true) } : {}),
+      });
+      report(res?.error);
     });
   };
 
@@ -224,34 +246,10 @@ export function NotificationPreferencesCard() {
       return;
     }
     const patch = matrixPatchForGroupToggle(id, on, matrix, lockOpts);
-    const nextMatrix = { ...matrix, ...patch };
-    setMatrix(nextMatrix);
-    const bookingsOn = id === 'bookings'
-      ? on
-      : groupCountsAsOn(groupVisual('bookings', nextMatrix, lockOpts));
-    const cleanerOn = id === 'cleaner'
-      ? on
-      : groupCountsAsOn(groupVisual('cleaner', nextMatrix, lockOpts));
-    const smsOn = ownerDeliveryEnabled('sms', channels);
+    setMatrix((prev) => ({ ...prev, ...patch }));
     run(async () => {
       const res = await save({ notification_matrix: patch });
-      let extra: string | null = null;
-      if (!res?.error && (id === 'bookings' || id === 'cleaner')) {
-        const updates = ownerSmsColumnUpdates({ smsMasterOn: smsOn, bookingsOn, cleanerOn });
-        if (id === 'bookings') {
-          extra = await writeBusiness({
-            notify_new_booking: updates.business.notify_new_booking,
-            notify_cancellations: updates.business.notify_cancellations,
-          });
-        }
-        if (id === 'cleaner') {
-          extra = await writeSms({
-            notify_admin_on_the_way: updates.sms.notify_admin_on_the_way,
-            notify_admin_arrived: updates.sms.notify_admin_arrived,
-          });
-        }
-      }
-      report(res?.error || extra);
+      report(res?.error);
     });
   };
 
@@ -300,22 +298,9 @@ export function NotificationPreferencesCard() {
   const handleAdvancedMaster = (channel: NotificationChannel, value: boolean) => {
     const key = masterChannelKey(channel);
     setChannels((prev) => ({ ...prev, [key]: value }));
-    const bookingsOn = groupCountsAsOn(groupVisual('bookings', matrix, lockOpts));
-    const cleanerOn = groupCountsAsOn(groupVisual('cleaner', matrix, lockOpts));
     run(async () => {
       const res = await save({ channels: { [key]: value } });
-      let extra: string | null = null;
-      if (!res?.error && channel === 'sms') {
-        const updates = ownerSmsColumnUpdates({ smsMasterOn: value, bookingsOn, cleanerOn });
-        extra = (await writeBusiness({
-          notify_new_booking: updates.business.notify_new_booking,
-          notify_cancellations: updates.business.notify_cancellations,
-        })) || (await writeSms({
-          notify_admin_on_the_way: updates.sms.notify_admin_on_the_way,
-          notify_admin_arrived: updates.sms.notify_admin_arrived,
-        }));
-      }
-      report(res?.error || extra);
+      report(res?.error);
     });
   };
 
@@ -326,25 +311,11 @@ export function NotificationPreferencesCard() {
       ...ownerDeliveryPatch('email', true),
       ...ownerDeliveryPatch('sms', true),
     };
-    const nextMatrix = { ...matrix, ...built };
-    setMatrix(nextMatrix);
+    setMatrix((prev) => ({ ...prev, ...built }));
     setChannels((prev) => ({ ...prev, ...channelPatch }));
-    const bookingsOn = groupCountsAsOn(groupVisual('bookings', nextMatrix, lockOpts));
-    const cleanerOn = groupCountsAsOn(groupVisual('cleaner', nextMatrix, lockOpts));
     run(async () => {
       const res = await save({ notification_matrix: built, channels: channelPatch });
-      let extra: string | null = null;
-      if (!res?.error) {
-        const updates = ownerSmsColumnUpdates({ smsMasterOn: true, bookingsOn, cleanerOn });
-        extra = (await writeBusiness({
-          notify_new_booking: updates.business.notify_new_booking,
-          notify_cancellations: updates.business.notify_cancellations,
-        })) || (await writeSms({
-          notify_admin_on_the_way: updates.sms.notify_admin_on_the_way,
-          notify_admin_arrived: updates.sms.notify_admin_arrived,
-        }));
-      }
-      report(res?.error || extra);
+      report(res?.error);
     });
   };
 
@@ -373,16 +344,10 @@ export function NotificationPreferencesCard() {
       const businessErr = await writeBusiness({
         notify_morning_brief: true,
         notify_evening_brief: true,
-        notify_new_booking: true,
-        notify_cancellations: true,
-      });
-      const smsErr = await writeSms({
-        notify_admin_on_the_way: true,
-        notify_admin_arrived: true,
       });
       await queryClient.invalidateQueries({ queryKey: ['notification-settings-delivery', orgId] });
       setResetting(false);
-      report(res?.error || businessErr || smsErr);
+      report(res?.error || businessErr);
     });
   };
 
@@ -475,7 +440,17 @@ export function NotificationPreferencesCard() {
     </div>
   );
 
-  const error = delivery.error instanceof Error ? delivery.error.message : null;
+  const error = [operatorDevice.error, alertEmail.error, delivery.error]
+    .map((item) => (item instanceof Error ? item.message : null))
+    .filter((item): item is string => !!item)
+    .join(' ');
+  const emailOn = ownerDeliveryEnabled('email', channels);
+  const deviceMissing = !!orgId && operatorDevice.isSuccess && operatorDevice.data !== true;
+  const installBanner = !deviceMissing || alertEmail.isPending
+    ? null
+    : alertEmail.isError
+      ? "Install the TidyWise iPhone app to get alerts as push notifications. We couldn't check the email fallback."
+      : ownerInstallBanner({ emailOn, emailReady: alertEmail.data === true });
 
   return (
     <NotificationSettingsScreen
@@ -486,6 +461,14 @@ export function NotificationPreferencesCard() {
       }}
       onMaster={handleMaster}
       pushDetail={pushDetail}
+      installBanner={installBanner}
+      ownerTexts={OWNER_TEXT_EVENTS.map((event) => ({
+        id: event.key,
+        label: `Also text me — ${event.label}`,
+        description: 'A text to your alert numbers, in addition to the push and the bell.',
+        checked: ownerTextMeEnabled(event.key, matrix, channels),
+      }))}
+      onOwnerText={handleOwnerText}
       groups={groups}
       onGroup={handleGroup}
       groupDetail={{

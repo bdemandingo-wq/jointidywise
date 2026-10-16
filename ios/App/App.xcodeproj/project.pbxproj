@@ -18,6 +18,8 @@
 		AA0001033048E000009275CC /* WidgetBridgePlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA0001043048E000009275CC /* WidgetBridgePlugin.m */; };
 		NA0001013048E000009275CC /* NotificationAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = NA0001023048E000009275CC /* NotificationAuthPlugin.swift */; };
 		NA0001033048E000009275CC /* NotificationAuthPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = NA0001043048E000009275CC /* NotificationAuthPlugin.m */; };
+		TB0001013048E000009275CC /* TripBackgroundLocationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = TB0001023048E000009275CC /* TripBackgroundLocationPlugin.swift */; };
+		TB0001033048E000009275CC /* TripBackgroundLocationPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = TB0001043048E000009275CC /* TripBackgroundLocationPlugin.m */; };
 		504EC30D1FED79650016851F /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30B1FED79650016851F /* Main.storyboard */; };
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
@@ -68,6 +70,8 @@
 		AA0001043048E000009275CC /* WidgetBridgePlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WidgetBridgePlugin.m; sourceTree = "<group>"; };
 		NA0001023048E000009275CC /* NotificationAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationAuthPlugin.swift; sourceTree = "<group>"; };
 		NA0001043048E000009275CC /* NotificationAuthPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NotificationAuthPlugin.m; sourceTree = "<group>"; };
+		TB0001023048E000009275CC /* TripBackgroundLocationPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripBackgroundLocationPlugin.swift; sourceTree = "<group>"; };
+		TB0001043048E000009275CC /* TripBackgroundLocationPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = TripBackgroundLocationPlugin.m; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		TW0000012EFD000100E891C1 /* tidywise_chime.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = tidywise_chime.caf; sourceTree = "<group>"; };
 		PI0000012EFD000100E891D1 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
@@ -147,6 +151,8 @@
 				AA0001043048E000009275CC /* WidgetBridgePlugin.m */,
 				NA0001023048E000009275CC /* NotificationAuthPlugin.swift */,
 				NA0001043048E000009275CC /* NotificationAuthPlugin.m */,
+				TB0001023048E000009275CC /* TripBackgroundLocationPlugin.swift */,
+				TB0001043048E000009275CC /* TripBackgroundLocationPlugin.m */,
 				63F1B8F62EFD000100E891AA /* App.entitlements */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
@@ -291,6 +297,8 @@
 				AA0001033048E000009275CC /* WidgetBridgePlugin.m in Sources */,
 				NA0001013048E000009275CC /* NotificationAuthPlugin.swift in Sources */,
 				NA0001033048E000009275CC /* NotificationAuthPlugin.m in Sources */,
+				TB0001013048E000009275CC /* TripBackgroundLocationPlugin.swift in Sources */,
+				TB0001033048E000009275CC /* TripBackgroundLocationPlugin.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -28,3 +28,5 @@
 - [x] Deploy create-subscription, admin-send-resubscribe-email, platform-analytics from main 8e831bf (all live; not invoked)
 - [x] Deploy check-subscription from main e9b4cf5 (live; new-signup database trial when Stripe has no subscription)
 - [x] Sync to e5424ab (#45 trial 30 days, #46 sitemap build fix); deploy check-subscription + provision-trial-org (live preflight 401s, not invoked); build OK, tsc OK
+- [x] Deploy send-arrival-sms from current code (main 844f2826c; source sha 9e3a20589b0a; live: OPTIONS 200, unassigned-staff probe 403 before any send; no text sent)
+- [x] Fix blank-screen 500: get_public_activity_feed() "column reference \"i\" is ambiguous" (42702) — plpgsql loop variable `i` collided with the `invoices i` alias; renamed the variable to `idx`. Migration 20261016200100_fix_public_activity_feed_name_collision.sql written and applied live; RPC + public-growth now 200; landing/pricing render.

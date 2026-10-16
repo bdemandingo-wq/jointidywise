@@ -7,8 +7,12 @@ import { installEscapeGuard } from "@/lib/escapeGuard";
 import { initSentry, Sentry } from "@/lib/sentry";
 import { SUPPORT_EMAIL } from "@/lib/supportEmail";
 import { initSitePong } from "@/lib/sitepong";
+import { stopIdleNativeTripWatcher } from "@/lib/tripBackgroundLocation";
 
 installEscapeGuard();
+// A reloaded webview has no active trip. Stop a native watcher the previous
+// page left running. No-op on web and Android.
+void stopIdleNativeTripWatcher();
 
 // Initialize observability before anything renders — earlier init means
 // the bootstrap error path (e.g. the chunk-load recovery below) is also

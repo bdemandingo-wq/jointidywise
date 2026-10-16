@@ -1,11 +1,11 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
-import { parseAlertPhones } from '../_shared/alertPhones.ts';
+import { sendOpenPhoneMessage } from '../_shared/send-sms.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
+import { notifyOwner } from "../_shared/owner-alert.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
 import { rejectUnauthenticated } from "../_shared/require-caller-org.ts";
-import { notifyOffice } from "../_shared/office-notify.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -113,7 +113,13 @@ const handler = async (req: Request): Promise<Response> => {
 
     // Caller must be this cleaner, or an owner/admin/manager, and the staff
     // row must be assigned to this booking in this organization.
-    const auth = await assertAssignedStaffEvent(req, supabase as any, booking.organization_id, staffId, bookingId);
+    const auth = await assertAssignedStaffEvent(
+      req,
+      supabase as unknown as Parameters<typeof assertAssignedStaffEvent>[1],
+      booking.organization_id,
+      staffId,
+      bookingId,
+    );
     if (!auth.ok) {
       return new Response(
         JSON.stringify({ success: false, error: auth.error }),
@@ -178,25 +184,9 @@ const handler = async (req: Request): Promise<Response> => {
     // Fetch SMS settings
     const { data: smsSettings, error: settingsError } = await supabase
       .from('organization_sms_settings')
-      .select('openphone_api_key, openphone_phone_number_id, sms_enabled, notify_admin_on_the_way, notify_client_on_the_way, notify_client_distance_eta')
+      .select('openphone_api_key, openphone_phone_number_id, sms_enabled, notify_client_on_the_way, notify_client_distance_eta')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
-
-    // Bell + push happen whether or not SMS is configured. The previous
-    // early return on "SMS notifications are disabled" skipped both, so the
-    // office heard nothing and the cleaner was told the whole action failed.
-    const customerLabelForOffice = typedCustomer
-      ? `${typedCustomer.first_name} ${typedCustomer.last_name}`
-      : 'Customer';
-    const office = await notifyOffice(supabase as any, {
-      organizationId: booking.organization_id,
-      title: '🚗 Cleaner on the way',
-      message: `${staff.name} is on the way to Booking #${booking.booking_number} for ${customerLabelForOffice}.`,
-      metadata: { booking_id: bookingId, staff_id: staffId },
-      pushTitle: `🚗 ${staff.name} is on the way`,
-      pushBody: `Booking #${booking.booking_number}`,
-      pushData: { booking_id: bookingId, kind: 'on_the_way' },
-    });
 
     let smsSkippedReason: string | null = null;
     if (settingsError) {
@@ -211,7 +201,6 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     let customerSms = false;
-    let adminSms = false;
     let messageId: string | undefined;
     let customerSmsError: string | null = null;
     const formatPhoneNumber = (phone: string): string => {
@@ -226,16 +215,11 @@ const handler = async (req: Request): Promise<Response> => {
     // Get business settings for company name, admin phone, and app URL
     const { data: businessSettings } = await supabase
       .from('business_settings')
-      .select('company_name, company_phone, notification_phone, app_url')
+      .select('company_name, app_url')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
 
     const companyName = businessSettings?.company_name || 'Your cleaning service';
-    /* notification_phone is the owner's personal cell. company_phone is often
-       the OpenPhone line itself, and OpenPhone texting its own number never
-       reaches a handset — which is why these alerts appeared to vanish. */
-    const adminPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
-      || businessSettings?.company_phone;
 
     // Resolve the app URL for tracking link
     let appBaseUrl = businessSettings?.app_url || Deno.env.get("APP_URL") || Deno.env.get("PROJECT_URL") || '';
@@ -268,15 +252,6 @@ const handler = async (req: Request): Promise<Response> => {
 
     customerMessage += `\n\nQuestions? Reply to this message.`;
 
-    // Build admin notification message
-    const customerLabel = typedCustomer
-      ? `${typedCustomer.first_name} ${typedCustomer.last_name}`
-      : 'Customer';
-    const adminMessage = `📍 ${staff.name} is on the way to Job #${booking.booking_number}\n\n` +
-      `Customer: ${customerLabel}\n` +
-      `Address: ${formattedAddress || 'N/A'}\n` +
-      (etaMinutes ? `ETA: ~${etaMinutes} min` : '');
-
     // Extract phone number ID if full URL was provided
     let phoneNumberId = smsSettings.openphone_phone_number_id;
     if (phoneNumberId.includes('openphone.com')) {
@@ -290,21 +265,20 @@ const handler = async (req: Request): Promise<Response> => {
     const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
     // Helper function to send SMS
-    const sendSms = async (to: string, content: string, label: string): Promise<{ success: boolean; messageId?: string; error?: string }> => {
+    const sendSms = async (to: string, content: string, label: string): Promise<{ success: boolean; skipped?: boolean; messageId?: string; error?: string }> => {
       console.log(`[send-on-the-way-sms] Sending ${label} SMS to ${to}`);
-      
-      const response = await fetch("https://api.openphone.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Authorization": authHeader,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: phoneNumberId,
-          to: [to],
-          content,
-        }),
+
+      const sent = await sendOpenPhoneMessage({
+        supabase,
+        organizationId: booking.organization_id,
+        to,
+        content,
+        from: phoneNumberId,
+        apiKey: authHeader,
+        tag: `send-on-the-way-sms:${label}`,
       });
+      if (sent.skipped) return { success: false, skipped: true };
+      const response = sent.response;
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -324,9 +298,8 @@ const handler = async (req: Request): Promise<Response> => {
       return { success: true, messageId: result.data?.id };
     };
 
-    // Check notification preferences (default to true if not set)
+    // Customer text preference (default on). Owner alerts are handled above.
     const notifyClient = smsSettings.notify_client_on_the_way !== false;
-    const notifyAdmin = smsSettings.notify_admin_on_the_way !== false;
 
     /* Customer first, but a customer-side failure must NOT return early — the
        admin alert below is the one the owner actually relies on, and skipping
@@ -336,7 +309,9 @@ const handler = async (req: Request): Promise<Response> => {
       const customerResult = await sendSms(formattedCustomerPhone, customerMessage, 'customer');
       customerSms = customerResult.success;
       messageId = customerResult.messageId;
-      if (!customerResult.success) {
+      if (customerResult.skipped) {
+        smsSkippedReason = "This number opted out by texting STOP";
+      } else if (!customerResult.success) {
         customerSmsError = customerResult.error || "The text to the customer didn't go through.";
         console.warn("[send-on-the-way-sms] Customer SMS failed — continuing to admin alert:", customerSmsError);
       }
@@ -350,22 +325,41 @@ const handler = async (req: Request): Promise<Response> => {
       console.log("[send-on-the-way-sms] Customer SMS skipped (disabled or no phone on file)");
     }
 
-    // Send admin SMS if admin phone is configured and enabled
-    if (notifyAdmin && adminPhone) {
-      const phones = parseAlertPhones(adminPhone);
-      const list = phones.length ? phones : [formatPhoneNumber(adminPhone)];
-      const adminResult = await sendSms(list[0], adminMessage, 'admin');
-      for (const extra of list.slice(1)) await sendSms(extra, adminMessage, 'admin');
-      adminSms = adminResult.success;
-      if (!adminResult.success) {
-        console.warn(`[send-on-the-way-sms] Admin SMS failed, but the office bell and push were already sent`);
-      }
-    } else if (!notifyAdmin) {
-      console.log(`[send-on-the-way-sms] Admin SMS disabled by org settings, skipping`);
-    } else {
-      console.log(`[send-on-the-way-sms] No admin phone configured, skipping admin SMS`);
     }
+
+    // Customer text goes out first. An owner-alert failure must not turn a
+    // delivered customer text into a 500, and must not skip the customer text.
+    const customerLabelForOffice = typedCustomer
+      ? `${typedCustomer.first_name} ${typedCustomer.last_name}`
+      : 'Customer';
+    const ownerAddress = formatFullAddress(booking as any);
+    const ownerBody = `📍 ${staff.name} is on the way to Job #${booking.booking_number}\n\n` +
+      `Customer: ${customerLabelForOffice}\n` +
+      `Address: ${ownerAddress || 'N/A'}` +
+      (etaMinutes ? `\nETA: ~${etaMinutes} min` : '');
+    let office: Awaited<ReturnType<typeof notifyOwner>> = {
+      deduped: false,
+      bell: false,
+      push: false,
+      sms: false,
+      email: false,
+      smsSkippedReason: null,
+      emailSkippedReason: null,
+    };
+    try {
+      office = await notifyOwner(
+        { supabase, organizationId: booking.organization_id, bookingId, staffId },
+        "job.on_the_way",
+        {
+          title: `🚗 ${staff.name} is on the way`,
+          body: ownerBody,
+          link: "/dashboard/bookings",
+        },
+      );
+    } catch (ownerErr) {
+      console.error("[send-on-the-way-sms] owner alert failed:", ownerErr);
     }
+    const adminSms = office.sms;
 
     // Log only when the customer text went out, or was skipped on purpose
     // (no phone, SMS off, customer texts disabled). A failed OpenPhone send

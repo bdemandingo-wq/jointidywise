@@ -13,19 +13,26 @@ export const LOCATION_CONSENT_HEADING = "Share your location while you're on the
 export const LOCATION_SHARING_OFF_NOTE = 'Location sharing is off. Turn on in Settings.';
 
 /**
- * Shown on the location card and in NSLocationWhenInUseUsageDescription.
- * No business-name placeholder: the system prompt cannot fill one, and the
- * two strings have to be the same text.
+ * On My Way confirm dialog. The location card and the iOS purpose strings
+ * use the later legal wording in LOCATION_CARD_* and the iOS usage constants.
  */
 export const LOCATION_CONSENT_COPY =
   "TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. Admins may see your last shared location until the job's start time. It is deleted after 30 days. You can turn it off anytime in iPhone Settings or in your browser settings. If location is turned on, your location is also recorded when you clock in or out and when you take job photos.";
 
+/** NSLocationAlwaysAndWhenInUseUsageDescription. Legal wording, used exactly. */
+export const IOS_ALWAYS_LOCATION_USAGE_DESCRIPTION =
+  "TidyWise shares your location with your business and its customer only during an On My Way trip, including when the app is closed or your phone is locked, so they know when you'll arrive. It stops when you arrive, the job starts, the job ends, or after 3 hours. Location is also recorded when you clock in or out and take job photos.";
+
 /**
- * Both NSLocationWhenInUseUsageDescription and
- * NSLocationAlwaysAndWhenInUseUsageDescription in Info.plist.
- * The system prompt uses this only after a new iOS build is shipped.
+ * NSLocationWhenInUseUsageDescription. Same trip, recipients, stop, and
+ * clock-in/photo recording as the Always string, without claiming that
+ * sharing continues while the app is closed.
  */
-export const PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION = LOCATION_CONSENT_COPY;
+export const IOS_WHEN_IN_USE_LOCATION_USAGE_DESCRIPTION =
+  "TidyWise shares your location with your business and its customer only during an On My Way trip, so they know when you'll arrive. It stops when you arrive, the job starts, the job ends, or after 3 hours. Location is also recorded when you clock in or out and take job photos.";
+
+/** System prompt copy. Shipped in Info.plist; a new iOS build is required. */
+export const PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION = IOS_ALWAYS_LOCATION_USAGE_DESCRIPTION;
 
 /**
  * Native builds below this never share On My Way location.

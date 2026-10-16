@@ -31,7 +31,7 @@
   - Priority support
 
 ## Custom
-- Price: $197/month (or $1,970/year — 2 months free)
+- Price: $197/mo (or $1,970/year — 2 months free)
 - Everything in Pro, plus done-for-you customization requests and dedicated support.
 
 ## Founding Lifetime Offer

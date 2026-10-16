@@ -27,7 +27,9 @@ import { BookingChecklist } from './BookingChecklist';
 import { GpsCheckin } from './GpsCheckin';
 import { PropertyInspectionUpload } from './PropertyInspectionUpload';
 import { useMapsNavigation } from '@/hooks/useMapsNavigation';
+import { Capacitor } from '@capacitor/core';
 import { useCleanerTracking } from '@/hooks/useCleanerTracking';
+import { bannerPlatform, locationShareBanner } from '@/lib/tripLocationSession';
 import { useLocationSharingGate } from '@/hooks/useLocationSharingGate';
 import { useLocationPermission } from '@/hooks/useLocationPermission';
 import { LocationSharingOffNote } from '@/components/staff/LocationConsentSheet';
@@ -134,7 +136,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
   const destAddress = [booking.address, booking.city, booking.state, booking.zip_code].filter(Boolean).join(', ');
 
-  const { startTracking, stopTracking, isTracking, hasArrived, markArrived } = useCleanerTracking({
+  const { startTracking, stopTracking, isTracking, hasArrived, markArrived, backgroundSharing } = useCleanerTracking({
     bookingId: booking.id,
     staffId: staffInfo.id || '',
     organizationId: booking.organization_id || '',
@@ -145,10 +147,13 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
   const sharing = useLocationSharingGate();
   const loc = useLocationPermission(staffInfo.id);
 
-  // Stop tracking when the job starts, is finished, or is cancelled.
+  // Stop tracking when the job starts, is finished, is cancelled, or is a no-show.
   useEffect(() => {
-    if (isTracking && (booking.status === 'in_progress' || booking.status === 'completed' || booking.status === 'cancelled')) {
-      stopTracking();
+    if (!isTracking) return;
+    if (booking.status === 'in_progress') {
+      void stopTracking('job_started');
+    } else if (booking.status === 'completed' || booking.status === 'cancelled' || booking.status === 'no_show') {
+      void stopTracking('job_finished');
     }
   }, [booking.status, isTracking, stopTracking]);
 
@@ -545,7 +550,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
         {isTracking && (
           <div className="p-2.5 rounded-lg bg-info/10 border border-info/20 text-xs text-info">
-            Sharing your location with your company admins while this screen is open. Sharing pauses if you leave the app.
+            {locationShareBanner(bannerPlatform(Capacitor.getPlatform()), backgroundSharing)}
           </div>
         )}
 

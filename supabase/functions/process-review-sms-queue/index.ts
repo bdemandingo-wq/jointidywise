@@ -7,6 +7,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { filterOptedIn } from "../_shared/marketing-guard.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -221,11 +222,22 @@ const handler = async (req: Request): Promise<Response> => {
         const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, "");
 
         // Send SMS via OpenPhone
-        const openPhoneResponse = await fetch("https://api.openphone.com/v1/messages", {
-          method: "POST",
-          headers: { "Authorization": authHeader, "Content-Type": "application/json" },
-          body: JSON.stringify({ content: message, from: phoneNumberId, to: [formattedPhone] }),
+        const reviewSent = await sendOpenPhoneMessage({
+          supabase,
+          organizationId: item.organization_id,
+          to: formattedPhone,
+          content: message,
+          from: phoneNumberId,
+          apiKey: authHeader,
+          tag: "process-review-sms-queue",
         });
+        if (reviewSent.skipped) {
+          await supabase.from("automated_review_sms_queue")
+            .update({ sent: true, sent_at: new Date().toISOString(), error: "opted_out" })
+            .eq("id", item.id);
+          continue;
+        }
+        const openPhoneResponse = reviewSent.response;
 
         if (!openPhoneResponse.ok) {
           const errText = await openPhoneResponse.text();

@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -136,18 +137,22 @@ const handler = async (req: Request): Promise<Response> => {
     const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
     // Send SMS via OpenPhone API
-    const response = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Authorization": authHeader,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: phoneNumberId,
-        to: [formattedPhone],
-        content: message,
-      }),
+    const sent = await sendOpenPhoneMessage({
+      supabase,
+      organizationId: notification.organizationId,
+      to: formattedPhone,
+      content: message,
+      from: phoneNumberId,
+      apiKey: authHeader,
+      tag: "send-cleaner-notification",
     });
+    if (sent.skipped) {
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "opted_out" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const response = sent.response;
 
     if (!response.ok) {
       const errorText = await response.text();

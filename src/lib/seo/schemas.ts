@@ -1,6 +1,7 @@
 // Reusable schema.org JSON-LD builders for TidyWise pages.
 
 import { SUPPORT_EMAIL } from "../supportEmail";
+import { LIFETIME_PRICE, LIFETIME_SPOT_CAP, PUBLIC_TIERS } from "../publicPlans";
 
 const SITE = "https://www.jointidywise.com";
 
@@ -13,7 +14,7 @@ export const HOME_FAQS: FaqItem[] = [
   {
     question: "How much does TidyWise cost?",
     answer:
-      "Plans start at $49/month for Basic, $97/month for Pro, $197/month for Custom, and a one-time $300 Lifetime deal (limited to 100 spots). All plans include unlimited users and bookings.",
+      `Plans start at $${PUBLIC_TIERS.find((tier) => tier.id === "basic")?.monthlyPrice}/mo for Basic, $${PUBLIC_TIERS.find((tier) => tier.id === "pro")?.monthlyPrice}/mo for Pro, $${PUBLIC_TIERS.find((tier) => tier.id === "custom")?.monthlyPrice}/mo for Custom, and a one-time $${LIFETIME_PRICE} Lifetime deal (limited to ${LIFETIME_SPOT_CAP} spots). All plans include unlimited users and bookings.`,
   },
   {
     question: "Is there a free trial?",
@@ -23,12 +24,12 @@ export const HOME_FAQS: FaqItem[] = [
   {
     question: "Can I manage my cleaning team with TidyWise?",
     answer:
-      "Yes. TidyWise includes staff scheduling, automated payroll, GPS check-ins, on-the-way SMS, performance tracking, and a dedicated cleaner mobile app so your whole team works from one system.",
+      "Yes. Basic at $49/mo includes staff scheduling and the cleaner mobile app. Pro at $97/mo adds automated payroll and GPS check-ins, so the whole team can work from one system.",
   },
   {
     question: "Does TidyWise work for solo cleaners?",
     answer:
-      "Absolutely. Solo cleaners use TidyWise for online booking, automated reminders, invoicing, card payments, and recurring jobs — without any team setup required.",
+      "Absolutely. Solo cleaners use Basic at $49/mo for online booking, invoicing, card payments, and recurring jobs — without any team setup required. Automated reminders are on Pro at $97/mo.",
   },
   {
     question: "What happens after my free trial ends?",
@@ -38,7 +39,7 @@ export const HOME_FAQS: FaqItem[] = [
 ];
 
 const PRICE_LOW = "49";
-const PRICE_HIGH = "300";
+const PRICE_HIGH = String(LIFETIME_PRICE);
 
 const CORE_FEATURES = [
   "Online booking",
@@ -86,7 +87,7 @@ export function localBusinessSchema() {
     email: SUPPORT_EMAIL,
     description:
       "Cleaning business management software — booking, scheduling, invoicing, payroll, CRM, and GPS tracking for residential and commercial cleaning companies.",
-    priceRange: "$49 – $300",
+    priceRange: `$49 – $${LIFETIME_PRICE}`,
     areaServed: {
       "@type": "Country",
       name: "United States",
@@ -99,7 +100,7 @@ const PRICING_OFFERS = [
   { name: "Basic", price: "49", interval: "month" },
   { name: "Pro", price: "97", interval: "month" },
   { name: "Custom", price: "197", interval: "month" },
-  { name: "Lifetime", price: "300", interval: "lifetime" },
+  { name: "Lifetime", price: String(LIFETIME_PRICE), interval: "lifetime" },
 ];
 
 export function softwareApplicationSchema(opts?: {
@@ -116,7 +117,7 @@ export function softwareApplicationSchema(opts?: {
     operatingSystem: "Web, iOS, Android",
     description:
       opts?.description ??
-      "All-in-one cleaning business software: booking, scheduling, CRM, invoicing, payroll, and GPS tracking. Plans from $49/mo.",
+      "All-in-one cleaning business software: booking, scheduling, CRM, and invoicing from $49/mo. Payroll and GPS tracking are on Pro at $97/mo.",
     featureList: opts?.featureList ?? CORE_FEATURES,
     offers: withOfferList
       ? PRICING_OFFERS.map((o) => ({

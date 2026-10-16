@@ -15,7 +15,6 @@ import {
 import { useState } from "react";
 
 const comparisonData = [
-  { feature: "Monthly Pricing", tidywise: "$49/month", servicetitan: "$125–$500+/month per user", winner: "tidywise" },
   { feature: "Setup Time", tidywise: "Hours", servicetitan: "Weeks to months", winner: "tidywise" },
   { feature: "Cleaning-Specific Features", tidywise: true, servicetitan: false, winner: "tidywise" },
   { feature: "Online Booking", tidywise: true, servicetitan: true, winner: "tie" },
@@ -32,7 +31,7 @@ const comparisonData = [
 
 const testimonials = [
   {
-    quote: "ServiceTitan wanted $400/month for 3 users. TidyWise is $49/month for my whole team. Same core features for our cleaning business — no contest.",
+    quote: "TidyWise Basic is $49/month for my whole team. Payroll and GPS are on Pro at $97/month.",
     author: "Kevin T.",
     role: "Clean & Bright Services",
     rating: 5
@@ -137,7 +136,7 @@ export default function CompareServiceTitan() {
                 <span className="font-bold text-foreground text-lg">TIDYWISE</span>
               </div>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                {["$49/month (Basic) — all users included", "Built specifically for cleaning businesses", "Operational in hours, not weeks", "30 days of Pro, no card", "Square footage and room-based pricing", "Automated payroll included"].map(p => (
+                {["Basic is $49/mo — all users included", "Built specifically for cleaning businesses", "Operational in hours, not weeks", "30 days of Pro, no card", "Square footage and room-based pricing", "Automated payroll on Pro at $97/mo"].map(p => (
                   <li key={p} className="flex items-start gap-2">
                     <CheckCircle2 className="h-4 w-4 text-success mt-0.5 flex-shrink-0" />{p}
                   </li>
@@ -152,7 +151,7 @@ export default function CompareServiceTitan() {
                 <span className="font-bold text-foreground text-lg">ServiceTitan</span>
               </div>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                {["$125–$500+/month per user", "Built for HVAC, plumbing, and electrical", "Implementation takes weeks to months", "No self-serve trial — demo only", "No cleaning-specific pricing features", "Payroll is a separate add-on cost"].map(p => (
+                {["Built for HVAC, plumbing, and electrical", "Implementation takes weeks to months", "No self-serve trial — demo only", "No cleaning-specific pricing features", "Payroll is a separate product"].map(p => (
                   <li key={p} className="flex items-start gap-2">
                     <XCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />{p}
                   </li>
@@ -177,9 +176,9 @@ export default function CompareServiceTitan() {
                 </thead>
                 <tbody>
                   {[
-                    { label: "Starting price", tw: "$49/mo", st: "~$125/month per user" },
-                    { label: "5-user team", tw: "$49/month", st: "$625–$2,500/month" },
-                    { label: "10-user team", tw: "$49/month", st: "$1,250–$5,000/month" },
+                    { label: "Starting price", tw: "$49/mo", st: "—" },
+                    { label: "5-user team", tw: "$49/mo", st: "—" },
+                    { label: "10-user team", tw: "$49/mo", st: "—" },
                     { label: "Setup cost", tw: "$0", st: "Implementation fee" },
                     { label: "Annual contract required", tw: "No", st: "Typically yes" },
                   ].map((row, i) => (

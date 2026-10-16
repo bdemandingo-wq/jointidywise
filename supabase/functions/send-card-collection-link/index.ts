@@ -4,6 +4,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { requireOrgAdmin } from "../_shared/requireOrgAdmin.ts";
 import { sendOrgEmail } from "../_shared/send-org-email.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -68,11 +69,17 @@ async function sendViaOpenPhone(params: {
   }
 
   const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, "");
-  const res = await fetch("https://api.openphone.com/v1/messages", {
-    method: "POST",
-    headers: { Authorization: authHeader, "Content-Type": "application/json" },
-    body: JSON.stringify({ content: message, from: phoneNumberId, to: [formatE164(phone)] }),
+  const cardSent = await sendOpenPhoneMessage({
+    supabase,
+    organizationId,
+    to: formatE164(phone),
+    content: message,
+    from: phoneNumberId,
+    apiKey: authHeader,
+    tag: "send-card-collection-link",
   });
+  if (cardSent.skipped) return { ok: false, code: "sms_opted_out", error: "This number opted out by texting STOP." };
+  const res = cardSent.response;
 
   if (!res.ok) {
     const text = await res.text();

@@ -13,6 +13,7 @@ import {
   subscriptionPersistHttpStatus,
   subscriptionStateFields,
 } from "./subscription-billing-snapshot.ts";
+import { sendOpenPhoneMessage } from "./send-sms.ts";
 
 export const subscriptionWebhookCorsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -409,20 +410,19 @@ async function sendOpenPhoneAdminSms(
   }
   for (const phone of adminPhones) {
     try {
-      const res = await doFetch("https://api.openphone.com/v1/messages", {
-        method: "POST",
-        headers: {
-          Authorization: openphoneApiKey.trim().replace(/^Bearer\s+/i, ""),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: openphonePhoneNumberId,
-          to: [phone],
-          content,
-        }),
+      const sent = await sendOpenPhoneMessage({
+        supabase,
+        organizationId: TIDYWISE_ORG_ID,
+        to: phone,
+        content,
+        from: openphonePhoneNumberId,
+        apiKey: openphoneApiKey,
+        tag: label,
+        fetchImpl: doFetch,
       });
-      if (!res.ok) {
-        log(`${label} failed`, { phone, status: res.status, body: await res.text() });
+      if (sent.skipped) continue;
+      if (!sent.response.ok) {
+        log(`${label} failed`, { phone, status: sent.response.status, body: await sent.response.text() });
       } else {
         log(`${label} sent`, { phone });
       }

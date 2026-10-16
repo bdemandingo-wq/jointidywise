@@ -52,9 +52,97 @@ test('arrival stops the live watch', () => {
   assert.match(hook, /if \(arrivedRef\.current\) return/);
 });
 
-test('the privacy manifest stays non-tracking', () => {
+test('the privacy manifest declares precise location and stays non-tracking', () => {
   const privacy = read('../../ios/App/App/PrivacyInfo.xcprivacy');
   assert.match(privacy, /<key>NSPrivacyTracking<\/key>\s*<false\/>/);
-  assert.match(privacy, /<key>NSPrivacyCollectedDataTypes<\/key>\s*<array\/>/);
+  assert.match(privacy, /NSPrivacyCollectedDataTypePreciseLocation/);
+  assert.equal(/NSPrivacyCollectedDataTypePurposeAdvertising/.test(privacy), false);
   assert.match(privacy, /<key>NSPrivacyTrackingDomains<\/key>\s*<array\/>/);
+  assert.equal(privacy.includes('<key>NSPrivacyCollectedDataTypes</key>\n\t<array/>'), false);
+  for (const type of [
+    'NSPrivacyCollectedDataTypePreciseLocation',
+    'NSPrivacyCollectedDataTypeName',
+    'NSPrivacyCollectedDataTypeEmailAddress',
+    'NSPrivacyCollectedDataTypePhoneNumber',
+    'NSPrivacyCollectedDataTypePhotosorVideos',
+    'NSPrivacyCollectedDataTypeCrashData',
+  ]) {
+    assert.match(privacy, new RegExp(type));
+  }
+  assert.equal(privacy.includes('NSPrivacyCollectedDataTypePurposeAppFunctionality'), true);
+  assert.equal(privacy.includes('NSPrivacyCollectedDataTypeTracking</key>\n\t\t\t<true/>'), false);
+});
+
+test('stale On My Way rows are closed by pg_cron, and the customer point goes stale', () => {
+  const reaper = read('../../supabase/migrations/20261016200000_deactivate_stale_cleaner_locations.sql');
+  const freshness = read('../../supabase/migrations/20261016180100_tracking_freshness_and_org.sql');
+  assert.match(reaper, /deactivate_stale_cleaner_locations/);
+  assert.match(reaper, /is_active = false/);
+  assert.match(reaper, /created_at < now\(\) - interval '3 hours'/);
+  assert.match(reaper, /recorded_at < now\(\) - interval '15 minutes'/);
+  assert.match(reaper, /'\*\/5 \* \* \* \*'/);
+  assert.match(reaper, /cron\.schedule/);
+  assert.equal(reaper.includes('GRANT EXECUTE'), false);
+  assert.match(freshness, /recorded_at >= now\(\) - interval '10 minutes'/);
+  assert.match(freshness, /created_at >= now\(\) - interval '3 hours'/);
+  assert.match(freshness, /NEW\.organization_id IS DISTINCT FROM booking_org/);
+  assert.match(freshness, /tracking organization must match the booking/);
+  assert.match(freshness, /REVOKE ALL ON FUNCTION public\.enforce_cleaner_location_tracking_organization\(\) FROM PUBLIC, anon, authenticated/);
+  assert.equal(freshness.includes('GRANT EXECUTE ON FUNCTION public.enforce_cleaner_location_tracking_organization'), false);
+  assert.match(freshness, /GRANT EXECUTE ON FUNCTION public\.customer_on_my_way_location\(text\) TO anon, authenticated/);
+
+  const narrowed = read('../../supabase/migrations/20261016220000_stale_location_reaper_native_heartbeat_only.sql');
+  assert.match(narrowed, /native_background boolean NOT NULL DEFAULT false/);
+  assert.match(narrowed, /native_background = true/);
+  assert.match(narrowed, /recorded_at < now\(\) - interval '15 minutes'/);
+  assert.match(narrowed, /created_at < now\(\) - interval '3 hours'/);
+  assert.equal(narrowed.includes("OR recorded_at < now() - interval '15 minutes'"), false);
+  assert.equal(narrowed.includes('GRANT EXECUTE'), false);
+  assert.match(narrowed, /REVOKE ALL ON FUNCTION public\.deactivate_stale_cleaner_locations\(\) FROM authenticated/);
+
+  const claim = read('../../supabase/migrations/20261016220100_booking_reminder_log_arrival_unique.sql');
+  assert.match(claim, /UNIQUE \(booking_id, reminder_type\)/);
+  assert.match(claim, /booking_reminder_log_booking_id_reminder_type_key/);
+  assert.equal(claim.includes('GRANT '), false);
+
+  const arrival = read('../../supabase/functions/send-arrival-sms/index.ts');
+  const claimAt = arrival.indexOf('claimArrivalSend(');
+  const sendAt = arrival.indexOf('sendOpenPhoneMessage(');
+  assert.ok(claimAt !== -1 && sendAt > claimAt);
+  const messagesUrl = ['api.openphone.com', 'v1', 'messages'].join('/');
+  assert.equal(arrival.includes(messagesUrl), false);
+  assert.match(arrival, /opted out by texting STOP/);
+  assert.match(arrival, /nextArrivalClaimAction/);
+  assert.match(arrival, /status: 'pending'/);
+  assert.match(arrival, /error\.code === '23505'/);
+  assert.equal(arrival.includes('SMS sent but booking_reminder_log insert failed'), false);
+  const decisionAt = arrival.indexOf('arrivalOpenPhoneClaim(openPhoneSends)');
+  const markSentAt = arrival.indexOf('await markArrivalClaimSent(');
+  assert.ok(decisionAt !== -1 && markSentAt > decisionAt);
+  const failureSlice = arrival.slice(decisionAt, markSentAt);
+  assert.match(failureSlice, /success: false/);
+  assert.match(failureSlice, /Arrival text failed/);
+  assert.match(failureSlice, /releaseArrivalClaim/);
+  assert.equal(failureSlice.includes("status: 'sent'"), false);
+  assert.match(arrival, /nextMarkSentStep/);
+  assert.match(arrival, /releaseArrivalClaimAfterError\(textDelivered\)/);
+  const releaseFn = arrival.slice(
+    arrival.indexOf('async function releaseArrivalClaim'),
+    arrival.indexOf('const OPENPHONE_TIMEOUT_MS'),
+  );
+  assert.match(releaseFn, /\.eq\('id', claimId\)/);
+  assert.match(releaseFn, /\.eq\('status', 'pending'\)/);
+  assert.equal(releaseFn.includes('reminder_type'), false);
+  assert.equal(releaseFn.includes(".eq('booking_id'"), false);
+  assert.match(arrival, /status: 'pending',\s*\}\)\.select\('id'\)/);
+  assert.match(arrival, /const supabase = createArrivalClient/);
+  assert.match(arrival, /supabaseForError = supabase/);
+  assert.match(arrival, /OPENPHONE_TIMEOUT_MS = 20_000/);
+  assert.match(arrival, /new AbortController\(\)/);
+  assert.match(arrival, /signal: ctrl\.signal/);
+  assert.equal(arrival.includes('let supabase: ArrivalDb | null'), false);
+  const catchAt = arrival.indexOf('} catch (err: unknown)');
+  const catchSlice = arrival.slice(catchAt);
+  assert.match(catchSlice, /textDelivered && supabaseForError/);
+  assert.equal(catchSlice.includes('await releaseClaim()') && catchSlice.indexOf('releaseArrivalClaimAfterError(textDelivered)') < catchSlice.indexOf('await releaseClaim()'), true);
 });

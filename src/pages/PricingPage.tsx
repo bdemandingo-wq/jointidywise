@@ -13,6 +13,7 @@ import {
   type AdServiceType,
 } from '@/components/pricing/AdManagementRequestDialog';
 import { useAuth } from '@/hooks/useAuth';
+import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useLifetimeCounter } from '@/hooks/useLifetimeCounter';
 import { usePublicGrowth } from '@/hooks/usePublicGrowth';
@@ -35,7 +36,9 @@ import {
   Loader2,
 } from 'lucide-react';
 
-import { LIFETIME_FEATURES, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
+import { LIFETIME_FEATURES, LIFETIME_PRICE, LIFETIME_SPOT_CAP, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
+import { chargeLineFromPreview, planBillingAction, renewalDisclosure, todayChargeCopy, visibleBillingLine } from '@/lib/planBillingCopy';
+import { chargePreviewKey, useSubscriptionChargePreview } from '@/hooks/useSubscriptionChargePreview';
 import { formatLoyaltyDollars, LOYALTY_PRICING, pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
 
 type Interval = 'monthly' | 'yearly';
@@ -158,12 +161,30 @@ function priceFor(tier: Tier, interval: Interval): { display: string; sub: strin
 export default function PricingPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { timezone: orgTimezone } = useOrgTimezone();
   const { organization } = useOrganization();
+  const orgTrialCheckout = organization?.plan_type === 'trial';
   const [searchParams, setSearchParams] = useSearchParams();
   // billingInterval / setBillingInterval — NOT named "setInterval" so it
   // doesn't shadow the global timer function. Renaming because the prior
   // setState shadowing was a footgun for any future code in this file.
   const [billingInterval, setBillingInterval] = useState<Interval>('monthly');
+  const chargePreview = useSubscriptionChargePreview({
+    enabled: orgTrialCheckout,
+    organizationId: organization?.id,
+    items: PUBLIC_TIERS.map((tier) => ({ plan: tier.id, interval: billingInterval })),
+  });
+  const datedPreview = Object.values(chargePreview.data?.previews ?? {}).find(
+    (row) => row && !row.bill_now && row.first_charge_at,
+  );
+  const trialDateLine = datedPreview
+    ? chargeLineFromPreview({
+        billNow: false,
+        firstChargeAt: datedPreview.first_charge_at,
+        amountCents: datedPreview.amount_cents_after_discounts,
+        timeZone: orgTimezone,
+      })
+    : null;
   const monthlyRadioRef = useRef<HTMLButtonElement>(null);
   const yearlyRadioRef = useRef<HTMLButtonElement>(null);
   const [checkoutBusy, setCheckoutBusy] = useState<string | null>(null);
@@ -405,7 +426,7 @@ export default function PricingPage() {
     <>
       <SEOHead
         title="Pricing | TidyWise — Cleaning Business Software"
-        description="Four plans for cleaning businesses of every size. Basic $49, Pro $97, Custom $197, or a one-time Lifetime deal at $300 (100 spots only)."
+        description={`Four plans for cleaning businesses of every size. Basic $49/mo, Pro $97/mo, Custom $197/mo, or a one-time Lifetime deal at $${LIFETIME_PRICE} (${LIFETIME_SPOT_CAP} spots only).`}
         canonical="/pricing"
         ogImage="/images/og/og-pricing.png"
         schemaJson={[
@@ -467,7 +488,7 @@ export default function PricingPage() {
               <Link to={user ? '/dashboard' : '/signup'}>{TRIAL_CTA}</Link>
             </Button>
             <p className="text-sm text-muted-foreground max-w-xl">
-              Full Pro access for 30 days. No card. Basic stays $49, Pro $97, and Lifetime $300 — pick one when the trial ends and the dashboard locks.
+              Full Pro access for 30 days. No card. Basic stays $49, Pro $97, and Lifetime ${LIFETIME_PRICE} — pick one when the trial ends and the dashboard locks.
             </p>
             <GrowthCounters lifetime={lifetime} counters={growth.counters} />
             <p className="text-sm text-muted-foreground">
@@ -560,6 +581,11 @@ export default function PricingPage() {
         </section>
 
         <section className="max-w-7xl mx-auto px-4 pb-12">
+          {trialDateLine && (
+            <p className="mb-6 whitespace-nowrap text-center text-xs text-muted-foreground">
+              {trialDateLine}
+            </p>
+          )}
           <div
             role="list"
             aria-label="Subscription plans"
@@ -567,6 +593,7 @@ export default function PricingPage() {
           >
             {TIERS.map((tier) => {
               const price = priceFor(tier, billingInterval);
+              const chargePrice = billingInterval === 'yearly' ? tier.yearlyPrice : tier.monthlyPrice;
               const isHighlighted = highlightedPlan === tier.id;
               const cardLabel = `${tier.name} plan, ${price.display}${price.sub}${tier.highlight ? ', most popular' : ''}${isHighlighted ? ', selected' : ''}`;
               return (
@@ -632,9 +659,37 @@ export default function PricingPage() {
                       `Choose ${tier.name}`
                     )}
                   </Button>
-                  <p className="text-[11px] text-muted-foreground text-center mb-6">
-                    No card to start. After 30 days of Pro the app asks you to pick a plan.
-                  </p>
+                  <div className="mb-6 space-y-1 text-center">
+                    {(() => {
+                      const preview = chargePreview.data?.previews[chargePreviewKey(tier.id, billingInterval)];
+                      const contactPlan = planBillingAction(tier.id) === "contact";
+                      const todayLine = visibleBillingLine(
+                        orgTrialCheckout && !contactPlan ? todayChargeCopy(preview, orgTimezone) : null,
+                      );
+                      const renewal = visibleBillingLine(
+                        contactPlan ? null : renewalDisclosure(chargePrice, billingInterval),
+                      );
+                      return (
+                        <>
+                          {todayLine ? (
+                            <p className="whitespace-nowrap text-[11px] text-muted-foreground">
+                              {todayLine}
+                            </p>
+                          ) : null}
+                          {renewal ? (
+                            <p className="text-[11px] text-muted-foreground">
+                              {renewal}
+                            </p>
+                          ) : null}
+                        </>
+                      );
+                    })()}
+                    {!orgTrialCheckout && (
+                      <p className="text-[11px] text-muted-foreground">
+                        No card to start. After 30 days of Pro the app asks you to pick a plan.
+                      </p>
+                    )}
+                  </div>
 
                   <ul className="space-y-2.5 text-sm">
                     {tier.features.map((feature) => (
@@ -804,7 +859,7 @@ export default function PricingPage() {
               Pay once. Use TidyWise forever.
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mb-8">
-              One $300 payment locks in lifetime access to every Pro feature — including
+              One ${LIFETIME_PRICE} payment locks in lifetime access to every Pro feature — including
               everything we ship in the future. No recurring bill, ever.
               {' '}
               {lifetime.loading || lifetime.unavailable
@@ -816,7 +871,7 @@ export default function PricingPage() {
               <div>
                 <div className="mb-6">
                   <div className="flex items-baseline gap-3 mb-2">
-                    <span className="text-5xl font-bold tracking-tight">$300</span>
+                    <span className="text-5xl font-bold tracking-tight">${LIFETIME_PRICE}</span>
                     <span className="text-muted-foreground">one-time</span>
                   </div>
                   {lifetime.loading ? (

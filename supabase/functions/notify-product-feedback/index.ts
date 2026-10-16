@@ -1,5 +1,6 @@
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 /**
  * Tells the founder that product feedback has arrived.
@@ -158,14 +159,20 @@ Deno.serve(async (req: Request) => {
     if (apiKey && phoneNumberId) {
       for (const phone of ADMIN_PHONES) {
         try {
-          const res = await fetch("https://api.openphone.com/v1/messages", {
-            method: "POST",
-            headers: {
-              Authorization: apiKey.trim().replace(/^Bearer\s+/i, ""),
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ from: phoneNumberId, to: [phone], content: message }),
+          const sent = await sendOpenPhoneMessage({
+            supabase,
+            organizationId: TIDYWISE_ORG_ID,
+            to: phone,
+            content: message,
+            from: phoneNumberId,
+            apiKey,
+            tag: "notify-product-feedback",
           });
+          if (sent.skipped) {
+            smsResults.push({ phone, success: false, error: "opted_out" });
+            continue;
+          }
+          const res = sent.response;
 
           if (res.ok) {
             smsSent = true;

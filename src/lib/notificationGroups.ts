@@ -5,10 +5,10 @@
 // writes when the owner moves a switch. An empty matrix keeps catalog defaults,
 // so opening the new screen never resets a saved preference.
 //
-// Owner SMS that edge functions actually read (business_settings.notify_new_booking
-// and friends) is separate from the matrix. ownerSmsColumnUpdates tells the
-// screen which of those columns to set when the owner changes a switch. It is
-// not applied on load.
+// Owner texts are the per-event matrix sms flag ("Also text me"), off until
+// the owner turns one on. ownerSmsColumnUpdates still describes the legacy
+// business_settings / organization_sms_settings columns. The settings screen
+// no longer writes those columns.
 
 import {
   CHANNELS,
@@ -58,6 +58,9 @@ export const OWNER_NOTIFICATION_GROUPS: readonly OwnerNotificationGroup[] = [
     label: 'Cleaner updates',
     description: 'On the way, started, finished, late, or missing photos and checklists.',
     eventKeys: [
+      'job.on_the_way',
+      'job.arrived',
+      'job.completed',
       'booking.late_checkin',
       'booking.completed',
       'booking.missing_checklists',
@@ -211,9 +214,57 @@ export const SYSTEM_NOTIFICATION_CATALOG_KEYS: Record<string, string> = {
   staff_activity: 'staff.activity',
 };
 
+/**
+ * Owner texts are off until the owner turns on "Also text me" for that event.
+ * These are the events notifyOwner can text. Customer texts are not in this list.
+ */
+export const OWNER_TEXT_EVENTS: readonly { key: string; label: string }[] = [
+  { key: 'booking.new', label: 'New booking' },
+  { key: 'client.portal_request', label: 'Client portal request' },
+  { key: 'booking.cancelled', label: 'Cancellation' },
+  { key: 'job.on_the_way', label: 'Cleaner on the way' },
+  { key: 'job.arrived', label: 'Cleaner arrived' },
+  { key: 'job.completed', label: 'Job completed' },
+];
+
 export function systemNotificationCatalogKey(type: string | null | undefined): string | undefined {
   if (!type) return undefined;
-  return SYSTEM_NOTIFICATION_CATALOG_KEYS[type];
+  const mapped = SYSTEM_NOTIFICATION_CATALOG_KEYS[type];
+  if (mapped) return mapped;
+  // Owner alerts store the catalog key itself. Other catalog keys stay visible.
+  if (OWNER_TEXT_EVENTS.some((event) => event.key === type)) return type;
+  return undefined;
+}
+
+/**
+ * The bell already builds these from bookings and portal requests.
+ * A matching admin_system_notifications row would show the same event twice.
+ */
+const LIVE_BELL_EVENT_KEYS = new Set(['booking.new', 'client.portal_request', 'booking.cancelled']);
+
+export function systemBellDuplicatesLiveEvent(type: string | null | undefined): boolean {
+  return !!type && LIVE_BELL_EVENT_KEYS.has(type);
+}
+
+/** Copy for the settings banner when no operator iPhone is registered. */
+export function ownerInstallBanner(args: { emailOn: boolean; emailReady: boolean }): string {
+  const lead = 'Install the TidyWise iPhone app to get alerts as push notifications.';
+  if (!args.emailOn) {
+    return `${lead} Email alerts are turned off, so they won't be emailed until you turn email on.`;
+  }
+  if (!args.emailReady) {
+    return `${lead} No alert email is set up, so they won't be emailed until you add one.`;
+  }
+  return `${lead} Until then, we'll email them.`;
+}
+
+/** True only when this event's matrix sms flag is explicitly on and the text master is on. */
+export function ownerTextMeEnabled(
+  eventKey: string,
+  matrix: ChannelMatrix | undefined,
+  channels: FlagMap | undefined,
+): boolean {
+  return ownerDeliveryEnabled('sms', channels) && matrix?.[eventKey]?.sms === true;
 }
 
 export function ownerGroupById(id: string): OwnerNotificationGroup | undefined {
@@ -366,7 +417,12 @@ export function presetMatrix(
   for (const type of types) {
     const row: Record<string, boolean> = {};
     if (preset === 'everything') {
-      for (const channel of CHANNELS) row[channel.key] = true;
+      for (const channel of CHANNELS) {
+        // Also text me stays off. Everything else in the preset turns on.
+        row[channel.key] = channel.key === 'sms' && OWNER_TEXT_EVENTS.some((event) => event.key === type.key)
+          ? false
+          : true;
+      }
     } else if (preset === 'action') {
       for (const channel of CHANNELS) row[channel.key] = false;
       if (type.sidebarKey) {

@@ -28,6 +28,8 @@ import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from '@/lib/startSubscriptionCheckout';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import { SUPPORT_EMAIL } from "@/lib/supportEmail";
+import { LIFETIME_PRICE, LIFETIME_SPOT_CAP, PUBLIC_TIERS } from "@/lib/publicPlans";
+import { renewalDisclosure, visibleBillingLine } from "@/lib/planBillingCopy";
 
 interface SubscriptionDialogProps {
   open: boolean;
@@ -74,8 +76,16 @@ export function SubscriptionDialog({
   const [checkingOut, setCheckingOut] = useState<"standard" | "lifetime" | null>(null);
   const [checking, setChecking] = useState(true);
   const [isSubscribed, setIsSubscribed] = useState(false);
-  const [spots, setSpots] = useState<LifetimeSpots>({ total: 100, used: 0, remaining: 100, available: true });
+  const [spots, setSpots] = useState<LifetimeSpots>({
+    total: LIFETIME_SPOT_CAP,
+    used: 0,
+    remaining: LIFETIME_SPOT_CAP,
+    available: true,
+  });
   const { canShowPaymentFlows, billingUrl } = usePlatform();
+  const proMonthly = PUBLIC_TIERS.find((tier) => tier.id === "pro")?.monthlyPrice ?? 0;
+  const customMonthly = PUBLIC_TIERS.find((tier) => tier.id === "custom")?.monthlyPrice ?? 0;
+  const proRenewal = visibleBillingLine(renewalDisclosure(proMonthly));
 
   const checkSubscription = async () => {
     try {
@@ -313,17 +323,18 @@ export function SubscriptionDialog({
 
         <div className="grid gap-4 sm:grid-cols-3 py-2">
 
-          {/* ── Standard $97/mo ──────────────────────────────── */}
           <div className="relative flex flex-col rounded-xl border-2 border-primary/30 bg-primary/5 p-5 gap-4">
             <div className="flex items-start gap-3">
               <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
                 <Rocket className="h-5 w-5" />
               </div>
               <div>
-                <p className="font-semibold text-foreground">Standard</p>
-                <p className="text-2xl font-bold text-foreground mt-0.5">
-                  $97<span className="text-sm font-normal text-muted-foreground">/mo</span>
-                </p>
+                <p className="font-semibold text-foreground">Pro</p>
+                {proMonthly > 0 && (
+                  <p className="text-2xl font-bold text-foreground mt-0.5">
+                    ${proMonthly}<span className="text-sm font-normal text-muted-foreground">/mo</span>
+                  </p>
+                )}
               </div>
             </div>
 
@@ -348,9 +359,13 @@ export function SubscriptionDialog({
               )}
               Start Monthly Plan
             </Button>
+            {proRenewal && (
+              <p className="text-xs text-center text-muted-foreground">
+                {proRenewal}
+              </p>
+            )}
           </div>
 
-          {/* ── Lifetime $200 ──────────────────────────────────── */}
           <div className="relative flex flex-col rounded-xl border-2 border-amber-400/60 bg-amber-50/60 dark:bg-amber-950/20 p-5 gap-4">
             {/* Badge */}
             <div className="absolute -top-3 left-1/2 -translate-x-1/2">
@@ -366,7 +381,7 @@ export function SubscriptionDialog({
               <div>
                 <p className="font-semibold text-foreground">Lifetime Access</p>
                 <p className="text-2xl font-bold text-foreground mt-0.5">
-                  $200<span className="text-sm font-normal text-muted-foreground"> once</span>
+                  ${LIFETIME_PRICE}<span className="text-sm font-normal text-muted-foreground"> once</span>
                 </p>
               </div>
             </div>
@@ -423,8 +438,12 @@ export function SubscriptionDialog({
                 <Zap className="h-5 w-5" />
               </div>
               <div>
-                <p className="font-semibold text-foreground">Enterprise</p>
-                <p className="text-sm text-muted-foreground mt-0.5">Custom pricing</p>
+                <p className="font-semibold text-foreground">Custom</p>
+                {customMonthly > 0 && (
+                  <p className="text-2xl font-bold text-foreground mt-0.5">
+                    ${customMonthly}<span className="text-sm font-normal text-muted-foreground">/mo</span>
+                  </p>
+                )}
               </div>
             </div>
 

@@ -6,6 +6,7 @@ import {
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -209,11 +210,22 @@ const handler = async (req: Request): Promise<Response> => {
         if (formattedPhone.length === 10) formattedPhone = `+1${formattedPhone}`;
         else if (!formattedPhone.startsWith("+")) formattedPhone = `+${formattedPhone}`;
 
-        const openPhoneResponse = await fetch("https://api.openphone.com/v1/messages", {
-          method: "POST",
-          headers: { Authorization: authHeader, "Content-Type": "application/json" },
-          body: JSON.stringify({ content: message, from: phoneNumberId, to: [formattedPhone] }),
+        const rebookSent = await sendOpenPhoneMessage({
+          supabase,
+          organizationId: item.organization_id,
+          to: formattedPhone,
+          content: message,
+          from: phoneNumberId,
+          apiKey: authHeader,
+          tag: "process-rebooking-reminders",
         });
+        if (rebookSent.skipped) {
+          await supabase.from("rebooking_reminder_queue")
+            .update({ sent: true, sent_at: now, error: "opted_out" })
+            .eq("id", item.id);
+          continue;
+        }
+        const openPhoneResponse = rebookSent.response;
 
         if (!openPhoneResponse.ok) {
           const errText = await openPhoneResponse.text();

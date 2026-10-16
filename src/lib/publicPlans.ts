@@ -1,3 +1,5 @@
+import { LIFETIME_SPOT_CAP } from "../../supabase/functions/_shared/lifetime-cap.ts";
+
 /**
  * Public pricing catalog. /pricing is the source of truth for plan names,
  * prices, and the short feature lists on the cards. Post-onboarding
@@ -61,6 +63,14 @@ export const PUBLIC_TIERS: PublicTier[] = [
 ];
 
 export const LIFETIME_PRICE = 300;
+
+/**
+ * Founding lifetime spots. The owner confirmed 100.
+ * The value lives in supabase/functions/_shared/lifetime-cap.ts so the
+ * client and the edge functions share one number. The spots-left counter
+ * still uses the live remaining count.
+ */
+export { LIFETIME_SPOT_CAP };
 
 export const LIFETIME_FEATURES = [
   "Every Pro feature, forever",

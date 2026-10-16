@@ -21,16 +21,20 @@ import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { formatDistance } from '@/lib/distanceUtils';
 import { useDistanceUnit, useOrgCountryCode } from '@/hooks/useDistanceUnit';
+import { useNotificationPreferences, useUpdateNotificationPreferences } from '@/hooks/useNotificationPreferences';
+import { ownerDeliveryEnabled, ownerDeliveryPatch } from '@/lib/notificationGroups';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { formatInTimezone, formatTimestampWithZone } from '@/lib/timezoneUtils';
 import { orgEndOfDay, orgStartOfDay } from '@/lib/orgDateRange';
 import { forgetDrivingEta, loadDrivingEta } from '@/lib/drivingEta';
 import {
   isLocationOffEnRoute,
+  liveTrackingLowerBounds,
   pausedLastSeenLabel,
   pickNextJob,
   showsMapPin,
   trackingPinState,
+  tripShareIsFresh,
 } from '@/lib/trackingVisibility';
 
 interface ActiveTracking {
@@ -370,11 +374,14 @@ export default function TrackingPage() {
   const historyTimer = useRef<number | null>(null);
   const onTheWayErrorRef = useRef(false);
   const [now, setNow] = useState(() => Date.now());
-  const [smsSettings, setSmsSettings] = useState<SmsSettings>({ notify_admin_on_the_way: true, notify_client_on_the_way: true, notify_client_distance_eta: true, notify_admin_arrived: true, notify_client_arrived: true });
+  const prefs = useNotificationPreferences();
+  const { save: saveNotificationPrefs } = useUpdateNotificationPreferences();
+  const [smsSettings, setSmsSettings] = useState<SmsSettings>({ notify_admin_on_the_way: false, notify_client_on_the_way: true, notify_client_distance_eta: true, notify_admin_arrived: false, notify_client_arrived: true });
   const [savingToggle, setSavingToggle] = useState(false);
 
   const fetchActive = useCallback(async () => {
     if (!orgId) return;
+    const bounds = liveTrackingLowerBounds(Date.now());
     const { data, error } = await supabase
       .from('cleaner_location_tracking')
       .select(`
@@ -386,7 +393,9 @@ export default function TrackingPage() {
         )
       `)
       .eq('organization_id', orgId)
-      .eq('is_active', true);
+      .eq('is_active', true)
+      .gte('recorded_at', bounds.recordedAt)
+      .gte('created_at', bounds.createdAt);
 
     if (error) {
       setActiveError('Could not load live tracking.');
@@ -619,6 +628,7 @@ export default function TrackingPage() {
       latitude: job.latitude,
       longitude: job.longitude,
       recordedAt: job.recorded_at,
+      createdAt: job.created_at,
       scheduledAt: booking?.scheduled_at ?? null,
       bookingStatus: booking?.status,
       now,
@@ -665,7 +675,12 @@ export default function TrackingPage() {
         const next = payload.new as Partial<ActiveTracking> | null;
         const previous = payload.old as Partial<ActiveTracking> | null;
         const id = next?.id ?? previous?.id;
-        if (!id || payload.eventType === 'DELETE' || next?.is_active === false) {
+        const fresh = typeof next?.recorded_at === 'string' && tripShareIsFresh({
+          recordedAt: next.recorded_at,
+          createdAt: typeof next.created_at === 'string' ? next.created_at : null,
+          now: Date.now(),
+        });
+        if (!id || payload.eventType === 'DELETE' || next?.is_active === false || !fresh) {
           if (id) {
             setActiveJobs((rows) => rows.filter((row) => row.id !== id));
             forgetDrivingEta(id);
@@ -722,6 +737,7 @@ export default function TrackingPage() {
         latitude: job.latitude,
         longitude: job.longitude,
         recordedAt: job.recorded_at,
+        createdAt: job.created_at,
         scheduledAt: booking?.scheduled_at ?? null,
         bookingStatus: booking?.status,
         now,
@@ -833,6 +849,16 @@ export default function TrackingPage() {
     }];
   }), [visibleHistory]);
 
+  const handleOwnerText = (eventKey: 'job.on_the_way' | 'job.arrived', on: boolean) => {
+    const enableMaster = on && !ownerDeliveryEnabled('sms', prefs.channels);
+    void saveNotificationPrefs({
+      notification_matrix: { [eventKey]: { sms: on } },
+      ...(enableMaster ? { channels: ownerDeliveryPatch('sms', true) } : {}),
+    }).then((res) => {
+      if (res?.error) toast.error('Failed to save setting');
+    });
+  };
+
   const handleToggle = async (field: keyof SmsSettings, value: boolean) => {
     setSavingToggle(true);
     const updated = { ...smsSettings, [field]: value };
@@ -841,7 +867,12 @@ export default function TrackingPage() {
     const { error } = await supabase
       .from('organization_sms_settings')
       .upsert(
-        { organization_id: orgId!, ...updated },
+        {
+          organization_id: orgId!,
+          notify_client_on_the_way: updated.notify_client_on_the_way,
+          notify_client_distance_eta: updated.notify_client_distance_eta,
+          notify_client_arrived: updated.notify_client_arrived,
+        },
         { onConflict: 'organization_id' },
       );
 
@@ -877,12 +908,12 @@ export default function TrackingPage() {
             <div className="flex items-center gap-3">
               <Switch
                 id="notify-admin"
-                checked={smsSettings.notify_admin_on_the_way}
-                onCheckedChange={(v) => handleToggle('notify_admin_on_the_way', v)}
-                disabled={savingToggle}
+                checked={prefs.notification_matrix?.['job.on_the_way']?.sms === true}
+                onCheckedChange={(v) => handleOwnerText('job.on_the_way', v)}
+                disabled={savingToggle || !prefs.loaded}
               />
               <Label htmlFor="notify-admin" className="text-sm cursor-pointer">
-                Notify Admin when cleaner goes On My Way
+                Also text me when a cleaner is on the way
               </Label>
             </div>
             <div className="flex items-center gap-3">
@@ -921,12 +952,12 @@ export default function TrackingPage() {
             <div className="flex items-center gap-3">
               <Switch
                 id="notify-admin-arrived"
-                checked={smsSettings.notify_admin_arrived}
-                onCheckedChange={(v) => handleToggle('notify_admin_arrived', v)}
-                disabled={savingToggle}
+                checked={prefs.notification_matrix?.['job.arrived']?.sms === true}
+                onCheckedChange={(v) => handleOwnerText('job.arrived', v)}
+                disabled={savingToggle || !prefs.loaded}
               />
               <Label htmlFor="notify-admin-arrived" className="text-sm cursor-pointer">
-                Notify admin when cleaner has arrived
+                Also text me when a cleaner arrives
               </Label>
             </div>
           </div>
@@ -963,6 +994,7 @@ export default function TrackingPage() {
               latitude: job.latitude,
               longitude: job.longitude,
               recordedAt: job.recorded_at,
+              createdAt: job.created_at,
               scheduledAt: booking?.scheduled_at ?? null,
               bookingStatus: booking?.status,
               now,

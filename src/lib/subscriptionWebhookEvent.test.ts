@@ -53,10 +53,12 @@ function fakeDb(opts: {
       const api: {
         select: () => typeof api;
         eq: (column?: string, value?: string) => typeof api;
+        filter: () => typeof api;
         ilike: (column: string, pattern: string) => typeof api;
         in: () => typeof api;
         order: () => typeof api;
         limit: () => typeof api;
+        range: () => typeof api;
         update: (payload: unknown) => typeof api;
         insert: (payload: { event_id?: string; source?: string }) => Promise<{ error: { code?: string; message: string } | null }>;
         delete: () => typeof api;
@@ -71,13 +73,16 @@ function fakeDb(opts: {
           if (typeof column === "string") filters.push({ column, value: String(value ?? "") });
           return api;
         },
+        filter() { return api; },
         ilike(_column: string, pattern: string) {
           ilikePatterns.push(pattern);
           return api;
         },
         in() { return api; },
+        not() { return api; },
         order() { return api; },
         limit() { return api; },
+        range() { return api; },
         update() {
           writes.push(table);
           return api;

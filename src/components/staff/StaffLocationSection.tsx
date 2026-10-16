@@ -1,11 +1,23 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Loader2, MapPin } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useLocationPermission } from '@/hooks/useLocationPermission';
-import { buildLocationSectionModel, type LocationSectionModel } from '@/lib/locationPermission';
+import {
+  LOCATION_CARD_LEARN_MORE,
+  LOCATION_CARD_SUMMARY,
+  buildLocationSectionModel,
+  type LocationSectionModel,
+} from '@/lib/locationPermission';
 
 const TONE_CLASS = {
   on: 'bg-success/10 text-success border-success/30',
@@ -13,6 +25,34 @@ const TONE_CLASS = {
   warn: 'bg-warning/10 text-warning border-warning/30',
   neutral: 'bg-muted text-muted-foreground border-border',
 } as const;
+
+/** The card's disclosure. Learn more stays in the app and does not fetch. */
+function LocationCardDisclosure() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">{LOCATION_CARD_SUMMARY}</p>
+      <Button
+        type="button"
+        variant="outline"
+        className="min-h-[44px] w-full"
+        onClick={() => setOpen(true)}
+      >
+        Learn more
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Location</DialogTitle>
+            <DialogDescription className="text-left text-foreground">
+              {LOCATION_CARD_LEARN_MORE}
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 export function StaffLocationSectionView({
   model,
@@ -34,9 +74,9 @@ export function StaffLocationSectionView({
           <MapPin className="h-5 w-5" />
           Location
         </CardTitle>
-        <CardDescription>{model.why}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <LocationCardDisclosure />
         <div className="flex items-center justify-between gap-3">
           <span className="text-sm text-muted-foreground">Permission</span>
           <Badge variant="outline" className={TONE_CLASS[model.tone]}>
@@ -120,8 +160,11 @@ export function StaffLocationSection({ staffId }: { staffId: string }) {
             <MapPin className="h-5 w-5" />
             Location
           </CardTitle>
-          <CardDescription>Checking location permission…</CardDescription>
         </CardHeader>
+        <CardContent className="space-y-4">
+          <LocationCardDisclosure />
+          <p className="text-sm text-muted-foreground">Checking location permission…</p>
+        </CardContent>
       </Card>
     );
   }

@@ -1,11 +1,12 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
-import { parseAlertPhones } from '../_shared/alertPhones.ts';
+import { sendOpenPhoneMessage } from '../_shared/send-sms.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
-import { notifyOffice } from "../_shared/office-notify.ts";
+import { notifyOwner } from "../_shared/owner-alert.ts";
 import { jobEventCopy, shouldSendArrival } from "../_shared/job-event-copy.ts";
+import { arrivalOpenPhoneClaim, claimedArrivalRowId, nextArrivalClaimAction, nextMarkSentStep, releaseArrivalClaimAfterError, type ArrivalClaimInsert, type ArrivalClaimRow } from "../_shared/arrival-claim.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -17,15 +18,143 @@ interface ArrivalRequest {
   staffId: string;
 }
 
+const createArrivalClient = (url: string, key: string) => createClient(url, key);
+type ArrivalDb = ReturnType<typeof createArrivalClient>;
+
+type ArrivalClaimResult =
+  | { kind: 'send'; claimId: string }
+  | { kind: 'duplicate' | 'in_progress' | 'refuse' };
+
+/** Claim the reminder row before any text. 23505 means another caller owns it. */
+async function claimArrivalSend(
+  supabase: ArrivalDb,
+  bookingId: string,
+  organizationId: string,
+  staffId: string,
+  recipientPhone: string,
+): Promise<ArrivalClaimResult> {
+  const reminderType = `arrived:${staffId}`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await supabase.from('booking_reminder_log').insert({
+      booking_id: bookingId,
+      organization_id: organizationId,
+      recipient_phone: recipientPhone,
+      reminder_type: reminderType,
+      status: 'pending',
+    }).select('id');
+    const claimId = claimedArrivalRowId(data);
+    const insertError: ArrivalClaimInsert = !error ? 'none' : error.code === '23505' ? 'conflict' : 'failed';
+    if (insertError === 'none') {
+      if (claimId) return { kind: 'send', claimId };
+      console.error(`[send-arrival-sms] claim insert returned no id for booking ${bookingId}`);
+      return { kind: 'refuse' };
+    }
+    if (insertError === 'failed') {
+      console.error(`[send-arrival-sms] claim insert failed for booking ${bookingId}:`, error);
+      return { kind: 'refuse' };
+    }
+
+    const { data: existingRows, error: readErr } = await supabase
+      .from('booking_reminder_log')
+      .select('id, status, created_at')
+      .eq('booking_id', bookingId)
+      .eq('reminder_type', reminderType)
+      .limit(1);
+    if (readErr || !existingRows?.length) {
+      console.error(`[send-arrival-sms] claim read failed for booking ${bookingId}:`, readErr);
+      return { kind: 'refuse' };
+    }
+    const existing = existingRows[0] as { id: string; status: string | null; created_at: string };
+    const row: ArrivalClaimRow = existing.status === 'pending' || existing.status === 'sent'
+      ? existing.status
+      : existing.status
+        ? 'other'
+        : 'none';
+    const created = Date.parse(existing.created_at);
+    const action = nextArrivalClaimAction({
+      insertError: 'conflict',
+      row,
+      pendingAgeMs: Number.isFinite(created) ? Date.now() - created : null,
+    });
+    if (action === 'takeover') {
+      const { data: removed, error: delErr } = await supabase
+        .from('booking_reminder_log')
+        .delete()
+        .eq('id', existing.id)
+        .eq('status', 'pending')
+        .select('id');
+      if (delErr) {
+        console.error(`[send-arrival-sms] stale claim delete failed for booking ${bookingId}:`, delErr);
+        return { kind: 'refuse' };
+      }
+      // The deleted id is the stale claim. The next insert's id is the one
+      // a later release may delete. A null id means the row was no longer pending.
+      if (claimedArrivalRowId(removed) === null) continue;
+    }
+    if (action === 'duplicate' || action === 'in_progress' || action === 'refuse') return { kind: action };
+  }
+  return { kind: 'in_progress' };
+}
+
+async function markArrivalClaimSent(supabase: ArrivalDb, claimId: string, bookingId: string): Promise<boolean> {
+  let attempt = 0;
+  let updateFailed = true;
+  while (updateFailed) {
+    const { data, error } = await supabase
+      .from('booking_reminder_log')
+      .update({ status: 'sent' })
+      .eq('id', claimId)
+      .eq('status', 'pending')
+      .select('id');
+    updateFailed = !!error || !data?.length;
+    const step = nextMarkSentStep(attempt, updateFailed);
+    if (step === 'done') return true;
+    console.error(`[send-arrival-sms] claim mark-sent failed for booking ${bookingId} (attempt ${attempt + 1}):`, error ?? 'no pending row');
+    if (step === 'give_up') {
+      const forced = await supabase
+        .from('booking_reminder_log')
+        .update({ status: 'sent' })
+        .eq('id', claimId)
+        .select('id');
+      if (!forced.error && forced.data?.length) return true;
+      return false;
+    }
+    attempt += 1;
+  }
+  return false;
+}
+
+/** Delete only this caller's pending row. A takeover's new id stays in place. */
+async function releaseArrivalClaim(supabase: ArrivalDb, claimId: string, bookingId: string): Promise<void> {
+  const { error } = await supabase
+    .from('booking_reminder_log')
+    .delete()
+    .eq('id', claimId)
+    .eq('status', 'pending');
+  if (error) console.error(`[send-arrival-sms] claim release failed for booking ${bookingId}:`, error);
+}
+
+/** OpenPhone must fail inside the 90s claim window so a hung request cannot be taken over mid-send. */
+const OPENPHONE_TIMEOUT_MS = 20_000;
+
 const handler = async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
+  let releaseClaim: (() => Promise<void>) | null = null;
+  let textDelivered = false;
+  let supabaseForError: ArrivalDb | null = null;
+  let claimId = '';
+  let bookingId = '';
+  let staffId = '';
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createArrivalClient(supabaseUrl, supabaseServiceKey);
+    supabaseForError = supabase;
 
-    const { bookingId, staffId } = (await req.json()) as ArrivalRequest;
+    const body = (await req.json()) as ArrivalRequest;
+    bookingId = body.bookingId;
+    staffId = body.staffId;
     if (!bookingId || !staffId) {
       return new Response(JSON.stringify({ success: false, error: "Missing required fields" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -55,7 +184,13 @@ const handler = async (req: Request): Promise<Response> => {
     // owner/admin/manager of this org, or the service-role key (timing-safe
     // compare). A membership-only check is not used: cleaners often have no
     // org_memberships row, and that check would reject the person at the job.
-    const auth = await assertAssignedStaffEvent(req, supabase, booking.organization_id, staffId, bookingId);
+    const auth = await assertAssignedStaffEvent(
+      req,
+      supabase as unknown as Parameters<typeof assertAssignedStaffEvent>[1],
+      booking.organization_id,
+      staffId,
+      bookingId,
+    );
     if (!auth.ok) {
       return new Response(JSON.stringify({ success: false, error: auth.error }),
         { status: auth.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -69,31 +204,39 @@ const handler = async (req: Request): Promise<Response> => {
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Dedupe per staff per booking, after auth so a stranger cannot probe it.
-    const reminderType = `arrived:${staffId}`;
-    const { data: existingLog, error: existingLogErr } = await supabase
-      .from('booking_reminder_log')
-      .select('id')
-      .eq('booking_id', bookingId)
-      .eq('reminder_type', reminderType)
-      .limit(1);
-    if (existingLogErr) {
-      console.error(`[send-arrival-sms] dedupe check failed for booking ${bookingId}, refusing to send to avoid a possible duplicate:`, existingLogErr);
-      return new Response(JSON.stringify({ success: false, error: "Could not verify send status, please retry" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    if (existingLog && existingLog.length > 0) {
+    // Claim the log row before any text, after auth so a stranger cannot probe it.
+    // Two callers cannot both win the insert once (booking_id, reminder_type) is unique.
+    const claim = await claimArrivalSend(
+      supabase,
+      bookingId,
+      booking.organization_id,
+      staffId,
+      customer?.phone ?? '',
+    );
+    if (claim.kind === 'duplicate') {
       return new Response(JSON.stringify({
         success: true,
         deduplicated: true,
         message: "Arrival already recorded.",
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    if (claim.kind === 'in_progress') {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Arrival send already in progress",
+      }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (claim.kind !== 'send') {
+      return new Response(JSON.stringify({ success: false, error: "Could not verify send status, please retry" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    claimId = claim.claimId;
+    releaseClaim = () => releaseArrivalClaim(supabase, claimId, bookingId);
 
     const customerName = `${customer?.first_name ?? ''} ${customer?.last_name ?? ''}`.trim() || 'the customer';
     const { data: businessSettings } = await supabase
       .from('business_settings')
-      .select('company_name, company_phone, notification_phone')
+      .select('company_name')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
     const companyName = businessSettings?.company_name || 'Your cleaning service';
@@ -105,19 +248,10 @@ const handler = async (req: Request): Promise<Response> => {
       address: formatFullAddress(booking as any) || 'N/A',
       amountSuffix: '',
     });
-    const office = await notifyOffice(supabase, {
-      organizationId: booking.organization_id,
-      title: copy.bellTitle,
-      message: copy.bellMessage,
-      metadata: { booking_id: bookingId, staff_id: staffId },
-      pushTitle: copy.pushTitle,
-      pushBody: copy.pushBody,
-      pushData: { booking_id: bookingId, kind: copy.kind },
-    });
 
     const { data: smsSettings } = await supabase
       .from('organization_sms_settings')
-      .select('openphone_api_key, openphone_phone_number_id, sms_enabled, notify_admin_arrived, notify_client_arrived')
+      .select('openphone_api_key, openphone_phone_number_id, sms_enabled, notify_client_arrived')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
 
@@ -127,16 +261,10 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     let clientSent = false;
-    let adminSent = false;
+    const openPhoneSends: boolean[] = [];
 
     if (!smsSkippedReason && smsSettings) {
-    /* Personal cell wins. company_phone is often the OpenPhone line, and
-       OpenPhone texting itself never lands on a handset. */
-    const adminPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
-      || businessSettings?.company_phone;
-
     const notifyClient = (smsSettings as any).notify_client_arrived !== false;
-    const notifyAdmin = (smsSettings as any).notify_admin_arrived !== false;
 
     const formatPhoneNumber = (phone: string): string => {
       let f = phone.replace(/\D/g, '');
@@ -153,41 +281,103 @@ const handler = async (req: Request): Promise<Response> => {
     const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
     const sendSms = async (to: string, content: string, label: string) => {
-      const r = await fetch("https://api.openphone.com/v1/messages", {
-        method: "POST",
-        headers: { "Authorization": authHeader, "Content-Type": "application/json" },
-        body: JSON.stringify({ from: phoneNumberId, to: [to], content }),
-      });
-      if (!r.ok) {
-        console.error(`[send-arrival-sms] ${label} SMS failed:`, r.status, await r.text());
-        return false;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), OPENPHONE_TIMEOUT_MS);
+      try {
+        const sent = await sendOpenPhoneMessage({
+          supabase,
+          organizationId: booking.organization_id,
+          to,
+          content,
+          from: phoneNumberId,
+          apiKey: authHeader,
+          tag: `send-arrival-sms:${label}`,
+          fetchImpl: async (input, init) => {
+            const res = await fetch(input, { ...init, signal: ctrl.signal });
+            const body = await res.text();
+            return { ok: res.ok, status: res.status, text: async () => body };
+          },
+        });
+        if (sent.skipped) return "skipped" as const;
+        if (!sent.response.ok) {
+          console.error(`[send-arrival-sms] ${label} SMS failed:`, sent.response.status, await sent.response.text());
+          openPhoneSends.push(false);
+          return "failed" as const;
+        }
+        textDelivered = true;
+        openPhoneSends.push(true);
+        return "sent" as const;
+      } catch (err) {
+        console.error(`[send-arrival-sms] ${label} SMS failed:`, err);
+        openPhoneSends.push(false);
+        return "failed" as const;
+      } finally {
+        clearTimeout(timer);
       }
-      return true;
     };
 
     if (notifyClient && customer?.phone && copy.customerSms) {
       const msg = copy.customerSms;
-      clientSent = await sendSms(formatPhoneNumber(customer.phone), msg, 'customer');
-    }
-
-    if (notifyAdmin && adminPhone) {
-      const msg = copy.adminSms;
-      const phones = parseAlertPhones(adminPhone);
-      const list = phones.length ? phones : [formatPhoneNumber(adminPhone)];
-      adminSent = await sendSms(list[0], msg, 'admin');
-      for (const extra of list.slice(1)) await sendSms(extra, msg, 'admin');
+      const outcome = await sendSms(formatPhoneNumber(customer.phone), msg, 'customer');
+      if (outcome === "sent") clientSent = true;
+      else if (outcome === "skipped" && !smsSkippedReason) {
+        smsSkippedReason = "This number opted out by texting STOP";
+      }
     }
     }
 
-    const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
-      booking_id: bookingId,
-      organization_id: booking.organization_id,
-      recipient_phone: customer?.phone ?? '',
-      reminder_type: reminderType,
-    });
-    if (logInsertErr) {
-      console.error(`[send-arrival-sms] SMS sent but booking_reminder_log insert failed for booking ${bookingId} — dedupe will not catch this next call:`, logInsertErr);
+    // Every OpenPhone call failed. One delivered text stays claimed.
+    if (arrivalOpenPhoneClaim(openPhoneSends) === 'release') {
+      await releaseArrivalClaim(supabase, claimId, bookingId);
+      releaseClaim = null;
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Arrival text failed',
+        clientSent,
+        adminSent: false,
+      }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
+    if (openPhoneSends.some((ok) => !ok)) {
+      console.warn(`[send-arrival-sms] a recipient text failed for booking ${bookingId}; delivered texts will not be retried`);
+    }
+
+    const markedSent = await markArrivalClaimSent(supabase, claimId, bookingId);
+    if (!markedSent && !textDelivered) {
+      await releaseArrivalClaim(supabase, claimId, bookingId);
+      releaseClaim = null;
+      return new Response(JSON.stringify({ success: false, error: 'Could not record the arrival send' }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // A delivered text must not be released, even if the sent write is still failing.
+    releaseClaim = null;
+    if (!markedSent) {
+      console.error(`[send-arrival-sms] claim stayed pending after retries for booking ${bookingId}`);
+    }
+
+    let office: Awaited<ReturnType<typeof notifyOwner>> = {
+      deduped: false,
+      bell: false,
+      push: false,
+      sms: false,
+      email: false,
+      smsSkippedReason: null,
+      emailSkippedReason: null,
+    };
+    try {
+      office = await notifyOwner(
+        { supabase, organizationId: booking.organization_id, bookingId, staffId },
+        "job.arrived",
+        {
+          title: copy.pushTitle,
+          body: copy.adminSms,
+          link: "/dashboard/bookings",
+        },
+      );
+    } catch (ownerErr) {
+      console.error("[send-arrival-sms] owner alert failed:", ownerErr);
+    }
+    const adminSent = office.sms;
 
     logAudit({
       action: AuditActions.SMS_GENERIC,
@@ -210,6 +400,11 @@ const handler = async (req: Request): Promise<Response> => {
       },
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err: unknown) {
+    if (textDelivered && supabaseForError && claimId) {
+      try { await markArrivalClaimSent(supabaseForError, claimId, bookingId); } catch { /* logged inside the retry */ }
+    } else if (releaseClaim && releaseArrivalClaimAfterError(textDelivered)) {
+      try { await releaseClaim(); } catch { /* the response below is the failure */ }
+    }
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[send-arrival-sms] Error:", msg);
     return new Response(JSON.stringify({ success: false, error: msg }),

@@ -8,6 +8,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireOrgAdmin } from "../_shared/requireOrgAdmin.ts";
 import { isServiceRoleRequest, rejectUnauthenticated } from "../_shared/require-caller-org.ts";
 import { isPhoneOptedOut } from "../_shared/marketing-guard.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -209,18 +210,23 @@ const handler = async (req: Request): Promise<Response> => {
         }
         toPhone = '+' + toPhone;
 
-        const response = await fetch('https://api.openphone.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Authorization': authHeader,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: smsSettings.openphone_phone_number_id,
-            to: [toPhone],
-            content: personalizedMessage,
-          }),
+        const sent = await sendOpenPhoneMessage({
+          supabase,
+          organizationId,
+          to: toPhone,
+          content: personalizedMessage,
+          from: smsSettings.openphone_phone_number_id,
+          apiKey: authHeader,
+          tag: "followup-abandoned-booking",
         });
+        if (sent.skipped) {
+          console.info(
+            `[followup-abandoned-booking] Skipping STOP opt-out | org:${organizationId} phone:${booking.phone}`,
+          );
+          skippedOptedOut++;
+          continue;
+        }
+        const response = sent.response;
 
         if (response.ok) {
           sentCount++;

@@ -264,6 +264,12 @@ verify_jwt = true
   [functions.create-subscription]
     verify_jwt = false
 
+  # Read-only charge preview. Same auth as create-subscription so a logged-in
+  # trial and an anonymous visitor hit the same gates. It must not create a
+  # Checkout Session.
+  [functions.preview-subscription-charge]
+    verify_jwt = false
+
   [functions.buy-lifetime]
     verify_jwt = false
 

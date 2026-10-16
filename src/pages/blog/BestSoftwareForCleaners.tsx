@@ -65,24 +65,24 @@ export default function BestSoftwareForCleaners() {
             <p className="text-muted-foreground">The ideal cleaning business software should offer: online booking, client CRM, team scheduling, automated notifications, invoicing, and reporting. Bonus points for mobile apps, payment processing, and a client portal.</p>
 
             <h2 className="text-2xl font-bold mt-8">1. TidyWise — Best All-in-One Platform</h2>
-            <p className="text-muted-foreground">TidyWise is purpose-built for cleaning businesses with booking, scheduling, CRM, invoicing, SMS/email automation, a staff portal, client portal, and AI-powered business intelligence. Pricing starts at $49/month, and every new account begins with 30 days of Pro, no card.</p>
+            <p className="text-muted-foreground">TidyWise is purpose-built for cleaning businesses. Booking, scheduling, CRM, invoicing, and the staff portal start at $49/month. SMS/email automation, the client portal, and AI-powered business intelligence are on Pro at $97/month. Every new account begins with 30 days of Pro, no card.</p>
             <p className="text-muted-foreground"><strong>Best for:</strong> Growing cleaning businesses that want everything in one place without juggling multiple tools.</p>
 
             <h2 className="text-2xl font-bold mt-8">2. Jobber — Best for Field Service Variety</h2>
-            <p className="text-muted-foreground">Jobber serves many home service industries. It has solid scheduling and invoicing but lacks cleaning-specific features like checklist management and cleaner portals. Starting at $69/month.</p>
+            <p className="text-muted-foreground">Jobber serves many home service industries. It has solid scheduling and invoicing but lacks cleaning-specific features like checklist management and cleaner portals.</p>
 
-            <h2 className="text-2xl font-bold mt-8">3. Booking Koala — Budget-Friendly Option</h2>
+            <h2 className="text-2xl font-bold mt-8">3. Booking Koala</h2>
             <p className="text-muted-foreground">Good for solo cleaners just starting out. Offers basic booking and client management. However, it lacks team management, automation, and advanced reporting.</p>
 
             <h2 className="text-2xl font-bold mt-8">4. Housecall Pro — Best for Larger Teams</h2>
-            <p className="text-muted-foreground">Strong dispatching and GPS tracking for larger operations. Higher price point ($65+/month) and less tailored to residential cleaning workflows.</p>
+            <p className="text-muted-foreground">Strong dispatching and GPS tracking for larger operations. Less tailored to residential cleaning workflows.</p>
 
             <h2 className="text-2xl font-bold mt-8">How to Choose the Right Tool</h2>
             <p className="text-muted-foreground">Consider your team size, budget, and growth plans. Solo operators may start with simpler tools, but if you plan to scale, choose software that grows with you. Features like automated reminders, recurring booking, and a client portal will save you hours every week.</p>
 
             <div className="bg-primary/5 rounded-xl p-6 mt-8 border border-primary/20">
-              <h3 className="text-xl font-bold text-foreground mb-2">Try TidyWise — Plans from $49/mo</h3>
-              <p className="text-muted-foreground mb-4">All-in-one cleaning business software with booking, CRM, scheduling, invoicing, and automation. Cancel any time.</p>
+              <h3 className="text-xl font-bold text-foreground mb-2">Try TidyWise — Basic from $49/mo</h3>
+              <p className="text-muted-foreground mb-4">Booking, CRM, scheduling, and invoicing from $49/mo. Automation is on Pro at $97/mo. Cancel any time.</p>
               <Button asChild>
                 <Link to="/signup">Get started <ArrowRight className="ml-2 h-4 w-4" /></Link>
               </Button>

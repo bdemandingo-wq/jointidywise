@@ -5,6 +5,8 @@ import { NOTIFICATION_TYPES } from '@/lib/notificationCatalog';
 import {
   CUSTOMER_NOTIFICATION_TOGGLES,
   OWNER_NOTIFICATION_GROUPS,
+  OWNER_TEXT_EVENTS,
+  ownerTextMeEnabled,
   briefsVisual,
   groupVisual,
   matrixPatchForGroupToggle,
@@ -85,6 +87,18 @@ export default function NotificationSettingsPreview() {
             }}
             onMaster={onMaster}
             pushDetail={<p className="text-xs text-muted-foreground">This phone is registered for push.</p>}
+            installBanner="Install the TidyWise iPhone app to get alerts as push notifications. Until then, we'll email them."
+            ownerTexts={OWNER_TEXT_EVENTS.map((event) => ({
+              id: event.key,
+              label: `Also text me — ${event.label}`,
+              description: 'A text to your alert numbers, in addition to the push and the bell.',
+              checked: ownerTextMeEnabled(event.key, matrix, channels),
+            }))}
+            onOwnerText={(id, value) => {
+              setMatrix((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), sms: value } }));
+              if (value) setChannels((prev) => ({ ...prev, ...ownerDeliveryPatch('sms', true) }));
+              toast.success('Saved', { id: 'notification-prefs-saved' });
+            }}
             groups={groups}
             onGroup={onGroup}
             customers={CUSTOMER_NOTIFICATION_TOGGLES.map((toggle) => ({

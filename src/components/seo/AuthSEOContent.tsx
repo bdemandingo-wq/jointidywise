@@ -7,6 +7,7 @@
 
 import { Link } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
+import { LIFETIME_SPOT_CAP } from '@/lib/publicPlans';
 
 type Variant = 'login' | 'signup' | 'portal' | 'staff';
 
@@ -22,7 +23,7 @@ const COPY: Record<Variant, { heading: string; intro: string; role: string }> = 
   login: {
     heading: 'Sign in to TidyWise',
     intro:
-      'Welcome back to TidyWise — the all-in-one cleaning business software trusted by independent cleaners and growing maid services across the country. Sign in to manage your bookings, dispatch your team, send invoices, and keep your operations running smoothly from one dashboard.',
+      'Welcome back to TidyWise — the all-in-one cleaning business software built for independent cleaners and growing maid services. Sign in to manage your bookings, dispatch your team, send invoices, and keep your operations running smoothly from one dashboard.',
     role: 'business owner',
   },
   signup: {
@@ -109,7 +110,7 @@ export function AuthSEOContent({ variant = 'login', heading, headingLevel = 'h1'
         </li>
       </ul>
 
-      <h2 className="text-lg font-semibold text-foreground">Trusted by cleaning companies</h2>
+      <h2 className="text-lg font-semibold text-foreground">Built for cleaning companies</h2>
       <p>
         TidyWise is built by operators who understand the realities of running a
         cleaning business — last-minute reschedules, no-shows, tip handling, and the
@@ -147,7 +148,7 @@ export function AuthSEOContent({ variant = 'login', heading, headingLevel = 'h1'
         <div>
           <h3 className="font-semibold text-foreground">How much does TidyWise cost?</h3>
           <p>
-            Plans start at $49/mo (Basic), with Pro at $97/mo and Custom at $197/mo. A founding $300 one-time Lifetime spot is available for the first 50 customers. Yearly billing includes 2 months free. See{' '}
+            Plans start at $49/mo (Basic), with Pro at $97/mo and Custom at $197/mo. A founding $300 one-time Lifetime spot is available for the first {LIFETIME_SPOT_CAP} customers. Yearly billing includes 2 months free. See{' '}
             <Link to="/pricing" className="text-primary hover:underline">
               pricing
             </Link>{' '}

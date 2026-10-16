@@ -1,3 +1,6 @@
+import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendOpenPhoneMessage } from "./send-sms.ts";
+
 /**
  * business_settings.notification_phone may hold several numbers separated by
  * commas, semicolons or new lines. Returns unique E.164 numbers (US default).
@@ -16,16 +19,28 @@ export function parseAlertPhones(raw: string | null | undefined): string[] {
 
 /** Send the same text to extra alert numbers (best effort, logged). */
 export async function sendToExtraAlertPhones(
-  phones: string[], from: string, authHeader: string, content: string, tag: string,
+  phones: string[],
+  from: string,
+  authHeader: string,
+  content: string,
+  tag: string,
+  scope: { supabase: SupabaseClient; organizationId: string },
 ): Promise<void> {
   for (const to of phones) {
     try {
-      const r = await fetch("https://api.openphone.com/v1/messages", {
-        method: "POST",
-        headers: { "Authorization": authHeader, "Content-Type": "application/json" },
-        body: JSON.stringify({ from, to: [to], content }),
+      const sent = await sendOpenPhoneMessage({
+        supabase: scope.supabase,
+        organizationId: scope.organizationId,
+        to,
+        content,
+        from,
+        apiKey: authHeader,
+        tag,
       });
-      if (!r.ok) console.error(`[${tag}] extra alert SMS to ${to} failed:`, r.status, await r.text());
+      if (sent.skipped) continue;
+      if (!sent.response.ok) {
+        console.error(`[${tag}] extra alert SMS to ${to} failed:`, sent.response.status, await sent.response.text());
+      }
     } catch (e) {
       console.error(`[${tag}] extra alert SMS to ${to} threw:`, e);
     }
