@@ -28,7 +28,7 @@ import {
 } from "@/lib/startSubscriptionCheckout";
 import { CustomPriceMissing, isCustomPriceMissing } from "@/lib/priceNotConfigured";
 import { renewalDisclosure, trialFirstChargeLine } from "@/lib/planBillingCopy";
-import { hasChangeableStripeSubscription } from "@/lib/stripeMode";
+import { isActiveOrgTrial } from "@/lib/stripeMode";
 import { useAuth } from "@/hooks/useAuth";
 import { useOrgTimezone } from "@/hooks/useOrgTimezone";
 
@@ -198,12 +198,11 @@ export function UpgradePlanDialog({
 
   if (!targetPlan) return null;
 
-  const trialEndIso = subscription?.trial_end ?? null;
-  const trialLine = !hasChangeableStripeSubscription(subscription)
+  const onTrial = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
+  const trialLine = onTrial
     ? trialFirstChargeLine({
-        trialEndIso,
+        trialEndIso: subscription?.trial_end,
         timeZone: orgTimezone,
-        price: targetPlan.monthlyPrice,
       })
     : null;
 
@@ -308,7 +307,7 @@ export function UpgradePlanDialog({
         </DialogFooter>
         <div className="space-y-1 text-center">
           {trialLine && (
-            <p className="text-xs text-muted-foreground">{trialLine}</p>
+            <p className="whitespace-nowrap text-xs text-muted-foreground">{trialLine}</p>
           )}
           <p className="text-xs text-muted-foreground">
             {renewalDisclosure(targetPlan.monthlyPrice)}

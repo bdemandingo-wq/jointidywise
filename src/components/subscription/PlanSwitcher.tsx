@@ -41,7 +41,6 @@ import {
   planChoicesFooter,
   renewalDisclosure,
   showPlanChoices,
-  trialChargesOnSelection,
   trialFirstChargeLine,
 } from "@/lib/planBillingCopy";
 
@@ -196,17 +195,10 @@ export function PlanSwitcher() {
   const canChangePlan = hasChangeableStripeSubscription(subscription);
   const choosingFirstPlan = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
   // trial_end is the stored profile/org trial end returned by check-subscription.
-  const trialEndIso = subscription?.trial_end ?? null;
-  const selectingFirstPaidPlan = planChoicesVisible && !canChangePlan;
-  const nowMs = Date.now();
-  const chargeToday = selectingFirstPaidPlan && trialChargesOnSelection(trialEndIso, nowMs);
-  const trialDateLine = selectingFirstPaidPlan && !chargeToday
+  const trialDateLine = choosingFirstPlan && planChoicesVisible
     ? trialFirstChargeLine({
-        trialEndIso,
+        trialEndIso: subscription?.trial_end,
         timeZone: orgTimezone,
-        // The date sentence does not include a price. Per-plan "today" copy is under each button.
-        price: 1,
-        nowMs,
       })
     : null;
 
@@ -275,7 +267,7 @@ export function PlanSwitcher() {
             )}
           </p>
           {trialDateLine && (
-            <p className="mt-1 text-sm text-muted-foreground">{trialDateLine}</p>
+            <p className="mt-1 whitespace-nowrap text-xs text-muted-foreground">{trialDateLine}</p>
           )}
           {lifetimeSpots && (
             <p className="mt-1 text-sm text-muted-foreground">
@@ -473,16 +465,6 @@ export function PlanSwitcher() {
               {downgradeNote && (
                 <p className="mt-2 text-center text-xs text-muted-foreground">
                   {DOWNGRADE_EFFECT_NOTE}
-                </p>
-              )}
-              {chargeToday && showRenewal && planBillingAction(plan.id) === "checkout" && plan.monthlyPrice > 0 && (
-                <p className="mt-2 text-center text-xs text-muted-foreground">
-                  {trialFirstChargeLine({
-                    trialEndIso,
-                    timeZone: orgTimezone,
-                    price: plan.monthlyPrice,
-                    nowMs,
-                  })}
                 </p>
               )}
               {showRenewal && plan.monthlyPrice > 0 && (

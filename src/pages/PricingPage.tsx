@@ -37,7 +37,7 @@ import {
 } from 'lucide-react';
 
 import { LIFETIME_FEATURES, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
-import { hasChangeableStripeSubscription } from '@/lib/stripeMode';
+import { isActiveOrgTrial } from '@/lib/stripeMode';
 import { renewalDisclosure, trialFirstChargeLine } from '@/lib/planBillingCopy';
 import { formatLoyaltyDollars, LOYALTY_PRICING, pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
 
@@ -162,10 +162,13 @@ export default function PricingPage() {
   const navigate = useNavigate();
   const { user, subscription } = useAuth();
   const { timezone: orgTimezone } = useOrgTimezone();
-  const trialEndIso = subscription?.trial_end ?? null;
-  const showTrialCharge = !!subscription
-    && !hasChangeableStripeSubscription(subscription)
-    && !!trialEndIso;
+  const onTrial = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
+  const trialDateLine = onTrial
+    ? trialFirstChargeLine({
+        trialEndIso: subscription?.trial_end,
+        timeZone: orgTimezone,
+      })
+    : null;
   const { organization } = useOrganization();
   const [searchParams, setSearchParams] = useSearchParams();
   // billingInterval / setBillingInterval — NOT named "setInterval" so it
@@ -568,6 +571,11 @@ export default function PricingPage() {
         </section>
 
         <section className="max-w-7xl mx-auto px-4 pb-12">
+          {trialDateLine && (
+            <p className="mb-6 whitespace-nowrap text-center text-xs text-muted-foreground">
+              {trialDateLine}
+            </p>
+          )}
           <div
             role="list"
             aria-label="Subscription plans"
@@ -576,13 +584,6 @@ export default function PricingPage() {
             {TIERS.map((tier) => {
               const price = priceFor(tier, billingInterval);
               const chargePrice = billingInterval === 'yearly' ? tier.yearlyPrice : tier.monthlyPrice;
-              const trialLine = showTrialCharge
-                ? trialFirstChargeLine({
-                    trialEndIso,
-                    timeZone: orgTimezone,
-                    price: chargePrice,
-                  })
-                : null;
               const isHighlighted = highlightedPlan === tier.id;
               const cardLabel = `${tier.name} plan, ${price.display}${price.sub}${tier.highlight ? ', most popular' : ''}${isHighlighted ? ', selected' : ''}`;
               return (
@@ -649,17 +650,12 @@ export default function PricingPage() {
                     )}
                   </Button>
                   <div className="mb-6 space-y-1 text-center">
-                    {trialLine && (
-                      <p className="text-[11px] text-muted-foreground">{trialLine}</p>
-                    )}
                     <p className="text-[11px] text-muted-foreground">
                       {renewalDisclosure(chargePrice, billingInterval)}
                     </p>
-                    {!trialLine && (
-                      <p className="text-[11px] text-muted-foreground">
-                        No card to start. After 30 days of Pro the app asks you to pick a plan.
-                      </p>
-                    )}
+                    <p className="text-[11px] text-muted-foreground">
+                      No card to start. After 30 days of Pro the app asks you to pick a plan.
+                    </p>
                   </div>
 
                   <ul className="space-y-2.5 text-sm">

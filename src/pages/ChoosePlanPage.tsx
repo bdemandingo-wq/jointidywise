@@ -20,7 +20,7 @@ import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
 import { isCustomPriceMissing } from '@/lib/priceNotConfigured';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
-import { hasChangeableStripeSubscription, shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
+import { isActiveOrgTrial, shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
 import { renewalDisclosure, trialFirstChargeLine } from '@/lib/planBillingCopy';
 import {
   hasAnswer,
@@ -140,10 +140,13 @@ export default function ChoosePlanPage() {
   const painPitch = pain ? PAIN_PITCH[pain] : null;
   // One redirect per click — same duplicate-session guard as PricingPage.
   const isRedirectingRef = useRef(false);
-  const trialEndIso = subscription?.trial_end ?? null;
-  const showTrialCharge = !!subscription
-    && !hasChangeableStripeSubscription(subscription)
-    && !!trialEndIso;
+  const onTrial = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
+  const trialDateLine = onTrial
+    ? trialFirstChargeLine({
+        trialEndIso: subscription?.trial_end,
+        timeZone: orgTimezone,
+      })
+    : null;
 
   useEffect(() => {
     const reset = () => {
@@ -363,6 +366,12 @@ export default function ChoosePlanPage() {
           </div>
         </div>
 
+        {trialDateLine && (
+          <p className="mb-6 whitespace-nowrap text-center text-xs text-muted-foreground">
+            {trialDateLine}
+          </p>
+        )}
+
         {/* Tiers */}
         <div className={cn('grid gap-6', showLifetime ? 'md:grid-cols-2 xl:grid-cols-4' : 'md:grid-cols-3')}>
           {TIERS.map((tier) => {
@@ -370,13 +379,6 @@ export default function ChoosePlanPage() {
             const busy = checkoutBusy === tier.id;
             const isRecommended = tier.id === recommendedId;
             const chargePrice = billingInterval === 'yearly' ? tier.yearlyPrice : tier.monthlyPrice;
-            const trialLine = showTrialCharge
-              ? trialFirstChargeLine({
-                  trialEndIso,
-                  timeZone: orgTimezone,
-                  price: chargePrice,
-                })
-              : null;
             return (
               <Card
                 key={tier.id}
@@ -425,14 +427,9 @@ export default function ChoosePlanPage() {
                       <>Choose {tier.name}</>
                     )}
                   </Button>
-                  <div className="space-y-1 text-center">
-                    {trialLine && (
-                      <p className="text-xs text-muted-foreground">{trialLine}</p>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      {renewalDisclosure(chargePrice, billingInterval)}
-                    </p>
-                  </div>
+                  <p className="text-center text-xs text-muted-foreground">
+                    {renewalDisclosure(chargePrice, billingInterval)}
+                  </p>
                 </CardContent>
               </Card>
             );
