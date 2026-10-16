@@ -20,7 +20,6 @@ import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { formatInTimezone } from '@/lib/timezoneUtils';
 import { toast } from 'sonner';
 import { SEOHead } from '@/components/SEOHead';
-import { confirmDialog } from "@/components/AppDialogs";
 import { stepGalleryIndex } from '@/lib/photoGallery';
 import { burnProofStamp, proofOverlayLabel } from '@/lib/photoProofStamp';
 import {
@@ -88,7 +87,11 @@ export default function BookingPhotosPage() {
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<BookingPhoto | null>(null);
   const [downloading, setDownloading] = useState<PhotoDownloadKind | null>(null);
+  // Bumped only when the user dismisses the viewer. An in-flight delete must
+  // not move or reopen the viewer after that, including when the request fails.
+  const viewerCloseToken = useRef(0);
 
   const { photos, isLoading, error: photosError, refetch, complete, hasNextPage, fetchNextPage } = useBookingMediaGallery(organization?.id);
   // Surface query errors so silent RLS/permission failures don't look like "no data"
@@ -131,14 +134,35 @@ export default function BookingPhotosPage() {
     });
   };
 
-  const galleryNav = useGalleryNavigation(viewerIndex >= 0, showDelta, () => setViewerId(null));
+  const closeViewer = () => {
+    viewerCloseToken.current += 1;
+    setPendingDelete(null);
+    setViewerId(null);
+  };
+  // Escape dismisses the confirm first. The X button calls closeViewer and
+  // always leaves, including while a delete is in flight or has just failed.
+  const requestClose = () => {
+    if (pendingDelete) {
+      setPendingDelete(null);
+      return;
+    }
+    closeViewer();
+  };
+  const stepViewer = (delta: number) => {
+    if (pendingDelete) return;
+    showDelta(delta);
+  };
+  const galleryNav = useGalleryNavigation(viewerIndex >= 0, stepViewer, requestClose);
   const visibleIds = filtered.map((photo) => photo.id).join('\n');
   useEffect(() => {
     for (const photo of adjacentMedia(filteredRef.current, viewerIndex, isVideoMedia)) void prefetchMediaOriginal('booking-photos', displayPhotoPath(photo));
   }, [viewerIndex, visibleIds]);
   const timestampOverlay = selectedPhoto ? proofOverlayLabel(selectedPhoto, orgTz) : null;
   useEffect(() => {
-    if (viewerId && !filteredRef.current.some((photo) => photo.id === viewerId)) setViewerId(null);
+    if (viewerId && !filteredRef.current.some((photo) => photo.id === viewerId)) {
+      setPendingDelete(null);
+      setViewerId(null);
+    }
   }, [viewerId, visibleIds]);
 
   // Reclassify a misfiled photo. The stage is stored twice — as this column
@@ -166,8 +190,7 @@ export default function BookingPhotosPage() {
   };
 
   const handleDelete = async (photo: BookingPhoto) => {
-    if (!(await confirmDialog(`Delete this ${isVideoMedia(photo) ? 'video' : 'photo'}? This cannot be undone.`))) return;
-
+    const tokenAtStart = viewerCloseToken.current;
     const queryKey = bookingMediaQueryKey(organization?.id);
     await queryClient.cancelQueries({ queryKey });
     const previous = queryClient.getQueryData(queryKey);
@@ -176,7 +199,10 @@ export default function BookingPhotosPage() {
     queryClient.setQueryData(queryKey, (current) =>
       withoutMediaId(current as MediaGalleryCache<BookingPhoto> | undefined, photo.id),
     );
-    if (viewerId === photo.id) setViewerId(neighbor?.id ?? null);
+    // If the user already hit X, leave the viewer closed. Advancing to the
+    // next photo, or reopening this one after a failed delete, would undo that.
+    const stillOpen = () => viewerCloseToken.current === tokenAtStart;
+    if (stillOpen() && viewerId === photo.id) setViewerId(neighbor?.id ?? null);
 
     setDeletingId(photo.id);
     try {
@@ -198,7 +224,7 @@ export default function BookingPhotosPage() {
       toast.success(`${isVideoMedia(photo) ? 'Video' : 'Photo'} deleted`);
     } catch (error) {
       queryClient.setQueryData(queryKey, previous);
-      setViewerId(previousViewerId);
+      if (stillOpen()) setViewerId(previousViewerId);
       console.error(error);
       toast.error('Failed to delete');
     } finally {
@@ -402,16 +428,20 @@ export default function BookingPhotosPage() {
           )}
         </div>
 
-        <Dialog open={!!selectedPhoto} onOpenChange={(open) => !open && setViewerId(null)}>
+        <Dialog open={!!selectedPhoto} onOpenChange={(open) => { if (!open) closeViewer(); }}>
           <DialogContent
-            className="portal-v2 !fixed !inset-0 !left-0 !top-0 !translate-x-0 !translate-y-0 !w-full !max-w-none !h-dvh !max-h-dvh !rounded-none !border-0 !p-0 !z-[10000] [&>button]:!h-11 [&>button]:!w-11 [&>button]:!top-[max(4px,env(safe-area-inset-top))] [&>button]:!right-2 flex flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]"
+            className="portal-v2 !pointer-events-auto !fixed !inset-0 !left-0 !top-0 !translate-x-0 !translate-y-0 !w-full !max-w-none !h-dvh !max-h-dvh !rounded-none !border-0 !p-0 !z-[10000] [&>button]:!pointer-events-auto [&>button]:!z-[60] [&>button]:!h-11 [&>button]:!w-11 [&>button]:!top-[max(4px,env(safe-area-inset-top))] [&>button]:!right-2 flex flex-col overflow-hidden bg-background"
             onEscapeKeyDown={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              setViewerId(null);
+              if (pendingDelete) {
+                setPendingDelete(null);
+                return;
+              }
+              closeViewer();
             }}
           >
-            <DialogHeader className="px-4 pt-4 pr-14 shrink-0">
+            <DialogHeader className="px-4 pr-14 shrink-0 pt-[calc(env(safe-area-inset-top,0px)+1rem)]">
               <div className="flex items-start justify-between gap-3">
                 <DialogTitle className="flex items-center gap-2 text-left">
                   {selectedPhoto && isVideoMedia(selectedPhoto) ? <Video className="w-5 h-5" /> : <Camera className="w-5 h-5" />}
@@ -440,7 +470,7 @@ export default function BookingPhotosPage() {
                       className="w-full h-full object-contain"
                     />
                   ) : (
-                    <GalleryZoom key={selectedPhoto.id} onStep={showDelta}><SignedImage
+                    <GalleryZoom key={selectedPhoto.id} onStep={stepViewer}><SignedImage
                       src={displayPhotoPath(selectedPhoto)}
                       bucket="booking-photos"
                       alt="Full size"
@@ -519,7 +549,7 @@ export default function BookingPhotosPage() {
                     <span>Uploaded: {selectedPhoto.created_at ? formatInTimezone(selectedPhoto.created_at, orgTz, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' }) : '—'}</span>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-3 shrink-0">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] shrink-0">
                   <div className="flex flex-wrap items-center gap-2">
                     {!isVideoMedia(selectedPhoto) && (
                       <Button
@@ -569,12 +599,56 @@ export default function BookingPhotosPage() {
                     variant="destructive"
                     size="sm"
                     className="gap-2"
-                    onClick={() => handleDelete(selectedPhoto)}
+                    onClick={() => setPendingDelete(selectedPhoto)}
                     disabled={deletingId === selectedPhoto.id}
                   >
                     {deletingId === selectedPhoto.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                     Delete
                   </Button>
+                </div>
+              </div>
+            )}
+            {pendingDelete && (
+              <div
+                className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-black/60 p-4"
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="booking-photo-delete-title"
+                aria-describedby="booking-photo-delete-desc"
+                onClick={() => setPendingDelete(null)}
+              >
+                {/* In-viewer on purpose. confirmDialog() mounts a second Radix
+                    alert at z-50, behind this z-[10000] layer. Radix then sets
+                    pointer-events: none on the viewer, the confirm is invisible,
+                    and the X button stops receiving taps. */}
+                <div
+                  className="w-full max-w-sm rounded-lg border bg-background p-4 shadow-lg"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <h2 id="booking-photo-delete-title" className="text-lg font-semibold">
+                    Delete this {isVideoMedia(pendingDelete) ? 'video' : 'photo'}?
+                  </h2>
+                  <p id="booking-photo-delete-desc" className="mt-2 text-sm text-muted-foreground">
+                    This cannot be undone.
+                  </p>
+                  <div className="mt-4 flex gap-2">
+                    <Button type="button" variant="outline" className="flex-1" onClick={() => setPendingDelete(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      className="flex-1"
+                      disabled={deletingId !== null}
+                      onClick={() => {
+                        const photo = pendingDelete;
+                        setPendingDelete(null);
+                        void handleDelete(photo);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </div>
                 </div>
               </div>
             )}
