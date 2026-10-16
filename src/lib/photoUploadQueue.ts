@@ -18,8 +18,17 @@
  * failure does not remove the others, and a successful upload stays visible.
  */
 
-import { isVideoFile } from '@/lib/bookingMediaErrors';
-import { mergeCaptureExif, parseImageExif, parsePluginExif, type CaptureExif } from '@/lib/photoProofStamp';
+import {
+  isHeicFile,
+  isStoredImageType,
+  isVideoFile,
+  PHOTO_DECODE_ERROR,
+  PHOTO_MAX_BYTES,
+  PHOTO_TOO_LARGE_ERROR,
+  VIDEO_MAX_BYTES,
+  VIDEO_TOO_LARGE_ERROR,
+} from './bookingMediaErrors.ts';
+import { mergeCaptureExif, parseImageExif, parsePluginExif, type CaptureExif } from './photoProofStamp.ts';
 
 export const MAX_UPLOAD_ATTEMPTS = 5;
 export const PHOTO_QUEUE_DB = 'tidywise-photo-queue';
@@ -48,6 +57,11 @@ export interface PhotoQueueItem {
   error?: string;
   nextAttemptAt: number;
   remotePath?: string;
+  /**
+   * Set once a photo has been compressed, or immediately for a video.
+   * Until then the original file is stored and not decoded.
+   */
+  prepared?: boolean;
   /** Session-only. Never written to IndexedDB or localStorage. */
   previewUrl?: string;
 }
@@ -73,7 +87,8 @@ export function isRetryableUploadError(error: unknown): boolean {
     msg.includes('bucket') || msg.includes('mime') || msg.includes('not supported') ||
     msg.includes('payload') || msg.includes('too large') || msg.includes('photo must') ||
     msg.includes('video must') || msg.includes('only jpg') || msg.includes('booking') ||
-    msg.includes('uuid') || msg.includes('missing an organization')
+    msg.includes('uuid') || msg.includes('missing an organization') ||
+    msg.includes("couldn't read") || msg.includes('could not read')
   ) {
     return false;
   }
@@ -179,42 +194,73 @@ export function withoutSessionFields(item: PhotoQueueItem): PhotoQueueItem {
   return rest;
 }
 
-const MAX_EDGE = 1920;
+export const PHOTO_MAX_EDGE = 1600;
 const JPEG_QUALITY = 0.8;
 
+/** Longest edge after the upload shrink. */
+export function fittedPhotoSize(width: number, height: number, maxEdge = PHOTO_MAX_EDGE): { width: number; height: number } {
+  const longest = Math.max(width, height);
+  const scale = longest > 0 ? Math.min(1, maxEdge / longest) : 1;
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+function releaseCanvas(canvas: HTMLCanvasElement | null) {
+  if (!canvas) return;
+  canvas.width = 0;
+  canvas.height = 0;
+}
+
 /**
- * Shrink a photo before it is stored or uploaded. A full iPhone frame plus
- * the proof-stamp canvas is enough to get the webview killed on a job site.
- * Videos are unchanged. If the browser cannot decode the file, the original
- * is kept and the upload path reports its own error.
+ * Shrink one photo. Videos are returned unchanged. A HEIC the phone cannot
+ * decode throws — the raw file is not a successful compress.
  */
 export async function compressImageFile(file: File): Promise<File> {
   if (isVideoFile(file)) return file;
-  if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') return file;
-  try {
-    const bitmap = await createImageBitmap(file);
-    try {
-      const longest = Math.max(bitmap.width, bitmap.height);
-      const scale = longest > 0 ? Math.min(1, MAX_EDGE / longest) : 1;
-      const alreadySmall = scale === 1 && file.type === 'image/jpeg' && file.size < 1_500_000;
-      if (alreadySmall) return file;
-      const width = Math.max(1, Math.round(bitmap.width * scale));
-      const height = Math.max(1, Math.round(bitmap.height * scale));
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return file;
-      ctx.drawImage(bitmap, 0, 0, width, height);
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', JPEG_QUALITY));
-      if (!blob) return file;
-      const base = file.name.replace(/\.[^.]+$/, '') || 'photo';
-      return new File([blob], `${base}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
-    } finally {
-      bitmap.close?.();
-    }
-  } catch {
+  const heic = isHeicFile(file);
+  if (typeof createImageBitmap !== 'function' || typeof document === 'undefined') {
+    if (heic) throw new Error(PHOTO_DECODE_ERROR);
     return file;
+  }
+  let bitmap: ImageBitmap | null = null;
+  let canvas: HTMLCanvasElement | null = null;
+  try {
+    bitmap = await createImageBitmap(file);
+    const size = fittedPhotoSize(bitmap.width, bitmap.height);
+    const alreadySmall = size.width === bitmap.width
+      && size.height === bitmap.height
+      && file.type === 'image/jpeg'
+      && file.size < 1_500_000;
+    if (alreadySmall) return file;
+    canvas = document.createElement('canvas');
+    canvas.width = size.width;
+    canvas.height = size.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      if (heic || !isStoredImageType(file.type)) throw new Error(PHOTO_DECODE_ERROR);
+      return file;
+    }
+    ctx.drawImage(bitmap, 0, 0, size.width, size.height);
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas?.toBlob(resolve, 'image/jpeg', JPEG_QUALITY);
+    });
+    if (!blob) {
+      if (heic || !isStoredImageType(file.type)) throw new Error(PHOTO_DECODE_ERROR);
+      return file;
+    }
+    const base = file.name.replace(/\.[^.]+$/, '') || 'photo';
+    return new File([blob], `${base}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
+  } catch (error) {
+    if (error instanceof Error && error.message === PHOTO_DECODE_ERROR) throw error;
+    if (heic || !isStoredImageType(file.type)) throw new Error(PHOTO_DECODE_ERROR);
+    return file;
+  } finally {
+    bitmap?.close?.();
+    bitmap = null;
+    releaseCanvas(canvas);
+    canvas = null;
   }
 }
 
@@ -250,13 +296,22 @@ export function getQueuedBlob(id: string): Blob | null {
   return memory.get(id)?.blob ?? null;
 }
 
+function itemLooksLikeVideo(item: { mimeType: string; fileName: string }): boolean {
+  return isVideoFile({ name: item.fileName, type: item.mimeType });
+}
+
+/** Thumbnails decode the bitmap. Only a prepared photo gets one, and it is revoked when the row finishes. */
+function canPreview(item: PhotoQueueItem): boolean {
+  return item.prepared === true && item.status !== 'done' && !itemLooksLikeVideo(item);
+}
+
 function remember(item: PhotoQueueItem, blob: Blob | null, revokePrevious = false) {
   const prev = memory.get(item.id);
   let previewUrl = item.previewUrl ?? prev?.item.previewUrl;
-  if (item.status === 'done') {
+  if (item.status === 'done' || !canPreview(item)) {
     if (previewUrl?.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
     previewUrl = undefined;
-    blob = null;
+    if (item.status === 'done') blob = null;
   } else if (!previewUrl && blob) {
     previewUrl = URL.createObjectURL(blob);
   } else if (revokePrevious && prev?.item.previewUrl && prev.item.previewUrl !== previewUrl) {
@@ -461,9 +516,9 @@ export interface EnqueueBookingPhotoInput {
 
 export async function enqueueBookingPhoto(input: EnqueueBookingPhotoInput): Promise<PhotoQueueItem> {
   await hydratePhotoQueue();
-  const bytes = new Uint8Array(await input.file.arrayBuffer());
-  const captureExif = mergeCaptureExif(parseImageExif(bytes), parsePluginExif(input.captureExif));
-  const file = await compressImageFile(input.file);
+  const file = input.file;
+  const video = isVideoFile(file);
+  if (video && file.size > VIDEO_MAX_BYTES) throw new Error(VIDEO_TOO_LARGE_ERROR);
   const now = Date.now();
   const item: PhotoQueueItem = {
     id: crypto.randomUUID(),
@@ -472,17 +527,84 @@ export async function enqueueBookingPhoto(input: EnqueueBookingPhotoInput): Prom
     organizationId: input.organizationId,
     photoType: input.photoType,
     fileName: file.name,
-    mimeType: file.type || (isVideoFile(file) ? 'video/quicktime' : 'image/jpeg'),
-    liveCapture: !!input.liveCapture && !isVideoFile(file),
-    captureExif: storedExif(captureExif),
+    mimeType: file.type || (video ? 'video/quicktime' : 'image/jpeg'),
+    liveCapture: !!input.liveCapture && !video,
+    // Camera EXIF is a small object. The file itself is read later, one at a time.
+    captureExif: storedExif(parsePluginExif(input.captureExif)),
     createdAt: now,
     updatedAt: now,
     attempts: 0,
     status: 'pending',
     nextAttemptAt: now,
+    prepared: video,
   };
   await persist(item, file);
   return memory.get(item.id)?.item ?? item;
+}
+
+/**
+ * Decode and compress one queued photo. The runner calls this as it drains,
+ * so a 30-photo selection never decodes more than the photo in hand.
+ */
+export async function prepareQueuedPhoto(id: string): Promise<PhotoQueueItem | null> {
+  const entry = memory.get(id);
+  if (!entry) return null;
+  if (entry.item.status === 'done' || entry.item.status === 'error' || entry.item.prepared === true) {
+    return entry.item;
+  }
+  const blob = entry.blob;
+  if (!blob) {
+    await markUploadFailed(id, new Error('That photo is no longer on this phone. Take it again.'), false);
+    return memory.get(id)?.item ?? null;
+  }
+  if (itemLooksLikeVideo(entry.item)) {
+    if (blob.size > VIDEO_MAX_BYTES) {
+      await markUploadFailed(id, new Error(VIDEO_TOO_LARGE_ERROR), false);
+      return memory.get(id)?.item ?? null;
+    }
+    const next: PhotoQueueItem = { ...entry.item, prepared: true, updatedAt: Date.now() };
+    await persist(next, blob);
+    return memory.get(id)?.item ?? next;
+  }
+
+  const fileName = entry.item.fileName;
+  const mimeType = entry.item.mimeType || blob.type || 'image/jpeg';
+  const file = blob instanceof File ? blob : new File([blob], fileName, { type: mimeType });
+  let parsed: CaptureExif | null = null;
+  {
+    let bytes: Uint8Array | null = new Uint8Array(await file.arrayBuffer());
+    parsed = parseImageExif(bytes);
+    bytes = null;
+  }
+
+  let compressed: File;
+  try {
+    compressed = await compressImageFile(file);
+  } catch (error) {
+    await markUploadFailed(id, error, false);
+    return memory.get(id)?.item ?? null;
+  }
+  if (isHeicFile({ name: compressed.name, type: compressed.type }) || !isStoredImageType(compressed.type)) {
+    await markUploadFailed(id, new Error(PHOTO_DECODE_ERROR), false);
+    return memory.get(id)?.item ?? null;
+  }
+  if (compressed.size > PHOTO_MAX_BYTES) {
+    await markUploadFailed(id, new Error(PHOTO_TOO_LARGE_ERROR), false);
+    return memory.get(id)?.item ?? null;
+  }
+
+  const captureExif = mergeCaptureExif(parsed, reviveCaptureExif(entry.item.captureExif));
+  const next: PhotoQueueItem = {
+    ...entry.item,
+    fileName: compressed.name,
+    mimeType: compressed.type || 'image/jpeg',
+    captureExif: storedExif(captureExif),
+    prepared: true,
+    error: undefined,
+    updatedAt: Date.now(),
+  };
+  await persist(next, compressed);
+  return memory.get(id)?.item ?? next;
 }
 
 export async function markUploadStarted(id: string): Promise<PhotoQueueItem | null> {

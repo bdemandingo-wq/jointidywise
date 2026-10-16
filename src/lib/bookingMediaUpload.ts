@@ -1,7 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { supabase } from '@/lib/supabase';
 import type { Database } from '@/integrations/supabase/types';
-import { isVideoFile, type MediaType } from '@/lib/bookingMediaErrors';
+import { isVideoFile, PHOTO_DECODE_ERROR, type MediaType } from '@/lib/bookingMediaErrors';
 import { stampedSiblingPath } from '@/lib/photoDownload';
 import {
   burnProofStamp,
@@ -91,9 +91,8 @@ const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 /**
  * iPhones hand over HEIC/HEIF (and occasionally an empty type) from the photo
- * library. Storage rejects those outright, which surfaced to cleaners as a
- * bare "upload failed". Re-encode to JPEG in the browser when we can; if the
- * browser cannot decode it, fall through and let storage give its own error.
+ * library. Re-encode to JPEG when the phone can decode it. If it cannot, fail
+ * with a clear message — do not upload the raw HEIC.
  */
 interface ProofColumns {
   captured_at: string;
@@ -150,22 +149,31 @@ function readCaptureGps(): Promise<GeoPoint | null> {
 
 async function normalizeImage(file: File): Promise<File> {
   if (ALLOWED_IMAGE_TYPES.includes(file.type)) return file;
+  let bitmap: ImageBitmap | null = null;
+  let canvas: HTMLCanvasElement | null = null;
   try {
-    const bitmap = await createImageBitmap(file);
-    const canvas = document.createElement('canvas');
+    bitmap = await createImageBitmap(file);
+    canvas = document.createElement('canvas');
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
     const ctx = canvas.getContext('2d');
-    if (!ctx) return file;
+    if (!ctx) throw new Error(PHOTO_DECODE_ERROR);
     ctx.drawImage(bitmap, 0, 0);
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, 'image/jpeg', 0.9),
-    );
-    if (!blob) return file;
-    const base = file.name.replace(/\.[^.]+$/, '');
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas?.toBlob(resolve, 'image/jpeg', 0.9);
+    });
+    if (!blob) throw new Error(PHOTO_DECODE_ERROR);
+    const base = file.name.replace(/\.[^.]+$/, '') || 'photo';
     return new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
-  } catch {
-    return file;
+  } catch (error) {
+    if (error instanceof Error && error.message === PHOTO_DECODE_ERROR) throw error;
+    throw new Error(PHOTO_DECODE_ERROR);
+  } finally {
+    bitmap?.close?.();
+    if (canvas) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
   }
 }
 

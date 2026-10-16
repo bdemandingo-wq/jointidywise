@@ -18,9 +18,8 @@ interface BookingPhotoUploadProps {
   onPhotoUploaded?: (path: string) => void;
 }
 
-const PHOTO_MAX_SIZE = 10 * 1024 * 1024;
 const VIDEO_MAX_SIZE = 100 * 1024 * 1024;
-const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+const ALLOWED_PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/x-m4v'];
 const PICKER_INPUT_CLASS = 'absolute left-0 top-0 h-px w-px opacity-0 pointer-events-none';
 
@@ -45,14 +44,12 @@ function openPicker(input: HTMLInputElement | null) {
 
 function getValidationError(file: File, mediaMode: MediaMode): string | null {
   if (mediaMode === 'photo') {
-    if (!ALLOWED_PHOTO_TYPES.includes(file.type) && !file.name.toLowerCase().endsWith('.heic')) {
+    if (!ALLOWED_PHOTO_TYPES.includes(file.type) && !/\.(heic|heif)$/i.test(file.name)) {
       return 'Only JPG, PNG, WebP and HEIC photos are supported.';
     }
 
-    if (file.size > PHOTO_MAX_SIZE) {
-      return 'Photo must be under 10MB. Please try again with a smaller image.';
-    }
-
+    // Size is checked after the queue compresses the photo. The original
+    // iPhone file is often over 10MB and the JPEG is not.
     return null;
   }
 

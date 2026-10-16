@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { SignedImage } from '@/components/ui/signed-image';
 import { supabase } from '@/lib/supabase';
 import { withStaffCustomers, withStaffCustomer, fetchStaffCustomers } from '@/lib/staffCustomers';
+import { SELECTION_LIMIT_MESSAGE, takeSelection, VIDEO_MAX_BYTES } from '@/lib/bookingMediaErrors';
 import { getUploadErrorMessage, isVideoFile } from '@/lib/bookingMediaUpload';
 import { dismissQueuedPhoto, photoVisibleToOrg } from '@/lib/photoUploadQueue';
 import { usePhotoUploadQueue } from '@/hooks/usePhotoUploadQueue';
@@ -56,9 +57,7 @@ interface PhotoRecord {
   } | null;
 }
 
-const PHOTO_MAX = 10 * 1024 * 1024;
-const VIDEO_MAX = 100 * 1024 * 1024;
-const ALLOWED_PHOTO = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+const ALLOWED_PHOTO = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 const ALLOWED_VIDEO = ['video/mp4', 'video/quicktime', 'video/x-m4v'];
 const PICKER_INPUT_CLASS = 'absolute left-0 top-0 h-px w-px opacity-0 pointer-events-none';
 
@@ -222,10 +221,13 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
       return;
     }
 
-    for (const file of files) {
+    const { accepted, overLimit } = takeSelection(files);
+    if (overLimit) toast.message(SELECTION_LIMIT_MESSAGE);
+
+    for (const file of accepted) {
       const isVideo = isVideoFile(file);
 
-      if (!isVideo && !ALLOWED_PHOTO.includes(file.type) && !file.name.toLowerCase().endsWith('.heic')) {
+      if (!isVideo && !ALLOWED_PHOTO.includes(file.type) && !/\.(heic|heif)$/i.test(file.name)) {
         toast.error(`${file.name}: Only JPG, PNG, WebP, and HEIC photos are supported.`);
         continue;
       }
@@ -235,9 +237,10 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
         continue;
       }
 
-      const maxSize = isVideo ? VIDEO_MAX : PHOTO_MAX;
-      if (file.size > maxSize) {
-        toast.error(`${file.name}: ${isVideo ? 'Video must be under 100MB.' : 'Photo must be under 10MB.'}`);
+      // Photos are measured after compression. A 12MB iPhone original is fine
+      // once it is a ~1MB JPEG. Videos are not compressed, so they keep this cap.
+      if (isVideo && file.size > VIDEO_MAX_BYTES) {
+        toast.error(`${file.name}: Video must be under 100MB.`);
         continue;
       }
 
