@@ -6,6 +6,7 @@ import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
 import { notifyOwner } from "../_shared/owner-alert.ts";
 import { jobEventCopy, shouldSendArrival } from "../_shared/job-event-copy.ts";
+import { nextArrivalClaimAction, type ArrivalClaimInsert, type ArrivalClaimRow } from "../_shared/arrival-claim.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -17,9 +18,85 @@ interface ArrivalRequest {
   staffId: string;
 }
 
+type ArrivalDb = ReturnType<typeof createClient>;
+
+/** Claim the reminder row before any text. 23505 means another caller owns it. */
+async function claimArrivalSend(
+  supabase: ArrivalDb,
+  bookingId: string,
+  organizationId: string,
+  staffId: string,
+  recipientPhone: string,
+): Promise<'send' | 'duplicate' | 'in_progress' | 'refuse'> {
+  const reminderType = `arrived:${staffId}`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { error } = await supabase.from('booking_reminder_log').insert({
+      booking_id: bookingId,
+      organization_id: organizationId,
+      recipient_phone: recipientPhone,
+      reminder_type: reminderType,
+      status: 'pending',
+    });
+    const insertError: ArrivalClaimInsert = !error ? 'none' : error.code === '23505' ? 'conflict' : 'failed';
+    if (insertError === 'none') return 'send';
+    if (insertError === 'failed') {
+      console.error(`[send-arrival-sms] claim insert failed for booking ${bookingId}:`, error);
+      return 'refuse';
+    }
+
+    const { data: existingRows, error: readErr } = await supabase
+      .from('booking_reminder_log')
+      .select('id, status, created_at')
+      .eq('booking_id', bookingId)
+      .eq('reminder_type', reminderType)
+      .limit(1);
+    if (readErr || !existingRows?.length) {
+      console.error(`[send-arrival-sms] claim read failed for booking ${bookingId}:`, readErr);
+      return 'refuse';
+    }
+    const existing = existingRows[0] as { id: string; status: string | null; created_at: string };
+    const row: ArrivalClaimRow = existing.status === 'pending' || existing.status === 'sent'
+      ? existing.status
+      : existing.status
+        ? 'other'
+        : 'none';
+    const created = Date.parse(existing.created_at);
+    const action = nextArrivalClaimAction({
+      insertError: 'conflict',
+      row,
+      pendingAgeMs: Number.isFinite(created) ? Date.now() - created : null,
+    });
+    if (action === 'takeover') {
+      const { error: delErr } = await supabase
+        .from('booking_reminder_log')
+        .delete()
+        .eq('id', existing.id)
+        .eq('status', 'pending');
+      if (delErr) {
+        console.error(`[send-arrival-sms] stale claim delete failed for booking ${bookingId}:`, delErr);
+        return 'refuse';
+      }
+      continue;
+    }
+    if (action === 'duplicate' || action === 'in_progress' || action === 'refuse') return action;
+  }
+  return 'in_progress';
+}
+
+async function releaseArrivalClaim(supabase: ArrivalDb, bookingId: string, staffId: string): Promise<void> {
+  const { error } = await supabase
+    .from('booking_reminder_log')
+    .delete()
+    .eq('booking_id', bookingId)
+    .eq('reminder_type', `arrived:${staffId}`)
+    .eq('status', 'pending');
+  if (error) console.error(`[send-arrival-sms] claim release failed for booking ${bookingId}:`, error);
+}
+
 const handler = async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
+  let releaseClaim: (() => Promise<void>) | null = null;
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -75,26 +152,33 @@ const handler = async (req: Request): Promise<Response> => {
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // Dedupe per staff per booking, after auth so a stranger cannot probe it.
-    const reminderType = `arrived:${staffId}`;
-    const { data: existingLog, error: existingLogErr } = await supabase
-      .from('booking_reminder_log')
-      .select('id')
-      .eq('booking_id', bookingId)
-      .eq('reminder_type', reminderType)
-      .limit(1);
-    if (existingLogErr) {
-      console.error(`[send-arrival-sms] dedupe check failed for booking ${bookingId}, refusing to send to avoid a possible duplicate:`, existingLogErr);
-      return new Response(JSON.stringify({ success: false, error: "Could not verify send status, please retry" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-    if (existingLog && existingLog.length > 0) {
+    // Claim the log row before any text, after auth so a stranger cannot probe it.
+    // Two callers cannot both win the insert once (booking_id, reminder_type) is unique.
+    const claim = await claimArrivalSend(
+      supabase,
+      bookingId,
+      booking.organization_id,
+      staffId,
+      customer?.phone ?? '',
+    );
+    if (claim === 'duplicate') {
       return new Response(JSON.stringify({
         success: true,
         deduplicated: true,
         message: "Arrival already recorded.",
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    if (claim === 'in_progress') {
+      return new Response(JSON.stringify({
+        success: false,
+        error: "Arrival send already in progress",
+      }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (claim === 'refuse') {
+      return new Response(JSON.stringify({ success: false, error: "Could not verify send status, please retry" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    releaseClaim = () => releaseArrivalClaim(supabase, bookingId, staffId);
 
     const customerName = `${customer?.first_name ?? ''} ${customer?.last_name ?? ''}`.trim() || 'the customer';
     const { data: businessSettings } = await supabase
@@ -194,15 +278,17 @@ const handler = async (req: Request): Promise<Response> => {
     }
     const adminSent = office.sms;
 
-    const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
-      booking_id: bookingId,
-      organization_id: booking.organization_id,
-      recipient_phone: customer?.phone ?? '',
-      reminder_type: reminderType,
-    });
-    if (logInsertErr) {
-      console.error(`[send-arrival-sms] SMS sent but booking_reminder_log insert failed for booking ${bookingId} — dedupe will not catch this next call:`, logInsertErr);
+    const { error: markSentErr } = await supabase
+      .from('booking_reminder_log')
+      .update({ status: 'sent' })
+      .eq('booking_id', bookingId)
+      .eq('reminder_type', `arrived:${staffId}`)
+      .eq('status', 'pending');
+    if (markSentErr) {
+      console.error(`[send-arrival-sms] claim mark-sent failed for booking ${bookingId}:`, markSentErr);
     }
+    // The text already went out. Releasing the claim would let a retry send it again.
+    releaseClaim = null;
 
     logAudit({
       action: AuditActions.SMS_GENERIC,
@@ -225,6 +311,9 @@ const handler = async (req: Request): Promise<Response> => {
       },
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err: unknown) {
+    if (releaseClaim) {
+      try { await releaseClaim(); } catch { /* the response below is the failure */ }
+    }
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("[send-arrival-sms] Error:", msg);
     return new Response(JSON.stringify({ success: false, error: msg }),

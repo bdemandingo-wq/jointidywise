@@ -12,8 +12,12 @@ import {
   chooseTripWatch,
   endTripWatch,
   initialTripWatchSession,
+  jsArrivalCheckEnabled,
   locationShareBanner,
   planAlwaysPrompt,
+  recordedAtForLocationWrite,
+  trackingUpdateDisposition,
+  TRIP_HEARTBEAT_MS,
   tripTimedOut,
   tripWatchCommands,
   type TripLocationAuth,
@@ -234,15 +238,38 @@ test('the pause banner stays unless iOS background sharing is active', () => {
   assert.equal(locationShareBanner('android', true), FOREGROUND_LOCATION_SHARE_BANNER);
   assert.equal(locationShareBanner('ios', false), FOREGROUND_LOCATION_SHARE_BANNER);
   assert.match(FOREGROUND_LOCATION_SHARE_BANNER, /Sharing pauses if you leave the app/);
+  assert.match(FOREGROUND_LOCATION_SHARE_BANNER, /until the job starts/);
   assert.match(FOREGROUND_LOCATION_SHARE_BANNER, /customer/);
   assert.equal(/even with the app closed/.test(FOREGROUND_LOCATION_SHARE_BANNER), false);
   assert.equal(locationShareBanner('ios', true), BACKGROUND_LOCATION_SHARE_BANNER);
   assert.equal(/pauses if you leave the app/.test(BACKGROUND_LOCATION_SHARE_BANNER), false);
   assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /customer/);
   assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /while your trip is active, even if your phone is locked/);
+  assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /until the job starts/);
   assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /job ends/);
   assert.match(BACKGROUND_LOCATION_SHARE_BANNER, /3 hours/);
   assert.equal(/even with the app closed/.test(BACKGROUND_LOCATION_SHARE_BANNER), false);
+});
+
+test('a foreground heartbeat stays inside the reaper, and a closed row stops sharing', () => {
+  assert.equal(TRIP_HEARTBEAT_MS, 4 * 60 * 1000);
+  assert.ok(TRIP_HEARTBEAT_MS < 15 * 60 * 1000);
+  assert.equal(jsArrivalCheckEnabled(true), false);
+  assert.equal(jsArrivalCheckEnabled(false), true);
+  assert.equal(trackingUpdateDisposition({ error: true, affectedRows: 0 }), 'failed');
+  assert.equal(trackingUpdateDisposition({ error: false, affectedRows: 0 }), 'closed');
+  assert.equal(trackingUpdateDisposition({ error: false, affectedRows: 1 }), 'ok');
+  assert.equal(trackingUpdateDisposition({ error: false, affectedRows: null }), 'ok');
+  assert.equal(recordedAtForLocationWrite({
+    heartbeat: true,
+    nowIso: '2026-10-16T12:00:00.000Z',
+    fixIso: '2026-10-16T11:00:00.000Z',
+  }), '2026-10-16T12:00:00.000Z');
+  assert.equal(recordedAtForLocationWrite({
+    heartbeat: false,
+    nowIso: '2026-10-16T12:00:00.000Z',
+    fixIso: '2026-10-16T11:00:00.000Z',
+  }), '2026-10-16T11:00:00.000Z');
 });
 
 test('the hook starts background updates on the shared write path and stops them on every stop', () => {
@@ -309,6 +336,21 @@ test('the hook starts background updates on the shared write path and stops them
   assert.match(hook, /stopTrackingRef\.current\('closed'\)/);
   assert.match(hook, /sms === 'failed'/);
   assert.match(hook, /fireArrival\('native'\)/);
+  assert.match(hook, /watcher !== 'stopped'/);
+  assert.match(hook, /jsArrivalCheckEnabled\(nativeArrivalOwnedRef\.current\)/);
+  assert.match(hook, /trackingUpdateDisposition/);
+  assert.match(hook, /\.eq\('is_active', true\)/);
+  assert.match(hook, /\.select\('id'\)/);
+  assert.match(hook, /TRIP_HEARTBEAT_MS/);
+  assert.match(hook, /recordedAtForLocationWrite/);
+  assert.match(hook, /native_background: true/);
+  assert.match(hook, /42703/);
+  assert.match(hook, /PGRST204/);
+  const arrivedBranch = hook.slice(hook.indexOf("reason === 'arrived'"), hook.indexOf("reason === 'closed'"));
+  const failedAt = arrivedBranch.indexOf("sms === 'failed'");
+  const failedReturn = arrivedBranch.indexOf('return;', failedAt);
+  const haltAt = arrivedBranch.indexOf('haltWatchRef');
+  assert.ok(failedAt >= 0 && failedReturn > failedAt && haltAt > failedReturn);
   assert.match(hook, /destinationLat: destCoordsRef\.current\?\.lat/);
   assert.match(hook, /bookingId,/);
   assert.match(hook, /trackingId: trackingIdRef\.current/);
@@ -341,6 +383,26 @@ test('the hook starts background updates on the shared write path and stops them
   assert.match(swift, /wallDeadline: DispatchWallTime\.now\(\)/);
   assert.match(swift, /tripDeadline/);
   assert.match(swift, /Date\(\) >= tripDeadline/);
+  const heartbeat = swift.slice(swift.indexOf('private func sendHeartbeat'), swift.indexOf('private func writeCoordinate'));
+  const deadlineAt = heartbeat.indexOf('tripDeadline');
+  const heartbeatWriteAt = heartbeat.indexOf('writeCoordinate');
+  assert.ok(deadlineAt >= 0 && heartbeatWriteAt > deadlineAt);
+  assert.match(heartbeat, /stopForDeadline\(\)/);
+  assert.match(heartbeat, /heartbeat: true/);
+  const flush = swift.slice(swift.indexOf('private func flushBackgroundFix'), swift.indexOf('private func patchLocation'));
+  assert.match(flush, /flushUsesHeartbeatClock/);
+  assert.match(flush, /heartbeat \? iso8601\(Date\(\)\) : iso8601\(location\.timestamp\)/);
+  assert.match(flush, /heartbeatClock: heartbeat && pending === location/);
+  const nativeArrival = swift.slice(swift.indexOf('private func handleArrival'), swift.indexOf('private func patchArrival'));
+  const sendAt = nativeArrival.indexOf('sendArrivalSms(');
+  const stopAt = nativeArrival.indexOf('stopUpdating()');
+  const patchAt = nativeArrival.indexOf('patchArrival(');
+  assert.ok(sendAt >= 0 && stopAt > sendAt && patchAt > sendAt);
+  assert.equal(nativeArrival.includes('"is_active": false'), false);
+  assert.match(nativeArrival, /watcher: "running"/);
+  assert.match(nativeArrival, /watcher: "stopped"/);
+  assert.match(swift, /parsed\["success"\] as\? Bool/);
+  assert.match(swift, /\(200\.\.<300\)\.contains\(status\) && success/);
   assert.match(swift, /authorizationStatus == \.authorizedAlways/);
   assert.match(swift, /requestAlwaysAuthorization\(\)/);
   assert.match(swift, /startUpdatingLocation\(\)/);

@@ -24,6 +24,10 @@ import {
   chooseTripWatch,
   endTripWatch,
   initialTripWatchSession,
+  jsArrivalCheckEnabled,
+  recordedAtForLocationWrite,
+  trackingUpdateDisposition,
+  TRIP_HEARTBEAT_MS,
   TRIP_MAX_DURATION_MS,
   tripTimedOut,
   type TripStopReason,
@@ -91,6 +95,20 @@ function explainAlwaysLocation(): Promise<boolean> {
 const ARRIVAL_THRESHOLD_METERS = 100;
 const MIN_WRITE_INTERVAL_MS = 8_000; // throttle DB writes to ≤ 1 per 8 s
 
+/** Best-effort. The column arrives with a migration that is not applied by publishing the app. */
+async function markNativeBackgroundHeartbeat(trackingId: string | null) {
+  if (!trackingId) return;
+  const { error } = await supabase
+    .from('cleaner_location_tracking')
+    .update({ native_background: true } as never)
+    .eq('id', trackingId)
+    .eq('is_active', true);
+  if (!error) return;
+  const code = (error as { code?: string }).code;
+  if (code === '42703' || code === 'PGRST204') return;
+  console.warn('[GPS] could not mark native heartbeat', error);
+}
+
 function trackingStartedAtMs(createdAt: unknown): number {
   if (typeof createdAt !== 'string') return Date.now();
   const parsed = Date.parse(createdAt);
@@ -138,6 +156,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   const sessionRef = useRef(initialTripWatchSession());
   const watchModeRef = useRef<TripWatchMode>('foreground');
   const backgroundTokenRef = useRef<number | null>(null);
+  const nativeArrivalOwnedRef = useRef(false);
+  const lastFixRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const tripStartedAtRef = useRef<number | null>(null);
   const tripTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const writePositionRef = useRef<(latitude: number, longitude: number) => Promise<void>>(async () => {});
@@ -200,6 +220,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   // ── arrival check ─────────────────────────────────────────────────────────
 
   const checkArrival = useCallback(async (lat: number, lng: number) => {
+    if (!jsArrivalCheckEnabled(nativeArrivalOwnedRef.current)) return;
     if (arrivedRef.current || !destCoordsRef.current) return;
     const meters = haversineMeters(lat, lng, destCoordsRef.current.lat, destCoordsRef.current.lng);
     if (meters > ARRIVAL_THRESHOLD_METERS) return;
@@ -208,6 +229,37 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   }, [fireArrival]);
 
   // ── write position to DB ──────────────────────────────────────────────────
+
+  const persistFix = useCallback(async (latitude: number, longitude: number) => {
+    const trackingId = trackingIdRef.current;
+    if (!trackingId || arrivedRef.current) return;
+    const startedAt = tripStartedAtRef.current;
+    if (startedAt != null && tripTimedOut(startedAt, Date.now())) {
+      void stopTrackingRef.current('timeout');
+      return;
+    }
+    const recordedAt = recordedAtForLocationWrite({
+      heartbeat: true,
+      nowIso: new Date().toISOString(),
+      fixIso: new Date().toISOString(),
+    });
+    const { data, error } = await supabase
+      .from('cleaner_location_tracking')
+      .update({ latitude, longitude, recorded_at: recordedAt } as any)
+      .eq('id', trackingId)
+      .eq('is_active', true)
+      .select('id');
+    if (error) {
+      console.error('[GPS] position write failed', error);
+      // Consent was revoked. Stop the watch so it does not keep writing.
+      if (error.code === '42501') void stopTrackingRef.current('consent_revoked');
+      return;
+    }
+    const affected = Array.isArray(data) ? data.length : null;
+    if (trackingUpdateDisposition({ error: false, affectedRows: affected }) === 'closed' && !arrivedRef.current) {
+      void stopTrackingRef.current('closed');
+    }
+  }, []);
 
   const writePosition = useCallback(async (latitude: number, longitude: number) => {
     if (arrivedRef.current) return;
@@ -218,28 +270,21 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     }
     if (!trackingIdRef.current) return;
     if (Capacitor.getPlatform() === 'web' && !webShareShouldReadGeolocation(webSharePhaseRef.current)) return;
+    lastFixRef.current = { latitude, longitude };
     // Arrival is not on the 8 second write throttle. A fix inside the
     // geofence stops the trip even when the last coordinate write was recent.
+    // The native watcher sends its own arrival text, so skip the JS check.
     void checkArrival(latitude, longitude);
     const now = Date.now();
     if (now - lastWriteRef.current < MIN_WRITE_INTERVAL_MS) return;
     lastWriteRef.current = now;
-
-    const { error } = await supabase
-      .from('cleaner_location_tracking')
-      .update({ latitude, longitude, recorded_at: new Date().toISOString() } as any)
-      .eq('id', trackingIdRef.current);
-    if (error) {
-      console.error('[GPS] position write failed', error);
-      // Consent was revoked. Stop the watch so it does not keep writing.
-      if (error.code === '42501') void stopTrackingRef.current('consent_revoked');
-      return;
-    }
-  }, [checkArrival]);
+    await persistFix(latitude, longitude);
+  }, [checkArrival, persistFix]);
 
   writePositionRef.current = writePosition;
 
   const releaseBackgroundWatcher = useCallback(async () => {
+    nativeArrivalOwnedRef.current = false;
     const token = backgroundTokenRef.current;
     backgroundTokenRef.current = null;
     if (token == null) return;
@@ -315,6 +360,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     if (!isTracking || Capacitor.getPlatform() === 'web') return;
 
     const checkNow = async () => {
+      if (!jsArrivalCheckEnabled(nativeArrivalOwnedRef.current)) return;
       if (arrivedRef.current) return;
       const startedAt = tripStartedAtRef.current;
       if (startedAt != null && tripTimedOut(startedAt, Date.now())) {
@@ -392,6 +438,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   };
 
   const engageBackgroundWatcher = useCallback(async () => {
+    nativeArrivalOwnedRef.current = true;
     const token = await startTripBackgroundUpdates((latitude, longitude) => {
       void writePositionRef.current(latitude, longitude);
     }, (auth) => {
@@ -406,12 +453,34 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       if (transition.stopBackground) {
         void releaseBackgroundWatcher().finally(() => { void startForegroundWatch(); });
       }
-    }, (reason, sms) => {
+    }, (reason, sms, watcher) => {
       if (reason === 'arrived') {
-        // Native already called send-arrival-sms. Retry from JS only when
-        // that call failed. The function dedupes a second success.
+        // Native calls send-arrival-sms and leaves the watcher running until
+        // that call succeeds. Retry from JS only when it failed. A second
+        // success is claimed by the reminder row. If native had already
+        // stopped (watcher "stopped") and the retry also fails, drop the
+        // JS session so the next On My Way can start. Do not write
+        // arrived_at or close the row on that failure.
         if (sms === 'failed') {
-          void fireArrival('native');
+          void (async () => {
+            const result = await fireArrival('native');
+            const payload = result.data as { success?: boolean } | null;
+            const sendFailed = Boolean(result.error) || payload?.success === false;
+            if (!sendFailed || watcher !== 'stopped') return;
+            // The native watcher is already gone and the text did not send.
+            // Reset this session so another On My Way can start. Leave the
+            // tracking row active: a failed send does not write arrived_at.
+            setBackgroundSharing(false);
+            setIsTracking(false);
+            arrivedRef.current = false;
+            setHasArrived(false);
+            if (wakeLockRef.current) {
+              try { await wakeLockRef.current.release(); } catch { /* already released */ }
+              wakeLockRef.current = null;
+            }
+            clearBrowserWatch();
+            await releaseBackgroundWatcher();
+          })();
           return;
         }
         arrivedRef.current = true;
@@ -434,7 +503,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       staffId,
     });
     backgroundTokenRef.current = token;
-  }, [bookingId, staffId, fireArrival, releaseBackgroundWatcher, startForegroundWatch]);
+    void markNativeBackgroundHeartbeat(trackingIdRef.current);
+  }, [bookingId, staffId, clearBrowserWatch, fireArrival, releaseBackgroundWatcher, startForegroundWatch]);
 
   const startWatch = useCallback(async () => {
     if (watchModeRef.current === 'background') {
@@ -634,6 +704,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
         return { ok: false, reason: 'unavailable' };
       }
       tripStartedAtRef.current = startedAtMs;
+      lastFixRef.current = { latitude, longitude };
       if (tripTimeoutRef.current != null) clearTimeout(tripTimeoutRef.current);
       tripTimeoutRef.current = setTimeout(() => {
         void stopTrackingRef.current('timeout');
@@ -660,6 +731,27 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       return { ok: false, reason: 'unavailable' };
     }
   }, [bookingId, staffId, organizationId, destinationAddress, destinationLat, destinationLng, orgCountry, checkArrival, startWatch, acquireWakeLock, stopTracking]);
+
+  // Stationary foreground trips do not get GPS writes. Refresh recorded_at
+  // so the 15 minute reaper does not close While Using, Android, or web.
+  // Past the 3 hour deadline this stops the trip instead of writing.
+  useEffect(() => {
+    if (!isTracking) return;
+    const id = setInterval(() => {
+      if (arrivedRef.current) return;
+      if (Capacitor.getPlatform() === 'web' && !webShareShouldReadGeolocation(webSharePhaseRef.current)) return;
+      const fix = lastFixRef.current;
+      if (!fix) return;
+      const startedAt = tripStartedAtRef.current;
+      if (startedAt != null && tripTimedOut(startedAt, Date.now())) {
+        void stopTrackingRef.current('timeout');
+        return;
+      }
+      lastWriteRef.current = Date.now();
+      void persistFix(fix.latitude, fix.longitude);
+    }, TRIP_HEARTBEAT_MS);
+    return () => clearInterval(id);
+  }, [isTracking, persistFix]);
 
   // Re-acquire wake lock when app comes back to foreground
   useEffect(() => {

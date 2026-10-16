@@ -90,4 +90,27 @@ test('stale On My Way rows are closed by pg_cron, and the customer point goes st
   assert.match(freshness, /REVOKE ALL ON FUNCTION public\.enforce_cleaner_location_tracking_organization\(\) FROM PUBLIC, anon, authenticated/);
   assert.equal(freshness.includes('GRANT EXECUTE ON FUNCTION public.enforce_cleaner_location_tracking_organization'), false);
   assert.match(freshness, /GRANT EXECUTE ON FUNCTION public\.customer_on_my_way_location\(text\) TO anon, authenticated/);
+
+  const narrowed = read('../../supabase/migrations/20261016220000_stale_location_reaper_native_heartbeat_only.sql');
+  assert.match(narrowed, /native_background boolean NOT NULL DEFAULT false/);
+  assert.match(narrowed, /native_background = true/);
+  assert.match(narrowed, /recorded_at < now\(\) - interval '15 minutes'/);
+  assert.match(narrowed, /created_at < now\(\) - interval '3 hours'/);
+  assert.equal(narrowed.includes("OR recorded_at < now() - interval '15 minutes'"), false);
+  assert.equal(narrowed.includes('GRANT EXECUTE'), false);
+  assert.match(narrowed, /REVOKE ALL ON FUNCTION public\.deactivate_stale_cleaner_locations\(\) FROM authenticated/);
+
+  const claim = read('../../supabase/migrations/20261016220100_booking_reminder_log_arrival_unique.sql');
+  assert.match(claim, /UNIQUE \(booking_id, reminder_type\)/);
+  assert.match(claim, /booking_reminder_log_booking_id_reminder_type_key/);
+  assert.equal(claim.includes('GRANT '), false);
+
+  const arrival = read('../../supabase/functions/send-arrival-sms/index.ts');
+  const claimAt = arrival.indexOf('claimArrivalSend(');
+  const openPhoneAt = arrival.indexOf('api.openphone.com');
+  assert.ok(claimAt !== -1 && openPhoneAt > claimAt);
+  assert.match(arrival, /nextArrivalClaimAction/);
+  assert.match(arrival, /status: 'pending'/);
+  assert.match(arrival, /error\.code === '23505'/);
+  assert.equal(arrival.includes('SMS sent but booking_reminder_log insert failed'), false);
 });

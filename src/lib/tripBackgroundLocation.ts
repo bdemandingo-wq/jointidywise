@@ -46,6 +46,8 @@ interface TripBackgroundLocationPlugin {
 interface TripNativeEvent {
   reason?: string;
   sms?: string;
+  /** "running" when a failed arrival left the watcher up. "stopped" after a successful text. */
+  watcher?: string;
   epoch?: number;
   trackingId?: string;
 }
@@ -55,9 +57,14 @@ const TripBackgroundLocation = registerPlugin<TripBackgroundLocationPlugin>('Tri
 type PositionHandler = (latitude: number, longitude: number) => void;
 type AuthorizationHandler = (auth: TripLocationAuth) => void;
 export type NativeStopReason = 'arrived' | 'closed' | 'timeout';
-type NativeStopHandler = (reason: NativeStopReason, sms?: string) => void;
+type NativeStopHandler = (reason: NativeStopReason, sms?: string, watcher?: string) => void;
 
 let generation = 0;
+// True while this JS context believes the native watcher is running.
+// stopTripBackgroundUpdates clears it. A failed arrival text must not stop
+// the watcher: clearing this flag while the watcher is still running lets a
+// second start overlap it, and leaving it set after the watcher has stopped
+// makes the next On My Way return without starting location.
 let started = false;
 let acceptedEpoch: number | null = null;
 let activeTrackingId: string | null = null;
@@ -207,11 +214,11 @@ export async function startTripBackgroundUpdates(
     });
     timeoutListener = await TripBackgroundLocation.addListener('timeout', (event) => {
       if (!acceptsNativeEvent(event)) return;
-      nativeStopHandler?.(nativeStopReason(event?.reason, 'timeout'), event?.sms);
+      nativeStopHandler?.(nativeStopReason(event?.reason, 'timeout'), event?.sms, event?.watcher);
     });
     arrivalListener = await TripBackgroundLocation.addListener('arrival', (event) => {
       if (!acceptsNativeEvent(event)) return;
-      nativeStopHandler?.('arrived', event?.sms);
+      nativeStopHandler?.('arrived', event?.sms, event?.watcher);
     });
     started = true;
   } catch (err) {

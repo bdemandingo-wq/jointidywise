@@ -19,10 +19,53 @@ export const ALWAYS_LOCATION_EXPLAINER_BODY =
   "To keep your customer updated, TidyWise can share your location during On My Way even if the app is closed or your phone is locked. It only runs during a trip and stops when you arrive, the job starts, the job ends, or after 3 hours. You'll see a blue location indicator while it's on.";
 
 export const FOREGROUND_LOCATION_SHARE_BANNER =
-  'Sharing your location with your company admins and the customer while this screen is open. Sharing pauses if you leave the app.';
+  'Sharing your location with your company admins and the customer while this screen is open, until the job starts. Sharing pauses if you leave the app.';
 
 export const BACKGROUND_LOCATION_SHARE_BANNER =
-  'Sharing your location with your company admins and the customer while your trip is active, even if your phone is locked, until you arrive, the job ends, or after 3 hours.';
+  'Sharing your location with your company admins and the customer while your trip is active, even if your phone is locked, until the job starts. Sharing also stops when you arrive, the job ends, or after 3 hours.';
+
+/**
+ * Foreground trips have no locked-phone heartbeat. While the screen can
+ * run JavaScript, rewrite recorded_at on this interval so the 15 minute
+ * reaper does not close a stationary While Using, Android, or web trip.
+ * Same spacing as the native heartbeat, inside that window.
+ */
+export const TRIP_HEARTBEAT_MS = 4 * 60 * 1000;
+
+/**
+ * The iOS Always watcher sends the arrival text itself. A JS geofence
+ * check at the same time sends a second text.
+ */
+export function jsArrivalCheckEnabled(nativeWatcherActive: boolean): boolean {
+  return !nativeWatcherActive;
+}
+
+/**
+ * A position write that updates no active row means the trip was closed.
+ * Sharing on screen has to stop. A failed request is not a closed trip,
+ * and an unknown row count is not one either.
+ */
+export function trackingUpdateDisposition(input: {
+  error: boolean;
+  affectedRows: number | null;
+}): 'ok' | 'closed' | 'failed' {
+  if (input.error) return 'failed';
+  if (input.affectedRows === 0) return 'closed';
+  return 'ok';
+}
+
+/**
+ * Heartbeats stamp the time of the write. A retried parked fix must not
+ * reuse the GPS timestamp, or the reaper sees a stale recorded_at.
+ * Movement writes keep the fix time.
+ */
+export function recordedAtForLocationWrite(input: {
+  heartbeat: boolean;
+  nowIso: string;
+  fixIso: string;
+}): string {
+  return input.heartbeat ? input.nowIso : input.fixIso;
+}
 
 export type TripPlatform = 'ios' | 'android' | 'web';
 

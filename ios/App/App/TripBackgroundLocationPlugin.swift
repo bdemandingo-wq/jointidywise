@@ -59,7 +59,14 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
     private var heartbeatTimer: DispatchWorkItem?
     /// Inside the 3–5 minute window, and under the 15 minute stale reaper.
     private let heartbeatInterval: TimeInterval = 4 * 60
+    /// Set when the next locked-phone flush is a heartbeat retry. The flush
+    /// then stamps recorded_at with the current time, not the GPS fix time.
+    private var flushUsesHeartbeatClock = false
     private let arrivalRadius: CLLocationDistance = 100
+    private var arrivalInFlight = false
+    /// After a failed arrival text, wait before the next native try.
+    private var arrivalRetryNotBefore: Date?
+    private let arrivalRetryDelay: TimeInterval = 45
 
     @objc func checkAuthorization(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -236,6 +243,9 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         nativeWriteTimer = nil
         heartbeatTimer?.cancel()
         heartbeatTimer = nil
+        flushUsesHeartbeatClock = false
+        arrivalInFlight = false
+        arrivalRetryNotBefore = nil
         latestBackgroundFix = nil
         lastKnownFix = nil
         destination = nil
@@ -375,8 +385,9 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         return location.distance(from: destination) <= arrivalRadius
     }
 
-    private func noteBackgroundFix(_ location: CLLocation) {
+    private func noteBackgroundFix(_ location: CLLocation, heartbeatClock: Bool = false) {
         latestBackgroundFix = location
+        flushUsesHeartbeatClock = heartbeatClock
         if nativeWriteInFlight { return }
         let elapsed = Date().timeIntervalSince(lastNativeWriteAt)
         if elapsed >= writeInterval {
@@ -401,7 +412,12 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         lastNativeWriteAt = Date()
         nativeWriteInFlight = true
         let epoch = writeEpoch
-        let recordedAt = iso8601(location.timestamp)
+        let heartbeat = flushUsesHeartbeatClock
+        // A heartbeat retry must stamp now. The GPS fix time is minutes old
+        // by the time the token or the PATCH is retried, and the reaper
+        // would close a trip that is still parked and active.
+        let recordedAt = heartbeat ? iso8601(Date()) : iso8601(location.timestamp)
+        flushUsesHeartbeatClock = false
         accessToken(url: url, anonKey: anon) { [weak self] token in
             guard let self else { return }
             guard let token else {
@@ -410,7 +426,7 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
                     self.nativeWriteInFlight = false
                     if self.latestBackgroundFix == nil { self.latestBackgroundFix = location }
                     if let pending = self.latestBackgroundFix {
-                        self.noteBackgroundFix(pending)
+                        self.noteBackgroundFix(pending, heartbeatClock: heartbeat && pending === location)
                     }
                 }
                 return
@@ -424,7 +440,8 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
                 longitude: location.coordinate.longitude,
                 recordedAt: recordedAt,
                 allowRefresh: true,
-                epoch: epoch
+                epoch: epoch,
+                heartbeat: heartbeat
             )
         }
     }
@@ -438,10 +455,12 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         longitude: Double,
         recordedAt: String,
         allowRefresh: Bool,
-        epoch: Int
+        epoch: Int,
+        heartbeat: Bool = false
     ) {
+        let stampedAt = heartbeat ? iso8601(Date()) : recordedAt
         guard let endpoint = URL(string: "\(url)/rest/v1/cleaner_location_tracking?id=eq.\(rowId)&is_active=eq.true") else {
-            DispatchQueue.main.async { [weak self] in self?.finishNativeWrite(epoch: epoch) }
+            DispatchQueue.main.async { [weak self] in self?.finishNativeWrite(epoch: epoch, heartbeat: heartbeat) }
             return
         }
         var request = URLRequest(url: endpoint)
@@ -453,7 +472,7 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         request.httpBody = try? JSONSerialization.data(withJSONObject: [
             "latitude": latitude,
             "longitude": longitude,
-            "recorded_at": recordedAt,
+            "recorded_at": stampedAt,
         ])
         URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             guard let self else { return }
@@ -461,7 +480,7 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
             if status == 401 && allowRefresh {
                 self.accessToken(url: url, anonKey: anonKey, forceRefresh: true) { refreshed in
                     guard let refreshed else {
-                        DispatchQueue.main.async { self.finishNativeWrite(epoch: epoch, retry: true) }
+                        DispatchQueue.main.async { self.finishNativeWrite(epoch: epoch, retry: true, heartbeat: heartbeat) }
                         return
                     }
                     self.patchLocation(
@@ -471,9 +490,10 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
                         rowId: rowId,
                         latitude: latitude,
                         longitude: longitude,
-                        recordedAt: recordedAt,
+                        recordedAt: heartbeat ? self.iso8601(Date()) : recordedAt,
                         allowRefresh: false,
-                        epoch: epoch
+                        epoch: epoch,
+                        heartbeat: heartbeat
                     )
                 }
                 return
@@ -493,20 +513,21 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
                     self.notifyListeners("timeout", data: fields, retainUntilConsumed: true)
                     return
                 }
-                self.finishNativeWrite(epoch: epoch, retry: failed)
+                self.finishNativeWrite(epoch: epoch, retry: failed, heartbeat: heartbeat)
             }
         }.resume()
     }
 
-    private func finishNativeWrite(epoch: Int, retry: Bool = false) {
+    private func finishNativeWrite(epoch: Int, retry: Bool = false, heartbeat: Bool = false) {
         guard epoch == writeEpoch else { return }
         nativeWriteInFlight = false
         if !updating { return }
-        if retry, latestBackgroundFix == nil {
-            latestBackgroundFix = lastSentFix
+        if let pending = latestBackgroundFix {
+            noteBackgroundFix(pending, heartbeatClock: false)
+            return
         }
-        if latestBackgroundFix != nil {
-            noteBackgroundFix(latestBackgroundFix!)
+        if retry, let lastSentFix {
+            noteBackgroundFix(lastSentFix, heartbeatClock: heartbeat)
         }
     }
 
@@ -635,15 +656,19 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
 
     private func sendHeartbeat() {
         guard updating else { return }
+        if let tripDeadline, Date() >= tripDeadline {
+            stopForDeadline()
+            return
+        }
         if !nativeWriteInFlight, let location = lastKnownFix {
-            writeCoordinate(location, recordedAt: iso8601(Date()))
+            writeCoordinate(location, recordedAt: iso8601(Date()), heartbeat: true)
         }
         // A stop during the write cancels the timer. Don't schedule a new one.
         guard updating else { return }
         scheduleHeartbeat()
     }
 
-    private func writeCoordinate(_ location: CLLocation, recordedAt: String) {
+    private func writeCoordinate(_ location: CLLocation, recordedAt: String, heartbeat: Bool) {
         guard updating, !nativeWriteInFlight else { return }
         guard let rowId = trackingRowId, isTrackingRowId(rowId),
               let url = supabaseUrl, let anon = supabaseAnonKey else { return }
@@ -651,15 +676,17 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         lastNativeWriteAt = Date()
         nativeWriteInFlight = true
         let epoch = writeEpoch
+        let stampedAt = heartbeat ? iso8601(Date()) : recordedAt
         accessToken(url: url, anonKey: anon) { [weak self] token in
             guard let self else { return }
             guard let token else {
                 DispatchQueue.main.async {
                     guard epoch == self.writeEpoch else { return }
                     self.nativeWriteInFlight = false
-                    if self.latestBackgroundFix == nil { self.latestBackgroundFix = location }
-                    if let pending = self.latestBackgroundFix {
-                        self.noteBackgroundFix(pending)
+                    if let newer = self.latestBackgroundFix {
+                        self.noteBackgroundFix(newer, heartbeatClock: false)
+                    } else {
+                        self.noteBackgroundFix(location, heartbeatClock: heartbeat)
                     }
                 }
                 return
@@ -671,19 +698,23 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
                 rowId: rowId,
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude,
-                recordedAt: recordedAt,
+                recordedAt: stampedAt,
                 allowRefresh: true,
-                epoch: epoch
+                epoch: epoch,
+                heartbeat: heartbeat
             )
         }
     }
 
     /// The WebView cannot send the arrival text while the phone is locked.
-    /// Stop the watcher, mark the row arrived, and call `send-arrival-sms`
-    /// with the cleaner's own token. The function dedupes, so a later JS
-    /// retry after a failed native send does not text the customer twice.
+    /// The watcher and the tracking row stay up until `send-arrival-sms`
+    /// succeeds. A failed send does not write arrived_at or set is_active
+    /// false, and it does not clear the JS `started` flag, so the trip can
+    /// keep sharing. The function claims the reminder row first, so a JS
+    /// retry cannot text the customer twice.
     private func handleArrival(_ location: CLLocation) {
-        guard updating else { return }
+        guard updating, !arrivalInFlight else { return }
+        if let arrivalRetryNotBefore, Date() < arrivalRetryNotBefore { return }
         let rowId = trackingRowId
         let url = supabaseUrl
         let anon = supabaseAnonKey
@@ -692,36 +723,61 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         let epoch = watchEpoch
         let latitude = location.coordinate.latitude
         let longitude = location.coordinate.longitude
-        stopUpdating()
-        let recordedAt = iso8601(Date())
+        arrivalInFlight = true
         guard let rowId, isTrackingRowId(rowId), let url, let anon else {
-            emitArrival(epoch: epoch, trackingId: rowId ?? "", sms: "failed")
+            failArrival(epoch: epoch, trackingId: rowId ?? "")
             return
         }
         accessToken(url: url, anonKey: anon) { [weak self] token in
             guard let self else { return }
             guard let token else {
-                self.emitArrival(epoch: epoch, trackingId: rowId, sms: "failed")
+                DispatchQueue.main.async {
+                    guard epoch == self.watchEpoch else { return }
+                    self.failArrival(epoch: epoch, trackingId: rowId)
+                }
                 return
             }
-            self.patchArrival(
-                url: url,
-                anonKey: anon,
-                token: token,
-                rowId: rowId,
-                latitude: latitude,
-                longitude: longitude,
-                recordedAt: recordedAt,
-                allowRefresh: true
-            )
             guard let booking, let staff, self.isTrackingRowId(booking), self.isTrackingRowId(staff) else {
-                self.emitArrival(epoch: epoch, trackingId: rowId, sms: "failed")
+                DispatchQueue.main.async {
+                    guard epoch == self.watchEpoch else { return }
+                    self.failArrival(epoch: epoch, trackingId: rowId)
+                }
                 return
             }
             self.sendArrivalSms(url: url, anonKey: anon, token: token, bookingId: booking, staffId: staff) { sent in
-                self.emitArrival(epoch: epoch, trackingId: rowId, sms: sent ? "sent" : "failed")
+                DispatchQueue.main.async {
+                    guard epoch == self.watchEpoch else { return }
+                    if sent && self.updating {
+                        let recordedAt = self.iso8601(Date())
+                        self.stopUpdating()
+                        self.patchArrival(
+                            url: url,
+                            anonKey: anon,
+                            token: token,
+                            rowId: rowId,
+                            latitude: latitude,
+                            longitude: longitude,
+                            recordedAt: recordedAt,
+                            allowRefresh: true
+                        )
+                        self.emitArrival(epoch: epoch, trackingId: rowId, sms: "sent", watcher: "stopped")
+                        return
+                    }
+                    guard self.updating else {
+                        self.arrivalInFlight = false
+                        return
+                    }
+                    self.failArrival(epoch: epoch, trackingId: rowId)
+                }
             }
         }
+    }
+
+    /// Sharing stays on. The watcher is still running, so JS must not clear `started`.
+    private func failArrival(epoch: Int, trackingId: String) {
+        arrivalInFlight = false
+        arrivalRetryNotBefore = Date().addingTimeInterval(arrivalRetryDelay)
+        emitArrival(epoch: epoch, trackingId: trackingId, sms: "failed", watcher: "running")
     }
 
     private func patchArrival(
@@ -792,7 +848,7 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
             "staffId": staffId,
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
             if status == 401 && allowRefresh {
                 guard let self else {
@@ -816,14 +872,23 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
                 }
                 return
             }
-            completion((200..<300).contains(status))
+            var success = false
+            if let data,
+               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let flag = parsed["success"] as? Bool {
+                success = flag
+            }
+            // A 2xx body with success false (or no body) did not send.
+            // Stopping the trip on that response would end sharing early.
+            completion((200..<300).contains(status) && success)
         }.resume()
     }
 
-    private func emitArrival(epoch: Int, trackingId: String, sms: String) {
+    private func emitArrival(epoch: Int, trackingId: String, sms: String, watcher: String) {
         let data: [String: Any] = [
             "reason": "arrived",
             "sms": sms,
+            "watcher": watcher,
             "epoch": epoch,
             "trackingId": trackingId,
         ]
