@@ -104,15 +104,6 @@ const handler = async (req: Request): Promise<Response> => {
       address: formatFullAddress(booking as any) || 'N/A',
       amountSuffix: '',
     });
-    const office = await notifyOwner(
-      { supabase, organizationId: booking.organization_id, bookingId },
-      "job.arrived",
-      {
-        title: copy.pushTitle,
-        body: copy.adminSms,
-        link: "/dashboard/bookings",
-      },
-    );
 
     const { data: smsSettings } = await supabase
       .from('organization_sms_settings')
@@ -126,7 +117,6 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     let clientSent = false;
-    const adminSent = office.sms;
 
     if (!smsSkippedReason && smsSettings) {
     const notifyClient = (smsSettings as any).notify_client_arrived !== false;
@@ -163,6 +153,30 @@ const handler = async (req: Request): Promise<Response> => {
       clientSent = await sendSms(formatPhoneNumber(customer.phone), msg, 'customer');
     }
     }
+
+    let office: Awaited<ReturnType<typeof notifyOwner>> = {
+      deduped: false,
+      bell: false,
+      push: false,
+      sms: false,
+      email: false,
+      smsSkippedReason: null,
+      emailSkippedReason: null,
+    };
+    try {
+      office = await notifyOwner(
+        { supabase, organizationId: booking.organization_id, bookingId, staffId },
+        "job.arrived",
+        {
+          title: copy.pushTitle,
+          body: copy.adminSms,
+          link: "/dashboard/bookings",
+        },
+      );
+    } catch (ownerErr) {
+      console.error("[send-arrival-sms] owner alert failed:", ownerErr);
+    }
+    const adminSent = office.sms;
 
     const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
       booking_id: bookingId,

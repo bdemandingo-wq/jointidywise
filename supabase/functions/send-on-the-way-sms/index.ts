@@ -181,28 +181,6 @@ const handler = async (req: Request): Promise<Response> => {
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
 
-    // Bell + push happen whether or not SMS is configured. The previous
-    // early return on "SMS notifications are disabled" skipped both, so the
-    // office heard nothing and the cleaner was told the whole action failed.
-    // Owner SMS is optional ("Also text me") and is decided inside notifyOwner.
-    const customerLabelForOffice = typedCustomer
-      ? `${typedCustomer.first_name} ${typedCustomer.last_name}`
-      : 'Customer';
-    const ownerAddress = formatFullAddress(booking as any);
-    const ownerBody = `📍 ${staff.name} is on the way to Job #${booking.booking_number}\n\n` +
-      `Customer: ${customerLabelForOffice}\n` +
-      `Address: ${ownerAddress || 'N/A'}` +
-      (etaMinutes ? `\nETA: ~${etaMinutes} min` : '');
-    const office = await notifyOwner(
-      { supabase, organizationId: booking.organization_id, bookingId },
-      "job.on_the_way",
-      {
-        title: `🚗 ${staff.name} is on the way`,
-        body: ownerBody,
-        link: "/dashboard/bookings",
-      },
-    );
-
     let smsSkippedReason: string | null = null;
     if (settingsError) {
       console.error("[send-on-the-way-sms] Error fetching SMS settings:", settingsError);
@@ -216,7 +194,6 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     let customerSms = false;
-    const adminSms = office.sms;
     let messageId: string | undefined;
     let customerSmsError: string | null = null;
     const formatPhoneNumber = (phone: string): string => {
@@ -341,6 +318,40 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     }
+
+    // Customer text goes out first. An owner-alert failure must not turn a
+    // delivered customer text into a 500, and must not skip the customer text.
+    const customerLabelForOffice = typedCustomer
+      ? `${typedCustomer.first_name} ${typedCustomer.last_name}`
+      : 'Customer';
+    const ownerAddress = formatFullAddress(booking as any);
+    const ownerBody = `📍 ${staff.name} is on the way to Job #${booking.booking_number}\n\n` +
+      `Customer: ${customerLabelForOffice}\n` +
+      `Address: ${ownerAddress || 'N/A'}` +
+      (etaMinutes ? `\nETA: ~${etaMinutes} min` : '');
+    let office: Awaited<ReturnType<typeof notifyOwner>> = {
+      deduped: false,
+      bell: false,
+      push: false,
+      sms: false,
+      email: false,
+      smsSkippedReason: null,
+      emailSkippedReason: null,
+    };
+    try {
+      office = await notifyOwner(
+        { supabase, organizationId: booking.organization_id, bookingId, staffId },
+        "job.on_the_way",
+        {
+          title: `🚗 ${staff.name} is on the way`,
+          body: ownerBody,
+          link: "/dashboard/bookings",
+        },
+      );
+    } catch (ownerErr) {
+      console.error("[send-on-the-way-sms] owner alert failed:", ownerErr);
+    }
+    const adminSms = office.sms;
 
     // Log only when the customer text went out, or was skipped on purpose
     // (no phone, SMS off, customer texts disabled). A failed OpenPhone send

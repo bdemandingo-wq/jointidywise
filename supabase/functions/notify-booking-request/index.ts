@@ -95,8 +95,28 @@ serve(async (req) => {
     }
     message += `\n\nReview in ${companyName} dashboard.`;
 
+    let scopedRequestId: string | undefined;
+    if (requestId) {
+      const { data: requestRow, error: requestError } = await supabase
+        .from("client_booking_requests")
+        .select("id, created_at")
+        .eq("id", requestId)
+        .eq("organization_id", organizationId)
+        .eq("client_user_id", session.portal_user_id)
+        .eq("customer_id", session.customer_id)
+        .maybeSingle();
+      const createdAt = requestRow?.created_at ? new Date(requestRow.created_at).getTime() : NaN;
+      const ageMs = Date.now() - createdAt;
+      const justCreated = Number.isFinite(ageMs) && ageMs >= -120_000 && ageMs <= 15 * 60_000;
+      if (requestError || !requestRow || !justCreated) {
+        console.warn("[notify-booking-request] requestId is not the request just created for this portal user");
+      } else {
+        scopedRequestId = requestRow.id;
+      }
+    }
+
     const owner = await notifyOwner(
-      { supabase, organizationId, bookingId: requestId },
+      { supabase, organizationId, bookingId: scopedRequestId },
       "client.portal_request",
       {
         title: "New booking request",

@@ -57,7 +57,7 @@ const CHANNEL_ICON: Record<NotificationChannel, typeof Bell> = {
 const PRESETS: { key: NotificationPreset; label: string; description: string }[] = [
   { key: 'action', label: 'Action required', description: 'Sidebar and bell only, and only for items that need a response.' },
   { key: 'balanced', label: 'Recommended', description: 'The default mix for each event.' },
-  { key: 'everything', label: 'Everything', description: 'Every event, on every channel.' },
+  { key: 'everything', label: 'Everything', description: 'Every event, on every channel except Also text me.' },
 ];
 
 interface NotificationAdvancedPanelProps {

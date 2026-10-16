@@ -25,6 +25,7 @@ import {
   OWNER_TEXT_EVENTS,
   ownerDeliveryEnabled,
   ownerDeliveryPatch,
+  ownerInstallBanner,
   ownerTextMeEnabled,
   presetMatrix,
   type NotificationPreset,
@@ -88,6 +89,19 @@ export function NotificationPreferencesCard() {
     queryFn: async () => {
       if (!orgId) return false;
       const { data, error } = await supabase.rpc('org_has_operator_ios_device' as never, {
+        p_organization_id: orgId,
+      } as never);
+      if (error) throw new Error(error.message);
+      return data === true;
+    },
+  });
+
+  const alertEmail = useQuery({
+    queryKey: ['owner-alert-email', orgId],
+    enabled: !!orgId,
+    queryFn: async () => {
+      if (!orgId) return false;
+      const { data, error } = await supabase.rpc('org_has_owner_alert_email' as never, {
         p_organization_id: orgId,
       } as never);
       if (error) throw new Error(error.message);
@@ -426,7 +440,17 @@ export function NotificationPreferencesCard() {
     </div>
   );
 
-  const error = delivery.error instanceof Error ? delivery.error.message : null;
+  const error = [operatorDevice.error, alertEmail.error, delivery.error]
+    .map((item) => (item instanceof Error ? item.message : null))
+    .filter((item): item is string => !!item)
+    .join(' ');
+  const emailOn = ownerDeliveryEnabled('email', channels);
+  const deviceMissing = !!orgId && operatorDevice.isSuccess && operatorDevice.data !== true;
+  const installBanner = !deviceMissing || alertEmail.isPending
+    ? null
+    : alertEmail.isError
+      ? "Install the TidyWise iPhone app to get alerts as push notifications. We couldn't check the email fallback."
+      : ownerInstallBanner({ emailOn, emailReady: alertEmail.data === true });
 
   return (
     <NotificationSettingsScreen
@@ -437,9 +461,7 @@ export function NotificationPreferencesCard() {
       }}
       onMaster={handleMaster}
       pushDetail={pushDetail}
-      installBanner={!orgId || operatorDevice.isPending || operatorDevice.data === true
-        ? null
-        : "Install the TidyWise iPhone app to get alerts as push notifications. Until then, we'll email them."}
+      installBanner={installBanner}
       ownerTexts={OWNER_TEXT_EVENTS.map((event) => ({
         id: event.key,
         label: `Also text me — ${event.label}`,

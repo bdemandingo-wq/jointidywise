@@ -25,8 +25,12 @@ export const OWNER_ALERT_EMAIL_DEFAULT_KEYS = [
 export interface OwnerAlertOrg {
   supabase: OwnerAlertDb;
   organizationId: string;
-  /** Present for booking-scoped events. Dedupe is one alert per event and booking. */
+  /** Present for booking-scoped events. */
   bookingId?: string | null;
+  /** Separates one cleaner's job alert from another cleaner on the same booking. */
+  staffId?: string | null;
+  /** Separates one cancellation of a booking from a later one. cancelled_at is the usual value. */
+  occurrenceId?: string | null;
 }
 
 export interface OwnerAlertContent {
@@ -87,9 +91,57 @@ export interface OwnerAlertDeps {
   }) => Promise<{ success: boolean }>;
 }
 
-export function ownerAlertDedupeKey(eventKey: string, bookingId: string | null | undefined): string | undefined {
-  if (!bookingId) return undefined;
-  return `${eventKey}:${bookingId}`;
+const JOB_ALERT_EVENTS = new Set(["job.on_the_way", "job.arrived", "job.completed"]);
+const LIVE_BELL_EVENTS = new Set(["booking.new", "client.portal_request", "booking.cancelled"]);
+
+/** The in-app bell already builds these from live rows, so notifyOwner does not show a second one. */
+export function ownerAlertSkipsLiveBell(eventKey: string): boolean {
+  return LIVE_BELL_EVENTS.has(eventKey);
+}
+
+export function ownerAlertDedupeKey(
+  eventKey: string,
+  bookingId: string | null | undefined,
+  scope?: { staffId?: string | null; occurrenceId?: string | null },
+): string | undefined {
+  const booking = (bookingId ?? "").trim();
+  if (!booking) return undefined;
+  if (JOB_ALERT_EVENTS.has(eventKey)) {
+    const staffId = (scope?.staffId ?? "").trim();
+    return staffId ? `${eventKey}:${booking}:${staffId}` : `${eventKey}:${booking}`;
+  }
+  if (eventKey === "booking.cancelled") {
+    const occurrenceId = (scope?.occurrenceId ?? "").trim();
+    // A bare booking id would swallow the next cancellation of the same job.
+    if (!occurrenceId) return undefined;
+    return `${eventKey}:${booking}:${occurrenceId}`;
+  }
+  return `${eventKey}:${booking}`;
+}
+
+/** Bell is on unless this event is snoozed, the group turned it off, or the live bell already shows it. */
+export function ownerAlertBellOn(args: {
+  eventKey: string;
+  matrix: unknown;
+  snoozedUntil: unknown;
+  now?: number;
+}): boolean {
+  if (ownerAlertSkipsLiveBell(args.eventKey)) return false;
+  if (eventSnoozed(args.snoozedUntil, args.eventKey, args.now ?? Date.now())) return false;
+  return matrixFlag(args.matrix, args.eventKey, "bell") !== false;
+}
+
+/** Push is on unless this event is snoozed, the group turned native push off, or the push master is off. */
+export function ownerAlertPushOn(args: {
+  eventKey: string;
+  matrix: unknown;
+  channels: unknown;
+  snoozedUntil: unknown;
+  now?: number;
+}): boolean {
+  if (eventSnoozed(args.snoozedUntil, args.eventKey, args.now ?? Date.now())) return false;
+  if (!ownerChannelMasterOn(args.channels, "native_push")) return false;
+  return matrixFlag(args.matrix, args.eventKey, "native_push") !== false;
 }
 
 /** Personal cells first. company_phone is the fallback, and every number on that field is included. */
@@ -164,19 +216,29 @@ function textField(row: Row | null, key: string): string | null {
   return trimmed ? trimmed : null;
 }
 
-async function maybeOne(
+async function eqOne(
   supabase: OwnerAlertDb,
   table: string,
   columns: string,
-  organizationId: string,
+  column: string,
+  value: string,
 ): Promise<{ row: Row | null; error: string | null }> {
   const selected = supabase.from(table).select(columns) as {
     eq: (column: string, value: string) => {
       maybeSingle: () => Promise<{ data: Row | null; error: QueryError }>;
     };
   };
-  const { data, error } = await selected.eq("organization_id", organizationId).maybeSingle();
+  const { data, error } = await selected.eq(column, value).maybeSingle();
   return { row: data, error: error?.message ?? null };
+}
+
+async function maybeOne(
+  supabase: OwnerAlertDb,
+  table: string,
+  columns: string,
+  organizationId: string,
+): Promise<{ row: Row | null; error: string | null }> {
+  return eqOne(supabase, table, columns, "organization_id", organizationId);
 }
 
 async function listRows(
@@ -240,7 +302,16 @@ export async function loadOwnerAlertContext(org: OwnerAlertOrg): Promise<OwnerAl
   );
   if (sms.error) console.warn("[notifyOwner] sms settings read failed:", sms.error);
 
-  let emailTo = textField(business.row, "company_email");
+  let emailTo: string | null = null;
+  const organization = await eqOne(org.supabase, "organizations", "owner_id", "id", org.organizationId);
+  if (organization.error) console.warn("[notifyOwner] organization read failed:", organization.error);
+  const ownerId = textField(organization.row, "owner_id");
+  if (ownerId) {
+    const profile = await eqOne(org.supabase, "profiles", "email", "id", ownerId);
+    if (profile.error) console.warn("[notifyOwner] owner profile read failed:", profile.error);
+    emailTo = textField(profile.row, "email");
+  }
+  if (!emailTo) emailTo = textField(business.row, "company_email");
   if (!emailTo) {
     const emailSettings = await maybeOne(
       org.supabase,
@@ -361,6 +432,23 @@ const defaultDeps: OwnerAlertDeps = {
   sendEmail: defaultSendEmail,
 };
 
+const EMPTY_CONTEXT: OwnerAlertContext = {
+  matrix: null,
+  channels: null,
+  snoozedUntil: null,
+  notificationPhone: null,
+  companyPhone: null,
+  emailTo: null,
+  smsEnabled: false,
+  openPhoneApiKey: null,
+  openPhoneFrom: null,
+  operatorIosTokens: 0,
+};
+
+function failureText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export async function notifyOwner(
   org: OwnerAlertOrg,
   eventKey: string,
@@ -368,28 +456,83 @@ export async function notifyOwner(
   deps?: Partial<OwnerAlertDeps>,
 ): Promise<OwnerAlertResult> {
   const io: OwnerAlertDeps = { ...defaultDeps, ...deps };
-  const ctx = await io.load(org);
-  const dedupeKey = ownerAlertDedupeKey(eventKey, org.bookingId);
-  const link = alert.link ?? "/dashboard/bookings";
+  let ctx = EMPTY_CONTEXT;
+  try {
+    ctx = await io.load(org);
+  } catch (err) {
+    console.error("[notifyOwner] prefs load failed, continuing with the other channels:", failureText(err));
+  }
 
-  const office = await io.notifyOffice(org.supabase, {
-    organizationId: org.organizationId,
-    type: eventKey,
-    title: alert.title,
-    message: alert.body,
-    link,
-    metadata: {
-      event_key: eventKey,
-      ...(org.bookingId ? { booking_id: org.bookingId } : {}),
-    },
-    dedupeKey,
-    pushTitle: alert.title,
-    pushBody: alert.body,
-    pushData: {
-      kind: eventKey,
-      ...(org.bookingId ? { booking_id: org.bookingId } : {}),
-    },
+  const now = Date.now();
+  if (eventSnoozed(ctx.snoozedUntil, eventKey, now)) {
+    return {
+      deduped: false,
+      bell: false,
+      push: false,
+      sms: false,
+      email: false,
+      smsSkippedReason: "Snoozed",
+      emailSkippedReason: "Snoozed",
+    };
+  }
+
+  const dedupeKey = ownerAlertDedupeKey(eventKey, org.bookingId, {
+    staffId: org.staffId,
+    occurrenceId: org.occurrenceId,
   });
+  const link = alert.link ?? "/dashboard/bookings";
+  const bellOn = ownerAlertBellOn({ eventKey, matrix: ctx.matrix, snoozedUntil: ctx.snoozedUntil, now });
+  const pushOn = ownerAlertPushOn({
+    eventKey,
+    matrix: ctx.matrix,
+    channels: ctx.channels,
+    snoozedUntil: ctx.snoozedUntil,
+    now,
+  });
+  const smsAllowed = ownerAlertSmsAllowed({
+    eventKey,
+    matrix: ctx.matrix,
+    channels: ctx.channels,
+    smsEnabled: ctx.smsEnabled,
+  });
+  const emailAllowed = ownerAlertEmailAllowed({
+    eventKey,
+    matrix: ctx.matrix,
+    channels: ctx.channels,
+    snoozedUntil: ctx.snoozedUntil,
+    now,
+  });
+  // Write a row when the owner will see the bell, or when another channel needs
+  // the dedupe key. Live-bell events are filtered out of the bell list.
+  const writeBell = (bellOn || !!dedupeKey) && (bellOn || pushOn || smsAllowed || emailAllowed);
+
+  let office = { bell: false, push: false, duplicate: false };
+  try {
+    office = await io.notifyOffice(org.supabase, {
+      organizationId: org.organizationId,
+      type: eventKey,
+      title: alert.title,
+      message: alert.body,
+      link,
+      metadata: {
+        event_key: eventKey,
+        ...(org.bookingId ? { booking_id: org.bookingId } : {}),
+        ...(org.staffId ? { staff_id: org.staffId } : {}),
+      },
+      dedupeKey,
+      writeBell,
+      sendPush: pushOn,
+      pushTitle: alert.title,
+      pushBody: alert.body,
+      pushData: {
+        kind: eventKey,
+        ...(org.bookingId ? { booking_id: org.bookingId } : {}),
+        ...(org.staffId ? { staff_id: org.staffId } : {}),
+      },
+    });
+  } catch (err) {
+    console.error("[notifyOwner] bell/push failed:", failureText(err));
+  }
 
   if (office.duplicate) {
     return {
@@ -405,12 +548,6 @@ export async function notifyOwner(
 
   let sms = false;
   let smsSkippedReason: string | null = null;
-  const smsAllowed = ownerAlertSmsAllowed({
-    eventKey,
-    matrix: ctx.matrix,
-    channels: ctx.channels,
-    smsEnabled: ctx.smsEnabled,
-  });
   if (!smsAllowed) {
     smsSkippedReason = ctx.smsEnabled ? "Owner text is off for this event" : "SMS is not enabled";
   } else {
@@ -420,25 +557,24 @@ export async function notifyOwner(
     } else if (!ctx.openPhoneApiKey || !ctx.openPhoneFrom) {
       smsSkippedReason = "SMS not configured";
     } else {
-      const sent = await io.sendSms({
-        phones,
-        content: alert.body,
-        from: ctx.openPhoneFrom,
-        apiKey: ctx.openPhoneApiKey,
-      });
-      sms = sent.sent > 0;
-      if (!sms) smsSkippedReason = "SMS delivery failed";
+      try {
+        const sent = await io.sendSms({
+          phones,
+          content: alert.body,
+          from: ctx.openPhoneFrom,
+          apiKey: ctx.openPhoneApiKey,
+        });
+        sms = sent.sent > 0;
+        if (!sms) smsSkippedReason = "SMS delivery failed";
+      } catch (err) {
+        console.error("[notifyOwner] SMS failed:", failureText(err));
+        smsSkippedReason = "SMS delivery failed";
+      }
     }
   }
 
   let email = false;
   let emailSkippedReason: string | null = null;
-  const emailAllowed = ownerAlertEmailAllowed({
-    eventKey,
-    matrix: ctx.matrix,
-    channels: ctx.channels,
-    snoozedUntil: ctx.snoozedUntil,
-  });
   const needsEmail = ownerAlertNeedsEmail(ctx.operatorIosTokens, office.push);
   if (!needsEmail) {
     emailSkippedReason = "Push delivered";
@@ -447,21 +583,26 @@ export async function notifyOwner(
   } else if (!ctx.emailTo) {
     emailSkippedReason = "No alert email configured";
   } else {
-    const sent = await io.sendEmail({
-      organizationId: org.organizationId,
-      to: ctx.emailTo,
-      subject: alert.title,
-      text: alert.body,
-      html: alertHtml(alert.body, link),
-      messageId: dedupeKey,
-    });
-    email = sent.success;
-    if (!email) emailSkippedReason = "Email delivery failed";
+    try {
+      const sent = await io.sendEmail({
+        organizationId: org.organizationId,
+        to: ctx.emailTo,
+        subject: alert.title,
+        text: alert.body,
+        html: alertHtml(alert.body, link),
+        messageId: dedupeKey,
+      });
+      email = sent.success;
+      if (!email) emailSkippedReason = "Email delivery failed";
+    } catch (err) {
+      console.error("[notifyOwner] email failed:", failureText(err));
+      emailSkippedReason = "Email delivery failed";
+    }
   }
 
   return {
     deduped: false,
-    bell: office.bell,
+    bell: bellOn && office.bell,
     push: office.push,
     sms,
     email,

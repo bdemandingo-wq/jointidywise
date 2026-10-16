@@ -3,8 +3,10 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   notifyOwner,
+  ownerAlertBellOn,
   ownerAlertDedupeKey,
   ownerAlertEmailAllowed,
+  ownerAlertPushOn,
   ownerAlertNeedsEmail,
   openPhoneFromId,
   ownerAlertPhones,
@@ -49,7 +51,13 @@ function context(over: Partial<OwnerAlertContext> = {}): OwnerAlertContext {
 function harness(ctx: OwnerAlertContext, office?: { bell?: boolean; push?: boolean; duplicate?: boolean }) {
   const sms: Array<{ phones: string[]; content: string }> = [];
   const email: Array<{ to: string; subject: string }> = [];
-  const officeCalls: Array<{ dedupeKey?: string; type?: string; organizationId: string }> = [];
+  const officeCalls: Array<{
+    dedupeKey?: string;
+    type?: string;
+    organizationId: string;
+    sendPush?: boolean;
+    writeBell?: boolean;
+  }> = [];
   const deps: Partial<OwnerAlertDeps> = {
     load: async () => ctx,
     notifyOffice: async (_supabase, args) => {
@@ -57,10 +65,12 @@ function harness(ctx: OwnerAlertContext, office?: { bell?: boolean; push?: boole
         dedupeKey: args.dedupeKey,
         type: args.type,
         organizationId: args.organizationId,
+        sendPush: args.sendPush !== false,
+        writeBell: args.writeBell !== false,
       });
       return {
-        bell: office?.bell ?? true,
-        push: office?.push ?? true,
+        bell: args.writeBell === false ? false : (office?.bell ?? true),
+        push: args.sendPush === false ? false : (office?.push ?? true),
         duplicate: office?.duplicate ?? false,
       };
     },
@@ -81,9 +91,70 @@ test("operator push goes through notifyOffice, which targets operator devices", 
   assert.match(source, /audience:\s*"operators"/);
 });
 
-test("dedupe key is the event plus the booking", () => {
+test("dedupe key includes the cleaner or the cancellation", () => {
   assert.equal(ownerAlertDedupeKey("booking.new", "booking-1"), "booking.new:booking-1");
   assert.equal(ownerAlertDedupeKey("job.arrived", null), undefined);
+  assert.equal(
+    ownerAlertDedupeKey("job.on_the_way", "booking-1", { staffId: "staff-9" }),
+    "job.on_the_way:booking-1:staff-9",
+  );
+  assert.equal(
+    ownerAlertDedupeKey("job.arrived", "booking-1", { staffId: "staff-2" }),
+    "job.arrived:booking-1:staff-2",
+  );
+  assert.equal(
+    ownerAlertDedupeKey("job.completed", "booking-1", { staffId: "staff-2" }),
+    "job.completed:booking-1:staff-2",
+  );
+  assert.equal(ownerAlertDedupeKey("booking.cancelled", "booking-1"), undefined);
+  assert.equal(
+    ownerAlertDedupeKey("booking.cancelled", "booking-1", { occurrenceId: "2026-10-16T15:00:00.000Z" }),
+    "booking.cancelled:booking-1:2026-10-16T15:00:00.000Z",
+  );
+});
+
+test("bell and push follow the group switch and snooze", () => {
+  const off = {
+    bell: false,
+    native_push: false,
+    email: false,
+    sms: false,
+  };
+  assert.equal(ownerAlertBellOn({
+    eventKey: "job.arrived",
+    matrix: { "job.arrived": off },
+    snoozedUntil: {},
+  }), false);
+  assert.equal(ownerAlertPushOn({
+    eventKey: "job.arrived",
+    matrix: { "job.arrived": off },
+    channels: {},
+    snoozedUntil: {},
+  }), false);
+  assert.equal(ownerAlertBellOn({
+    eventKey: "booking.new",
+    matrix: {},
+    snoozedUntil: {},
+  }), false);
+  const until = new Date(Date.now() + 60_000).toISOString();
+  assert.equal(ownerAlertPushOn({
+    eventKey: "job.completed",
+    matrix: {},
+    channels: {},
+    snoozedUntil: { "job.completed": until },
+  }), false);
+  assert.equal(ownerAlertPushOn({
+    eventKey: "job.completed",
+    matrix: {},
+    channels: { "master.native_push": false },
+    snoozedUntil: {},
+  }), false);
+  assert.equal(ownerAlertPushOn({
+    eventKey: "job.completed",
+    matrix: {},
+    channels: {},
+    snoozedUntil: {},
+  }), true);
 });
 
 test("SMS stays off unless this event opted in and SMS is enabled", () => {
@@ -155,11 +226,16 @@ test("alert phones use every personal number and fall back to the company line",
 
 test("notifyOwner writes the bell and does not text or email when push lands", async () => {
   const { deps, sms, email, officeCalls } = harness(context(), { push: true });
-  const result = await notifyOwner(org, "booking.new", {
-    title: "New booking",
-    body: "Alex booked a clean",
-    link: "/dashboard/bookings",
-  }, deps);
+  const result = await notifyOwner(
+    { ...org, staffId: "staff-9" },
+    "job.arrived",
+    {
+      title: "Arrived",
+      body: "Sam arrived",
+      link: "/dashboard/bookings",
+    },
+    deps,
+  );
 
   assert.equal(result.bell, true);
   assert.equal(result.push, true);
@@ -167,9 +243,22 @@ test("notifyOwner writes the bell and does not text or email when push lands", a
   assert.equal(result.email, false);
   assert.deepEqual(sms, []);
   assert.deepEqual(email, []);
-  assert.equal(officeCalls[0]?.type, "booking.new");
-  assert.equal(officeCalls[0]?.dedupeKey, "booking.new:booking-1");
+  assert.equal(officeCalls[0]?.type, "job.arrived");
+  assert.equal(officeCalls[0]?.dedupeKey, "job.arrived:booking-1:staff-9");
   assert.equal(officeCalls[0]?.organizationId, "org-1");
+  assert.equal(officeCalls[0]?.sendPush, true);
+});
+
+test("booking.new does not add a second bell row and still pushes", async () => {
+  const { deps, officeCalls } = harness(context(), { push: true });
+  const result = await notifyOwner(org, "booking.new", {
+    title: "New booking",
+    body: "Alex booked a clean",
+  }, deps);
+  assert.equal(result.bell, false);
+  assert.equal(result.push, true);
+  assert.equal(officeCalls[0]?.writeBell, true);
+  assert.equal(officeCalls[0]?.dedupeKey, "booking.new:booking-1");
 });
 
 test("notifyOwner texts every alert number only when Also text me is on", async () => {
@@ -279,6 +368,83 @@ test("OpenPhone does not retry when the raw key is accepted", async () => {
   }, loaded.deps);
   assert.equal(result.sms, true);
   assert.deepEqual(auths, ["op-key"]);
+});
+
+test("a turned-off group does not ring, push, text, or email", async () => {
+  const { deps, sms, email, officeCalls } = harness(context({
+    matrix: {
+      "job.arrived": { bell: false, native_push: false, email: false, sms: false },
+    },
+    operatorIosTokens: 0,
+  }), { push: true });
+  const result = await notifyOwner({ ...org, staffId: "staff-9" }, "job.arrived", {
+    title: "Arrived",
+    body: "Sam arrived",
+  }, deps);
+  assert.equal(result.bell, false);
+  assert.equal(result.push, false);
+  assert.equal(result.sms, false);
+  assert.equal(result.email, false);
+  assert.equal(officeCalls[0]?.sendPush, false);
+  assert.equal(officeCalls[0]?.writeBell, false);
+  assert.deepEqual(sms, []);
+  assert.deepEqual(email, []);
+});
+
+test("a snoozed event sends nothing", async () => {
+  const until = new Date(Date.now() + 60_000).toISOString();
+  const { deps, sms, email, officeCalls } = harness(context({
+    matrix: { "booking.new": { sms: true } },
+    snoozedUntil: { "booking.new": until },
+    operatorIosTokens: 0,
+  }), { push: false });
+  const result = await notifyOwner(org, "booking.new", {
+    title: "New booking",
+    body: "Alex booked a clean",
+  }, deps);
+  assert.equal(result.sms, false);
+  assert.equal(result.email, false);
+  assert.equal(result.push, false);
+  assert.equal(result.bell, false);
+  assert.equal(officeCalls.length, 0);
+  assert.deepEqual(sms, []);
+  assert.deepEqual(email, []);
+});
+
+test("an SMS failure still sends the email fallback", async () => {
+  const { deps, email } = harness(context({
+    matrix: { "booking.new": { sms: true } },
+    operatorIosTokens: 0,
+  }), { push: false });
+  deps.sendSms = async () => {
+    throw new Error("openphone down");
+  };
+  const result = await notifyOwner(org, "booking.new", {
+    title: "New booking",
+    body: "Alex booked a clean",
+  }, deps);
+  assert.equal(result.sms, false);
+  assert.equal(result.email, true);
+  assert.equal(email.length, 1);
+});
+
+test("a push failure still texts and emails", async () => {
+  const loaded = harness(context({
+    matrix: { "booking.new": { sms: true } },
+    operatorIosTokens: 2,
+  }), { push: true });
+  loaded.deps.notifyOffice = async () => {
+    throw new Error("push down");
+  };
+  const result = await notifyOwner(org, "booking.new", {
+    title: "New booking",
+    body: "Alex booked a clean",
+  }, loaded.deps);
+  assert.equal(result.push, false);
+  assert.equal(result.sms, true);
+  assert.equal(result.email, true);
+  assert.equal(loaded.sms.length, 1);
+  assert.equal(loaded.email.length, 1);
 });
 
 test("a duplicate event for the same booking does not text or email again", async () => {

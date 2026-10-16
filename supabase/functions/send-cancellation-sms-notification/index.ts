@@ -101,8 +101,27 @@ const handler = async (req: Request): Promise<Response> => {
       `Was scheduled: ${formattedDate} at ${formattedTime}\n\n` +
       `Log in to your dashboard for details.`;
 
+    let scopedBookingId: string | undefined;
+    let occurrenceId: string | undefined;
+    if (bookingId) {
+      const { data: bookingRow, error: bookingError } = await supabase
+        .from('bookings')
+        .select('cancelled_at, updated_at')
+        .eq('id', bookingId)
+        .eq('organization_id', organizationId)
+        .maybeSingle();
+      if (bookingError) {
+        console.warn("[send-cancellation-sms-notification] booking lookup failed:", bookingError.message);
+      } else if (!bookingRow) {
+        console.warn("[send-cancellation-sms-notification] bookingId is not in this organization");
+      } else {
+        scopedBookingId = bookingId;
+        occurrenceId = bookingRow.cancelled_at || bookingRow.updated_at || undefined;
+      }
+    }
+
     const owner = await notifyOwner(
-      { supabase, organizationId, bookingId },
+      { supabase, organizationId, bookingId: scopedBookingId, occurrenceId },
       "booking.cancelled",
       {
         title: `Booking #${bookingNumber} cancelled`,

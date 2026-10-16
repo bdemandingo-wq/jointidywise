@@ -24,6 +24,8 @@ import {
   presetMatrix,
   OWNER_TEXT_EVENTS,
   ownerTextMeEnabled,
+  ownerInstallBanner,
+  systemBellDuplicatesLiveEvent,
   systemNotificationCatalogKey,
 } from './notificationGroups.ts';
 
@@ -209,6 +211,29 @@ test('system bell rows map only for events the owner can silence', () => {
   assert.equal(systemNotificationCatalogKey('trial_reminder'), undefined);
   assert.equal(systemNotificationCatalogKey('email_send_failure'), undefined);
   assert.equal(systemNotificationCatalogKey(null), undefined);
+  assert.equal(systemBellDuplicatesLiveEvent('booking.new'), true);
+  assert.equal(systemBellDuplicatesLiveEvent('client.portal_request'), true);
+  assert.equal(systemBellDuplicatesLiveEvent('booking.cancelled'), true);
+  assert.equal(systemBellDuplicatesLiveEvent('job.arrived'), false);
+});
+
+test('everything preset leaves Also text me off', () => {
+  const matrix = presetMatrix('everything', NOTIFICATION_TYPES);
+  for (const event of OWNER_TEXT_EVENTS) {
+    assert.equal(matrix[event.key].sms, false, event.key);
+    assert.equal(matrix[event.key].bell, true, event.key);
+    assert.equal(matrix[event.key].email, true, event.key);
+  }
+  assert.equal(matrix['booking.late_checkin'].sms, true);
+});
+
+test('install banner says when email will not be the fallback', () => {
+  assert.equal(
+    ownerInstallBanner({ emailOn: true, emailReady: true }),
+    "Install the TidyWise iPhone app to get alerts as push notifications. Until then, we'll email them.",
+  );
+  assert.match(ownerInstallBanner({ emailOn: false, emailReady: true }), /turned off/);
+  assert.match(ownerInstallBanner({ emailOn: true, emailReady: false }), /No alert email is set up/);
 });
 
 test('owner texts default off and turn on only for an explicit Also text me', () => {

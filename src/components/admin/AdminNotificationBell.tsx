@@ -17,7 +17,7 @@ import { showBrowserNotification } from '@/hooks/usePushNotifications';
 import { isIosAppShell } from '@/lib/pushRuntime';
 import { useNotificationPreferences, useUpdateNotificationPreferences } from '@/hooks/useNotificationPreferences';
 import { isChannelEnabled, isMasterChannelOn, typeByKey } from '@/lib/notificationCatalog';
-import { systemNotificationCatalogKey } from '@/lib/notificationGroups';
+import { systemBellDuplicatesLiveEvent, systemNotificationCatalogKey } from '@/lib/notificationGroups';
 import { Checkbox } from '@/components/ui/checkbox';
 import { orgDayOfWeek, orgDateKey } from '@/lib/orgDateRange';
 import { useQueryClient } from '@tanstack/react-query';
@@ -243,7 +243,9 @@ async function loadAdminNotifications(organizationId: string, orgTimezone: strin
     });
   }
 
-  const systemNotifications: AdminNotification[] = systemRows.map((n) => ({
+  const systemNotifications: AdminNotification[] = systemRows
+    .filter((n) => !systemBellDuplicatesLiveEvent(n.type))
+    .map((n) => ({
     id: `system-${n.id}`,
     type: 'system' as const,
     typeKey: systemNotificationCatalogKey(n.type),

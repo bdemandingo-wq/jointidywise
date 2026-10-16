@@ -112,7 +112,7 @@ const handler = async (req: Request): Promise<Response> => {
     });
 
     const office = await notifyOwner(
-      { supabase, organizationId: booking.organization_id, bookingId },
+      { supabase, organizationId: booking.organization_id, bookingId, staffId },
       "job.completed",
       {
         title: copy.pushTitle,
