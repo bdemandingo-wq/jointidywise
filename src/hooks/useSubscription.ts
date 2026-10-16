@@ -25,7 +25,7 @@ const FREE_ACCOUNTS = [
 ];
 
 /** Demo/review accounts that bypass subscription enforcement entirely */
-function isDemoAccount(email: string | undefined): boolean {
+export function isDemoAccount(email: string | undefined): boolean {
   if (!email) return false;
   return FREE_ACCOUNTS.includes(email) || email.endsWith('@tidywise1.com');
 }

@@ -6,6 +6,8 @@
  * come back as {} after JSON.parse).
  */
 
+import { HOW_HEARD_VALUES, normalizeHowHeardOther } from "./onboardingAnswers.ts";
+
 export interface OnboardingServiceDraft {
   name: string;
   description: string;
@@ -19,8 +21,10 @@ export interface OnboardingDraft {
   timezone: string;
   selectedServices: string[];
   customServices: OnboardingServiceDraft[];
-  /** Self-reported "How did you hear about us?" slugs. Not UTM. */
-  howHeard: string[];
+  /** Single self-reported source slug. Not UTM. Empty until they tap one. */
+  howHeard: string;
+  /** Free text when howHeard is other. Capped at 200 characters. */
+  howHeardOther: string;
 }
 
 const KEY_PREFIX = "tw_onboarding_draft:";
@@ -38,6 +42,16 @@ function clampStep(value: unknown): 1 | 2 | 3 {
 function stringList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+}
+
+/** One current option. Accepts a legacy array or fb_ad / fb_group. */
+export function oneHowHeard(value: unknown): string {
+  const rawList = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
+  const slugs = rawList
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .map((item) => (item === "fb_ad" || item === "fb_group" ? "facebook" : item));
+  return HOW_HEARD_VALUES.find((option) => slugs.includes(option)) ?? "";
 }
 
 function serviceList(value: unknown): OnboardingServiceDraft[] {
@@ -65,14 +79,18 @@ export function parseOnboardingDraft(raw: unknown): OnboardingDraft | null {
     timezone: typeof source.timezone === "string" && source.timezone ? source.timezone : "",
     selectedServices: stringList(source.selectedServices),
     customServices: serviceList(source.customServices),
-    howHeard: stringList(source.howHeard),
+    howHeard: oneHowHeard(source.howHeard),
+    howHeardOther: oneHowHeard(source.howHeard) === "other"
+      ? normalizeHowHeardOther(source.howHeardOther)
+      : "",
   };
   const empty =
     !draft.businessName &&
     !draft.phoneNumber &&
     draft.selectedServices.length === 0 &&
     draft.customServices.length === 0 &&
-    draft.howHeard.length === 0 &&
+    !draft.howHeard &&
+    !draft.howHeardOther &&
     draft.step === 1;
   return empty ? null : draft;
 }
@@ -96,11 +114,35 @@ export function writeOnboardingDraft(storage: Storage, userId: string, draft: On
     timezone: draft.timezone,
     selectedServices: [...draft.selectedServices],
     customServices: draft.customServices.map((s) => ({ name: s.name, description: s.description })),
-    howHeard: stringList(draft.howHeard),
+    howHeard: oneHowHeard(draft.howHeard),
+    howHeardOther: oneHowHeard(draft.howHeard) === "other"
+      ? normalizeHowHeardOther(draft.howHeardOther)
+      : "",
   };
   storage.setItem(onboardingDraftKey(userId), JSON.stringify(payload));
 }
 
 export function clearOnboardingDraft(storage: Storage, userId: string): void {
   storage.removeItem(onboardingDraftKey(userId));
+}
+
+/** One-time owner prompt. Per user and org, so a second business can still be asked. */
+export function howHeardSeenKey(userId: string, orgId: string): string {
+  return `tw-how-heard-seen:${userId}:${orgId}`;
+}
+
+export function readHowHeardSeen(storage: Storage, userId: string, orgId: string): boolean {
+  try {
+    return storage.getItem(howHeardSeenKey(userId, orgId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeHowHeardSeen(storage: Storage, userId: string, orgId: string): void {
+  try {
+    storage.setItem(howHeardSeenKey(userId, orgId), "1");
+  } catch {
+    // A full quota must not block the dashboard. The server asked-at flag still applies.
+  }
 }

@@ -233,7 +233,12 @@ export type Database = {
       account_signup_attribution: {
         Row: {
           captured_at: string
+          channel: string | null
+          channel_source: string | null
           created_at: string
+          detected_via: string | null
+          fbclid: string | null
+          gclid: string | null
           landing_page: string | null
           organization_id: string | null
           referrer: string | null
@@ -247,12 +252,18 @@ export type Database = {
           utm_medium_raw: string | null
           utm_source: string
           utm_source_raw: string | null
+          ttclid: string | null
           utm_term: string | null
           utm_term_raw: string | null
         }
         Insert: {
           captured_at?: string
+          channel?: string | null
+          channel_source?: string | null
           created_at?: string
+          detected_via?: string | null
+          fbclid?: string | null
+          gclid?: string | null
           landing_page?: string | null
           organization_id?: string | null
           referrer?: string | null
@@ -266,12 +277,18 @@ export type Database = {
           utm_medium_raw?: string | null
           utm_source?: string
           utm_source_raw?: string | null
+          ttclid?: string | null
           utm_term?: string | null
           utm_term_raw?: string | null
         }
         Update: {
           captured_at?: string
+          channel?: string | null
+          channel_source?: string | null
           created_at?: string
+          detected_via?: string | null
+          fbclid?: string | null
+          gclid?: string | null
           landing_page?: string | null
           organization_id?: string | null
           referrer?: string | null
@@ -285,6 +302,7 @@ export type Database = {
           utm_medium_raw?: string | null
           utm_source?: string
           utm_source_raw?: string | null
+          ttclid?: string | null
           utm_term?: string | null
           utm_term_raw?: string | null
         }
@@ -13238,8 +13256,12 @@ export type Database = {
           cancel_scheduled_for: string | null
           canceled_at: string | null
           cancellation_source: string | null
+          channel: string | null
+          channel_source: string | null
           counts_toward_mrr: boolean
+          detected_via: string | null
           how_heard: string | null
+          how_heard_other: string | null
           is_demo_or_test: boolean
           is_lifetime: boolean
           last_login_at: string | null
@@ -13322,11 +13344,25 @@ export type Database = {
         }
         Returns: undefined
       }
+      save_how_heard: {
+        Args: {
+          p_organization_id: string
+          p_other?: string
+          p_value?: string
+        }
+        Returns: undefined
+      }
       save_signup_attribution: {
         Args: {
           p_captured_at?: string
+          p_channel?: string
+          p_channel_source?: string
+          p_detected_via?: string
+          p_fbclid?: string
+          p_gclid?: string
           p_landing_page?: string
           p_referrer?: string
+          p_ttclid?: string
           p_utm_campaign?: string
           p_utm_content?: string
           p_utm_medium?: string

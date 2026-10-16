@@ -55,8 +55,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
-  countWithOnboardingData,
   describeAnswers,
+  howHeardAnsweredSummary,
   summariseSource,
 } from '@/lib/onboardingAnswers';
 import { countWithAttribution, describeUtm, summariseUtm } from '@/lib/utmAttribution';
@@ -217,7 +217,8 @@ function SignupAcquisition({
         <button type="button" className="flex shrink-0 flex-col items-end gap-1">
           {heard ? (
             <Badge variant="secondary" className="cursor-pointer text-xs font-medium">
-              {heard.primary}
+              Said: {heard.primary}
+              {heard.other ? `: ${heard.other}` : ''}
               {heard.extraCount > 0 && ` +${heard.extraCount}`}
             </Badge>
           ) : (
@@ -225,7 +226,7 @@ function SignupAcquisition({
           )}
           {utm ? (
             <Badge variant="outline" className="cursor-pointer text-xs font-medium">
-              Link: {utm.primary}
+              Detected: {utm.primary}
             </Badge>
           ) : (
             <span className="text-[10px] text-muted-foreground">No link capture</span>
@@ -1159,12 +1160,13 @@ export default function PlatformAnalyticsPage() {
                 */}
                 {analytics?.signups.recent && analytics.signups.recent.length > 0 && (
                   <p className="text-xs text-muted-foreground mb-2">
-                    {countWithOnboardingData(analytics.signups.recent)} of{' '}
-                    {analytics.signups.recent.length} answered how they heard about TidyWise.
+                    {howHeardAnsweredSummary(analytics.signups.recent).answered} of{' '}
+                    {analytics.signups.recent.length} ({howHeardAnsweredSummary(analytics.signups.recent).percent}%)
+                    answered how they heard about TidyWise.
                     {' '}
                     {countWithAttribution(analytics.signups.recent)} of{' '}
-                    {analytics.signups.recent.length} have automatic link capture
-                    (normalized source direct when the visit had no UTM parameters). Neither figure is backfilled.
+                    {analytics.signups.recent.length} have a detected channel.
+                    A visit with a referrer is not labeled direct. The survey answer is not backfilled.
                   </p>
                 )}
                 <ScrollArea className="h-[400px] pr-4">

@@ -221,7 +221,7 @@ test("milestone columns follow whatever keys are on the rows", () => {
   const alpha = header.indexOf("milestone_alpha_added");
   const zebra = header.indexOf("milestone_zebra_added");
   assert.ok(alpha > 0 && zebra > alpha);
-  assert.match(csv, /Facebook ad, TikTok/);
+  assert.match(csv, /Facebook, TikTok/);
   assert.match(csv, /"North Shore Clean"/);
 });
 

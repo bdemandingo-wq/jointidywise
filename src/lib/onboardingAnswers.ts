@@ -34,16 +34,28 @@ export type QualifyingKey = (typeof QUALIFYING_KEYS)[number];
 /** Every answer is an array — the questions are multi-select. */
 export type OnboardingAnswers = Record<QualifyingKey, string[]>;
 
-/** Options for "How did you hear about us?", in display order. */
+/**
+ * Single-choice options for "How did you hear about us?", in display order.
+ * The owner's traffic is almost all organic social, so this answer is primary.
+ * fb_ad and fb_group are legacy slugs: still read, labeled Facebook, not offered.
+ */
 export const HOW_HEARD_VALUES = [
-  "fb_ad",
-  "fb_group",
-  "instagram",
   "tiktok",
+  "instagram",
+  "facebook",
+  "reddit",
   "google",
   "referral",
   "other",
+  "not_sure",
 ] as const;
+
+export type HowHeardValue = (typeof HOW_HEARD_VALUES)[number];
+
+/** Free-text companion when the choice is other. Stored as howHeardOther. */
+export const HOW_HEARD_OTHER_MAX = 200;
+
+const LEGACY_HOW_HEARD = ["fb_ad", "fb_group"] as const;
 
 /**
  * Canonical pain order — the order the cards are declared in, NOT the order the
@@ -135,10 +147,76 @@ export function primaryPain(a: OnboardingAnswers): string | null {
  * Plain arrays only. A Set or Map here would survive in memory and arrive in
  * Postgres as `{}` (CLAUDE.md rule 1, same failure as the persisted query cache).
  */
-export function buildAnswersPayload(a: OnboardingAnswers): Record<QualifyingKey, string[]> {
-  const payload = {} as Record<QualifyingKey, string[]>;
+/** One current option. Legacy fb_ad / fb_group collapse to facebook on write. */
+export function chosenHowHeard(values: readonly string[]): HowHeardValue | null {
+  const mapped = values.map((value) =>
+    value === "fb_ad" || value === "fb_group" ? "facebook" : value,
+  );
+  return HOW_HEARD_VALUES.find((option) => mapped.includes(option)) ?? null;
+}
+
+/** Trimmed free text, capped. Blank is empty. */
+export function normalizeHowHeardOther(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  return trimmed.length > HOW_HEARD_OTHER_MAX ? trimmed.slice(0, HOW_HEARD_OTHER_MAX) : trimmed;
+}
+
+export function readHowHeardOther(raw: unknown): string {
+  if (!raw || typeof raw !== "object") return "";
+  return normalizeHowHeardOther((raw as Record<string, unknown>).howHeardOther);
+}
+
+/** Set when the owner answers, including not_sure. */
+export function readHowHeardAskedAt(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = (raw as Record<string, unknown>).howHeardAskedAt;
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+/** True when a real source slug is stored. not_sure is an answer, but not a source. */
+export function hasHowHeardAnswer(raw: unknown): boolean {
+  return normalizeAnswers(raw).howHeard.some((value) => value !== "not_sure");
+}
+
+/**
+ * The owner dashboard asks once when nothing was stored and we have not
+ * already recorded that we asked. A local seen flag is a second gate.
+ */
+export function shouldAskHowHeard(raw: unknown): boolean {
+  if (readHowHeardAskedAt(raw)) return false;
+  if (normalizeAnswers(raw).howHeard.includes("not_sure")) return false;
+  return !hasHowHeardAnswer(raw);
+}
+
+/** Step 1 can continue, and submit can run, only when a choice is complete. */
+export function isHowHeardComplete(value: string, other: string): boolean {
+  if (!(HOW_HEARD_VALUES as readonly string[]).includes(value)) return false;
+  if (value === "other") return normalizeHowHeardOther(other).length > 0;
+  return true;
+}
+
+export type OnboardingAnswersPayload = Record<QualifyingKey, string[]> & {
+  howHeardOther: string;
+  howHeardAskedAt?: string;
+};
+
+export function buildAnswersPayload(
+  a: OnboardingAnswers,
+  howHeardOther?: unknown,
+  askedAt?: string,
+): OnboardingAnswersPayload {
+  const payload = {} as OnboardingAnswersPayload;
   for (const key of QUALIFYING_KEYS) {
     payload[key] = [...(a[key] ?? [])];
+  }
+  const picked = chosenHowHeard(payload.howHeard);
+  payload.howHeard = picked ? [picked] : [];
+  payload.howHeardOther = picked === "other" ? normalizeHowHeardOther(howHeardOther ?? readHowHeardOther(a)) : "";
+  if (picked === "not_sure") {
+    const stamp = typeof askedAt === "string" ? askedAt.trim() : "";
+    payload.howHeardAskedAt = stamp || new Date().toISOString();
   }
   return payload;
 }
@@ -188,13 +266,16 @@ export const OPTION_LABELS: Record<QualifyingKey, Record<string, string>> = {
     "50k": "$50k+/mo",
   },
   howHeard: {
-    fb_ad: "Facebook ad",
-    fb_group: "Facebook group",
-    instagram: "Instagram",
     tiktok: "TikTok",
-    google: "Google search",
-    referral: "Friend or referral",
+    instagram: "Instagram",
+    facebook: "Facebook",
+    reddit: "Reddit",
+    google: "Google",
+    referral: "Friend/referral",
     other: "Other",
+    not_sure: "Not sure",
+    fb_ad: "Facebook",
+    fb_group: "Facebook",
   },
 };
 
@@ -231,7 +312,7 @@ const CANONICAL_ORDER: Record<QualifyingKey, readonly string[]> = {
   bookingMethod: ["manual", "dms", "referrals", "software"],
   biggestPain: ["scheduling", "payments", "noshows", "everything"],
   revenueGoal: ["5k", "10k", "25k", "50k"],
-  howHeard: HOW_HEARD_VALUES,
+  howHeard: [...HOW_HEARD_VALUES, ...LEGACY_HOW_HEARD],
 };
 
 /** Selected values in canonical order; anything unrecognised keeps its position at the end. */
@@ -247,12 +328,32 @@ function inCanonicalOrder(key: QualifyingKey, values: string[]): string[] {
  * Ordered canonically rather than by stored order, so the same organisation
  * never reads differently on two page loads.
  */
-export function summariseSource(raw: unknown): { primary: string; extraCount: number } | null {
+export function summariseSource(raw: unknown): { primary: string; extraCount: number; other: string | null } | null {
   const selected = inCanonicalOrder("howHeard", normalizeAnswers(raw).howHeard);
   if (selected.length === 0) return null;
+  const other = readHowHeardOther(raw);
   return {
     primary: labelForOption("howHeard", selected[0]),
     extraCount: selected.length - 1,
+    other: selected.includes("other") && other ? other : null,
+  };
+}
+
+/**
+ * Share of rows that named a source. Zero rows is 0%, not NaN.
+ * not_sure is stored, and it does not count as a named source.
+ */
+export function howHeardAnsweredSummary(rows: Array<{ onboarding_answers?: unknown }>): {
+  answered: number;
+  total: number;
+  percent: number;
+} {
+  const total = rows.length;
+  const answered = rows.reduce((count, row) => count + (hasHowHeardAnswer(row.onboarding_answers) ? 1 : 0), 0);
+  return {
+    answered,
+    total,
+    percent: total === 0 ? 0 : Math.round((answered / total) * 100),
   };
 }
 
@@ -268,7 +369,14 @@ export function describeAnswers(
   return QUALIFYING_KEYS.filter((k) => a[k].length > 0).map((k) => ({
     key: k,
     question: QUESTION_LABELS[k],
-    labels: inCanonicalOrder(k, a[k]).map((v) => labelForOption(k, v)),
+    labels: inCanonicalOrder(k, a[k]).map((v) => {
+      const label = labelForOption(k, v);
+      if (k === "howHeard" && v === "other") {
+        const extra = readHowHeardOther(raw);
+        return extra ? `${label}: ${extra}` : label;
+      }
+      return label;
+    }),
   }));
 }
 

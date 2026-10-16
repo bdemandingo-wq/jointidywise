@@ -9,6 +9,7 @@
  */
 
 import { labelForOption } from "./onboardingAnswers.ts";
+import { channelLabel } from "./utmAttribution.ts";
 
 export interface AccountMetricsRow {
   organization_id: string;
@@ -23,6 +24,10 @@ export interface AccountMetricsRow {
   activation_milestones: unknown;
   last_login_at: string | null;
   how_heard: string | null;
+  how_heard_other?: string | null;
+  channel?: string | null;
+  channel_source?: string | null;
+  detected_via?: string | null;
   utm_source: string | null;
   utm_medium: string | null;
   utm_campaign: string | null;
@@ -194,6 +199,10 @@ export function buildAccountMetricsCsv(rows: AccountMetricsRow[], generatedAt: D
       "Last login (UTC)",
       "How heard",
       "How heard (raw)",
+      "How heard other",
+      "Detected channel",
+      "Channel source",
+      "Detected via",
       "UTM source",
       "UTM medium",
       "UTM campaign",
@@ -238,6 +247,10 @@ export function buildAccountMetricsCsv(rows: AccountMetricsRow[], generatedAt: D
       stamp(row.last_login_at),
       heardLabel(row.how_heard),
       row.how_heard ?? "",
+      row.how_heard_other ?? "",
+      row.channel ? channelLabel(row.channel) : "",
+      row.channel_source ?? "",
+      row.detected_via ?? "",
       row.utm_source ?? "",
       row.utm_medium ?? "",
       row.utm_campaign ?? "",

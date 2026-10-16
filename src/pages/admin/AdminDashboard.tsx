@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useMemo, useEffect, useCallback, lazy, Suspense, type ReactNode } from 'react';
 import { isOrgToday } from '@/lib/orgDateRange';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { useSearchParams } from 'react-router-dom';
@@ -11,6 +11,7 @@ import { AdminLayout } from '@/components/admin/AdminLayout';
 import { TodayStats } from '@/components/admin/TodayStats';
 import { UpcomingBookings } from '@/components/admin/UpcomingBookings';
 import { OnboardingChecklist } from '@/components/admin/OnboardingChecklist';
+import { HowHeardPrompt } from '@/components/admin/HowHeardPrompt';
 import {
   useDashboardUpcoming,
   useDashboardChart,
@@ -116,16 +117,16 @@ export default function AdminDashboard() {
   });
   // Plan-tier loading must not blank a paid dashboard. The nudge waits
   // until access is known, so a slow check does not flash "trial ended".
+  let body: ReactNode;
   if (isLoading && !hasFullAccess) {
-    return (
+    body = (
       <AdminLayout title="Dashboard" subtitle="Loading your data...">
         <SEOHead title="Dashboard | TidyWise" description="Manage your cleaning business from one dashboard" noIndex />
         <DashboardSkeleton />
       </AdminLayout>
     );
-  }
-  if (!hasFullAccess) {
-    return (
+  } else if (!hasFullAccess) {
+    body = (
       <AdminLayout title="Dashboard" subtitle="Pick a plan to continue">
         <SEOHead title="Dashboard | TidyWise" description="Manage your cleaning business from one dashboard" noIndex />
         <div className="portal-v2">
@@ -133,8 +134,15 @@ export default function AdminDashboard() {
         </div>
       </AdminLayout>
     );
+  } else {
+    body = <DashboardHome />;
   }
-  return <DashboardHome />;
+  return (
+    <>
+      {body}
+      <HowHeardPrompt />
+    </>
+  );
 }
 
 function DashboardHome() {
