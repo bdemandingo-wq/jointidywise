@@ -55,9 +55,11 @@ test('completion invokes the completed event, and arrival refuses a finished job
   const complete = readFileSync(new URL('../../supabase/functions/send-job-complete-sms/index.ts', import.meta.url), 'utf8');
   const arrival = readFileSync(new URL('../../supabase/functions/send-arrival-sms/index.ts', import.meta.url), 'utf8');
   const tracking = readFileSync(new URL('../hooks/useCleanerTracking.ts', import.meta.url), 'utf8');
+  const attempt = readFileSync(new URL('./arrivalAttempt.ts', import.meta.url), 'utf8');
   assert.match(complete, /jobEventCopy\('completed'/);
   assert.equal(complete.includes("jobEventCopy('arrived'"), false);
   assert.match(arrival, /jobEventCopy\('arrived'/);
   assert.match(arrival, /shouldSendArrival/);
-  assert.match(tracking, /shouldSendArrival/);
+  assert.match(attempt, /shouldSendArrival/);
+  assert.match(tracking, /runArrivalAttempt\(arrivedRef/);
 });

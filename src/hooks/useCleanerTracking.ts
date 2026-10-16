@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { useOrgCountryCode } from '@/hooks/useDistanceUnit';
 import { calculateDistanceMiles, estimateDriveMinutes } from '@/lib/distanceUtils';
 import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
-import { shouldSendArrival } from '@/lib/jobEventCopy';
+import { runArrivalAttempt } from '@/lib/arrivalAttempt';
 import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
 import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
 import {
@@ -105,48 +105,26 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   // ── arrival firing (shared by geofence, resume-check, and manual button) ──
 
   const fireArrival = useCallback(async (source: string) => {
-    if (arrivedRef.current) {
-      return {
-        data: { success: true, deduplicated: true, message: 'Arrival already recorded.' },
-        error: null,
-      };
-    }
-    const { data: bookingRow, error: statusError } = await supabase
-      .from('bookings')
-      .select('status')
-      .eq('id', bookingId)
-      .maybeSingle();
-    // A failed status read still calls the edge function. The server checks
-    // status after auth. Only a known finished job is skipped here.
-    if (!statusError && !shouldSendArrival(bookingRow?.status)) {
-      return {
-        data: {
-          success: true,
-          skipped: true,
-          message: 'This job is already finished, so no arrival notice was sent.',
-        },
-        error: null,
-      };
-    }
-    arrivedRef.current = true;
-    setHasArrived(true);
-    console.log(`[GPS] Arrival fired (${source})`);
-    try {
-      await haltWatchRef.current(true);
-      const result = await supabase.functions.invoke('send-arrival-sms', { body: { bookingId, staffId } });
-      // A hard failure should leave the button usable. A success:true with
-      // SMS skipped still notified the office, so the arrival sticks.
-      if (result.error || result.data?.success === false) {
-        arrivedRef.current = false;
-        setHasArrived(false);
-      }
-      return result;
-    } catch (err) {
-      console.warn('[GPS] Arrival notification failed:', err);
-      arrivedRef.current = false;
-      setHasArrived(false);
-      return { data: null, error: err };
-    }
+    // runArrivalAttempt sets arrivedRef before the status read. A second
+    // position update that lands during that read is a duplicate, and a
+    // finished job stops the watch instead of toasting "skipped" again.
+    return runArrivalAttempt(arrivedRef, {
+      onClaimed: () => setHasArrived(true),
+      onReleased: () => setHasArrived(false),
+      readStatus: async () => {
+        const { data: bookingRow, error: statusError } = await supabase
+          .from('bookings')
+          .select('status')
+          .eq('id', bookingId)
+          .maybeSingle();
+        return { status: bookingRow?.status, failed: !!statusError };
+      },
+      stopWatch: () => haltWatchRef.current(true),
+      send: async () => {
+        console.log(`[GPS] Arrival fired (${source})`);
+        return supabase.functions.invoke('send-arrival-sms', { body: { bookingId, staffId } });
+      },
+    });
   }, [bookingId, staffId]);
 
   /** Manual "I've Arrived" — works even if GPS tracking never started.
