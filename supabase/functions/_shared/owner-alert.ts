@@ -9,6 +9,7 @@ import { parseAlertPhones } from "./alertPhones.ts";
 import { escapeHtml } from "./escapeHtml.ts";
 import { notifyOffice } from "./office-notify.ts";
 import { ownerChannelMasterOn } from "./owner-notify-gates.ts";
+import { sendOpenPhoneMessage, type SmsSuppressionDb } from "./send-sms.ts";
 
 const APP_ORIGIN = "https://jointidywise.com";
 
@@ -80,7 +81,9 @@ export interface OwnerAlertDeps {
     content: string;
     from: string;
     apiKey: string;
-  }) => Promise<{ sent: number }>;
+    organizationId: string;
+    supabase: OwnerAlertDb;
+  }) => Promise<{ sent: number; optedOut?: number }>;
   sendEmail: (args: {
     organizationId: string;
     to: string;
@@ -369,30 +372,35 @@ async function defaultSendSms(args: {
   content: string;
   from: string;
   apiKey: string;
-}): Promise<{ sent: number }> {
-  const auth = args.apiKey.trim().replace(/^Bearer\s+/i, "");
-  const send = (authorization: string, to: string) =>
-    fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: { Authorization: authorization, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: args.from, to: [to], content: args.content }),
-    });
-
+  organizationId: string;
+  supabase: OwnerAlertDb;
+}): Promise<{ sent: number; optedOut: number }> {
   let sent = 0;
+  let optedOut = 0;
   for (const to of args.phones) {
-    // OpenPhone auth varies across tokens: raw key first, Bearer once on 401.
-    let response = await send(auth, to);
-    if (response.status === 401) {
-      await response.text();
-      response = await send(`Bearer ${auth}`, to);
+    // Bearer retry on 401 stays in sendOpenPhoneMessage. This number still
+    // goes through the org opt-out check; it is the business's own phone.
+    const result = await sendOpenPhoneMessage({
+      supabase: args.supabase as unknown as SmsSuppressionDb,
+      organizationId: args.organizationId,
+      to,
+      content: args.content,
+      from: args.from,
+      apiKey: args.apiKey,
+      tag: "notifyOwner",
+    });
+    if (result.skipped) {
+      optedOut += 1;
+      console.error("[notifyOwner] SMS skipped opted_out", to);
+      continue;
     }
-    if (response.ok) {
+    if (result.response.ok) {
       sent += 1;
     } else {
-      console.error("[notifyOwner] SMS failed", response.status, await response.text());
+      console.error("[notifyOwner] SMS failed", result.response.status, await result.response.text());
     }
   }
-  return { sent };
+  return { sent, optedOut };
 }
 
 async function defaultSendEmail(args: {
@@ -563,9 +571,13 @@ export async function notifyOwner(
           content: alert.body,
           from: ctx.openPhoneFrom,
           apiKey: ctx.openPhoneApiKey,
+          organizationId: org.organizationId,
+          supabase: org.supabase,
         });
         sms = sent.sent > 0;
-        if (!sms) smsSkippedReason = "SMS delivery failed";
+        if (!sms) {
+          smsSkippedReason = (sent.optedOut ?? 0) > 0 ? "Number opted out" : "SMS delivery failed";
+        }
       } catch (err) {
         console.error("[notifyOwner] SMS failed:", failureText(err));
         smsSkippedReason = "SMS delivery failed";

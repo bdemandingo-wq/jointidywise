@@ -32,6 +32,53 @@ const org: OwnerAlertOrg = {
   bookingId: "booking-1",
 };
 
+/** Opt-out lookup answers "clear" so the shared sender proceeds to OpenPhone. */
+function clearOptOutDb(): OwnerAlertOrg["supabase"] {
+  return {
+    from() {
+      const api = {
+        select() { return api; },
+        eq() { return api; },
+        not() { return api; },
+        order() { return api; },
+        range() { return api; },
+        insert() { return Promise.resolve({ error: null }); },
+        maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+        then(onfulfilled: (value: { data: unknown; error: null }) => unknown) {
+          return Promise.resolve({ data: [], error: null }).then(onfulfilled);
+        },
+      };
+      return api;
+    },
+  };
+}
+
+/** A suppression row for this org, so the shared sender does not POST. */
+function suppressedOptOutDb(): OwnerAlertOrg["supabase"] {
+  return {
+    from(table: string) {
+      const api = {
+        select() { return api; },
+        eq() { return api; },
+        not() { return api; },
+        order() { return api; },
+        range() { return api; },
+        insert() { return Promise.resolve({ error: null }); },
+        maybeSingle() {
+          if (table === "sms_suppressions") {
+            return Promise.resolve({ data: { id: "sup-1" }, error: null });
+          }
+          return Promise.resolve({ data: null, error: null });
+        },
+        then(onfulfilled: (value: { data: unknown; error: null }) => unknown) {
+          return Promise.resolve({ data: [], error: null }).then(onfulfilled);
+        },
+      };
+      return api;
+    },
+  };
+}
+
 function context(over: Partial<OwnerAlertContext> = {}): OwnerAlertContext {
   return {
     matrix: {},
@@ -338,11 +385,11 @@ test("OpenPhone sends the raw key and retries with Bearer after a 401", async ()
   };
   const loaded = harness(context({
     matrix: { "booking.new": { sms: true } },
-    notificationPhone: "+15551110001",
+    notificationPhone: "+18135550100",
     operatorIosTokens: 1,
   }), { push: true });
   delete loaded.deps.sendSms;
-  const result = await notifyOwner(org, "booking.new", {
+  const result = await notifyOwner({ ...org, supabase: clearOptOutDb() }, "booking.new", {
     title: "New booking",
     body: "Alex booked a clean",
   }, loaded.deps);
@@ -358,16 +405,37 @@ test("OpenPhone does not retry when the raw key is accepted", async () => {
   };
   const loaded = harness(context({
     matrix: { "booking.new": { sms: true } },
-    notificationPhone: "+15551110001",
+    notificationPhone: "+18135550100",
     operatorIosTokens: 1,
   }), { push: true });
   delete loaded.deps.sendSms;
-  const result = await notifyOwner(org, "booking.new", {
+  const result = await notifyOwner({ ...org, supabase: clearOptOutDb() }, "booking.new", {
     title: "New booking",
     body: "Alex booked a clean",
   }, loaded.deps);
   assert.equal(result.sms, true);
   assert.deepEqual(auths, ["op-key"]);
+});
+
+test("an opted-out owner phone is not texted", async () => {
+  let fetches = 0;
+  globalThis.fetch = async () => {
+    fetches += 1;
+    return new Response("{}", { status: 200 });
+  };
+  const loaded = harness(context({
+    matrix: { "booking.new": { sms: true } },
+    notificationPhone: "+18135550100",
+    operatorIosTokens: 1,
+  }), { push: true });
+  delete loaded.deps.sendSms;
+  const result = await notifyOwner({ ...org, supabase: suppressedOptOutDb() }, "booking.new", {
+    title: "New booking",
+    body: "Alex booked a clean",
+  }, loaded.deps);
+  assert.equal(result.sms, false);
+  assert.equal(result.smsSkippedReason, "Number opted out");
+  assert.equal(fetches, 0);
 });
 
 test("a turned-off group does not ring, push, text, or email", async () => {

@@ -15,4 +15,4 @@ jobs:
       - run: npm ci
       - run: node scripts/check-openphone-messages-endpoint.mjs
       - run: npx tsc --noEmit -p tsconfig.app.json
-      - run: node --experimental-strip-types --test scripts/check-openphone-messages-endpoint.test.mjs supabase/functions/_shared/send-sms.test.ts supabase/functions/_shared/sms-opt-out.test.ts src/lib/subscriptionWebhookEvent.test.ts
+      - run: node --experimental-strip-types --test scripts/check-openphone-messages-endpoint.test.mjs supabase/functions/_shared/send-sms.test.ts supabase/functions/_shared/sms-opt-out.test.ts supabase/functions/_shared/owner-alert.test.ts src/lib/subscriptionWebhookEvent.test.ts
