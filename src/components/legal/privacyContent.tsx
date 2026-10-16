@@ -17,7 +17,38 @@ export const PRIVACY_POLICY_EFFECTIVE_DATE = "October 16, 2026";
 
 const linkClass = "text-primary hover:underline";
 
-export function PrivacyPolicyBody({ className }: { className?: string }) {
+function PolicyLink({
+  to,
+  newTab,
+  children,
+}: {
+  to: string;
+  newTab?: boolean;
+  children: React.ReactNode;
+}) {
+  const newTabProps = newTab ? { target: "_blank" as const, rel: "noopener noreferrer" } : {};
+  if (to.startsWith("mailto:") || to.startsWith("http")) {
+    return (
+      <a href={to} className={linkClass} {...newTabProps}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <Link to={to} className={linkClass} {...newTabProps}>
+      {children}
+    </Link>
+  );
+}
+
+export function PrivacyPolicyBody({
+  className,
+  openLinksInNewTab = false,
+}: {
+  className?: string;
+  /** Signup dialog only. The public page keeps links in the same tab. */
+  openLinksInNewTab?: boolean;
+}) {
   return (
     <ArticleBody size="sm" className={className}>
       <p>
@@ -52,6 +83,7 @@ export function PrivacyPolicyBody({ className }: { className?: string }) {
         <li><strong>Payment information:</strong> processed by our payment provider (Stripe). We do not store full payment card numbers on our servers.</li>
         <li><strong>Location information:</strong> described in detail in the &quot;Location&quot; section below.</li>
         <li><strong>Device and usage information:</strong> device type, app version, push-notification tokens, crash and error reports, and basic log data.</li>
+        <li>On our home page we use ipapi.co to estimate your city from your IP address so we can show local information. We don&apos;t store the result with your identity.</li>
         <li><strong>Marketing attribution:</strong> when a business signs up, we store the UTM parameters and referral source from the link they used (for example, which ad or website sent them) so we can measure which marketing works.</li>
       </ul>
       <p>
@@ -109,9 +141,9 @@ export function PrivacyPolicyBody({ className }: { className?: string }) {
 
       <h2>Analytics, advertising, and your California privacy rights (CCPA/CPRA)</h2>
       <p>
-        We use <strong>Google Analytics</strong>, <strong>Google Ads</strong>, and <strong>Meta Pixel</strong> only on our
-        marketing and signup pages. We do not use them inside the TidyWise app. When someone starts a trial, we send only
-        a &quot;trial started&quot; event name to these ad platforms. We do not send your email, phone number, or name.
+        When you sign up and start your trial, Google and Meta may receive that event along with standard technical data
+        such as your IP address, browser, cookies and the page URL. We don&apos;t send them your name, email, customers&apos;
+        information or anything you enter in the app.
       </p>
       <p>
         Under California law, using these tools may count as &quot;selling&quot; or &quot;sharing&quot; personal information for
@@ -120,7 +152,7 @@ export function PrivacyPolicyBody({ className }: { className?: string }) {
       <ul>
         <li>
           Use the <strong>&quot;Do Not Sell or Share My Personal Information&quot;</strong> link at{" "}
-          <Link to="/do-not-sell" className={linkClass}>jointidywise.com/do-not-sell</Link> or in our website footer.
+          <PolicyLink to="/do-not-sell" newTab={openLinksInNewTab}>jointidywise.com/do-not-sell</PolicyLink> or in our website footer.
         </li>
         <li>
           We honor <strong>Global Privacy Control (GPC)</strong> signals. If your browser sends a GPC signal, we treat it
@@ -140,11 +172,10 @@ export function PrivacyPolicyBody({ className }: { className?: string }) {
 
       <h2>Cookies</h2>
       <p>
-        We use cookies and similar technologies to keep you signed in and remember your preferences. On our marketing and
-        signup pages, analytics and advertising cookies run only if you choose <strong>Accept</strong> in our cookie
-        banner. If you choose <strong>Reject</strong>, or your browser sends a Global Privacy Control signal, they
-        don&apos;t run. You can change your choice at any time through the &quot;Do Not Sell or Share My Personal
-        Information&quot; link. You can also block cookies in your browser settings; some features may not work if you do.
+        We use cookies to keep you signed in and remember your preferences. On our website, signup and onboarding pages,
+        we may also use Google and Meta analytics and advertising cookies to measure our marketing. You can opt out at
+        any time with the &quot;Do Not Sell or Share My Personal Information&quot; link, and we honor Global Privacy
+        Control signals automatically. You can also block cookies in your browser.
       </p>
 
       <h2>Service providers we use</h2>
@@ -153,16 +184,17 @@ export function PrivacyPolicyBody({ className }: { className?: string }) {
         <li><strong>Stripe</strong> – payment processing, subscriptions, and payouts.</li>
         <li><strong>Supabase</strong> – hosting, database, authentication, and file storage.</li>
         <li><strong>OpenPhone</strong> – business phone calls and SMS.</li>
-        <li><strong>Resend</strong> – transactional email delivery.</li>
+        <li><strong>Resend</strong> – customer and staff email when a business is not sending through its own Gmail, including invoices, booking messages, review requests, and team invitations, plus messages we send directly such as subscription receipts and staff welcome mail. Resend receives the recipient&apos;s email address, the subject, and the message. A staff welcome message can include login details. Signup confirmations, sign-in links, password resets, and email-change messages are not sent through Resend.</li>
         <li><strong>Apple Push Notification service</strong> – push notifications on iPhone.</li>
         <li><strong>Google Maps Platform</strong> – address lookup, geocoding, and driving time estimates.</li>
-        <li><strong>Sentry</strong> – error and crash reporting.</li>
+        <li><strong>Sentry</strong> – error and performance monitoring, including a recording of the screen with text and inputs masked when an error happens, and timing data from a sample of page loads.</li>
         <li><strong>Anthropic</strong> – AI features (for example, message drafting, AI SMS replies, and business insights). Content you submit to AI features is sent to Anthropic to generate a response.</li>
         <li><strong>Google (Gmail)</strong> – only if a business chooses to connect its Gmail account to send email from TidyWise.</li>
         <li><strong>Google Analytics, Google Ads, Meta</strong> – marketing and signup pages only (see above).</li>
-        <li><strong>Lovable</strong> – website hosting, Google and Apple sign-in on the web, and sending account emails such as signup, invitations, sign-in links and password resets.</li>
+        <li><strong>Lovable</strong> – website hosting, Google and Apple sign-in on the web, and account email. Signup confirmations, sign-in links, password resets, email-change messages, and auth invitations are sent through Lovable, which receives the recipient&apos;s email address, the message, and the confirmation, sign-in, or reset link.</li>
         <li><strong>SitePong</strong> – error reporting (error details, page URL and browser type).</li>
         <li><strong>Meta (Facebook Lead Ads)</strong> – if a business connects its Facebook lead forms, we receive the name, email, phone and any details the person submitted, and store them as a lead for that business.</li>
+        <li><strong>Make.com</strong> – internal automation; we send a new subscriber&apos;s name, email, business name and subscription status to keep our own records and follow-ups.</li>
       </ul>
       <p>
         <strong>Integrations businesses turn on themselves:</strong> A business can connect <strong>Zapier</strong> or{" "}
@@ -174,8 +206,7 @@ export function PrivacyPolicyBody({ className }: { className?: string }) {
       <h2>Data sharing</h2>
       <p>
         Beyond the providers above, we may share information: with the cleaning business you work with or book through;
-        if required by law or to protect rights and safety; or as part of a merger, acquisition, or sale of assets. We do
-        not share mobile numbers or SMS consent with third parties for their marketing.
+        if required by law or to protect rights and safety; or as part of a merger, acquisition, or sale of assets.
       </p>
 
       <h2>Security</h2>
@@ -197,31 +228,17 @@ export function PrivacyPolicyBody({ className }: { className?: string }) {
         <li>Control device permissions (location, camera, notifications) in your device settings.</li>
         <li>Opt out of texts by replying STOP.</li>
         <li>
-          Opt out of &quot;selling/sharing&quot; via <Link to="/do-not-sell" className={linkClass}>/do-not-sell</Link>, the
+          Opt out of &quot;selling/sharing&quot; via <PolicyLink to="/do-not-sell" newTab={openLinksInNewTab}>Do Not Sell or Share My Personal Information</PolicyLink>, the
           footer link, or GPC.
         </li>
       </ul>
 
       <h2>Account deletion</h2>
-      <p>You can request deletion of your account and associated data at any time:</p>
-      <ul>
-        <li>In the app: <strong>Settings → Security → Delete My Account</strong>.</li>
-        <li>
-          On our <Link to="/delete-account" className={linkClass}>Account Deletion page</Link>.
-        </li>
-        <li>
-          By emailing <strong><a href={`mailto:${SUPPORT_EMAIL}`} className={linkClass}>{SUPPORT_EMAIL}</a></strong> with
-          the subject &quot;Account Deletion Request&quot;.
-        </li>
-      </ul>
       <p>
-        We process deletion requests within 7 business days, unless we must keep certain information for legal or
-        compliance reasons. Copies of deleted information may remain in our encrypted backups for a limited period until
-        those backups are overwritten on their regular schedule. We do not use backup copies for any other purpose.
-      </p>
-      <p>
-        If you are a cleaner or an end customer of a business that uses TidyWise, records held by that business are
-        controlled by the business; we will forward your request to them.
+        Account owners can delete their account in Settings. Cleaners, team members and customers of a business can ask
+        that business to delete their information, or email{" "}
+        <PolicyLink to={`mailto:${SUPPORT_EMAIL}`} newTab={openLinksInNewTab}>{SUPPORT_EMAIL}</PolicyLink> and we will
+        pass the request to the business and respond within 45 days.
       </p>
 
       <h2>Children&apos;s privacy</h2>
@@ -239,7 +256,7 @@ export function PrivacyPolicyBody({ className }: { className?: string }) {
         <br />
         65 SW 12th Ave, Deerfield Beach, FL 33442
         <br />
-        Email: <a href={`mailto:${SUPPORT_EMAIL}`} className={linkClass}>{SUPPORT_EMAIL}</a>
+        Email: <PolicyLink to={`mailto:${SUPPORT_EMAIL}`} newTab={openLinksInNewTab}>{SUPPORT_EMAIL}</PolicyLink>
       </p>
     </ArticleBody>
   );

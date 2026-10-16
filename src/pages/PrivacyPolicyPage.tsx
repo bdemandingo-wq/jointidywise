@@ -13,7 +13,7 @@ export default function PrivacyPolicyPage() {
     <div className="portal-v2 portal-v2-scroll min-h-screen bg-background">
       <SEOHead
         title="Privacy Policy | TidyWise"
-        description="Read TidyWise's Privacy Policy. Learn what information we collect and how we use it to provide app functionality."
+        description="How TidyWise collects, uses, and shares information when cleaning businesses, their staff, and their customers use the website and apps."
         canonical="/privacy-policy"
       />
 

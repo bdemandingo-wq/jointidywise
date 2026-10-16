@@ -26,7 +26,7 @@ export function PrivacyPolicyDialog({ children }: PrivacyPolicyDialogProps) {
           <DialogTitle className="text-2xl">Privacy Policy</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">Effective date: {PRIVACY_POLICY_EFFECTIVE_DATE}</p>
-        <PrivacyPolicyBody />
+        <PrivacyPolicyBody openLinksInNewTab />
       </DialogContent>
     </Dialog>
   );
