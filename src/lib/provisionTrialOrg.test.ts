@@ -115,3 +115,15 @@ test('provision-trial-org re-checks immediately before the placeholder insert', 
   assert.match(source, /provisionGate\.run\(user\.id/);
   assert.match(source, /needs_onboarding: true/);
 });
+
+test('a unique violation on the org insert reuses the existing workspace', () => {
+  const source = readFileSync(
+    new URL('../../supabase/functions/provision-trial-org/index.ts', import.meta.url),
+    'utf8',
+  );
+  const insert = source.indexOf('.insert({ name: orgName, plan_type: "trial"');
+  const after = source.slice(insert, insert + 700);
+  assert.match(after, /isDuplicate\(orgError\)/);
+  assert.match(after, /reuseWorkspace\(conflicted/);
+  assert.equal(after.includes('if (orgError) throw orgError'), false);
+});

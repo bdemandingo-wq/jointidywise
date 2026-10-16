@@ -62,13 +62,14 @@ export function clearStartupOrgSnapshot() {
 
 /**
  * After sign-in, a cached empty org must not seed OrganizationContext.
- * `removeQueries` is injected so this module does not import React Query.
+ * The caller resets the startup-org query (drops the stale result and
+ * refetches). Removing it leaves the observer with nothing to refetch.
  */
 export function clearCachedStartupOrg(
-  removeQueries: (filters: { queryKey: readonly ['startup-org'] }) => void,
+  resetStartupOrgQuery: (filters: { queryKey: readonly ['startup-org'] }) => void,
 ) {
   clearStartupOrgSnapshot();
-  removeQueries({ queryKey: ['startup-org'] });
+  resetStartupOrgQuery({ queryKey: ['startup-org'] });
 }
 
 /** A startup snapshot may seed the dashboard only after a real workspace loaded. */

@@ -1,5 +1,6 @@
 // node --experimental-strip-types --test src/lib/onboardingInsertGuard.test.ts
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { blockOnboardingInsert, createSubmitGuard } from './onboardingInsertGuard.ts';
 
@@ -31,4 +32,16 @@ test('a second submit while the first is in flight does not enter', () => {
   assert.equal(guard.enter(), false);
   guard.leave();
   assert.equal(guard.enter(), true);
+});
+
+test('submit reuses the oldest placeholder instead of maybeSingle', () => {
+  const source = readFileSync(new URL('../pages/OnboardingPage.tsx', import.meta.url), 'utf8');
+  const start = source.indexOf(".eq('needs_onboarding', true)");
+  assert.ok(start > 0);
+  const lookup = source.slice(start, start + 280);
+  assert.match(lookup, /\.order\('created_at', \{ ascending: true \}\)/);
+  assert.match(lookup, /\.order\('id', \{ ascending: true \}\)/);
+  assert.match(lookup, /\.limit\(1\)/);
+  assert.equal(lookup.includes('maybeSingle'), false);
+  assert.match(source, /orgLookupResult\.data\?\.\[0\]/);
 });

@@ -42,6 +42,7 @@ import {
   hideNativeSplashAfterPaint,
   hydrateNativeOfflineCache,
   markNativeIosDocument,
+  OFFLINE_CACHE_BUSTER,
 } from '@/lib/nativeShell';
 import { Sentry } from '@/lib/sentry';
 
@@ -301,7 +302,8 @@ const App = () => (
         // caches contain Map data serialized to plain objects).
         // v3 drops caches that stored every booking row. Parsing that blob
         // on the WKWebView main thread was part of the slow first paint.
-        buster: 'v3-bounded-lists',
+        // v4 drops a cached empty org from the sign-in race.
+        buster: OFFLINE_CACHE_BUSTER,
         dehydrateOptions: {
           // Persist only successful reads; never persist mutations or
           // huge/ephemeral queries. Also exclude 'service-pricing': its

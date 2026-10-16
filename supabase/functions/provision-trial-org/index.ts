@@ -221,7 +221,14 @@ serve(async (req) => {
         .insert({ name: orgName, plan_type: "trial", owner_id: user.id, needs_onboarding: true })
         .select("id")
         .single();
-      if (orgError) throw orgError;
+      // 23505 means the other signup call inserted first (or a unique
+      // guard rejected a second placeholder). Reuse that workspace.
+      if (orgError) {
+        if (!isDuplicate(orgError)) throw orgError;
+        const conflicted = await lookupWorkspace(user.id);
+        if (!conflicted) throw orgError;
+        return reuseWorkspace(conflicted, user.id, user.email ?? null, "duplicate insert reused existing workspace");
+      }
 
       const { error: membershipError } = await supabase
         .from("org_memberships")

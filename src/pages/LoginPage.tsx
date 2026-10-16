@@ -75,7 +75,7 @@ export default function LoginPage() {
     // A false empty org from the sign-in race must not stay in the startup
     // snapshot. The refetch below reads the workspace again.
     clearCachedStartupOrg((filters) => {
-      queryClient.removeQueries(filters);
+      void queryClient.resetQueries(filters);
     });
     refetchOrganization();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once when provisioning reaches done
@@ -149,7 +149,7 @@ export default function LoginPage() {
 
       toast.success('Welcome back!');
       clearCachedStartupOrg((filters) => {
-        queryClient.removeQueries(filters);
+        void queryClient.resetQueries(filters);
       });
       setShowSplash(true);
     } catch (error: any) {

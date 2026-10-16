@@ -291,12 +291,16 @@ export default function OnboardingPage() {
         ? supabase.from('profiles').update({ phone: phoneNumber.trim() }).eq('id', user.id)
         : Promise.resolve({ error: null });
 
+      // maybeSingle() errors when an owner already has two placeholders
+      // ("multiple rows"). Take the oldest and finish that one.
       const orgLookup = supabase
         .from('organizations')
         .select('id, needs_onboarding')
         .eq('owner_id', user.id)
         .eq('needs_onboarding', true)
-        .maybeSingle();
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+        .limit(1);
 
       const [phoneResult, orgLookupResult] = await Promise.all([phoneWrite, orgLookup]);
       if (phoneResult.error) {
@@ -330,7 +334,7 @@ export default function OnboardingPage() {
       // context — OrganizationProvider may not have loaded yet if the page
       // mounted while the async fetch was still in flight.
       if (orgLookupResult.error) throw orgLookupResult.error;
-      const existingOrg = orgLookupResult.data;
+      const existingOrg = orgLookupResult.data?.[0] ?? null;
 
       console.log('[ONBOARDING-SUBMIT] context org:', organization?.id, 'needs_onboarding:', organization?.needs_onboarding);
       console.log('[ONBOARDING-SUBMIT] DB query org:', existingOrg?.id, 'needs_onboarding:', existingOrg?.needs_onboarding);
