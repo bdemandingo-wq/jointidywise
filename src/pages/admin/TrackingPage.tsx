@@ -21,6 +21,7 @@ import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { formatDistance } from '@/lib/distanceUtils';
 import { useDistanceUnit, useOrgCountryCode } from '@/hooks/useDistanceUnit';
+import { useNotificationPreferences, useUpdateNotificationPreferences } from '@/hooks/useNotificationPreferences';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { formatInTimezone, formatTimestampWithZone } from '@/lib/timezoneUtils';
 import { orgEndOfDay, orgStartOfDay } from '@/lib/orgDateRange';
@@ -370,7 +371,9 @@ export default function TrackingPage() {
   const historyTimer = useRef<number | null>(null);
   const onTheWayErrorRef = useRef(false);
   const [now, setNow] = useState(() => Date.now());
-  const [smsSettings, setSmsSettings] = useState<SmsSettings>({ notify_admin_on_the_way: true, notify_client_on_the_way: true, notify_client_distance_eta: true, notify_admin_arrived: true, notify_client_arrived: true });
+  const prefs = useNotificationPreferences();
+  const { save: saveNotificationPrefs } = useUpdateNotificationPreferences();
+  const [smsSettings, setSmsSettings] = useState<SmsSettings>({ notify_admin_on_the_way: false, notify_client_on_the_way: true, notify_client_distance_eta: true, notify_admin_arrived: false, notify_client_arrived: true });
   const [savingToggle, setSavingToggle] = useState(false);
 
   const fetchActive = useCallback(async () => {
@@ -841,7 +844,12 @@ export default function TrackingPage() {
     const { error } = await supabase
       .from('organization_sms_settings')
       .upsert(
-        { organization_id: orgId!, ...updated },
+        {
+          organization_id: orgId!,
+          notify_client_on_the_way: updated.notify_client_on_the_way,
+          notify_client_distance_eta: updated.notify_client_distance_eta,
+          notify_client_arrived: updated.notify_client_arrived,
+        },
         { onConflict: 'organization_id' },
       );
 
@@ -877,12 +885,16 @@ export default function TrackingPage() {
             <div className="flex items-center gap-3">
               <Switch
                 id="notify-admin"
-                checked={smsSettings.notify_admin_on_the_way}
-                onCheckedChange={(v) => handleToggle('notify_admin_on_the_way', v)}
-                disabled={savingToggle}
+                checked={prefs.notification_matrix?.['job.on_the_way']?.sms === true}
+                onCheckedChange={(v) => {
+                  void saveNotificationPrefs({ notification_matrix: { 'job.on_the_way': { sms: v } } }).then((res) => {
+                    if (res?.error) toast.error('Failed to save setting');
+                  });
+                }}
+                disabled={savingToggle || !prefs.loaded}
               />
               <Label htmlFor="notify-admin" className="text-sm cursor-pointer">
-                Notify Admin when cleaner goes On My Way
+                Also text me when a cleaner is on the way
               </Label>
             </div>
             <div className="flex items-center gap-3">
@@ -921,12 +933,16 @@ export default function TrackingPage() {
             <div className="flex items-center gap-3">
               <Switch
                 id="notify-admin-arrived"
-                checked={smsSettings.notify_admin_arrived}
-                onCheckedChange={(v) => handleToggle('notify_admin_arrived', v)}
-                disabled={savingToggle}
+                checked={prefs.notification_matrix?.['job.arrived']?.sms === true}
+                onCheckedChange={(v) => {
+                  void saveNotificationPrefs({ notification_matrix: { 'job.arrived': { sms: v } } }).then((res) => {
+                    if (res?.error) toast.error('Failed to save setting');
+                  });
+                }}
+                disabled={savingToggle || !prefs.loaded}
               />
               <Label htmlFor="notify-admin-arrived" className="text-sm cursor-pointer">
-                Notify admin when cleaner has arrived
+                Also text me when a cleaner arrives
               </Label>
             </div>
           </div>

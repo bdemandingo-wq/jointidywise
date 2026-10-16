@@ -1,14 +1,14 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
-import { parseAlertPhones, sendToExtraAlertPhones } from '../_shared/alertPhones.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
-import { notifyOffice } from "../_shared/office-notify.ts";
+import { notifyOwner } from "../_shared/owner-alert.ts";
 import { jobEventCopy } from "../_shared/job-event-copy.ts";
 
 /**
- * Texts the owner's PERSONAL cell the moment a cleaner marks a job complete.
+ * Tells the owner a cleaner marked a job complete: bell + push, email when
+ * push cannot land, and an optional "Also text me" SMS.
  *
  * Same shape as send-arrival-sms deliberately: staff-triggered, service-role
  * read, deduped per staff per booking through booking_reminder_log so a double
@@ -96,14 +96,9 @@ const handler = async (req: Request): Promise<Response> => {
 
     const { data: businessSettings } = await supabase
       .from('business_settings')
-      .select('company_name, company_phone, notification_phone')
+      .select('company_name')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
-
-    /* Personal cell first. company_phone is frequently the OpenPhone line, and
-       OpenPhone texting its own number never reaches a handset. */
-    const adminPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
-      || businessSettings?.company_phone;
 
     const address = formatFullAddress(booking as any) || 'N/A';
     const amountSuffix = typeof booking.total_amount === 'number' ? `\nTotal: $${booking.total_amount.toFixed(2)}` : '';
@@ -116,65 +111,24 @@ const handler = async (req: Request): Promise<Response> => {
       amountSuffix,
     });
 
-    // Bell + push whether or not SMS is configured.
-    const office = await notifyOffice(supabase, {
-      organizationId: booking.organization_id,
-      title: copy.bellTitle,
-      message: copy.bellMessage,
-      metadata: { booking_id: bookingId, staff_id: staffId },
-      pushTitle: copy.pushTitle,
-      pushBody: copy.pushBody,
-      pushData: { booking_id: bookingId, kind: copy.kind },
-    });
+    const office = await notifyOwner(
+      { supabase, organizationId: booking.organization_id, bookingId },
+      "job.completed",
+      {
+        title: copy.pushTitle,
+        body: copy.adminSms,
+        link: "/dashboard/bookings?status=completed",
+      },
+    );
 
-    const { data: smsSettings } = await supabase
-      .from('organization_sms_settings')
-      .select('openphone_api_key, openphone_phone_number_id, sms_enabled')
-      .eq('organization_id', booking.organization_id)
-      .maybeSingle();
-
-    let smsSkippedReason: string | null = null;
-    let adminSent = false;
-    const smsReady = !!(smsSettings?.sms_enabled && smsSettings.openphone_api_key && smsSettings.openphone_phone_number_id && adminPhone);
-    if (!smsReady) {
-      console.log('[send-job-complete-sms] SMS not configured or no alert phone — bell and push only');
-      smsSkippedReason = !adminPhone && smsSettings?.sms_enabled ? "No alert phone configured" : "SMS not configured";
-    }
-
-    if (smsReady && smsSettings && adminPhone) {
-
-    let phoneNumberId = smsSettings.openphone_phone_number_id;
-    if (phoneNumberId.includes('openphone.com')) {
-      const m = phoneNumberId.match(/phone-numbers\/([A-Za-z0-9]+)/);
-      if (m) phoneNumberId = m[1];
-    }
-    const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
-
-    const formatPhoneNumber = (phone: string): string => {
-      let f = phone.replace(/\D/g, '');
-      if (f.length === 10) f = `+1${f}`;
-      else if (!f.startsWith('+')) f = `+${f}`;
-      return f;
-    };
-
-    const message = copy.adminSms;
-
-    const r = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: { "Authorization": authHeader, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: phoneNumberId, to: [parseAlertPhones(adminPhone)[0] || formatPhoneNumber(adminPhone)], content: message }),
-    });
-    await sendToExtraAlertPhones(parseAlertPhones(adminPhone).slice(1), phoneNumberId, authHeader, message, 'send-job-complete-sms');
-    if (!r.ok) {
-      console.error('[send-job-complete-sms] admin SMS failed:', r.status, await r.text());
-    } else {
-      adminSent = true;
-    }
-    }
-
-    const recipientPhone = adminPhone
-      ? (parseAlertPhones(adminPhone)[0] || adminPhone)
-      : '';
+    const adminSent = office.sms;
+    // An owner who left "Also text me" off was still notified by push and the bell.
+    // Only a missing texting setup belongs in the cleaner's "texting isn't set up" sentence.
+    const textingUnavailable = office.smsSkippedReason === "SMS is not enabled"
+      || office.smsSkippedReason === "SMS not configured"
+      || office.smsSkippedReason === "No alert phone configured";
+    const smsSkippedReason = office.sms || !textingUnavailable ? null : office.smsSkippedReason;
+    const recipientPhone = '';
     const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
       booking_id: bookingId,
       organization_id: booking.organization_id,

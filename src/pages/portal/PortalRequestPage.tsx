@@ -300,12 +300,14 @@ export default function PortalRequestPage() {
       }
 
       const serviceName = services.find((s) => s.id === selectedService)?.name;
+      const requestId = typeof data === "string" ? data : undefined;
       const notifyResult = await invokePortal("notify-booking-request", {
         body: {
           customerName: sanitizeDisplayName(`${customer.first_name ?? ""} ${customer.last_name ?? ""}`),
           requestedDate: requestedDateISO,
           serviceName,
           notes: notes.trim() || undefined,
+          requestId,
         },
       });
 

@@ -459,6 +459,7 @@ export default function BookingsPage() {
         them got it wrong; the fix is to stop having a client opinion at all.
       */
           bookingNumber: booking.booking_number,
+          bookingId: booking.id,
           organizationId: organization.id,
         }
       }).then(({ error }) => {
@@ -505,6 +506,7 @@ export default function BookingsPage() {
           serviceName: cancelBookingTarget.service?.name || 'Cleaning',
           scheduledAt: cancelBookingTarget.scheduled_at,
           bookingNumber: cancelBookingTarget.booking_number,
+          bookingId: cancelBookingTarget.id,
           organizationId: organization.id,
         },
       }).catch(() => {});

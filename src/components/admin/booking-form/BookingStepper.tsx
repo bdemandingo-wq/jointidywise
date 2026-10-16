@@ -1386,6 +1386,7 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
               totalAmount: totalAmount > 0 ? totalAmount : calculatedPrice,
               address: formatFullAddress({ address, apt_suite: aptSuite, city, state, zip_code: zipCode }) || address,
               organizationId: organizationId ?? undefined,
+              bookingId: persistedBookingId,
             }
           }).then(({ error }) => {
             if (error) {

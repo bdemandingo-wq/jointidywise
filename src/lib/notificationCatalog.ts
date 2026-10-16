@@ -86,6 +86,9 @@ export const NOTIFICATION_TYPES: NotificationTypeDef[] = [
   { key: 'booking.conflicts', label: 'Schedule conflict', route: '/dashboard/scheduler', category: 'Bookings & Scheduling', sidebarKey: 'scheduler.overlaps', defaults: D({ email: true }) },
   { key: 'booking.payment_failed', label: 'Failed booking payment', route: '/dashboard/bookings?payment=failed', category: 'Bookings & Scheduling', sidebarKey: 'bookings.payment', defaults: D({ email: true, browser_push: true }) },
   { key: 'booking.completed', label: 'Booking completed', route: '/dashboard/bookings?status=completed', category: 'Bookings & Scheduling', defaults: INFO() },
+  { key: 'job.on_the_way', label: 'Cleaner on the way', route: '/dashboard/bookings', category: 'Bookings & Scheduling', defaults: D({ email: true, browser_push: true, native_push: true }) },
+  { key: 'job.arrived', label: 'Cleaner arrived', route: '/dashboard/bookings', category: 'Bookings & Scheduling', defaults: D({ email: true, browser_push: true, native_push: true }) },
+  { key: 'job.completed', label: 'Job completed', route: '/dashboard/bookings?status=completed', category: 'Bookings & Scheduling', defaults: D({ email: true, browser_push: true, native_push: true }) },
   { key: 'booking.missing_checklists', label: 'Missing checklist', route: '/dashboard/bookings', category: 'Bookings & Scheduling', defaults: INFO() },
   { key: 'booking.missing_photos', label: 'Missing booking photos', route: '/dashboard/bookings', category: 'Bookings & Scheduling', defaults: INFO() },
 

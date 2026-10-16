@@ -22,6 +22,8 @@ import {
   ownerDeliveryPatch,
   ownerSmsColumnUpdates,
   presetMatrix,
+  OWNER_TEXT_EVENTS,
+  ownerTextMeEnabled,
   systemNotificationCatalogKey,
 } from './notificationGroups.ts';
 
@@ -199,8 +201,22 @@ test('balanced preset writes catalog defaults and does not touch events it was n
 test('system bell rows map only for events the owner can silence', () => {
   assert.equal(systemNotificationCatalogKey('time_off_request'), 'staff.time_off_request');
   assert.equal(systemNotificationCatalogKey('staff_activity'), 'staff.activity');
+  assert.equal(systemNotificationCatalogKey('booking.new'), 'booking.new');
+  assert.equal(systemNotificationCatalogKey('job.arrived'), 'job.arrived');
   assert.equal(systemNotificationCatalogKey('email_change_request'), undefined);
   assert.equal(systemNotificationCatalogKey('trial_reminder'), undefined);
   assert.equal(systemNotificationCatalogKey('email_send_failure'), undefined);
   assert.equal(systemNotificationCatalogKey(null), undefined);
+});
+
+test('owner texts default off and turn on only for an explicit Also text me', () => {
+  for (const event of OWNER_TEXT_EVENTS) {
+    const type = typeByKey(event.key);
+    assert.ok(type, event.key);
+    assert.equal(type?.defaults?.sms, false, event.key);
+    assert.equal(isChannelEnabled(event.key, 'sms', {}, undefined), false);
+    assert.equal(ownerTextMeEnabled(event.key, {}, {}), false);
+    assert.equal(ownerTextMeEnabled(event.key, { [event.key]: { sms: true } }, {}), true);
+    assert.equal(ownerTextMeEnabled(event.key, { [event.key]: { sms: true } }, { 'master.sms': false }), false);
+  }
 });

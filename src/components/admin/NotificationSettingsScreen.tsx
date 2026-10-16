@@ -17,6 +17,11 @@ interface NotificationSettingsScreenProps {
   masters: { push: boolean; email: boolean; sms: boolean };
   onMaster: (delivery: OwnerDelivery, value: boolean) => void;
   pushDetail?: ReactNode;
+  /** Shown when no owner, admin, or manager iPhone is registered for push. */
+  installBanner?: string | null;
+  /** Per-event "Also text me" switches. When set, the blanket text master is hidden. */
+  ownerTexts?: SettingsToggle[];
+  onOwnerText?: (id: string, value: boolean) => void;
   groups: SettingsToggle[];
   onGroup: (id: string, value: boolean) => void;
   groupDetail?: Partial<Record<string, ReactNode>>;
@@ -86,6 +91,9 @@ export function NotificationSettingsScreen({
   masters,
   onMaster,
   pushDetail,
+  installBanner,
+  ownerTexts,
+  onOwnerText,
   groups,
   onGroup,
   groupDetail,
@@ -112,8 +120,13 @@ export function NotificationSettingsScreen({
             These alerts come to you. They do not text or email your customers.
           </p>
         </div>
+        {installBanner ? (
+          <p className="text-sm rounded-md border bg-muted/40 px-3 py-2" data-testid="push-install-banner">
+            {installBanner}
+          </p>
+        ) : null}
         <div className="rounded-lg border bg-card divide-y">
-          {MASTERS.map((master) => {
+          {MASTERS.filter((master) => master.id !== 'sms' || !ownerTexts).map((master) => {
             const Icon = master.icon;
             return (
               <div key={master.id}>
@@ -134,6 +147,26 @@ export function NotificationSettingsScreen({
             );
           })}
         </div>
+        {ownerTexts && ownerTexts.length > 0 ? (
+          <div className="space-y-2">
+            <div>
+              <h3 className="text-sm font-medium text-foreground">Also text me</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Off unless you turn one on. Push and the bell still come through.
+              </p>
+            </div>
+            <div className="rounded-lg border bg-card divide-y">
+              {ownerTexts.map((item) => (
+                <ToggleRow
+                  key={item.id}
+                  testId={`also-text-${item.id}`}
+                  item={item}
+                  onChange={(value) => onOwnerText?.(item.id, value)}
+                />
+              ))}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="space-y-3">

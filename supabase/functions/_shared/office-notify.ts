@@ -21,17 +21,19 @@ export async function notifyOffice(
     message: string;
     link?: string;
     metadata?: Record<string, unknown>;
+    /** Catalog key stored on the bell row. Defaults to the historical staff_activity type. */
+    type?: string;
     /** One bell row per key. A repeat insert of the same key is treated as already sent. */
     dedupeKey?: string;
     pushTitle: string;
     pushBody: string;
     pushData?: Record<string, string>;
   },
-): Promise<{ bell: boolean; push: boolean }> {
+): Promise<{ bell: boolean; push: boolean; duplicate: boolean }> {
   let bell = false;
   const row: Record<string, unknown> = {
     organization_id: args.organizationId,
-    type: "staff_activity",
+    type: args.type ?? "staff_activity",
     title: args.title,
     message: args.message,
     link: args.link ?? "/dashboard/bookings",
@@ -40,7 +42,8 @@ export async function notifyOffice(
   if (args.dedupeKey) row.dedupe_key = args.dedupeKey;
   const { error } = await supabase.from("admin_system_notifications").insert(row);
   const duplicate = !!error && /duplicate key|23505/i.test(error.message ?? "");
-  if (error && !duplicate) console.warn("[notifyOffice] bell insert failed:", error);
+  if (duplicate) return { bell: true, push: false, duplicate: true };
+  if (error) console.warn("[notifyOffice] bell insert failed:", error);
   else bell = true;
 
   const prefs = await readOwnerChannels(
@@ -51,7 +54,7 @@ export async function notifyOffice(
     console.warn("[notifyOffice] prefs read failed, native push stays on:", prefs.error);
   }
   if (!ownerNativePushAllowed(prefs.channels)) {
-    return { bell, push: false };
+    return { bell, push: false, duplicate: false };
   }
 
   const push = await sendPushToOrg(
@@ -62,5 +65,5 @@ export async function notifyOffice(
     { audience: "operators" },
   );
 
-  return { bell, push: push.sent > 0 };
+  return { bell, push: push.sent > 0, duplicate: false };
 }
