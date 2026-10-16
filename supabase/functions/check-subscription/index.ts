@@ -19,6 +19,29 @@ const logStep = (step: string, details?: any) => {
   console.log(`[CHECK-SUBSCRIPTION] ${step}${detailsStr}`);
 };
 
+// Stripe can hang. A hung call makes the whole function 504 and the frontend
+// gets no answer at all, so race every Stripe call against a deadline and
+// answer with real JSON instead.
+const STRIPE_TIMEOUT_MS = 8000;
+
+class StripeTimeoutError extends Error {
+  constructor(label: string, ms: number) {
+    super(`stripe_timeout: ${label} exceeded ${ms}ms`);
+    this.name = "StripeTimeoutError";
+  }
+}
+
+function withTimeout<T>(call: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new StripeTimeoutError(label, ms)), ms);
+  });
+  // If the Stripe call loses the race and rejects later, swallow it here so it
+  // cannot surface as an unhandled rejection after the response was sent.
+  call.catch(() => {});
+  return Promise.race([call, deadline]).finally(() => clearTimeout(timer));
+}
+
 // Login allowlist. The first address is the owner's account, not the public
 // support inbox. Do not replace it.
 const FREE_ACCOUNTS = new Set([
@@ -251,16 +274,24 @@ serve(async (req) => {
 
     // ── Step 1: Check Stripe for an active/trialing subscription first ──
     const stripe = new Stripe(stripeKey, { apiVersion: "2025-08-27.basil" });
-    const customers = await stripe.customers.list({ email: user.email, limit: 1 });
+    const customers = await withTimeout(
+      stripe.customers.list({ email: user.email, limit: 1 }),
+      STRIPE_TIMEOUT_MS,
+      "stripe.customers.list"
+    );
 
     if (customers.data.length > 0) {
       const customerId = customers.data[0].id;
       logBranch("stripe_customer_found", { customerId });
 
-      const subscriptions = await stripe.subscriptions.list({
-        customer: customerId,
-        limit: 10,
-      });
+      const subscriptions = await withTimeout(
+        stripe.subscriptions.list({
+          customer: customerId,
+          limit: 10,
+        }),
+        STRIPE_TIMEOUT_MS,
+        "stripe.subscriptions.list"
+      );
 
       const activeSubscription = subscriptions.data.find(
         (sub: any) => sub.status === "active" || sub.status === "trialing"
@@ -566,6 +597,24 @@ serve(async (req) => {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     logStep("ERROR in check-subscription", { message: errorMessage });
+    if (error instanceof StripeTimeoutError) {
+      // Stripe did not answer inside the deadline. Reply with a real JSON body
+      // instead of letting the gateway 504: the frontend needs
+      // subscribed:false plus a machine-readable reason, not a missing response.
+      logStep("BRANCH stripe_timeout_access_denied", { message: errorMessage });
+      return new Response(JSON.stringify({
+        stripe_mode: stripeMode,
+        subscribed: false,
+        trial_active: false,
+        product_id: null,
+        subscription_end: null,
+        trial_end: null,
+        error: "stripe_timeout",
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
     return new Response(JSON.stringify({ stripe_mode: stripeMode, error: errorMessage }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 500,
