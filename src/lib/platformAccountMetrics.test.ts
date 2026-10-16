@@ -492,9 +492,13 @@ test("a deleted subscription does not set a lifetime org to free", () => {
   assert.ok(updateAt > 0);
   const guard = helper.slice(updateAt, updateAt + 500);
   assert.match(guard, /\.neq\("plan_type", "lifetime"\)/);
+  assert.match(guard, /\.or\(EXCLUDE_GRANDFATHERED_LIFETIME\)/);
   // Null grandfathered_lifetime still matches. .not(..., "is", true) would
   // drop those rows because NULL is not true is unknown in SQL.
-  assert.match(guard, /grandfathered_lifetime\.is\.null,grandfathered_lifetime\.eq\.false/);
+  assert.match(
+    helper,
+    /EXCLUDE_GRANDFATHERED_LIFETIME\s*=\s*"grandfathered_lifetime\.is\.null,grandfathered_lifetime\.eq\.false"/,
+  );
 });
 
 test("a failed refund write releases the claim so the retry stores the refund", async () => {
