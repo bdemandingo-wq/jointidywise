@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ARRIVAL_CLAIM_STALE_MS, nextArrivalClaimAction } from '../../supabase/functions/_shared/arrival-claim.ts';
+import { ARRIVAL_CLAIM_STALE_MS, arrivalOpenPhoneClaim, nextArrivalClaimAction } from '../../supabase/functions/_shared/arrival-claim.ts';
 
 test('the first insert wins the arrival send', () => {
   assert.equal(nextArrivalClaimAction({
@@ -40,6 +40,15 @@ test('a fresh pending row waits, and a stale one can be taken over', () => {
     row: 'pending',
     pendingAgeMs: ARRIVAL_CLAIM_STALE_MS,
   }), 'takeover');
+});
+
+test('an OpenPhone non-2xx releases the claim instead of marking it sent', () => {
+  assert.equal(arrivalOpenPhoneClaim([]), 'mark_sent');
+  assert.equal(arrivalOpenPhoneClaim([true]), 'mark_sent');
+  assert.equal(arrivalOpenPhoneClaim([true, true]), 'mark_sent');
+  assert.equal(arrivalOpenPhoneClaim([false]), 'release');
+  assert.equal(arrivalOpenPhoneClaim([true, false]), 'release');
+  assert.equal(arrivalOpenPhoneClaim([false, true]), 'release');
 });
 
 test('a failed insert or a conflict with no row refuses to send', () => {

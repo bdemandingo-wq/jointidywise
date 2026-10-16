@@ -6,7 +6,7 @@ import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
 import { notifyOwner } from "../_shared/owner-alert.ts";
 import { jobEventCopy, shouldSendArrival } from "../_shared/job-event-copy.ts";
-import { nextArrivalClaimAction, type ArrivalClaimInsert, type ArrivalClaimRow } from "../_shared/arrival-claim.ts";
+import { arrivalOpenPhoneClaim, nextArrivalClaimAction, type ArrivalClaimInsert, type ArrivalClaimRow } from "../_shared/arrival-claim.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -208,6 +208,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     let clientSent = false;
+    const openPhoneSends: boolean[] = [];
 
     if (!smsSkippedReason && smsSettings) {
     const notifyClient = (smsSettings as any).notify_client_arrived !== false;
@@ -239,8 +240,10 @@ const handler = async (req: Request): Promise<Response> => {
       if (sent.skipped) return "skipped" as const;
       if (!sent.response.ok) {
         console.error(`[send-arrival-sms] ${label} SMS failed:`, sent.response.status, await sent.response.text());
+        openPhoneSends.push(false);
         return "failed" as const;
       }
+      openPhoneSends.push(true);
       return "sent" as const;
     };
 
@@ -253,6 +256,33 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
     }
+
+    // A non-2xx from OpenPhone did not deliver the text. Marking the claim
+    // sent would end sharing and block the retry. A STOP skip is not a
+    // failed delivery: sendOpenPhoneMessage never called OpenPhone.
+    if (arrivalOpenPhoneClaim(openPhoneSends) === 'release') {
+      await releaseArrivalClaim(supabase, bookingId, staffId);
+      releaseClaim = null;
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Arrival text failed',
+        clientSent,
+        adminSent: false,
+      }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const { error: markSentErr } = await supabase
+      .from('booking_reminder_log')
+      .update({ status: 'sent' })
+      .eq('booking_id', bookingId)
+      .eq('reminder_type', `arrived:${staffId}`)
+      .eq('status', 'pending');
+    if (markSentErr) {
+      console.error(`[send-arrival-sms] claim mark-sent failed for booking ${bookingId}:`, markSentErr);
+    }
+    // The text already went out, or OpenPhone was never called. Releasing the
+    // claim would let a retry send it again.
+    releaseClaim = null;
 
     let office: Awaited<ReturnType<typeof notifyOwner>> = {
       deduped: false,
@@ -277,18 +307,6 @@ const handler = async (req: Request): Promise<Response> => {
       console.error("[send-arrival-sms] owner alert failed:", ownerErr);
     }
     const adminSent = office.sms;
-
-    const { error: markSentErr } = await supabase
-      .from('booking_reminder_log')
-      .update({ status: 'sent' })
-      .eq('booking_id', bookingId)
-      .eq('reminder_type', `arrived:${staffId}`)
-      .eq('status', 'pending');
-    if (markSentErr) {
-      console.error(`[send-arrival-sms] claim mark-sent failed for booking ${bookingId}:`, markSentErr);
-    }
-    // The text already went out. Releasing the claim would let a retry send it again.
-    releaseClaim = null;
 
     logAudit({
       action: AuditActions.SMS_GENERIC,

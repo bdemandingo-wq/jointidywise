@@ -23,3 +23,13 @@ export function nextArrivalClaimAction(input: {
   if (age == null || !Number.isFinite(age) || age < ARRIVAL_CLAIM_STALE_MS) return 'in_progress';
   return 'takeover';
 }
+
+/**
+ * OpenPhone non-2xx (`sendSms` false) did not deliver the text.
+ * Leave the claim pending so the caller deletes it and retries.
+ * No OpenPhone call (SMS off, or nobody to text) is not that failure.
+ */
+export function arrivalOpenPhoneClaim(sends: readonly boolean[]): 'mark_sent' | 'release' {
+  if (sends.some((ok) => !ok)) return 'release';
+  return 'mark_sent';
+}
