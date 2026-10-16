@@ -13,8 +13,8 @@ import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { formatInTimezone } from '@/lib/timezoneUtils';
 
 interface TrackingInfo {
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   is_active: boolean;
   recorded_at: string;
   created_at: string;
