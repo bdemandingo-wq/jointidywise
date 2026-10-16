@@ -45,7 +45,10 @@ test('photos and clock-in record a device location, and On My Way is the only co
 
 test('arrival stops the live watch', () => {
   const hook = read('../hooks/useCleanerTracking.ts');
-  assert.match(hook, /haltWatchRef\.current\(true\)/);
+  const attempt = read('./arrivalAttempt.ts');
+  assert.match(hook, /haltWatchRef\.current\(markArrivedAt\)/);
+  assert.match(attempt, /stopWatch\(false\)/);
+  assert.match(attempt, /stopWatch\(true\)/);
   assert.match(hook, /if \(arrivedRef\.current\) return/);
 });
 

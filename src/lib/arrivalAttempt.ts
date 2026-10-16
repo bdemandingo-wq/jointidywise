@@ -1,5 +1,11 @@
 import { shouldSendArrival } from './jobEventCopy.ts';
 
+/** One error toast for a run of failed arrival sends. A later success clears it. */
+export function nextArrivalErrorToast(streakActive: boolean): { show: boolean; streakActive: boolean } {
+  if (streakActive) return { show: false, streakActive: true };
+  return { show: true, streakActive: true };
+}
+
 export interface ArrivalStatusRead {
   status: string | null | undefined;
   failed: boolean;
@@ -25,7 +31,8 @@ export async function runArrivalAttempt(
     onReleased: () => void;
     onSendFailed: () => void;
     readStatus: () => Promise<ArrivalStatusRead>;
-    stopWatch: () => Promise<void>;
+    /** False on a finished job. True only after the arrival notice succeeds. */
+    stopWatch: (markArrivedAt: boolean) => Promise<void>;
     send: () => Promise<ArrivalSendResult>;
   },
 ): Promise<ArrivalSendResult> {
@@ -47,7 +54,7 @@ export async function runArrivalAttempt(
 
   if (!reading.failed && !shouldSendArrival(reading.status)) {
     try {
-      await actions.stopWatch();
+      await actions.stopWatch(false);
     } catch {
       // The claim stays. A finished job must not keep the watch running.
     }
@@ -71,7 +78,7 @@ export async function runArrivalAttempt(
       return result;
     }
     try {
-      await actions.stopWatch();
+      await actions.stopWatch(true);
     } catch {
       // The notice went out. Stopping the watch must not look like a failed send.
     }

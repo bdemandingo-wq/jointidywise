@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { useOrgCountryCode } from '@/hooks/useDistanceUnit';
 import { calculateDistanceMiles, estimateDriveMinutes } from '@/lib/distanceUtils';
 import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
-import { runArrivalAttempt } from '@/lib/arrivalAttempt';
+import { nextArrivalErrorToast, runArrivalAttempt } from '@/lib/arrivalAttempt';
 import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
 import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
 import {
@@ -92,6 +92,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   const trackingIdRef    = useRef<string | null>(null);
   const destCoordsRef    = useRef<{ lat: number; lng: number } | null>(null);
   const arrivedRef       = useRef<boolean>(false);
+  const arrivalErrorStreakRef = useRef(false);
   const wakeLockRef      = useRef<any>(null);
   const lastWriteRef     = useRef<number>(0);
   const watchIdRef       = useRef<string | null>(null);   // Capacitor watchId (string)
@@ -108,13 +109,14 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     // runArrivalAttempt sets arrivedRef before the status read. A second
     // position update that lands during that read is a duplicate, and a
     // finished job stops the watch instead of toasting "skipped" again.
-    return runArrivalAttempt(arrivedRef, {
+    const result = await runArrivalAttempt(arrivedRef, {
       onClaimed: () => setHasArrived(true),
       onReleased: () => setHasArrived(false),
       onSendFailed: () => {
-        if (source !== 'manual') {
-          toast.error('Could not send the arrival notice. Location sharing is still on.');
-        }
+        if (source === 'manual') return;
+        const next = nextArrivalErrorToast(arrivalErrorStreakRef.current);
+        arrivalErrorStreakRef.current = next.streakActive;
+        if (next.show) toast.error('Could not send the arrival notice. Location sharing is still on.');
       },
       readStatus: async () => {
         const { data: bookingRow, error: statusError } = await supabase
@@ -124,12 +126,17 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
           .maybeSingle();
         return { status: bookingRow?.status, failed: !!statusError };
       },
-      stopWatch: () => haltWatchRef.current(true),
+      stopWatch: (markArrivedAt) => haltWatchRef.current(markArrivedAt),
       send: async () => {
         console.log(`[GPS] Arrival fired (${source})`);
         return supabase.functions.invoke('send-arrival-sms', { body: { bookingId, staffId } });
       },
     });
+    const payload = result.data as { success?: boolean; skipped?: boolean; deduplicated?: boolean } | null;
+    if (!result.error && payload?.success !== false && !payload?.skipped && !payload?.deduplicated) {
+      arrivalErrorStreakRef.current = false;
+    }
+    return result;
   }, [bookingId, staffId]);
 
   /** Manual "I've Arrived" — works even if GPS tracking never started.

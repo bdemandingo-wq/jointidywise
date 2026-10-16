@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { runArrivalAttempt, type ArrivalSendResult, type ArrivalStatusRead } from './arrivalAttempt.ts';
+import { nextArrivalErrorToast, runArrivalAttempt, type ArrivalSendResult, type ArrivalStatusRead } from './arrivalAttempt.ts';
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => {};
@@ -48,13 +48,15 @@ test('a finished job stops the watch once and does not send again', async () => 
   const gate = deferred<ArrivalStatusRead>();
   let sends = 0;
   let stops = 0;
+  let markedArrived: boolean | null = null;
   const actions = {
     onClaimed: () => {},
     onReleased: () => {},
     onSendFailed: () => {},
     readStatus: () => gate.promise,
-    stopWatch: async () => {
+    stopWatch: async (markArrivedAt: boolean) => {
       stops += 1;
+      markedArrived = markArrivedAt;
     },
     send: async (): Promise<ArrivalSendResult> => {
       sends += 1;
@@ -76,6 +78,7 @@ test('a finished job stops the watch once and does not send again', async () => 
   assert.equal((later.data as { deduplicated?: boolean }).deduplicated, true);
   assert.equal(sends, 0);
   assert.equal(stops, 1);
+  assert.equal(markedArrived, false);
   assert.equal(claim.current, true);
 });
 
@@ -136,13 +139,23 @@ test('a successful send stops the watch after the notice', async () => {
       events.push('failed');
     },
     readStatus: async () => ({ status: 'in_progress', failed: false }),
-    stopWatch: async () => {
-      events.push('stop');
+    stopWatch: async (markArrivedAt: boolean) => {
+      events.push(markArrivedAt ? 'stop-arrived' : 'stop-open');
     },
     send: async () => {
       events.push('send');
       return { data: { success: true }, error: null };
     },
   });
-  assert.deepEqual(events, ['send', 'stop']);
+  assert.deepEqual(events, ['send', 'stop-arrived']);
+});
+
+test('an arrival failure streak toasts once until a success', () => {
+  const first = nextArrivalErrorToast(false);
+  assert.equal(first.show, true);
+  assert.equal(first.streakActive, true);
+  const second = nextArrivalErrorToast(first.streakActive);
+  assert.equal(second.show, false);
+  const afterSuccess = nextArrivalErrorToast(false);
+  assert.equal(afterSuccess.show, true);
 });
