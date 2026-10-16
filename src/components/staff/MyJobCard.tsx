@@ -147,12 +147,12 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
   const sharing = useLocationSharingGate();
   const loc = useLocationPermission(staffInfo.id);
 
-  // Stop tracking when the job starts, is finished, or is cancelled.
+  // Stop tracking when the job starts, is finished, is cancelled, or is a no-show.
   useEffect(() => {
     if (!isTracking) return;
     if (booking.status === 'in_progress') {
       void stopTracking('job_started');
-    } else if (booking.status === 'completed' || booking.status === 'cancelled') {
+    } else if (booking.status === 'completed' || booking.status === 'cancelled' || booking.status === 'no_show') {
       void stopTracking('job_finished');
     }
   }, [booking.status, isTracking, stopTracking]);

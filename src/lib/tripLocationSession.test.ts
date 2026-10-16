@@ -245,6 +245,16 @@ test('the hook starts background updates on the shared write path and stops them
 
   assert.match(card, /stopTracking\('job_started'\)/);
   assert.match(card, /stopTracking\('job_finished'\)/);
+  assert.match(card, /booking\.status === 'no_show'/);
+  assert.match(hook, /trackingId: trackingIdRef\.current/);
+  assert.match(hook, /supabaseUrl: SUPABASE_PUBLIC_URL/);
+  assert.match(swift, /kCLLocationAccuracyHundredMeters/);
+  assert.match(swift, /showsBackgroundLocationIndicator = false/);
+  assert.match(swift, /rest\/v1\/cleaner_location_tracking/);
+  assert.match(swift, /Bearer \\\(token\)/);
+  assert.match(swift, /CapacitorStorage\./);
+  assert.match(swift, /sb-\\\(ref\)-auth-token/);
+  assert.equal(swift.includes('service_role'), false);
   assert.match(card, /locationShareBanner\(/);
   assert.equal(card.includes('Sharing pauses if you leave the app'), false);
 

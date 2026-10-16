@@ -4,11 +4,13 @@ import { Car } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { SEOHead } from '@/components/SEOHead';
 import { supabase } from '@/lib/supabase';
+import { tripShareIsFresh } from '@/lib/trackingVisibility';
 
 interface SharedPoint {
   latitude: number;
   longitude: number;
   recorded_at: string;
+  created_at?: string;
 }
 
 type LoadState =
@@ -27,6 +29,11 @@ async function loadSharedPoint(token: string): Promise<LoadState> {
   if (error) return { status: 'error', message: error.message };
   const point = data?.[0];
   if (!point || point.latitude == null || point.longitude == null) return { status: 'ended' };
+  if (!tripShareIsFresh({
+    recordedAt: point.recorded_at,
+    createdAt: point.created_at,
+    now: Date.now(),
+  })) return { status: 'ended' };
   return { status: 'live', point };
 }
 

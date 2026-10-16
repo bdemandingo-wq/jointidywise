@@ -36,6 +36,16 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
     private var deliveryTask: UIBackgroundTaskIdentifier = .invalid
     private var deliveryEpoch = 0
     private var tripTimeout: DispatchWorkItem?
+    private var trackingRowId: String?
+    private var supabaseUrl: String?
+    private var supabaseAnonKey: String?
+    private var writeInterval: TimeInterval = 8
+    private var latestBackgroundFix: CLLocation?
+    private var lastSentFix: CLLocation?
+    private var lastNativeWriteAt = Date.distantPast
+    private var nativeWriteTimer: DispatchWorkItem?
+    private var nativeWriteInFlight = false
+    private var writeEpoch = 0
 
     @objc func checkAuthorization(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
@@ -91,17 +101,20 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
                 return
             }
             if self.updating {
+                self.rememberWriteTarget(call)
                 call.resolve()
                 return
             }
             let filter = call.getDouble("distanceFilter") ?? 25
-            manager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+            // Arrival is a 100 m geofence, so hundred-meter accuracy is enough.
+            manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
             manager.distanceFilter = filter > 0 ? filter : 25
             manager.activityType = .automotiveNavigation
             manager.pausesLocationUpdatesAutomatically = true
             manager.allowsBackgroundLocationUpdates = true
             manager.showsBackgroundLocationIndicator = true
             self.updating = true
+            self.rememberWriteTarget(call)
             let seconds = call.getDouble("maxDurationSeconds") ?? Double(3 * 60 * 60)
             if seconds < 0 { seconds = 0 }
             self.scheduleTripTimeout(seconds)
@@ -138,11 +151,18 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard updating, let location = locations.last else { return }
-        beginDeliveryTask()
-        notifyListeners("location", data: [
-            "latitude": location.coordinate.latitude,
-            "longitude": location.coordinate.longitude,
-        ], retainUntilConsumed: true)
+        // The WebView is suspended while the phone is locked, so JavaScript
+        // cannot write. Post the latest fix from here. While the app is
+        // active, the existing JS path keeps the 8 second throttle.
+        if UIApplication.shared.applicationState == .active {
+            beginDeliveryTask()
+            notifyListeners("location", data: [
+                "latitude": location.coordinate.latitude,
+                "longitude": location.coordinate.longitude,
+            ], retainUntilConsumed: true)
+            return
+        }
+        noteBackgroundFix(location)
     }
 
     public func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
@@ -177,9 +197,15 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
 
     private func stopUpdating() {
         updating = false
+        writeEpoch += 1
+        nativeWriteInFlight = false
+        nativeWriteTimer?.cancel()
+        nativeWriteTimer = nil
+        latestBackgroundFix = nil
         cancelTripTimeout()
-        locationManager?.stopUpdatingLocation()
+        locationManager?.showsBackgroundLocationIndicator = false
         locationManager?.allowsBackgroundLocationUpdates = false
+        locationManager?.stopUpdatingLocation()
         endDeliveryTask()
     }
 
@@ -270,8 +296,246 @@ public class TripBackgroundLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocati
         }
     }
 
+    /// Locked-phone writes.
+    ///
+    /// Capacitor delivers location to JavaScript, and JavaScript cannot run
+    /// while the WebView is suspended. This posts one row update with the
+    /// signed-in cleaner's access token, read from the same Capacitor
+    /// Preferences entry supabase-js uses (`CapacitorStorage.sb-<ref>-auth-token`).
+    /// The request is a PATCH to `cleaner_location_tracking` with `apikey`
+    /// set to the public anon key, so the staff RLS policy and the consent
+    /// trigger still apply. Fixes closer together than the write interval
+    /// collapse to the latest coordinate. The table stores one current point,
+    /// not a trail. A refresh that rotates the refresh token is written back
+    /// so the WebView does not log the cleaner out when it wakes.
+    private func rememberWriteTarget(_ call: CAPPluginCall) {
+        if let id = call.getString("trackingId"), !id.isEmpty {
+            trackingRowId = id
+        }
+        if let url = call.getString("supabaseUrl"), !url.isEmpty {
+            supabaseUrl = url
+        }
+        if let key = call.getString("supabaseAnonKey"), !key.isEmpty {
+            supabaseAnonKey = key
+        }
+        if let seconds = call.getDouble("writeIntervalSeconds"), seconds > 0 {
+            writeInterval = seconds
+        }
+    }
+
+    private func noteBackgroundFix(_ location: CLLocation) {
+        latestBackgroundFix = location
+        if nativeWriteInFlight { return }
+        let elapsed = Date().timeIntervalSince(lastNativeWriteAt)
+        if elapsed >= writeInterval {
+            flushBackgroundFix()
+            return
+        }
+        if nativeWriteTimer != nil { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.nativeWriteTimer = nil
+            self?.flushBackgroundFix()
+        }
+        nativeWriteTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + (writeInterval - elapsed), execute: work)
+    }
+
+    private func flushBackgroundFix() {
+        guard updating, !nativeWriteInFlight, let location = latestBackgroundFix else { return }
+        guard let rowId = trackingRowId, isTrackingRowId(rowId),
+              let url = supabaseUrl, let anon = supabaseAnonKey else { return }
+        latestBackgroundFix = nil
+        lastSentFix = location
+        lastNativeWriteAt = Date()
+        nativeWriteInFlight = true
+        let epoch = writeEpoch
+        let recordedAt = iso8601(location.timestamp)
+        accessToken(url: url, anonKey: anon) { [weak self] token in
+            guard let self else { return }
+            guard let token else {
+                DispatchQueue.main.async {
+                    guard epoch == self.writeEpoch else { return }
+                    self.nativeWriteInFlight = false
+                    if self.latestBackgroundFix == nil { self.latestBackgroundFix = location }
+                    if let pending = self.latestBackgroundFix {
+                        self.noteBackgroundFix(pending)
+                    }
+                }
+                return
+            }
+            self.patchLocation(
+                url: url,
+                anonKey: anon,
+                token: token,
+                rowId: rowId,
+                latitude: location.coordinate.latitude,
+                longitude: location.coordinate.longitude,
+                recordedAt: recordedAt,
+                allowRefresh: true,
+                epoch: epoch
+            )
+        }
+    }
+
+    private func patchLocation(
+        url: String,
+        anonKey: String,
+        token: String,
+        rowId: String,
+        latitude: Double,
+        longitude: Double,
+        recordedAt: String,
+        allowRefresh: Bool,
+        epoch: Int
+    ) {
+        guard let endpoint = URL(string: "\(url)/rest/v1/cleaner_location_tracking?id=eq.\(rowId)&is_active=eq.true") else {
+            DispatchQueue.main.async { [weak self] in self?.finishNativeWrite(epoch: epoch) }
+            return
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "PATCH"
+        request.setValue(anonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("return=representation", forHTTPHeaderField: "Prefer")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "latitude": latitude,
+            "longitude": longitude,
+            "recorded_at": recordedAt,
+        ])
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            guard let self else { return }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            if status == 401 && allowRefresh {
+                self.accessToken(url: url, anonKey: anonKey, forceRefresh: true) { refreshed in
+                    guard let refreshed else {
+                        DispatchQueue.main.async { self.finishNativeWrite(epoch: epoch, retry: true) }
+                        return
+                    }
+                    self.patchLocation(
+                        url: url,
+                        anonKey: anonKey,
+                        token: refreshed,
+                        rowId: rowId,
+                        latitude: latitude,
+                        longitude: longitude,
+                        recordedAt: recordedAt,
+                        allowRefresh: false,
+                        epoch: epoch
+                    )
+                }
+                return
+            }
+            var rows: [Any] = []
+            if let data,
+               let parsed = try? JSONSerialization.jsonObject(with: data),
+               let list = parsed as? [Any] {
+                rows = list
+            }
+            let closed = status == 403 || (status == 200 && rows.isEmpty)
+            let failed = !closed && !(200..<300).contains(status)
+            DispatchQueue.main.async {
+                if closed && epoch == self.writeEpoch && self.updating {
+                    self.stopUpdating()
+                    self.notifyListeners("timeout", data: ["reason": "timeout"], retainUntilConsumed: true)
+                    return
+                }
+                self.finishNativeWrite(epoch: epoch, retry: failed)
+            }
+        }.resume()
+    }
+
+    private func finishNativeWrite(epoch: Int, retry: Bool = false) {
+        guard epoch == writeEpoch else { return }
+        nativeWriteInFlight = false
+        if !updating { return }
+        if retry, latestBackgroundFix == nil {
+            latestBackgroundFix = lastSentFix
+        }
+        if latestBackgroundFix != nil {
+            noteBackgroundFix(latestBackgroundFix!)
+        }
+    }
+
+    /// Reads the supabase-js session. Refreshes it when it is inside a minute
+    /// of expiry, and stores the rotated refresh token back in UserDefaults.
+    private func accessToken(url: String, anonKey: String, forceRefresh: Bool = false, completion: @escaping (String?) -> Void) {
+        guard let key = authStorageKey(url: url) else {
+            completion(nil)
+            return
+        }
+        let defaultsKey = "CapacitorStorage." + key
+        guard let raw = UserDefaults.standard.string(forKey: defaultsKey),
+              let data = raw.data(using: .utf8),
+              var session = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let current = session["access_token"] as? String,
+              !current.isEmpty else {
+            completion(nil)
+            return
+        }
+        let expires = numeric(session["expires_at"])
+        if !forceRefresh && expires > Date().timeIntervalSince1970 + 60 {
+            completion(current)
+            return
+        }
+        guard let refresh = session["refresh_token"] as? String,
+              let endpoint = URL(string: "\(url)/auth/v1/token?grant_type=refresh_token") else {
+            completion(nil)
+            return
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue(anonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["refresh_token": refresh])
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard let data, (200..<300).contains(status),
+                  let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let next = body["access_token"] as? String else {
+                completion(forceRefresh ? nil : current)
+                return
+            }
+            session["access_token"] = next
+            if let rotated = body["refresh_token"] { session["refresh_token"] = rotated }
+            if let expiresAt = body["expires_at"] { session["expires_at"] = expiresAt }
+            if let expiresIn = body["expires_in"] { session["expires_in"] = expiresIn }
+            if let tokenType = body["token_type"] { session["token_type"] = tokenType }
+            if let user = body["user"] { session["user"] = user }
+            if let saved = try? JSONSerialization.data(withJSONObject: session),
+               let text = String(data: saved, encoding: .utf8) {
+                UserDefaults.standard.set(text, forKey: defaultsKey)
+            }
+            completion(next)
+        }.resume()
+    }
+
+    private func authStorageKey(_ url: String) -> String? {
+        guard let host = URL(string: url)?.host else { return nil }
+        let ref = host.split(separator: ".").first.map(String.init) ?? ""
+        guard !ref.isEmpty else { return nil }
+        return "sb-\(ref)-auth-token"
+    }
+
+    private func isTrackingRowId(_ id: String) -> Bool {
+        id.range(of: #"^[0-9a-fA-F-]{36}$"#, options: .regularExpression) != nil
+    }
+
+    private func numeric(_ value: Any?) -> TimeInterval {
+        if let number = value as? NSNumber { return number.doubleValue }
+        return 0
+    }
+
+    private func iso8601(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
     deinit {
         tripTimeout?.cancel()
+        nativeWriteTimer?.cancel()
         removeAuthObservers()
         endDeliveryTask()
     }

@@ -10,6 +10,7 @@ import { nextArrivalErrorToast, runArrivalAttempt } from '@/lib/arrivalAttempt';
 import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
 import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
 import { readAlwaysExplainerDeclined, rememberAlwaysExplainerDeclined } from '@/lib/alwaysLocationPrompt';
+import { SUPABASE_PUBLIC_ANON_KEY, SUPABASE_PUBLIC_URL } from '@/lib/supabasePublicEnv';
 import {
   readTripLocationAuth,
   requestTripAlwaysAuthorization,
@@ -405,7 +406,11 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       }
     }, () => {
       void stopTrackingRef.current('timeout');
-    }, backgroundDurationSeconds());
+    }, backgroundDurationSeconds(), {
+      trackingId: trackingIdRef.current ?? '',
+      supabaseUrl: SUPABASE_PUBLIC_URL,
+      supabaseAnonKey: SUPABASE_PUBLIC_ANON_KEY,
+    });
     backgroundTokenRef.current = token;
   }, [releaseBackgroundWatcher, startForegroundWatch]);
 

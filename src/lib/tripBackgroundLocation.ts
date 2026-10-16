@@ -6,10 +6,20 @@ import {
   type TripLocationAuth,
 } from './tripLocationSession.ts';
 
+/** Matches useCleanerTracking's 8 second database throttle. */
+const NATIVE_WRITE_INTERVAL_SECONDS = 8;
+
 interface TripBackgroundLocationPlugin {
   checkAuthorization(): Promise<{ status?: string }>;
   requestAlways(): Promise<{ status?: string }>;
-  start(options: { distanceFilter: number; maxDurationSeconds: number }): Promise<void>;
+  start(options: {
+    distanceFilter: number;
+    maxDurationSeconds: number;
+    trackingId: string;
+    supabaseUrl: string;
+    supabaseAnonKey: string;
+    writeIntervalSeconds: number;
+  }): Promise<void>;
   stop(): Promise<void>;
   addListener(
     eventName: 'location',
@@ -68,16 +78,24 @@ export async function requestTripAlwaysAuthorization(): Promise<TripLocationAuth
   return classifyTripAuth(result?.status);
 }
 
+export interface TripBackgroundWriteTarget {
+  trackingId: string;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+}
+
 /**
  * One native watcher for the process. A later start replaces the callbacks
  * and returns a new token; an older token cannot stop that later watcher.
- * Positions go to the same write path as the foreground watch.
+ * While the app is open, positions go to the existing JS write path.
+ * While the phone is locked, the native plugin writes them itself.
  */
 export async function startTripBackgroundUpdates(
   onPosition: PositionHandler,
   onAuthorization?: AuthorizationHandler,
   onTimeout?: TimeoutHandler,
   maxDurationSeconds?: number,
+  writeTarget?: TripBackgroundWriteTarget,
 ): Promise<number> {
   const token = ++generation;
   positionHandler = onPosition;
@@ -99,6 +117,10 @@ export async function startTripBackgroundUpdates(
       await TripBackgroundLocation.start({
         distanceFilter: TRIP_DISTANCE_FILTER_METERS,
         maxDurationSeconds: maxDurationSeconds ?? TRIP_MAX_DURATION_MS / 1000,
+        trackingId: writeTarget?.trackingId ?? '',
+        supabaseUrl: writeTarget?.supabaseUrl ?? '',
+        supabaseAnonKey: writeTarget?.supabaseAnonKey ?? '',
+        writeIntervalSeconds: NATIVE_WRITE_INTERVAL_SECONDS,
       });
       started = true;
     } catch (err) {
