@@ -6,7 +6,7 @@ import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
 import { notifyOwner } from "../_shared/owner-alert.ts";
 import { jobEventCopy, shouldSendArrival } from "../_shared/job-event-copy.ts";
-import { arrivalOpenPhoneClaim, nextArrivalClaimAction, nextMarkSentStep, releaseArrivalClaimAfterError, type ArrivalClaimInsert, type ArrivalClaimRow } from "../_shared/arrival-claim.ts";
+import { arrivalOpenPhoneClaim, claimedArrivalRowId, nextArrivalClaimAction, nextMarkSentStep, releaseArrivalClaimAfterError, type ArrivalClaimInsert, type ArrivalClaimRow } from "../_shared/arrival-claim.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -21,6 +21,10 @@ interface ArrivalRequest {
 const createArrivalClient = (url: string, key: string) => createClient(url, key);
 type ArrivalDb = ReturnType<typeof createArrivalClient>;
 
+type ArrivalClaimResult =
+  | { kind: 'send'; claimId: string }
+  | { kind: 'duplicate' | 'in_progress' | 'refuse' };
+
 /** Claim the reminder row before any text. 23505 means another caller owns it. */
 async function claimArrivalSend(
   supabase: ArrivalDb,
@@ -28,21 +32,26 @@ async function claimArrivalSend(
   organizationId: string,
   staffId: string,
   recipientPhone: string,
-): Promise<'send' | 'duplicate' | 'in_progress' | 'refuse'> {
+): Promise<ArrivalClaimResult> {
   const reminderType = `arrived:${staffId}`;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { error } = await supabase.from('booking_reminder_log').insert({
+    const { data, error } = await supabase.from('booking_reminder_log').insert({
       booking_id: bookingId,
       organization_id: organizationId,
       recipient_phone: recipientPhone,
       reminder_type: reminderType,
       status: 'pending',
-    });
+    }).select('id');
+    const claimId = claimedArrivalRowId(data);
     const insertError: ArrivalClaimInsert = !error ? 'none' : error.code === '23505' ? 'conflict' : 'failed';
-    if (insertError === 'none') return 'send';
+    if (insertError === 'none') {
+      if (claimId) return { kind: 'send', claimId };
+      console.error(`[send-arrival-sms] claim insert returned no id for booking ${bookingId}`);
+      return { kind: 'refuse' };
+    }
     if (insertError === 'failed') {
       console.error(`[send-arrival-sms] claim insert failed for booking ${bookingId}:`, error);
-      return 'refuse';
+      return { kind: 'refuse' };
     }
 
     const { data: existingRows, error: readErr } = await supabase
@@ -53,7 +62,7 @@ async function claimArrivalSend(
       .limit(1);
     if (readErr || !existingRows?.length) {
       console.error(`[send-arrival-sms] claim read failed for booking ${bookingId}:`, readErr);
-      return 'refuse';
+      return { kind: 'refuse' };
     }
     const existing = existingRows[0] as { id: string; status: string | null; created_at: string };
     const row: ArrivalClaimRow = existing.status === 'pending' || existing.status === 'sent'
@@ -68,31 +77,33 @@ async function claimArrivalSend(
       pendingAgeMs: Number.isFinite(created) ? Date.now() - created : null,
     });
     if (action === 'takeover') {
-      const { error: delErr } = await supabase
+      const { data: removed, error: delErr } = await supabase
         .from('booking_reminder_log')
         .delete()
         .eq('id', existing.id)
-        .eq('status', 'pending');
+        .eq('status', 'pending')
+        .select('id');
       if (delErr) {
         console.error(`[send-arrival-sms] stale claim delete failed for booking ${bookingId}:`, delErr);
-        return 'refuse';
+        return { kind: 'refuse' };
       }
-      continue;
+      // The deleted id is the stale claim. The next insert's id is the one
+      // a later release may delete. A null id means the row was no longer pending.
+      if (claimedArrivalRowId(removed) === null) continue;
     }
-    if (action === 'duplicate' || action === 'in_progress' || action === 'refuse') return action;
+    if (action === 'duplicate' || action === 'in_progress' || action === 'refuse') return { kind: action };
   }
-  return 'in_progress';
+  return { kind: 'in_progress' };
 }
 
-async function markArrivalClaimSent(supabase: ArrivalDb, bookingId: string, staffId: string): Promise<boolean> {
+async function markArrivalClaimSent(supabase: ArrivalDb, claimId: string, bookingId: string): Promise<boolean> {
   let attempt = 0;
   let updateFailed = true;
   while (updateFailed) {
     const { data, error } = await supabase
       .from('booking_reminder_log')
       .update({ status: 'sent' })
-      .eq('booking_id', bookingId)
-      .eq('reminder_type', `arrived:${staffId}`)
+      .eq('id', claimId)
       .eq('status', 'pending')
       .select('id');
     updateFailed = !!error || !data?.length;
@@ -103,8 +114,7 @@ async function markArrivalClaimSent(supabase: ArrivalDb, bookingId: string, staf
       const forced = await supabase
         .from('booking_reminder_log')
         .update({ status: 'sent' })
-        .eq('booking_id', bookingId)
-        .eq('reminder_type', `arrived:${staffId}`)
+        .eq('id', claimId)
         .select('id');
       if (!forced.error && forced.data?.length) return true;
       return false;
@@ -114,12 +124,12 @@ async function markArrivalClaimSent(supabase: ArrivalDb, bookingId: string, staf
   return false;
 }
 
-async function releaseArrivalClaim(supabase: ArrivalDb, bookingId: string, staffId: string): Promise<void> {
+/** Delete only this caller's pending row. A takeover's new id stays in place. */
+async function releaseArrivalClaim(supabase: ArrivalDb, claimId: string, bookingId: string): Promise<void> {
   const { error } = await supabase
     .from('booking_reminder_log')
     .delete()
-    .eq('booking_id', bookingId)
-    .eq('reminder_type', `arrived:${staffId}`)
+    .eq('id', claimId)
     .eq('status', 'pending');
   if (error) console.error(`[send-arrival-sms] claim release failed for booking ${bookingId}:`, error);
 }
@@ -133,6 +143,7 @@ const handler = async (req: Request): Promise<Response> => {
   let releaseClaim: (() => Promise<void>) | null = null;
   let textDelivered = false;
   let supabaseForError: ArrivalDb | null = null;
+  let claimId = '';
   let bookingId = '';
   let staffId = '';
   try {
@@ -202,24 +213,25 @@ const handler = async (req: Request): Promise<Response> => {
       staffId,
       customer?.phone ?? '',
     );
-    if (claim === 'duplicate') {
+    if (claim.kind === 'duplicate') {
       return new Response(JSON.stringify({
         success: true,
         deduplicated: true,
         message: "Arrival already recorded.",
       }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    if (claim === 'in_progress') {
+    if (claim.kind === 'in_progress') {
       return new Response(JSON.stringify({
         success: false,
         error: "Arrival send already in progress",
       }), { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    if (claim === 'refuse') {
+    if (claim.kind !== 'send') {
       return new Response(JSON.stringify({ success: false, error: "Could not verify send status, please retry" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    releaseClaim = () => releaseArrivalClaim(supabase, bookingId, staffId);
+    claimId = claim.claimId;
+    releaseClaim = () => releaseArrivalClaim(supabase, claimId, bookingId);
 
     const customerName = `${customer?.first_name ?? ''} ${customer?.last_name ?? ''}`.trim() || 'the customer';
     const { data: businessSettings } = await supabase
@@ -316,7 +328,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     // Every OpenPhone call failed. One delivered text stays claimed.
     if (arrivalOpenPhoneClaim(openPhoneSends) === 'release') {
-      await releaseArrivalClaim(supabase, bookingId, staffId);
+      await releaseArrivalClaim(supabase, claimId, bookingId);
       releaseClaim = null;
       return new Response(JSON.stringify({
         success: false,
@@ -330,9 +342,9 @@ const handler = async (req: Request): Promise<Response> => {
       console.warn(`[send-arrival-sms] a recipient text failed for booking ${bookingId}; delivered texts will not be retried`);
     }
 
-    const markedSent = await markArrivalClaimSent(supabase, bookingId, staffId);
+    const markedSent = await markArrivalClaimSent(supabase, claimId, bookingId);
     if (!markedSent && !textDelivered) {
-      await releaseArrivalClaim(supabase, bookingId, staffId);
+      await releaseArrivalClaim(supabase, claimId, bookingId);
       releaseClaim = null;
       return new Response(JSON.stringify({ success: false, error: 'Could not record the arrival send' }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -388,8 +400,8 @@ const handler = async (req: Request): Promise<Response> => {
       },
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err: unknown) {
-    if (textDelivered && supabaseForError && bookingId && staffId) {
-      try { await markArrivalClaimSent(supabaseForError, bookingId, staffId); } catch { /* logged inside the retry */ }
+    if (textDelivered && supabaseForError && claimId) {
+      try { await markArrivalClaimSent(supabaseForError, claimId, bookingId); } catch { /* logged inside the retry */ }
     } else if (releaseClaim && releaseArrivalClaimAfterError(textDelivered)) {
       try { await releaseClaim(); } catch { /* the response below is the failure */ }
     }

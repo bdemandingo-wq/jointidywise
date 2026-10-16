@@ -40,6 +40,23 @@ export function releaseArrivalClaimAfterError(textDelivered: boolean): boolean {
   return !textDelivered;
 }
 
+/** The id returned by insert().select('id') or by the takeover delete. */
+export function claimedArrivalRowId(rows: readonly { id?: string | null }[] | null | undefined): string | null {
+  const id = rows?.[0]?.id;
+  return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
+/**
+ * A release may delete only the pending row this caller inserted.
+ * A takeover inserts a new id, so a late release of the old id does not match.
+ */
+export function arrivalReleaseMatchesClaim(
+  row: { id: string; status: string },
+  claimId: string,
+): boolean {
+  return claimId.length > 0 && row.id === claimId && row.status === 'pending';
+}
+
 /** A failed status=sent write is tried again so the row does not sit pending until the 90s takeover. */
 export const ARRIVAL_MARK_SENT_ATTEMPTS = 4;
 

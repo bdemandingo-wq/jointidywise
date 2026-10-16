@@ -4,6 +4,8 @@ import {
   ARRIVAL_CLAIM_STALE_MS,
   ARRIVAL_MARK_SENT_ATTEMPTS,
   arrivalOpenPhoneClaim,
+  arrivalReleaseMatchesClaim,
+  claimedArrivalRowId,
   nextArrivalClaimAction,
   nextMarkSentStep,
   releaseArrivalClaimAfterError,
@@ -92,6 +94,22 @@ test('a failed mark-sent is retried and then stops', () => {
   assert.equal(nextMarkSentStep(0, true), 'retry');
   assert.equal(nextMarkSentStep(ARRIVAL_MARK_SENT_ATTEMPTS - 2, true), 'retry');
   assert.equal(nextMarkSentStep(ARRIVAL_MARK_SENT_ATTEMPTS - 1, true), 'give_up');
+});
+
+test('a stale release deletes only the pending row that caller inserted', () => {
+  assert.equal(claimedArrivalRowId([{ id: 'claim-1' }]), 'claim-1');
+  assert.equal(claimedArrivalRowId([]), null);
+  assert.equal(claimedArrivalRowId(null), null);
+  assert.equal(claimedArrivalRowId([{ id: '' }]), null);
+
+  const rows = [
+    { id: 'old', status: 'pending' },
+    { id: 'live', status: 'pending' },
+  ];
+  const afterStaleRelease = rows.filter((row) => !arrivalReleaseMatchesClaim(row, 'old'));
+  assert.deepEqual(afterStaleRelease.map((row) => row.id), ['live']);
+  assert.equal(arrivalReleaseMatchesClaim({ id: 'old', status: 'sent' }, 'old'), false);
+  assert.equal(arrivalReleaseMatchesClaim({ id: 'live', status: 'pending' }, ''), false);
 });
 
 test('a failed insert or a conflict with no row refuses to send', () => {

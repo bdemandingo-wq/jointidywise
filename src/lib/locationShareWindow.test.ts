@@ -126,6 +126,15 @@ test('stale On My Way rows are closed by pg_cron, and the customer point goes st
   assert.equal(failureSlice.includes("status: 'sent'"), false);
   assert.match(arrival, /nextMarkSentStep/);
   assert.match(arrival, /releaseArrivalClaimAfterError\(textDelivered\)/);
+  const releaseFn = arrival.slice(
+    arrival.indexOf('async function releaseArrivalClaim'),
+    arrival.indexOf('const OPENPHONE_TIMEOUT_MS'),
+  );
+  assert.match(releaseFn, /\.eq\('id', claimId\)/);
+  assert.match(releaseFn, /\.eq\('status', 'pending'\)/);
+  assert.equal(releaseFn.includes('reminder_type'), false);
+  assert.equal(releaseFn.includes(".eq('booking_id'"), false);
+  assert.match(arrival, /status: 'pending',\s*\}\)\.select\('id'\)/);
   assert.match(arrival, /const supabase = createArrivalClient/);
   assert.match(arrival, /supabaseForError = supabase/);
   assert.match(arrival, /OPENPHONE_TIMEOUT_MS = 20_000/);
