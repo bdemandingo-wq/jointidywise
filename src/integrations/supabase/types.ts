@@ -309,7 +309,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          id?: number
+          id?: never
           message: string
           milestone?: string | null
           organization_id?: string | null
@@ -317,7 +317,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          id?: number
+          id?: never
           message?: string
           milestone?: string | null
           organization_id?: string | null
@@ -3430,8 +3430,8 @@ export type Database = {
           created_at: string
           id: string
           is_active: boolean
-          latitude: number
-          longitude: number
+          latitude: number | null
+          longitude: number | null
           organization_id: string
           recorded_at: string
           staff_id: string
@@ -3443,8 +3443,8 @@ export type Database = {
           created_at?: string
           id?: string
           is_active?: boolean
-          latitude: number
-          longitude: number
+          latitude?: number | null
+          longitude?: number | null
           organization_id: string
           recorded_at?: string
           staff_id: string
@@ -3456,8 +3456,8 @@ export type Database = {
           created_at?: string
           id?: string
           is_active?: boolean
-          latitude?: number
-          longitude?: number
+          latitude?: number | null
+          longitude?: number | null
           organization_id?: string
           recorded_at?: string
           staff_id?: string
@@ -4647,6 +4647,7 @@ export type Database = {
           latitude: number | null
           longitude: number | null
           marketing_status: string
+          marketing_status_before_sms_stop: string | null
           merged_into: string | null
           notes: string | null
           opted_out_at: string | null
@@ -4679,6 +4680,7 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           marketing_status?: string
+          marketing_status_before_sms_stop?: string | null
           merged_into?: string | null
           notes?: string | null
           opted_out_at?: string | null
@@ -4711,6 +4713,7 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           marketing_status?: string
+          marketing_status_before_sms_stop?: string | null
           merged_into?: string | null
           notes?: string | null
           opted_out_at?: string | null
@@ -10607,9 +10610,11 @@ export type Database = {
           id: string
           media_urls: string[] | null
           openphone_message_id: string | null
+          opt_out_review: boolean
           organization_id: string
           sender_user_id: string | null
           sent_at: string
+          sms_resubscribed: boolean
           status: string | null
         }
         Insert: {
@@ -10622,9 +10627,11 @@ export type Database = {
           id?: string
           media_urls?: string[] | null
           openphone_message_id?: string | null
+          opt_out_review?: boolean
           organization_id: string
           sender_user_id?: string | null
           sent_at?: string
+          sms_resubscribed?: boolean
           status?: string | null
         }
         Update: {
@@ -10637,9 +10644,11 @@ export type Database = {
           id?: string
           media_urls?: string[] | null
           openphone_message_id?: string | null
+          opt_out_review?: boolean
           organization_id?: string
           sender_user_id?: string | null
           sent_at?: string
+          sms_resubscribed?: boolean
           status?: string | null
         }
         Relationships: [
@@ -12438,6 +12447,22 @@ export type Database = {
           organization_id: string | null
           source: string | null
         }
+        Insert: {
+          created_at?: string | null
+          id?: string | null
+          milestone?: string | null
+          occurred_at?: string | null
+          organization_id?: string | null
+          source?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string | null
+          milestone?: string | null
+          occurred_at?: string | null
+          organization_id?: string | null
+          source?: string | null
+        }
         Relationships: [
           {
             foreignKeyName: "organization_activation_events_organization_id_fkey"
@@ -12521,6 +12546,20 @@ export type Database = {
       }
     }
     Functions: {
+      activation_log_warning: {
+        Args: {
+          _message: string
+          _milestone: string
+          _org_id: string
+          _source: string
+        }
+        Returns: undefined
+      }
+      activation_subject_is_demo: {
+        Args: { _org_id: string }
+        Returns: boolean
+      }
+      activation_trigger_log_purge: { Args: never; Returns: undefined }
       add_client_portal_location: {
         Args: {
           p_address: string
@@ -12555,6 +12594,8 @@ export type Database = {
           plan_type: string
         }[]
       }
+      booking_is_payment: { Args: { p_row: Json }; Returns: boolean }
+      booking_is_real_job: { Args: { p_row: Json }; Returns: boolean }
       broadcast_audience: {
         Args: { p_message_class: string }
         Returns: {
@@ -13089,6 +13130,10 @@ export type Database = {
       is_org_staff: { Args: { _org_id: string }; Returns: boolean }
       is_platform_admin: { Args: never; Returns: boolean }
       is_platform_blog_admin: { Args: never; Returns: boolean }
+      jsonb_flag_true: {
+        Args: { p_json: Json; p_key: string }
+        Returns: boolean
+      }
       list_org_members: {
         Args: { _organization_id: string }
         Returns: {
@@ -13154,9 +13199,11 @@ export type Database = {
           raw_plan_type: string
         }[]
       }
+      normalize_utm_value: { Args: { p_raw: string }; Returns: string }
       org_has_native_booking: { Args: { _org_id: string }; Returns: boolean }
       org_has_no_memberships: { Args: { _org_id: string }; Returns: boolean }
       org_has_resend_api_key: { Args: { p_org_id: string }; Returns: boolean }
+      org_openphone_is_connected: { Args: { p_row: Json }; Returns: boolean }
       org_stripe_has_secrets: {
         Args: { _org_id: string }
         Returns: {
@@ -13165,6 +13212,7 @@ export type Database = {
           has_secret_key: boolean
         }[]
       }
+      org_stripe_is_connected: { Args: { p_row: Json }; Returns: boolean }
       read_email_batch: {
         Args: { batch_size: number; queue_name: string; vt: number }
         Returns: {
@@ -13173,6 +13221,11 @@ export type Database = {
           read_ct: number
         }[]
       }
+      record_activation_milestone: {
+        Args: { _milestone: string; _org_id: string; _source: string }
+        Returns: undefined
+      }
+      redact_old_cleaner_locations: { Args: never; Returns: undefined }
       redeem_access_code: { Args: { _code: string }; Returns: Json }
       refresh_peer_benchmark_snapshots: { Args: never; Returns: number }
       remove_org_member: {
@@ -13196,19 +13249,8 @@ export type Database = {
           target_url: string
         }[]
       }
-      save_signup_attribution: {
-        Args: {
-          p_utm_source?: string | null
-          p_utm_medium?: string | null
-          p_utm_campaign?: string | null
-          p_utm_term?: string | null
-          p_utm_content?: string | null
-          p_referrer?: string | null
-          p_landing_page?: string | null
-          p_captured_at?: string | null
-        }
-        Returns: undefined
-      }
+      row_is_imported: { Args: { p_row: Json }; Returns: boolean }
+      row_is_test: { Args: { p_row: Json }; Returns: boolean }
       save_abandoned_booking: {
         Args: {
           _email?: string
@@ -13220,6 +13262,19 @@ export type Database = {
           _service_id?: string
           _session_token: string
           _step_reached?: number
+        }
+        Returns: undefined
+      }
+      save_signup_attribution: {
+        Args: {
+          p_captured_at?: string
+          p_landing_page?: string
+          p_referrer?: string
+          p_utm_campaign?: string
+          p_utm_content?: string
+          p_utm_medium?: string
+          p_utm_source?: string
+          p_utm_term?: string
         }
         Returns: undefined
       }
@@ -13261,6 +13316,8 @@ export type Database = {
       }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
+      signup_landing_path: { Args: { p_value: string }; Returns: string }
+      signup_referrer_domain: { Args: { p_value: string }; Returns: string }
       staff_can_view_booking: {
         Args: { _booking_id: string; _org_id: string }
         Returns: boolean
@@ -13340,6 +13397,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      utm_raw_or_null: { Args: { p_raw: string }; Returns: string }
       validate_client_portal_login: {
         Args: { p_email: string; p_password: string }
         Returns: Json

@@ -13,8 +13,8 @@ import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { formatInTimezone } from '@/lib/timezoneUtils';
 
 interface TrackingInfo {
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   is_active: boolean;
   recorded_at: string;
   created_at: string;
@@ -241,12 +241,15 @@ export function AdminLiveTracking({
           )}
         </div>
 
-        <MiniMap
-          lat={tracking.latitude}
-          lng={tracking.longitude}
-          destLat={destCoords?.lat}
-          destLng={destCoords?.lng}
-        />
+        {/* Location-off rows have no coordinates: never draw a pin for them. */}
+        {tracking.latitude != null && tracking.longitude != null && (
+          <MiniMap
+            lat={tracking.latitude}
+            lng={tracking.longitude}
+            destLat={destCoords?.lat}
+            destLng={destCoords?.lng}
+          />
+        )}
 
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-1">

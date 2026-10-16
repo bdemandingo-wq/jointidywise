@@ -15,7 +15,9 @@ export async function persistSignupAttribution(): Promise<void> {
     const { data } = await supabase.auth.getSession();
     if (!data.session) return;
     const args = signupAttributionArgs(readCapturedUtm());
-    const { error } = await supabase.rpc("save_signup_attribution", args);
+    // Drop nulls: the generated RPC type accepts omitted params, not null.
+    const params = Object.fromEntries(Object.entries(args).filter(([, v]) => v != null)) as Record<string, string>;
+    const { error } = await supabase.rpc("save_signup_attribution", params);
     if (!attributionSaveSucceeded(error)) {
       console.error("[utm] save failed", error?.message);
       return;
