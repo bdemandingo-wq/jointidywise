@@ -27,7 +27,8 @@ import {
   type CheckoutPlanId,
 } from "@/lib/startSubscriptionCheckout";
 import { CustomPriceMissing, isCustomPriceMissing } from "@/lib/priceNotConfigured";
-import { renewalDisclosure, trialBillsOnCheckout, trialFirstChargeLine } from "@/lib/planBillingCopy";
+import { chargeLineFromPreview, renewalDisclosure } from "@/lib/planBillingCopy";
+import { chargePreviewKey, useSubscriptionChargePreview } from "@/hooks/useSubscriptionChargePreview";
 import { isActiveOrgTrial } from "@/lib/stripeMode";
 import { useAuth } from "@/hooks/useAuth";
 import { useOrganization } from "@/contexts/OrganizationContext";
@@ -101,6 +102,12 @@ export function UpgradePlanDialog({
   const { subscription } = useAuth();
   const { organization } = useOrganization();
   const { timezone: orgTimezone } = useOrgTimezone();
+  const orgTrialCheckout = organization?.plan_type === "trial" || isActiveOrgTrial(subscription);
+  const chargePreview = useSubscriptionChargePreview({
+    enabled: open && orgTrialCheckout && !!targetPlan,
+    organizationId,
+    items: targetPlan ? [{ plan: targetPlan.id, interval: "monthly" }] : [],
+  });
 
 
   useEffect(() => {
@@ -200,15 +207,13 @@ export function UpgradePlanDialog({
 
   if (!targetPlan) return null;
 
-  const orgTrialCheckout = organization?.plan_type === "trial" || isActiveOrgTrial(subscription);
-  const trialEndIso = subscription?.trial_end ?? null;
-  const nowMs = Date.now();
-  const trialLine = orgTrialCheckout
-    ? trialFirstChargeLine({
-        trialEndIso,
+  const planPreview = chargePreview.data?.previews[chargePreviewKey(targetPlan.id, "monthly")];
+  const trialLine = planPreview
+    ? chargeLineFromPreview({
+        billNow: planPreview.bill_now,
+        firstChargeAt: planPreview.first_charge_at,
+        amountCents: planPreview.amount_cents_after_discounts,
         timeZone: orgTimezone,
-        price: trialBillsOnCheckout(trialEndIso, nowMs) ? targetPlan.monthlyPrice : undefined,
-        nowMs,
       })
     : null;
 

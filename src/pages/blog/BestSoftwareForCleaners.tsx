@@ -69,13 +69,13 @@ export default function BestSoftwareForCleaners() {
             <p className="text-muted-foreground"><strong>Best for:</strong> Growing cleaning businesses that want everything in one place without juggling multiple tools.</p>
 
             <h2 className="text-2xl font-bold mt-8">2. Jobber — Best for Field Service Variety</h2>
-            <p className="text-muted-foreground">Jobber serves many home service industries. It has solid scheduling and invoicing but lacks cleaning-specific features like checklist management and cleaner portals. Starting at $69/month.</p>
+            <p className="text-muted-foreground">Jobber serves many home service industries. It has solid scheduling and invoicing but lacks cleaning-specific features like checklist management and cleaner portals.</p>
 
-            <h2 className="text-2xl font-bold mt-8">3. Booking Koala — Budget-Friendly Option</h2>
+            <h2 className="text-2xl font-bold mt-8">3. Booking Koala</h2>
             <p className="text-muted-foreground">Good for solo cleaners just starting out. Offers basic booking and client management. However, it lacks team management, automation, and advanced reporting.</p>
 
             <h2 className="text-2xl font-bold mt-8">4. Housecall Pro — Best for Larger Teams</h2>
-            <p className="text-muted-foreground">Strong dispatching and GPS tracking for larger operations. Higher price point ($65+/month) and less tailored to residential cleaning workflows.</p>
+            <p className="text-muted-foreground">Strong dispatching and GPS tracking for larger operations. Less tailored to residential cleaning workflows.</p>
 
             <h2 className="text-2xl font-bold mt-8">How to Choose the Right Tool</h2>
             <p className="text-muted-foreground">Consider your team size, budget, and growth plans. Solo operators may start with simpler tools, but if you plan to scale, choose software that grows with you. Features like automated reminders, recurring booking, and a client portal will save you hours every week.</p>

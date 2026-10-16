@@ -38,7 +38,8 @@ import {
 
 import { LIFETIME_FEATURES, LIFETIME_SPOT_CAP, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
 import { isActiveOrgTrial } from '@/lib/stripeMode';
-import { renewalDisclosure, trialBillsOnCheckout, trialFirstChargeLine } from '@/lib/planBillingCopy';
+import { chargeLineFromPreview, renewalDisclosure } from '@/lib/planBillingCopy';
+import { chargePreviewKey, useSubscriptionChargePreview } from '@/hooks/useSubscriptionChargePreview';
 import { formatLoyaltyDollars, LOYALTY_PRICING, pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
 
 type Interval = 'monthly' | 'yearly';
@@ -164,17 +165,27 @@ export default function PricingPage() {
   const { timezone: orgTimezone } = useOrgTimezone();
   const { organization } = useOrganization();
   const orgTrialCheckout = organization?.plan_type === 'trial' || isActiveOrgTrial(subscription);
-  const trialEndIso = subscription?.trial_end ?? null;
-  const nowMs = Date.now();
-  const billsNow = orgTrialCheckout && trialBillsOnCheckout(trialEndIso, nowMs);
-  const trialDateLine = orgTrialCheckout && !billsNow
-    ? trialFirstChargeLine({ trialEndIso, timeZone: orgTimezone, nowMs })
-    : null;
   const [searchParams, setSearchParams] = useSearchParams();
   // billingInterval / setBillingInterval — NOT named "setInterval" so it
   // doesn't shadow the global timer function. Renaming because the prior
   // setState shadowing was a footgun for any future code in this file.
   const [billingInterval, setBillingInterval] = useState<Interval>('monthly');
+  const chargePreview = useSubscriptionChargePreview({
+    enabled: orgTrialCheckout,
+    organizationId: organization?.id,
+    items: PUBLIC_TIERS.map((tier) => ({ plan: tier.id, interval: billingInterval })),
+  });
+  const datedPreview = Object.values(chargePreview.data?.previews ?? {}).find(
+    (row) => row && !row.bill_now && row.first_charge_at,
+  );
+  const trialDateLine = datedPreview
+    ? chargeLineFromPreview({
+        billNow: false,
+        firstChargeAt: datedPreview.first_charge_at,
+        amountCents: datedPreview.amount_cents_after_discounts,
+        timeZone: orgTimezone,
+      })
+    : null;
   const monthlyRadioRef = useRef<HTMLButtonElement>(null);
   const yearlyRadioRef = useRef<HTMLButtonElement>(null);
   const [checkoutBusy, setCheckoutBusy] = useState<string | null>(null);
@@ -650,16 +661,22 @@ export default function PricingPage() {
                     )}
                   </Button>
                   <div className="mb-6 space-y-1 text-center">
-                    {billsNow && (
-                      <p className="whitespace-nowrap text-[11px] text-muted-foreground">
-                        {trialFirstChargeLine({
-                          trialEndIso,
-                          timeZone: orgTimezone,
-                          price: chargePrice,
-                          nowMs,
-                        })}
-                      </p>
-                    )}
+                    {(() => {
+                      const preview = chargePreview.data?.previews[chargePreviewKey(tier.id, billingInterval)];
+                      const todayLine = preview?.bill_now
+                        ? chargeLineFromPreview({
+                            billNow: true,
+                            firstChargeAt: preview.first_charge_at,
+                            amountCents: preview.amount_cents_after_discounts,
+                            timeZone: orgTimezone,
+                          })
+                        : null;
+                      return todayLine ? (
+                        <p className="whitespace-nowrap text-[11px] text-muted-foreground">
+                          {todayLine}
+                        </p>
+                      ) : null;
+                    })()}
                     <p className="text-[11px] text-muted-foreground">
                       {renewalDisclosure(chargePrice, billingInterval)}
                     </p>

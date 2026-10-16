@@ -40,7 +40,7 @@ export default function CompareNichePage() {
   const path = `/compare/${competitor.slug}/for/${niche.slug}`;
   const pageTitle = `TidyWise vs ${competitor.name} for ${niche.name}`.slice(0, 60);
   const description =
-    `${competitor.name} vs TidyWise for ${niche.inline}: pricing, ${niche.tableRows[1]?.toLowerCase() ?? "features"}, payroll, and what each is best at. Flat $49/mo vs ${competitor.pricing}.`.slice(
+    `${competitor.name} vs TidyWise for ${niche.inline}: ${niche.tableRows[1]?.toLowerCase() ?? "features"}, payroll, and what each is best at. TidyWise plans start at $49/mo.`.slice(
       0,
       160
     );

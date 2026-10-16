@@ -16,7 +16,6 @@ import {
 import { useState } from "react";
 
 const comparisonData = [
-  { feature: "Monthly Pricing", tidywise: "$49/month", zenmaid: "$23–$100/month", winner: "tie" },
   { feature: "Online Booking", tidywise: true, zenmaid: true, winner: "tie" },
   { feature: "Smart Scheduling", tidywise: true, zenmaid: true, winner: "tie" },
   { feature: "GPS Check-ins", tidywise: true, zenmaid: true, winner: "tie" },
@@ -154,7 +153,7 @@ export default function CompareZenMaid() {
                 <span className="font-bold text-foreground text-lg">ZenMaid</span>
               </div>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                {["$23–$100/month, scales with booking volume", "No automated payroll", "Basic reporting (no P&L)", "No AI tools", "No inventory tracking", "30-day money-back guarantee"].map(p => (
+                {["Pricing scales with booking volume", "No automated payroll", "Basic reporting (no P&L)", "No AI tools", "No inventory tracking"].map(p => (
                   <li key={p} className="flex items-start gap-2">
                     <XCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />{p}
                   </li>
@@ -179,9 +178,9 @@ export default function CompareZenMaid() {
                 </thead>
                 <tbody>
                   {[
-                    { plan: "Starter", tw: "Plans from $49/mo", zm: "$23/month" },
-                    { plan: "Growing business", tw: "$49/month", zm: "$49/month (up to 75 bookings)" },
-                    { plan: "Scaling business", tw: "$49/month", zm: "$100/month (up to 200 bookings)" },
+                    { plan: "Starter", tw: "Plans from $49/mo", zm: "—" },
+                    { plan: "Growing business", tw: "$49/mo", zm: "—" },
+                    { plan: "Scaling business", tw: "$49/mo", zm: "—" },
                     { plan: "Payroll included", tw: "Yes", zm: "No" },
                     { plan: "P&L reporting", tw: "Yes", zm: "No" },
                   ].map((row, i) => (

@@ -125,7 +125,7 @@ const faqs = [
   },
   {
     question: "How much does cleaning business software cost?",
-    answer: "Cleaning business software ranges from $49 to $500+ per month. TIDYWISE starts at $49/month with unlimited users. Competitors like Jobber charge $349/month and Booking Koala charges $197/month for similar features."
+    answer: "TIDYWISE starts at $49/mo, with Pro at $97/mo and Custom at $197/mo, and includes unlimited users."
   },
   {
     question: "What features should I look for in cleaning business CRM software?",
@@ -148,11 +148,11 @@ const faqs = [
 // Comparison data for competitors
 const competitorComparison = [
   { name: "TIDYWISE", price: "$49/mo", users: "Unlimited", trial: "30 days", cleaning: true, mobile: true, rating: "4.9/5" },
-  { name: "Jobber", price: "$349/mo", users: "Up to 15", trial: "14 days", cleaning: false, mobile: true, rating: "4.5/5" },
-  { name: "Booking Koala", price: "$197/mo", users: "Unlimited", trial: "14 days", cleaning: true, mobile: true, rating: "4.3/5" },
-  { name: "Housecall Pro", price: "$129/mo", users: "1 user", trial: "14 days", cleaning: false, mobile: true, rating: "4.5/5" },
-  { name: "ServiceTitan", price: "$500+/mo", users: "Custom", trial: "Demo only", cleaning: false, mobile: true, rating: "4.4/5" },
-  { name: "ZenMaid", price: "$49/mo", users: "Limited", trial: "14 days", cleaning: true, mobile: false, rating: "4.2/5" }
+  { name: "Jobber", price: "—", users: "Up to 15", trial: "14 days", cleaning: false, mobile: true, rating: "4.5/5" },
+  { name: "Booking Koala", price: "—", users: "Unlimited", trial: "14 days", cleaning: true, mobile: true, rating: "4.3/5" },
+  { name: "Housecall Pro", price: "—", users: "1 user", trial: "14 days", cleaning: false, mobile: true, rating: "4.5/5" },
+  { name: "ServiceTitan", price: "—", users: "Custom", trial: "Demo only", cleaning: false, mobile: true, rating: "4.4/5" },
+  { name: "ZenMaid", price: "—", users: "Limited", trial: "14 days", cleaning: true, mobile: false, rating: "4.2/5" }
 ];
 
 // Benefits with statistics
@@ -436,7 +436,7 @@ export default function CleaningBusinessCRM() {
                 </table>
               </div>
               <p className="text-sm text-muted-foreground mt-4">
-                * Prices shown are for comparable feature sets. Some providers charge additional fees for features included free with TIDYWISE.
+                Competitor prices are not listed here. See each vendor for their current price. TidyWise plans start at $49/mo.
               </p>
 
               {/* Internal links to comparison pages */}

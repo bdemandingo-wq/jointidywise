@@ -89,6 +89,35 @@ export function trialFirstChargeLine(opts: {
   return `Your first charge is ${date}.`;
 }
 
+/** Dollars for a server preview. Whole dollars stay "$97". A half stays "$48.50". */
+export function formatChargeDollars(cents: number): string | null {
+  if (!Number.isInteger(cents) || cents < 0) return null;
+  const dollars = cents / 100;
+  if (Number.isInteger(dollars)) return `$${dollars}`;
+  return `$${dollars.toFixed(2)}`;
+}
+
+/**
+ * Charge sentence from preview-subscription-charge. The browser does not
+ * decide bill-now or the amount. A missing preview does not invent one.
+ */
+export function chargeLineFromPreview(opts: {
+  billNow: boolean;
+  firstChargeAt: string | null;
+  amountCents: number | null;
+  timeZone: string;
+}): string | null {
+  if (opts.billNow) {
+    if (opts.amountCents == null) return null;
+    const amount = formatChargeDollars(opts.amountCents);
+    if (!amount) return null;
+    return `You'll be charged ${amount} today.`;
+  }
+  const date = trialEndDateLabel(opts.firstChargeAt, opts.timeZone, true);
+  if (!date) return null;
+  return `Your first charge is ${date}.`;
+}
+
 /** Dashboard home copy when the account cannot use the product. */
 export function expiredTrialNudgeCopy(
   trialEndIso: string | null | undefined,

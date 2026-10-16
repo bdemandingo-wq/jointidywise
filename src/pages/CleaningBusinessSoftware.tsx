@@ -74,7 +74,7 @@ const features = [
 ];
 
 const competitorTable = [
-  { feature: "Monthly Price",         tidywise: "$49–$197",      jobber: "$69–$349",     housecall: "$65–$299",    bookingKoala: "$39–$199" },
+  { feature: "Monthly Price",         tidywise: "$49–$197",      jobber: "—",             housecall: "—",              bookingKoala: "—" },
   { feature: "Online Booking",        tidywise: true,            jobber: true,            housecall: true,          bookingKoala: true       },
   { feature: "Scheduling",            tidywise: true,            jobber: true,            housecall: true,          bookingKoala: true       },
   { feature: "Automated Payroll",     tidywise: true,            jobber: false,           housecall: false,         bookingKoala: false      },
@@ -96,7 +96,7 @@ const testimonials = [
     rating: 5
   },
   {
-    quote: "I switched from Jobber and saved $200/month while getting more features. The P&L reports finally showed me where my business was actually making money.",
+    quote: "I switched from Jobber and got the features I was missing. The P&L reports finally showed me where my business was actually making money.",
     author: "Marcus T.",
     role: "Founder, CleanPro Services",
     rating: 5
@@ -112,11 +112,11 @@ const testimonials = [
 const faqs = [
   {
     q: "What is the best software for a cleaning business?",
-    a: "The best cleaning business software handles scheduling, client management, invoicing, payroll, and staff tracking in one place. TidyWise includes all of these starting at $49/mo (Basic) with unlimited users — Pro adds automated payroll, GPS reporting, and AI business intelligence for $97/mo. Competitors like Jobber ($69–$349/mo) and Housecall Pro ($65–$299/mo) charge per user and still lack built-in payroll."
+    a: "The best cleaning business software handles scheduling, client management, invoicing, payroll, and staff tracking in one place. TidyWise includes all of these starting at $49/mo (Basic) with unlimited users — Pro adds automated payroll, GPS reporting, and AI business intelligence for $97/mo."
   },
   {
     q: "How much does cleaning business software cost?",
-    a: "Most cleaning business software costs $69–$349/month depending on the platform and plan. TidyWise starts at $49/mo — unlimited users, unlimited bookings, no contracts. The Pro plan is $97/mo and unlocks automated payroll, P&L reporting, AI pricing tools, route optimization, and the in-app SMS inbox."
+    a: "TidyWise starts at $49/mo — unlimited users, unlimited bookings, no contracts. The Pro plan is $97/mo and Custom is $197/mo. Pro unlocks automated payroll, P&L reporting, AI pricing tools, route optimization, and the in-app SMS inbox."
   },
   {
     q: "What features should cleaning business software have?",
@@ -368,7 +368,7 @@ export default function CleaningBusinessSoftware() {
               How TidyWise Compares to Other Cleaning Business Software
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto">
-              Jobber starts at $69/mo, Housecall Pro at $65/mo. TidyWise starts at $49/mo (Basic), with Pro at $97/mo and Custom at $197/mo — including built-in payroll and GPS that competitors charge extra for or don't offer.
+              TidyWise starts at $49/mo (Basic), with Pro at $97/mo and Custom at $197/mo, including built-in payroll and GPS.
             </p>
           </div>
 

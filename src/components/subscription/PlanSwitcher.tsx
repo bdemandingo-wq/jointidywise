@@ -36,14 +36,14 @@ import { lifetimeSpotsLabel } from "@/lib/publicActivity";
 import { usePublicGrowth } from "@/hooks/usePublicGrowth";
 import {
   DOWNGRADE_EFFECT_NOTE,
+  chargeLineFromPreview,
   lifetimeSpotsToShow,
   planBillingAction,
   planChoicesFooter,
   renewalDisclosure,
   showPlanChoices,
-  trialBillsOnCheckout,
-  trialFirstChargeLine,
 } from "@/lib/planBillingCopy";
+import { chargePreviewKey, useSubscriptionChargePreview } from "@/hooks/useSubscriptionChargePreview";
 
 const planButtonClass = "h-11 min-h-[44px] w-full px-3 md:h-11";
 
@@ -198,11 +198,23 @@ export function PlanSwitcher() {
   // create-subscription applies the 48-hour rule only when organizations.plan_type
   // is trial. trial_end is the profile trial end check-subscription already returns.
   const orgTrialCheckout = currentPlanId === "trial" || isActiveOrgTrial(subscription);
-  const trialEndIso = subscription?.trial_end ?? null;
-  const nowMs = Date.now();
-  const billsNow = orgTrialCheckout && planChoicesVisible && trialBillsOnCheckout(trialEndIso, nowMs);
-  const trialDateLine = orgTrialCheckout && planChoicesVisible && !billsNow
-    ? trialFirstChargeLine({ trialEndIso, timeZone: orgTimezone, nowMs })
+  const chargePreview = useSubscriptionChargePreview({
+    enabled: orgTrialCheckout && planChoicesVisible,
+    organizationId,
+    items: [
+      { plan: "basic", interval: "monthly" },
+      { plan: "pro", interval: "monthly" },
+    ],
+  });
+  const previewRows = Object.values(chargePreview.data?.previews ?? {});
+  const datedPreview = previewRows.find((row) => row && !row.bill_now && row.first_charge_at);
+  const trialDateLine = datedPreview
+    ? chargeLineFromPreview({
+        billNow: false,
+        firstChargeAt: datedPreview.first_charge_at,
+        amountCents: datedPreview.amount_cents_after_discounts,
+        timeZone: orgTimezone,
+      })
     : null;
 
   async function subscribe(plan: PlanInfo) {
@@ -341,8 +353,18 @@ export function PlanSwitcher() {
           let planButton: ReactNode;
           let downgradeNote = false;
           let showRenewal = false;
+          const planPreview = plan.id === "basic" || plan.id === "pro"
+            ? chargePreview.data?.previews[chargePreviewKey(plan.id, "monthly")]
+            : undefined;
+          const todayLine = planPreview?.bill_now
+            ? chargeLineFromPreview({
+                billNow: true,
+                firstChargeAt: planPreview.first_charge_at,
+                amountCents: planPreview.amount_cents_after_discounts,
+                timeZone: orgTimezone,
+              })
+            : null;
           if (choosingFirstPlan && contactPlan) {
-            showRenewal = true;
             planButton = talkToUs;
           } else if (choosingFirstPlan && !canShowPaymentFlows) {
             showRenewal = true;
@@ -378,7 +400,6 @@ export function PlanSwitcher() {
               </Button>
             );
           } else if (!canChangePlan && contactPlan) {
-            showRenewal = true;
             planButton = talkToUs;
           } else if (!canChangePlan && !canShowPaymentFlows) {
             showRenewal = true;
@@ -403,7 +424,6 @@ export function PlanSwitcher() {
               </Button>
             );
           } else if (contactPlan) {
-            showRenewal = true;
             planButton = talkToUs;
           } else if (!canShowPaymentFlows) {
             showRenewal = true;
@@ -463,14 +483,9 @@ export function PlanSwitcher() {
               </ul>
 
               {planButton}
-              {billsNow && showRenewal && planBillingAction(plan.id) === "checkout" && plan.monthlyPrice > 0 && (
+              {todayLine && planBillingAction(plan.id) === "checkout" && (
                 <p className="mt-2 whitespace-nowrap text-center text-xs text-muted-foreground">
-                  {trialFirstChargeLine({
-                    trialEndIso,
-                    timeZone: orgTimezone,
-                    price: plan.monthlyPrice,
-                    nowMs,
-                  })}
+                  {todayLine}
                 </p>
               )}
               {downgradeNote && (
@@ -478,7 +493,7 @@ export function PlanSwitcher() {
                   {DOWNGRADE_EFFECT_NOTE}
                 </p>
               )}
-              {showRenewal && plan.monthlyPrice > 0 && (
+              {showRenewal && !contactPlan && plan.monthlyPrice > 0 && (
                 <p className="mt-2 text-center text-xs text-muted-foreground">
                   {renewalDisclosure(plan.monthlyPrice)}
                 </p>

@@ -19,7 +19,7 @@ const features = [
   { name: "Smart Scheduling & Auto-Assignment", tidywise: true, bookingKoala: true, jobber: true },
   { name: "Staff Mobile App", tidywise: true, bookingKoala: true, jobber: true },
   { name: "Client Portal (Self-Service)", tidywise: true, bookingKoala: false, jobber: "Add-on" },
-  { name: "GPS Check-ins & Route Optimization", tidywise: true, bookingKoala: true, jobber: "Add-on $$$" },
+  { name: "GPS Check-ins & Route Optimization", tidywise: true, bookingKoala: true, jobber: "Add-on" },
   { name: "SMS Notifications", tidywise: true, bookingKoala: "Add-on", jobber: "Add-on" },
   { name: "Invoicing & Auto-Reminders", tidywise: true, bookingKoala: true, jobber: true },
   { name: "Drag & Drop Scheduler", tidywise: true, bookingKoala: false, jobber: true },
@@ -115,7 +115,7 @@ export default function BookingKoalaVsJobberVsTidywise() {
           <div className="bg-primary/10 border border-primary/20 rounded-xl p-6 mb-12">
             <h2 className="text-xl font-bold text-foreground mb-3">🏆 Quick Verdict</h2>
             <p className="text-muted-foreground mb-4">
-              <strong>TIDYWISE wins</strong> for cleaning businesses looking for the best value. At $49/month (vs $197-$349 for competitors), you get more features including P&L reports, inventory tracking, and offline mode—features neither Booking Koala nor Jobber offer.
+              TIDYWISE is built for cleaning businesses. Plans start at $49/mo, with Pro at $97/mo and Custom at $197/mo, including P&L reports, inventory tracking, and offline mode.
             </p>
             <Button asChild>
               <Link to="/auth">See TIDYWISE Plans <ArrowRight className="ml-2 h-4 w-4" /></Link>
@@ -129,30 +129,13 @@ export default function BookingKoalaVsJobberVsTidywise() {
               Pricing Comparison: Who Offers the Best Value?
             </h2>
             
-            <div className="grid md:grid-cols-3 gap-6 mb-8">
+            <div className="max-w-sm">
               <div className="bg-primary text-primary-foreground rounded-xl p-6">
                 <h3 className="text-xl font-bold mb-2">TIDYWISE</h3>
                 <p className="text-4xl font-bold mb-2">$49<span className="text-lg">/mo</span></p>
-                <p className="text-primary-foreground/80 text-sm">from $49/mo trial</p>
-                <p className="text-primary-foreground/80 text-sm mt-2">All features included</p>
-              </div>
-              <div className="bg-card border border-border rounded-xl p-6">
-                <h3 className="text-xl font-bold text-foreground mb-2">Booking Koala</h3>
-                <p className="text-4xl font-bold text-foreground mb-2">$197<span className="text-lg">/mo</span></p>
-                <p className="text-muted-foreground text-sm">14-day trial</p>
-                <p className="text-destructive text-sm mt-2">SMS & some features extra</p>
-              </div>
-              <div className="bg-card border border-border rounded-xl p-6">
-                <h3 className="text-xl font-bold text-foreground mb-2">Jobber</h3>
-                <p className="text-4xl font-bold text-foreground mb-2">$349<span className="text-lg">/mo</span></p>
-                <p className="text-muted-foreground text-sm">14-day trial</p>
-                <p className="text-destructive text-sm mt-2">GPS, SMS are add-ons</p>
+                <p className="text-primary-foreground/80 text-sm">Plans from $49/mo. Pro is $97/mo. Custom is $197/mo.</p>
               </div>
             </div>
-
-            <p className="text-muted-foreground">
-              <strong>Annual savings with TIDYWISE:</strong> Compared to Booking Koala, you save $1,764/year. Compared to Jobber, you save $3,588/year—enough to hire another part-time cleaner.
-            </p>
           </section>
 
           {/* Feature Comparison Table */}
@@ -227,7 +210,6 @@ export default function BookingKoalaVsJobberVsTidywise() {
               <div className="bg-card border border-border rounded-xl p-6">
                 <h3 className="text-lg font-semibold text-foreground mb-2">Choose Booking Koala if...</h3>
                 <ul className="space-y-2 text-muted-foreground">
-                  <li>• You have budget for $197+/month</li>
                   <li>• You need extensive white-label website options</li>
                   <li>• You run multiple service businesses (not just cleaning)</li>
                 </ul>

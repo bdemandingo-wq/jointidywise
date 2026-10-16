@@ -321,7 +321,7 @@ export const STATIC_ROUTE_META: Record<string, RouteMeta> = {
   "/compare/launch27": {
     title: "TidyWise vs Launch27 — Flat-Rate Alternative",
     description:
-      "Launch27 splits payroll and its mobile app across $150 and $299 tiers. TidyWise includes both at $49/month. Compare pricing and features side by side.",
+      "See how TidyWise compares with Launch27. TidyWise plans start at $49/mo and include payroll and a mobile app.",
     h1: "TidyWise vs Launch27",
   },
 
@@ -427,7 +427,7 @@ export function compareNicheRouteMeta(c: {
 }): RouteMeta {
   const title = `TidyWise vs ${c.name} for ${n.name}`.slice(0, 60);
   const description =
-    `${c.name} vs TidyWise for ${n.inline}: pricing, features, payroll, and what each is best at. Flat $49/mo vs ${c.pricing}.`.slice(0, 160);
+    `${c.name} vs TidyWise for ${n.inline}: features, payroll, and what each is best at. TidyWise plans start at $49/mo.`.slice(0, 160);
   const h1 = `TidyWise vs ${c.name} for ${n.name}`;
   return { title, description, h1 };
 }

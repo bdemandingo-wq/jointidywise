@@ -21,7 +21,8 @@ import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyL
 import { isCustomPriceMissing } from '@/lib/priceNotConfigured';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import { isActiveOrgTrial, shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
-import { renewalDisclosure, trialBillsOnCheckout, trialFirstChargeLine } from '@/lib/planBillingCopy';
+import { chargeLineFromPreview, renewalDisclosure } from '@/lib/planBillingCopy';
+import { chargePreviewKey, useSubscriptionChargePreview } from '@/hooks/useSubscriptionChargePreview';
 import {
   hasAnswer,
   normalizeAnswers,
@@ -141,11 +142,21 @@ export default function ChoosePlanPage() {
   // One redirect per click — same duplicate-session guard as PricingPage.
   const isRedirectingRef = useRef(false);
   const orgTrialCheckout = organization?.plan_type === 'trial' || isActiveOrgTrial(subscription);
-  const trialEndIso = subscription?.trial_end ?? null;
-  const nowMs = Date.now();
-  const billsNow = orgTrialCheckout && trialBillsOnCheckout(trialEndIso, nowMs);
-  const trialDateLine = orgTrialCheckout && !billsNow
-    ? trialFirstChargeLine({ trialEndIso, timeZone: orgTimezone, nowMs })
+  const chargePreview = useSubscriptionChargePreview({
+    enabled: orgTrialCheckout,
+    organizationId: organization?.id,
+    items: PUBLIC_TIERS.map((tier) => ({ plan: tier.id, interval: billingInterval })),
+  });
+  const datedPreview = Object.values(chargePreview.data?.previews ?? {}).find(
+    (row) => row && !row.bill_now && row.first_charge_at,
+  );
+  const trialDateLine = datedPreview
+    ? chargeLineFromPreview({
+        billNow: false,
+        firstChargeAt: datedPreview.first_charge_at,
+        amountCents: datedPreview.amount_cents_after_discounts,
+        timeZone: orgTimezone,
+      })
     : null;
 
   useEffect(() => {
@@ -427,16 +438,22 @@ export default function ChoosePlanPage() {
                       <>Choose {tier.name}</>
                     )}
                   </Button>
-                  {billsNow && (
-                    <p className="whitespace-nowrap text-center text-xs text-muted-foreground">
-                      {trialFirstChargeLine({
-                        trialEndIso,
-                        timeZone: orgTimezone,
-                        price: chargePrice,
-                        nowMs,
-                      })}
-                    </p>
-                  )}
+                  {(() => {
+                    const preview = chargePreview.data?.previews[chargePreviewKey(tier.id, billingInterval)];
+                    const todayLine = preview?.bill_now
+                      ? chargeLineFromPreview({
+                          billNow: true,
+                          firstChargeAt: preview.first_charge_at,
+                          amountCents: preview.amount_cents_after_discounts,
+                          timeZone: orgTimezone,
+                        })
+                      : null;
+                    return todayLine ? (
+                      <p className="whitespace-nowrap text-center text-xs text-muted-foreground">
+                        {todayLine}
+                      </p>
+                    ) : null;
+                  })()}
                   <p className="text-center text-xs text-muted-foreground">
                     {renewalDisclosure(chargePrice, billingInterval)}
                   </p>
