@@ -153,54 +153,50 @@ export function ReportsOverview({ bookings, customers }: ReportsOverviewProps) {
     }
     /* eslint-enable local/no-device-local-dates */
 
-    const grossVolume = intervals.map(date => {
-      const intervalBookings = filteredBookings.filter(b => 
-        matchFn(new Date(b.scheduled_at), date)
-      );
-      
-      return {
-        date: labelFn(date),
-        value: sumBookingRevenue(intervalBookings)
-      };
-    });
+    // Resolve each row's bucket ONCE, then group. The old version re-ran the
+    // org-timezone conversion for every (bucket × row) pair, four times over,
+    // which froze phones for 4+ seconds on a ~1,500-job dashboard. Same
+    // buckets: a row lands in the bucket whose label equals its own label.
+    const bucketOf = (d: Date) => labelFn(d);
+    void matchFn;
+    const bookingsByBucket: Record<string, typeof filteredBookings> = {};
+    for (const b of filteredBookings) {
+      const k = bucketOf(new Date(b.scheduled_at));
+      (bookingsByBucket[k] ||= []).push(b);
+    }
+    const customersByBucket: Record<string, number> = {};
+    for (const c of filteredCustomers) {
+      const k = bucketOf(new Date(c.created_at));
+      customersByBucket[k] = (customersByBucket[k] || 0) + 1;
+    }
+    const labels = intervals.map(labelFn);
+
+    const grossVolume = labels.map(label => ({
+      date: label,
+      value: sumBookingRevenue(bookingsByBucket[label] ?? []),
+    }));
 
     const netVolume = grossVolume.map(d => ({
       ...d,
       value: Math.round(d.value * 0.97 * 100) / 100 // ~3% Stripe fees
     }));
 
-    const newCustomers = intervals.map(date => {
-      const intervalCustomers = filteredCustomers.filter(c => 
-        matchFn(new Date(c.created_at), date)
-      );
-      
-      return {
-        date: labelFn(date),
-        value: intervalCustomers.length
-      };
-    });
+    const newCustomers = labels.map(label => ({
+      date: label,
+      value: customersByBucket[label] ?? 0,
+    }));
 
-    const successfulPayments = intervals.map(date => {
-      const intervalBookings = filteredBookings.filter(b => 
-        matchFn(new Date(b.scheduled_at), date) && b.payment_status === 'paid'
-      );
-      
-      return {
-        date: labelFn(date),
-        value: intervalBookings.length
-      };
-    });
+    const successfulPayments = labels.map(label => ({
+      date: label,
+      value: (bookingsByBucket[label] ?? []).filter(b => b.payment_status === 'paid').length,
+    }));
 
-    const spendPerCustomer = intervals.map(date => {
-      const intervalBookings = filteredBookings.filter(b => 
-        matchFn(new Date(b.scheduled_at), date)
-      );
-      
+    const spendPerCustomer = labels.map(label => {
+      const intervalBookings = bookingsByBucket[label] ?? [];
       const uniqueCustomers = new Set(intervalBookings.map(b => b.customer?.id).filter(Boolean));
       const totalRevenue = sumBookingRevenue(intervalBookings);
-      
       return {
-        date: labelFn(date),
+        date: label,
         value: uniqueCustomers.size > 0 ? Math.round((totalRevenue / uniqueCustomers.size) * 100) / 100 : 0
       };
     });
