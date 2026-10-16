@@ -12,6 +12,8 @@ import {
   isMissingPlatformAccountColumn,
   orgConnectNeedsReconnect,
   platformAccountColumnReady,
+  platformAccountRequiredError,
+  readKeyPlatformAccountId,
   writeRowRetryWithoutPlatform,
 } from "../_shared/connect-platform.ts";
 
@@ -96,6 +98,11 @@ serve(async (req) => {
         return jsonResponse({ error: "Stripe Connect not configured on platform" }, 500);
       }
 
+      const platformMissing = platformAccountRequiredError(connectPlatformFromEnv());
+      if (platformMissing) {
+        return jsonResponse({ error: platformMissing }, 503);
+      }
+
       const redirectUri = "https://jointidywise.com/dashboard/payment-integration";
       const params = new URLSearchParams({
         response_type: "code",
@@ -135,6 +142,15 @@ serve(async (req) => {
       }
 
       const stripe = new Stripe(stripeSecretKey, { apiVersion: STRIPE_API_VERSION });
+      const stamped = await readKeyPlatformAccountId(
+        () => stripe.accounts.retrieve(),
+        platform,
+        "saved",
+      );
+      if (!stamped.ok) {
+        return jsonResponse({ error: stamped.error }, 503);
+      }
+
       const response = await stripe.oauth.token({
         grant_type: "authorization_code",
         code,
@@ -171,7 +187,7 @@ serve(async (req) => {
           stripe_access_token: response.access_token,
           stripe_refresh_token: response.refresh_token,
           stripe_secret_key: response.access_token || null,
-          platform_account_id: platform.platformAccountId,
+          platform_account_id: stamped.platformAccountId,
         },
       );
 

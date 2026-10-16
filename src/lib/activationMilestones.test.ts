@@ -104,6 +104,16 @@ test("Stripe is live from is_connected or a Connect account id", () => {
   assert.equal(stripeLiveConnected(null), false);
 });
 
+test("needs_reconnect is not a live Stripe connection", () => {
+  assert.equal(stripeLiveConnected({ is_connected: true, needs_reconnect: true }), false);
+  assert.equal(stripeLiveConnected({
+    is_connected: true,
+    status: "needs_reconnect",
+    stripe_account_id: "acct_123",
+  }), false);
+  assert.equal(stripeLiveConnected({ connected: true, needs_reconnect: false }), true);
+});
+
 test("a native booking counts and an import does not", () => {
   assert.equal(bookingIsRealJob({ notes: "weekly clean" }), true);
   assert.equal(bookingIsRealJob({ created_via: "migration_import" }), false);

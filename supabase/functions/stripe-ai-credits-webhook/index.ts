@@ -5,7 +5,8 @@
 // IMPORTANT: verify_jwt=false (Stripe doesn't send a JWT). Signature is
 // verified using STRIPE_AI_CREDITS_WEBHOOK_SECRET. The API client is the
 // billing account (STRIPE_BILLING_SECRET_KEY). STRIPE_SECRET_KEY is used only
-// while STRIPE_CONNECT_PLATFORM_SWITCHED is off.
+// while STRIPE_PLATFORM_ACCOUNT_ID is unset and STRIPE_CONNECT_PLATFORM_SWITCHED
+// is off.
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";

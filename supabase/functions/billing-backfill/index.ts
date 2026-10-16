@@ -483,14 +483,16 @@ Deno.serve(async (req) => {
     }
 
     // Prefer STRIPE_BILLING_SECRET_KEY, then the restricted read key this job
-    // already uses. STRIPE_SECRET_KEY is a fallback only while the Connect
-    // platform switch is off, so a Saas Connect secret cannot backfill billing.
+    // already uses. STRIPE_SECRET_KEY is a fallback only while no platform
+    // account id is set and the switch flag is off, so a swapped Connect
+    // secret cannot backfill billing.
     const platform = connectPlatformFromEnv();
     const key = selectBackfillReadKey({
       billingSecret: Deno.env.get("STRIPE_BILLING_SECRET_KEY"),
       backfillReadKey: Deno.env.get("STRIPE_BACKFILL_READ_KEY"),
       connectSecret: Deno.env.get("STRIPE_SECRET_KEY"),
       switched: platform.switched,
+      platformAccountId: platform.platformAccountId,
     });
     if (!key) return json({ error: "STRIPE_BILLING_SECRET_KEY is not set" }, 500);
     const stripe = new Stripe(key, { apiVersion: "2025-08-27.basil" });

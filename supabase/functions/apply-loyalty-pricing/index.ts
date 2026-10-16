@@ -6,7 +6,8 @@
 // creates a charge, invoice, checkout session, or PaymentIntent.
 //
 // STRIPE_BILLING_SECRET_KEY may be live. STRIPE_SECRET_KEY is a fallback only
-// until STRIPE_CONNECT_PLATFORM_SWITCHED is on. That billing key is the one
+// until STRIPE_PLATFORM_ACCOUNT_ID is set or STRIPE_CONNECT_PLATFORM_SWITCHED
+// is on. That billing key is the one
 // the renewal coupon has to use. Do not point a test-card script at this function.
 // Set LOYALTY_PRICING_DRY_RUN=1 to write the clock and skip the coupon update.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";

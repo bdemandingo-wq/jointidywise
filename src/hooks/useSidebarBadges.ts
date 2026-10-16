@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
+import { fetchOrgStripeStatus } from '@/lib/orgStripeStatus';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useOrgRole } from '@/hooks/useOrgRole';
 import { useNotificationPreferences } from '@/hooks/useNotificationPreferences';
@@ -366,11 +367,9 @@ export function useSidebarBadgesFull(): SidebarBadgeData {
     ...POLLED,
     queryFn: async () => {
       if (!orgId) return 0;
-      const { data: rows } = await supabase.rpc('get_org_stripe_settings_safe', { p_organization_id: orgId });
-      const data = rows?.[0] ?? null;
-      if (!data) return 1;
-      if (!data.is_connected) return 1;
-      if (data.stripe_payouts_enabled === false) return 1;
+      const status = await fetchOrgStripeStatus(orgId);
+      if (!status.available) return 1;
+      if (status.payouts_enabled === false) return 1;
       return 0;
     },
   });

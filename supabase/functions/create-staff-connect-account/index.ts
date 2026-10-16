@@ -4,6 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   connectPlatformFromEnv,
   platformAccountColumnReady,
+  readKeyPlatformAccountId,
   staffConnectNeedsReconnect,
   writeRowRetryWithoutPlatform,
 } from "../_shared/connect-platform.ts";
@@ -188,10 +189,13 @@ serve(async (req: Request) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (platform.switched && !platform.platformAccountId) {
-        return new Response(JSON.stringify({
-          error: "STRIPE_PLATFORM_ACCOUNT_ID is not set. Nothing was created.",
-        }), {
+      const stamped = await readKeyPlatformAccountId(
+        () => stripe.accounts.retrieve(),
+        platform,
+        "created",
+      );
+      if (!stamped.ok) {
+        return new Response(JSON.stringify({ error: stamped.error }), {
           status: 503,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -222,7 +226,7 @@ serve(async (req: Request) => {
           staff_id: staffId,
           organization_id: organizationId,
           stripe_account_id: stripeAccountId,
-          platform_account_id: platform.platformAccountId,
+          platform_account_id: stamped.platformAccountId,
           account_status: "onboarding",
           account_holder_name: staffRecord.name,
           payouts_enabled: false,

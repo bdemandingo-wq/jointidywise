@@ -14,6 +14,8 @@
  * not TidyWise subscription revenue.
  */
 
+import { stripeConnectAvailable } from "./invoiceCardPayments.ts";
+
 export const ACTIVATION_MILESTONE_KEYS = [
   "trial_signup",
   "service_added",
@@ -170,11 +172,17 @@ export function openPhoneLiveConnected(
  * Same rule as public.org_stripe_is_connected for the columns this app
  * actually stores. charges_enabled is not on org_stripe_settings.
  * Manual keys set is_connected and leave stripe_account_id null.
+ * needs_reconnect is not live, even when an account id is still stored.
  */
 export function stripeLiveConnected(
-  row: { is_connected?: boolean | null; stripe_account_id?: string | null } | null | undefined,
+  row: {
+    is_connected?: boolean | null;
+    stripe_account_id?: string | null;
+    connected?: boolean;
+    needs_reconnect?: boolean;
+    status?: string | null;
+    account_id?: string | null;
+  } | null | undefined,
 ): boolean {
-  if (!row) return false;
-  if (row.is_connected === true) return true;
-  return typeof row.stripe_account_id === "string" && row.stripe_account_id.trim().length > 0;
+  return stripeConnectAvailable(row);
 }

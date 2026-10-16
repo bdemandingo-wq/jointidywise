@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { connectPlatformFromEnv, platformAccountColumnReady, staffConnectNeedsReconnect, writeRowRetryWithoutPlatform } from "../_shared/connect-platform.ts";
+import { connectPlatformFromEnv, platformAccountColumnReady, readKeyPlatformAccountId, staffConnectNeedsReconnect, writeRowRetryWithoutPlatform } from "../_shared/connect-platform.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -151,10 +151,15 @@ serve(async (req: Request) => {
         error: "Apply the platform_account_id migration before resetting payout accounts. Nothing was created.",
       }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    if (platform.switched && !platform.platformAccountId) {
-      return new Response(JSON.stringify({
-        error: "STRIPE_PLATFORM_ACCOUNT_ID is not set. Nothing was created.",
-      }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const stamped = await readKeyPlatformAccountId(
+      () => stripe.accounts.retrieve(),
+      platform,
+      "created",
+    );
+    if (!stamped.ok) {
+      return new Response(JSON.stringify({ error: stamped.error }), {
+        status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // Get staff info for the new account
@@ -194,7 +199,7 @@ serve(async (req: Request) => {
         .eq("organization_id", organizationId),
       {
         stripe_account_id: newAccount.id,
-        platform_account_id: platform.platformAccountId,
+        platform_account_id: stamped.platformAccountId,
         account_status: "onboarding",
         payouts_enabled: false,
         charges_enabled: false,

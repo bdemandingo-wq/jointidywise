@@ -41,6 +41,8 @@ import { CustomerNotesBlock } from '@/components/CustomerNotesBlock';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { mirroredCleanerWage, teamSummary, teamFieldsForSave } from '@/lib/teamJobs';
+import { fetchOrgStripeStatus } from '@/lib/orgStripeStatus';
+import { CARD_PAYMENTS_UNAVAILABLE } from '@/lib/invoiceCardPayments';
 
 // computeExpectedPay now lives in @/lib/cleanerPay (shared across all pay write sites).
 
@@ -98,15 +100,20 @@ export function PaymentStep() {
   const [couponError, setCouponError] = useState<string | null>(null);
   const [paymentCollectionMethod, setPaymentCollectionMethod] = useState<'card' | 'in_person'>('card');
   const [stripeConfigured, setStripeConfigured] = useState<boolean | null>(null);
+  const [stripeNeedsReconnect, setStripeNeedsReconnect] = useState(false);
 
-  // Check if Stripe is configured for this org
+  // Check if Stripe is configured for this org. needs_reconnect is not available.
   useEffect(() => {
     if (!organizationId) return;
     let cancelled = false;
-    supabase
-      .rpc('get_org_stripe_settings_safe', { p_organization_id: organizationId })
-      .then(({ data: rows }) => {
-        if (!cancelled) setStripeConfigured(!!rows?.[0]?.is_connected);
+    fetchOrgStripeStatus(organizationId)
+      .then((status) => {
+        if (cancelled) return;
+        setStripeNeedsReconnect(status.needs_reconnect);
+        setStripeConfigured(status.available);
+      })
+      .catch((err) => {
+        console.error('Failed to check Stripe connection', err);
       });
     return () => { cancelled = true; };
   }, [organizationId]);
@@ -720,9 +727,13 @@ export function PaymentStep() {
               <div className="flex items-center gap-3 p-4 bg-warning/10 rounded-xl border border-warning/20">
                 <AlertCircle className="h-5 w-5 text-warning flex-shrink-0" />
                 <div>
-                  <p className="font-medium text-warning">Stripe Not Connected</p>
+                  <p className="font-medium text-warning">
+                    {stripeNeedsReconnect ? CARD_PAYMENTS_UNAVAILABLE : 'Stripe Not Connected'}
+                  </p>
                   <p className="text-xs text-warning">
-                    To save cards on file, connect your Stripe account in Settings → Payment Integration. Or use "In-Person Payment" to skip card collection.
+                    {stripeNeedsReconnect
+                      ? 'Reconnect Stripe in Settings → Payment Integration before saving a card. Or use "In-Person Payment" to skip card collection.'
+                      : 'To save cards on file, connect your Stripe account in Settings → Payment Integration. Or use "In-Person Payment" to skip card collection.'}
                   </p>
                 </div>
               </div>

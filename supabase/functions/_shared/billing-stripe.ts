@@ -6,15 +6,17 @@ import { connectPlatformFromEnv, selectBillingPublishableKey, selectBillingSecre
  * loyalty, AI credits, ad management, winback coupons, and the billing ledger.
  *
  * Prefer the explicit STRIPE_BILLING_* variables. STRIPE_SECRET_KEY is the
- * Connect platform key (Jointidywise Saas after the move: cleaning-business
- * OAuth, Express payouts, STRIPE_CLIENT_ID). It is a billing fallback only
- * while STRIPE_CONNECT_PLATFORM_SWITCHED is off.
+ * Connect platform key (whichever platform account the owner names; no
+ * account id is hardcoded). It is a billing fallback only while
+ * STRIPE_PLATFORM_ACCOUNT_ID is unset and STRIPE_CONNECT_PLATFORM_SWITCHED
+ * is off. Naming the platform account drops the fallback immediately, so
+ * a swapped Connect secret cannot charge subscriptions.
  *
- * Before that flag is turned on, and before STRIPE_SECRET_KEY is swapped,
- * set STRIPE_BILLING_SECRET_KEY, STRIPE_BILLING_PUBLISHABLE_KEY, and
- * STRIPE_BILLING_WEBHOOK_SECRET to the existing billing account. After the
- * flag is on, a missing billing key returns empty so checkout and webhooks
- * do not follow the new Connect secret.
+ * Before setting STRIPE_PLATFORM_ACCOUNT_ID or the switch flag, and before
+ * swapping STRIPE_SECRET_KEY, set STRIPE_BILLING_SECRET_KEY,
+ * STRIPE_BILLING_PUBLISHABLE_KEY, and STRIPE_BILLING_WEBHOOK_SECRET to the
+ * existing billing account. After either gate, a missing billing key
+ * returns empty.
  */
 export function billingSecretKey(): string {
   const config = connectPlatformFromEnv();
@@ -22,6 +24,7 @@ export function billingSecretKey(): string {
     billingSecret: Deno.env.get("STRIPE_BILLING_SECRET_KEY"),
     connectSecret: Deno.env.get("STRIPE_SECRET_KEY"),
     switched: config.switched,
+    platformAccountId: config.platformAccountId,
   });
 }
 
@@ -37,6 +40,7 @@ export function billingPublishableKey(): string | null {
     billingPublishable: Deno.env.get("STRIPE_BILLING_PUBLISHABLE_KEY"),
     connectPublishable: Deno.env.get("STRIPE_PUBLISHABLE_KEY"),
     switched: config.switched,
+    platformAccountId: config.platformAccountId,
   });
 }
 
@@ -78,8 +82,9 @@ export async function verifyStripeWebhook(
   }
   if (billingWebhook && billingWebhook !== connectWebhook) {
     const key = billingSecretKey();
-    // An empty key means the switch is on and STRIPE_BILLING_SECRET_KEY was
-    // not set. Do not verify billing events with a placeholder client.
+    // An empty key means the platform account is named or the switch is on,
+    // and STRIPE_BILLING_SECRET_KEY was not set. Do not verify billing
+    // events with a placeholder client.
     if (key) attempts.push({ secret: billingWebhook, key, account: "billing" });
   }
   if (attempts.length === 0) {
