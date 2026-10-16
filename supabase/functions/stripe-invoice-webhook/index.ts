@@ -5,7 +5,7 @@ import { REFUND_POLICY, CANCELLATION_POLICY, POLICY_DISCLOSURE, TOS_VERSION } fr
 import { rejectReason, isVested } from "../_shared/referral-eligibility.ts";
 import { recordReferralInvoicePaid, recordReferralReversal, type BalanceClient } from "../_shared/saas-referral-db.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
-import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/openphone-send.ts";
+import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/send-sms.ts";
 import { verifyStripeWebhook } from "../_shared/billing-stripe.ts";
 import {
   cascadeCancelAdSubscriptionsIfDowngraded,

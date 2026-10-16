@@ -15,7 +15,7 @@ import {
   renderOptOutConfirmation,
   type SmsConsentState,
 } from "../_shared/sms-opt-out.ts";
-import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',

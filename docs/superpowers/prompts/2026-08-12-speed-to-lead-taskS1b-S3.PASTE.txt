@@ -352,7 +352,7 @@ serve(async (req: Request) => {
   toPhone = "+" + toPhone;
 
   try {
-    const res = await fetch("https://api.openphone.com/v1/messages", {
+    const res = await fetch(OPENPHONE_MESSAGES_URL, {
       method: "POST",
       headers: {
         Authorization: smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, ""),

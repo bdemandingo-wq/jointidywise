@@ -4,7 +4,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { requireOrgAdmin } from "../_shared/requireOrgAdmin.ts";
 import { sendOrgEmail } from "../_shared/send-org-email.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
-import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");

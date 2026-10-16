@@ -23,7 +23,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
-import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/openphone-send.ts";
+import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

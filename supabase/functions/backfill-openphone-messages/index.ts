@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { OPENPHONE_MESSAGES_URL } from "../_shared/send-sms.ts";
 import { verifyAdminAuth, createUnauthorizedResponse } from "../_shared/verify-admin-auth.ts";
 
 const corsHeaders = {
@@ -118,7 +119,7 @@ const handler = async (req: Request): Promise<Response> => {
 
       try {
         // Fetch 1 page of messages (50 max) per conversation
-        const msgUrl = new URL('https://api.openphone.com/v1/messages');
+        const msgUrl = new URL(OPENPHONE_MESSAGES_URL);
         msgUrl.searchParams.set('phoneNumberId', phoneNumberId);
         for (const p of participants) msgUrl.searchParams.append('participants', p);
         msgUrl.searchParams.set('maxResults', '50');

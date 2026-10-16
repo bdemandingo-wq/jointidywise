@@ -4,7 +4,7 @@ import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { resolveTemplate, type AutomationKey } from "../_shared/automation-templates.ts";
-import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

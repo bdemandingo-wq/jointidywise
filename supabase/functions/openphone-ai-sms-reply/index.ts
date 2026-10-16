@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { anthropicChat, MODEL_HAIKU } from "../_shared/anthropic.ts";
 import { isInternalDispatchRequest } from "../_shared/internal-dispatch-auth.ts";
-import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
+import { OPENPHONE_MESSAGES_URL, sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -99,7 +99,7 @@ async function fetchDoneConversationStyle(
       if (participants.length === 0) continue;
 
       try {
-        const msgUrl = new URL('https://api.openphone.com/v1/messages');
+        const msgUrl = new URL(OPENPHONE_MESSAGES_URL);
         msgUrl.searchParams.set('phoneNumberId', phoneNumberId);
         for (const p of participants) msgUrl.searchParams.append('participants', p);
         msgUrl.searchParams.set('maxResults', '10');

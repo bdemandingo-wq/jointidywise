@@ -7,7 +7,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { filterOptedIn } from "../_shared/marketing-guard.ts";
-import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

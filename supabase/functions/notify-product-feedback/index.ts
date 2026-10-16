@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
-import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 /**
  * Tells the founder that product feedback has arrived.

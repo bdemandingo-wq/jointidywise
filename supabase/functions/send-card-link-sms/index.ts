@@ -2,7 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { requireOrgAdmin } from "../_shared/requireOrgAdmin.ts";
-import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 // Hash an email for audit logs (don't store plaintext PII in logs)
 async function hashEmail(email: string | null | undefined): Promise<string | null> {

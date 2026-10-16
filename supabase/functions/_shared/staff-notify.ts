@@ -2,7 +2,7 @@
 // OpenPhone line and email identity. Never throws — a failed notice must not
 // undo a payment that already went through.
 import { sendOrgEmail } from "./send-org-email.ts";
-import { sendOpenPhoneMessage } from "./openphone-send.ts";
+import { sendOpenPhoneMessage } from "./send-sms.ts";
 
 export const PORTAL_URL = "https://www.jointidywise.com/staff";
 export const FORGOT_URL = "https://www.jointidywise.com/staff/login";

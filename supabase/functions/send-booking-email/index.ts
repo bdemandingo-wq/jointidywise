@@ -6,7 +6,7 @@ import { loadOrgBrand, renderBrandedEmail } from "../_shared/org-email-renderer.
 import { isServiceRoleRequest, rejectUnauthenticated, resolveCallerOrg } from "../_shared/require-caller-org.ts";
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
-import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");

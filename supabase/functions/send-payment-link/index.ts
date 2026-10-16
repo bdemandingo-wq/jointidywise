@@ -4,7 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { verifyAdminAuth, createUnauthorizedResponse, createForbiddenResponse } from "../_shared/verify-admin-auth.ts";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { getOrgStripeClient } from "../_shared/get-org-stripe-settings.ts";
-import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

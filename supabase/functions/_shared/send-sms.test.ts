@@ -5,7 +5,7 @@ import {
   sendOpenPhoneMessage,
   type SmsQuery,
   type SmsTable,
-} from "./openphone-send.ts";
+} from "./send-sms.ts";
 
 const ORG = "org-1";
 const OTHER_ORG = "org-2";

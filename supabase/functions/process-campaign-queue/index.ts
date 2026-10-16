@@ -21,7 +21,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { isOptedOut } from '../_shared/marketing-guard.ts'
-import { sendOpenPhoneMessage } from '../_shared/openphone-send.ts'
+import { sendOpenPhoneMessage } from '../_shared/send-sms.ts'
 import { isServiceRoleRequest } from '../_shared/require-caller-org.ts'
 
 const QUEUE = 'campaign_sms'

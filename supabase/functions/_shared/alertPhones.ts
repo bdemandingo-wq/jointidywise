@@ -1,4 +1,4 @@
-import { sendOpenPhoneMessage, type SmsSuppressionDb } from "./openphone-send.ts";
+import { sendOpenPhoneMessage, type SmsSuppressionDb } from "./send-sms.ts";
 
 /**
  * business_settings.notification_phone may hold several numbers separated by

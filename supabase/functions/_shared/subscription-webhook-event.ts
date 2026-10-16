@@ -13,7 +13,7 @@ import {
   subscriptionPersistHttpStatus,
   subscriptionStateFields,
 } from "./subscription-billing-snapshot.ts";
-import { sendOpenPhoneMessage } from "./openphone-send.ts";
+import { sendOpenPhoneMessage } from "./send-sms.ts";
 
 export const subscriptionWebhookCorsHeaders = {
   "Access-Control-Allow-Origin": "*",

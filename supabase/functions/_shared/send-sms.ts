@@ -12,6 +12,10 @@
  *
  * The one STOP confirmation passes allowOptedOut. START/UNSTOP restores the
  * customer columns through persistSmsConsent; it does not send a text.
+ *
+ * This file is the only place that may name the OpenPhone messages URL.
+ * Message reads import OPENPHONE_MESSAGES_URL from here. A direct copy of
+ * the URL anywhere else fails scripts/check-openphone-messages-endpoint.mjs.
  */
 import { phoneOptOutStatus } from "./marketing-guard.ts";
 import { toE164 } from "./phone.ts";
@@ -90,7 +94,7 @@ function httpResult(status: number, ok: boolean, body: string): OpenPhoneHttpRes
 }
 
 function logTag(tag: string | undefined): string {
-  return tag && tag.length > 0 ? tag : "openphone-send";
+  return tag && tag.length > 0 ? tag : "send-sms";
 }
 
 function looseConfirmationAddress(raw: string): string | null {

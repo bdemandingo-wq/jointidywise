@@ -3,6 +3,7 @@
 // intentionally not used.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { OPENPHONE_MESSAGES_URL } from "../_shared/send-sms.ts";
 import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 
@@ -257,7 +258,7 @@ async function syncOrganization(
     if (participants.length === 0) continue;
 
     try {
-      const msgUrl = new URL("https://api.openphone.com/v1/messages");
+      const msgUrl = new URL(OPENPHONE_MESSAGES_URL);
       msgUrl.searchParams.set("phoneNumberId", phoneNumberId);
       for (const participant of participants) msgUrl.searchParams.append("participants", participant);
       msgUrl.searchParams.set("createdAfter", createdAfter);

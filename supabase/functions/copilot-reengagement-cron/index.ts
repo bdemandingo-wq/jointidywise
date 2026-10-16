@@ -21,7 +21,7 @@ import {
   getReplyTo,
 } from "../_shared/get-org-email-settings.ts";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
-import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/openphone-send.ts";
+import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

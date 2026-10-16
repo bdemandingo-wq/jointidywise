@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { isOptedOut } from "../_shared/marketing-guard.ts";
 import { verifyAdminAuth } from "../_shared/verify-admin-auth.ts";
-import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
+import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
