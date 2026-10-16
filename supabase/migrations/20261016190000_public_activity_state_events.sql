@@ -14,8 +14,12 @@
 -- and responded_at). Only rating = 5 is a "5-star review received".
 -- Do not synthesize a review when that row is absent.
 --
--- The payload has kind, region (two-letter code), rounded amount, service,
--- and at. It has no city, name, address, review text, or id. Ordering
+-- Place comes from business_settings company_state, then company_zip, then
+-- the booking state when that row has one. A ZIP maps through USPS ZIP3
+-- prefixes or a Canada Post letter. A city name is never turned into a
+-- state. The payload has kind, region (two-letter code), rounded amount,
+-- service, and at. It has no city, zip, name, address, review text, or id.
+-- Ordering
 -- matches orderActivityEvents in src/lib/publicActivity.ts: never the same
 -- kind twice in a row, and spread across orgs (1000 if this org was the
 -- previous pick, 100 for each earlier pick). Stop rather than repeat a kind.
@@ -114,6 +118,189 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.growth_public_region(text) FROM PUBLIC, anon, authenticated;
 
+-- The only 2-letter state code in a longer state field ("Dallas, TX").
+-- Two codes is ambiguous, so the result is null. City words are ignored.
+CREATE OR REPLACE FUNCTION public.growth_public_region_token(raw text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $function$
+  WITH codes AS (
+    SELECT DISTINCT m[1] AS abbr
+    FROM regexp_matches(upper(coalesce(raw, '')), '\m([A-Z]{2})\M', 'g') AS m
+    WHERE m[1] IN (
+      'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC', 'PR', 'VI', 'GU', 'AS', 'MP', 'AB', 'BC', 'MB', 'NB', 'NL', 'NS', 'NT', 'NU', 'ON', 'PE', 'QC', 'SK', 'YT'
+    )
+  )
+  SELECT CASE WHEN count(*) = 1 THEN min(abbr) ELSE NULL END
+  FROM codes;
+$function$;
+
+-- USPS ZIP3 or a Canadian postal code. Unassigned and ambiguous prefixes
+-- (military, 969, Canada Post X) stay null. Keep the WHEN list in sync with
+-- ZIP3_RANGES in src/lib/publicActivity.ts.
+CREATE OR REPLACE FUNCTION public.growth_public_region_from_zip(raw text)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE
+AS $function$
+DECLARE
+  cleaned text;
+  zip3 integer;
+  letter text;
+BEGIN
+  IF raw IS NULL THEN
+    RETURN NULL;
+  END IF;
+  cleaned := upper(regexp_replace(btrim(raw), '[^A-Za-z0-9]', '', 'g'));
+  IF cleaned ~ '^[0-9]{5}([0-9]{4})?$' THEN
+    zip3 := substring(cleaned from 1 for 3)::integer;
+    RETURN CASE
+      WHEN zip3 BETWEEN 5 AND 5 THEN 'NY'
+      WHEN zip3 BETWEEN 6 AND 7 THEN 'PR'
+      WHEN zip3 BETWEEN 8 AND 8 THEN 'VI'
+      WHEN zip3 BETWEEN 9 AND 9 THEN 'PR'
+      WHEN zip3 BETWEEN 10 AND 27 THEN 'MA'
+      WHEN zip3 BETWEEN 28 AND 29 THEN 'RI'
+      WHEN zip3 BETWEEN 30 AND 38 THEN 'NH'
+      WHEN zip3 BETWEEN 39 AND 49 THEN 'ME'
+      WHEN zip3 BETWEEN 50 AND 54 THEN 'VT'
+      WHEN zip3 BETWEEN 55 AND 55 THEN 'MA'
+      WHEN zip3 BETWEEN 56 AND 59 THEN 'VT'
+      WHEN zip3 BETWEEN 60 AND 69 THEN 'CT'
+      WHEN zip3 BETWEEN 70 AND 89 THEN 'NJ'
+      WHEN zip3 BETWEEN 100 AND 149 THEN 'NY'
+      WHEN zip3 BETWEEN 150 AND 196 THEN 'PA'
+      WHEN zip3 BETWEEN 197 AND 199 THEN 'DE'
+      WHEN zip3 BETWEEN 200 AND 200 THEN 'DC'
+      WHEN zip3 BETWEEN 201 AND 201 THEN 'VA'
+      WHEN zip3 BETWEEN 202 AND 205 THEN 'DC'
+      WHEN zip3 BETWEEN 206 AND 212 THEN 'MD'
+      WHEN zip3 BETWEEN 214 AND 219 THEN 'MD'
+      WHEN zip3 BETWEEN 220 AND 246 THEN 'VA'
+      WHEN zip3 BETWEEN 247 AND 268 THEN 'WV'
+      WHEN zip3 BETWEEN 270 AND 289 THEN 'NC'
+      WHEN zip3 BETWEEN 290 AND 299 THEN 'SC'
+      WHEN zip3 BETWEEN 300 AND 319 THEN 'GA'
+      WHEN zip3 BETWEEN 320 AND 339 THEN 'FL'
+      WHEN zip3 BETWEEN 341 AND 342 THEN 'FL'
+      WHEN zip3 BETWEEN 344 AND 344 THEN 'FL'
+      WHEN zip3 BETWEEN 346 AND 347 THEN 'FL'
+      WHEN zip3 BETWEEN 349 AND 349 THEN 'FL'
+      WHEN zip3 BETWEEN 350 AND 352 THEN 'AL'
+      WHEN zip3 BETWEEN 354 AND 369 THEN 'AL'
+      WHEN zip3 BETWEEN 370 AND 385 THEN 'TN'
+      WHEN zip3 BETWEEN 386 AND 397 THEN 'MS'
+      WHEN zip3 BETWEEN 398 AND 399 THEN 'GA'
+      WHEN zip3 BETWEEN 400 AND 418 THEN 'KY'
+      WHEN zip3 BETWEEN 420 AND 427 THEN 'KY'
+      WHEN zip3 BETWEEN 430 AND 459 THEN 'OH'
+      WHEN zip3 BETWEEN 460 AND 479 THEN 'IN'
+      WHEN zip3 BETWEEN 480 AND 499 THEN 'MI'
+      WHEN zip3 BETWEEN 500 AND 516 THEN 'IA'
+      WHEN zip3 BETWEEN 520 AND 528 THEN 'IA'
+      WHEN zip3 BETWEEN 530 AND 532 THEN 'WI'
+      WHEN zip3 BETWEEN 534 AND 535 THEN 'WI'
+      WHEN zip3 BETWEEN 537 AND 549 THEN 'WI'
+      WHEN zip3 BETWEEN 550 AND 551 THEN 'MN'
+      WHEN zip3 BETWEEN 553 AND 567 THEN 'MN'
+      WHEN zip3 BETWEEN 570 AND 577 THEN 'SD'
+      WHEN zip3 BETWEEN 580 AND 588 THEN 'ND'
+      WHEN zip3 BETWEEN 590 AND 599 THEN 'MT'
+      WHEN zip3 BETWEEN 600 AND 603 THEN 'IL'
+      WHEN zip3 BETWEEN 604 AND 605 THEN 'IL'
+      WHEN zip3 BETWEEN 606 AND 608 THEN 'IL'
+      WHEN zip3 BETWEEN 609 AND 609 THEN 'IL'
+      WHEN zip3 BETWEEN 610 AND 611 THEN 'IL'
+      WHEN zip3 BETWEEN 612 AND 620 THEN 'IL'
+      WHEN zip3 BETWEEN 622 AND 629 THEN 'IL'
+      WHEN zip3 BETWEEN 630 AND 631 THEN 'MO'
+      WHEN zip3 BETWEEN 633 AND 641 THEN 'MO'
+      WHEN zip3 BETWEEN 644 AND 658 THEN 'MO'
+      WHEN zip3 BETWEEN 660 AND 679 THEN 'KS'
+      WHEN zip3 BETWEEN 680 AND 681 THEN 'NE'
+      WHEN zip3 BETWEEN 683 AND 693 THEN 'NE'
+      WHEN zip3 BETWEEN 700 AND 701 THEN 'LA'
+      WHEN zip3 BETWEEN 703 AND 708 THEN 'LA'
+      WHEN zip3 BETWEEN 710 AND 714 THEN 'LA'
+      WHEN zip3 BETWEEN 716 AND 729 THEN 'AR'
+      WHEN zip3 BETWEEN 730 AND 731 THEN 'OK'
+      WHEN zip3 BETWEEN 733 AND 733 THEN 'TX'
+      WHEN zip3 BETWEEN 734 AND 741 THEN 'OK'
+      WHEN zip3 BETWEEN 743 AND 749 THEN 'OK'
+      WHEN zip3 BETWEEN 750 AND 770 THEN 'TX'
+      WHEN zip3 BETWEEN 772 AND 799 THEN 'TX'
+      WHEN zip3 BETWEEN 800 AND 816 THEN 'CO'
+      WHEN zip3 BETWEEN 820 AND 831 THEN 'WY'
+      WHEN zip3 BETWEEN 832 AND 838 THEN 'ID'
+      WHEN zip3 BETWEEN 840 AND 847 THEN 'UT'
+      WHEN zip3 BETWEEN 850 AND 853 THEN 'AZ'
+      WHEN zip3 BETWEEN 855 AND 857 THEN 'AZ'
+      WHEN zip3 BETWEEN 859 AND 860 THEN 'AZ'
+      WHEN zip3 BETWEEN 863 AND 865 THEN 'AZ'
+      WHEN zip3 BETWEEN 870 AND 871 THEN 'NM'
+      WHEN zip3 BETWEEN 873 AND 884 THEN 'NM'
+      WHEN zip3 BETWEEN 885 AND 885 THEN 'TX'
+      WHEN zip3 BETWEEN 889 AND 891 THEN 'NV'
+      WHEN zip3 BETWEEN 893 AND 895 THEN 'NV'
+      WHEN zip3 BETWEEN 897 AND 898 THEN 'NV'
+      WHEN zip3 BETWEEN 900 AND 908 THEN 'CA'
+      WHEN zip3 BETWEEN 910 AND 928 THEN 'CA'
+      WHEN zip3 BETWEEN 930 AND 961 THEN 'CA'
+      WHEN zip3 BETWEEN 967 AND 968 THEN 'HI'
+      WHEN zip3 BETWEEN 970 AND 979 THEN 'OR'
+      WHEN zip3 BETWEEN 980 AND 986 THEN 'WA'
+      WHEN zip3 BETWEEN 988 AND 994 THEN 'WA'
+      WHEN zip3 BETWEEN 995 AND 999 THEN 'AK'
+      ELSE NULL
+    END;
+  END IF;
+  IF cleaned ~ '^[A-Z][0-9][A-Z][0-9][A-Z][0-9]$' THEN
+    letter := substring(cleaned from 1 for 1);
+    RETURN CASE letter
+      WHEN 'A' THEN 'NL'
+      WHEN 'B' THEN 'NS'
+      WHEN 'C' THEN 'PE'
+      WHEN 'E' THEN 'NB'
+      WHEN 'G' THEN 'QC'
+      WHEN 'H' THEN 'QC'
+      WHEN 'J' THEN 'QC'
+      WHEN 'K' THEN 'ON'
+      WHEN 'L' THEN 'ON'
+      WHEN 'M' THEN 'ON'
+      WHEN 'N' THEN 'ON'
+      WHEN 'P' THEN 'ON'
+      WHEN 'R' THEN 'MB'
+      WHEN 'S' THEN 'SK'
+      WHEN 'T' THEN 'AB'
+      WHEN 'V' THEN 'BC'
+      WHEN 'Y' THEN 'YT'
+      ELSE NULL
+    END;
+  END IF;
+  RETURN NULL;
+END;
+$function$;
+
+-- company_state, then company_zip, then the booking state when one exists.
+CREATE OR REPLACE FUNCTION public.growth_public_place(p_state text, p_zip text, p_booking_state text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+AS $function$
+  SELECT coalesce(
+    public.growth_public_region(p_state),
+    public.growth_public_region_token(p_state),
+    public.growth_public_region_from_zip(p_zip),
+    public.growth_public_region(p_booking_state),
+    public.growth_public_region_token(p_booking_state)
+  );
+$function$;
+
+REVOKE ALL ON FUNCTION public.growth_public_region_token(text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.growth_public_region_from_zip(text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.growth_public_place(text, text, text) FROM PUBLIC, anon, authenticated;
+
 COMMENT ON COLUMN public.business_settings.show_public_activity IS
   'When false, this org is left out of the public TidyWise activity feed. State and rounded amount only; default on.';
 
@@ -181,10 +368,7 @@ BEGIN
         SELECT
           'booked'::text AS kind,
           b.organization_id::text AS org,
-          coalesce(
-            public.growth_public_region(bs.company_state),
-            public.growth_public_region(b.state)
-          ) AS region,
+          public.growth_public_place(bs.company_state, bs.company_zip, b.state) AS region,
           CASE
             WHEN b.total_amount IS NULL OR b.total_amount < 20 OR b.total_amount > 5000 THEN NULL
             ELSE (round(b.total_amount / 10.0) * 10)::int
@@ -214,10 +398,7 @@ BEGIN
         SELECT
           'completed'::text AS kind,
           b.organization_id::text AS org,
-          coalesce(
-            public.growth_public_region(bs.company_state),
-            public.growth_public_region(b.state)
-          ) AS region,
+          public.growth_public_place(bs.company_state, bs.company_zip, b.state) AS region,
           NULL::int AS amount,
           NULL::text AS service,
           coalesce(b.completed_at, b.updated_at) AS at
@@ -243,7 +424,7 @@ BEGIN
         SELECT
           'joined'::text AS kind,
           o.id::text AS org,
-          public.growth_public_region(bs.company_state) AS region,
+          public.growth_public_place(bs.company_state, bs.company_zip, NULL::text) AS region,
           NULL::int AS amount,
           NULL::text AS service,
           o.created_at AS at
@@ -264,7 +445,7 @@ BEGIN
         SELECT
           'paid'::text AS kind,
           i.organization_id::text AS org,
-          public.growth_public_region(bs.company_state) AS region,
+          public.growth_public_place(bs.company_state, bs.company_zip, NULL::text) AS region,
           (round(i.total_amount / 10.0) * 10)::int AS amount,
           NULL::text AS service,
           i.paid_at AS at
@@ -290,10 +471,7 @@ BEGIN
         SELECT
           'reviewed'::text AS kind,
           coalesce(rr.organization_id, b.organization_id)::text AS org,
-          coalesce(
-            public.growth_public_region(bs.company_state),
-            public.growth_public_region(b.state)
-          ) AS region,
+          public.growth_public_place(bs.company_state, bs.company_zip, b.state) AS region,
           NULL::int AS amount,
           NULL::text AS service,
           rr.responded_at AS at
@@ -327,7 +505,7 @@ BEGIN
         SELECT
           'cleaner'::text AS kind,
           st.organization_id::text AS org,
-          public.growth_public_region(bs.company_state) AS region,
+          public.growth_public_place(bs.company_state, bs.company_zip, NULL::text) AS region,
           NULL::int AS amount,
           NULL::text AS service,
           st.created_at AS at

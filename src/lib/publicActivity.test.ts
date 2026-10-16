@@ -10,8 +10,11 @@ import {
   parseActivityFeed,
   parseGrowthCounters,
   publicCity,
+  publicPlace,
   publicRegion,
+  publicRegionFromZip,
   publicStateName,
+  ZIP3_RANGES,
   roundPublicAmount,
   shouldShowTrustedBy,
   shouldShowWeeklySignups,
@@ -57,9 +60,49 @@ test("place is a state name, never a city", () => {
   assert.equal(publicStateName("FL"), "Florida");
   assert.equal(publicStateName("DC"), "DC");
   assert.equal(publicRegion("Tampa"), null);
+  assert.equal(publicRegion("Dallas"), null);
   assert.equal(publicRegion("NA"), null);
   assert.equal(publicRegion("500 Oak Avenue"), null);
   assert.equal(publicStateName("Tampa"), null);
+  assert.equal(publicStateName("Dallas"), null);
+  assert.equal(publicRegion("Dallas, TX"), "TX");
+  assert.equal(publicRegion("Dallas, Texas"), "TX");
+  assert.equal(publicRegion("Washington, DC"), "DC");
+  assert.equal(publicRegion("Charleston, West Virginia"), "WV");
+});
+
+test("a ZIP or booking state supplies the place, and a city name does not", () => {
+  assert.equal(publicRegionFromZip("75201"), "TX");
+  assert.equal(publicRegionFromZip("75201-1234"), "TX");
+  assert.equal(publicRegionFromZip("Dallas"), null);
+  assert.equal(publicRegionFromZip("73949"), "OK");
+  assert.equal(publicRegionFromZip("00801"), "VI");
+  assert.equal(publicRegionFromZip("96915"), null);
+  assert.equal(publicRegionFromZip("T2P 1J9"), "AB");
+  assert.equal(publicRegionFromZip("X0A 0H0"), null);
+
+  assert.equal(publicPlace(null, "75201"), "TX");
+  assert.equal(publicPlace("FL", "75201", "CA"), "FL");
+  assert.equal(publicPlace("Dallas", null, "Texas"), "TX");
+  assert.equal(publicPlace("Dallas", null, null), null);
+  assert.equal(publicPlace("Dallas", "Dallas", "Dallas"), null);
+});
+
+test("the migration resolves place from state, zip, or booking state", () => {
+  const sql = readFileSync(
+    new URL("../../supabase/migrations/20261016190000_public_activity_state_events.sql", import.meta.url),
+    "utf8",
+  );
+  for (const [lo, hi, code] of ZIP3_RANGES) {
+    assert.ok(
+      sql.includes(`WHEN zip3 BETWEEN ${lo} AND ${hi} THEN '${code}'`),
+      `${lo}-${hi} ${code}`,
+    );
+  }
+  assert.equal(sql.includes("company_city"), false);
+  assert.equal((sql.match(/growth_public_place\(bs\.company_state, bs\.company_zip, b\.state\)/g) ?? []).length, 3);
+  assert.equal((sql.match(/growth_public_place\(bs\.company_state, bs\.company_zip, NULL::text\)/g) ?? []).length, 3);
+  assert.equal(sql.includes("20261016180000"), false);
 });
 
 test("writes real event sentences at state level and nothing else", () => {
@@ -202,6 +245,57 @@ test("parser ignores extra fields and drops a row with no real state", () => {
   assert.equal(reviewLine.includes("Oak"), false);
   assert.equal(activitySentence(events[4])?.includes("Sam"), false);
   assert.equal(activitySentence(events[0]), "A cleaning company in Florida just booked a $180 deep clean");
+});
+
+test("a Dallas signup gets a state from a ZIP or booking state, never from the city", () => {
+  const fromZip = parseActivityFeed({
+    events: [
+      {
+        kind: "joined",
+        city: "Dallas",
+        region: null,
+        zip: "75201",
+        at: "2026-10-16T09:59:00.000Z",
+      },
+    ],
+  });
+  assert.equal(fromZip.length, 1);
+  assert.equal(fromZip[0].region, "TX");
+  assert.equal("city" in fromZip[0], false);
+  assert.equal("zip" in fromZip[0], false);
+  assert.equal(activitySentence(fromZip[0]), "A new cleaning business joined from Texas");
+
+  const cityOnly = parseActivityFeed({
+    events: [
+      {
+        kind: "joined",
+        city: "Dallas",
+        region: "Dallas",
+        at: "2026-10-16T09:59:00.000Z",
+      },
+    ],
+  });
+  assert.deepEqual(cityOnly, []);
+
+  const fromBooking = parseActivityFeed({
+    events: [
+      {
+        kind: "booked",
+        city: "Dallas",
+        region: null,
+        booking_state: "TX",
+        amount: 180,
+        service: "clean",
+        at: "2026-10-16T09:00:00.000Z",
+      },
+    ],
+  });
+  assert.equal(fromBooking.length, 1);
+  assert.equal(fromBooking[0].region, "TX");
+  const line = activitySentence(fromBooking[0]);
+  assert.ok(line);
+  assert.equal(line.toLowerCase().includes("dallas"), false);
+  assert.equal(line.includes("Texas"), true);
 });
 
 test("an empty feed stays empty", () => {

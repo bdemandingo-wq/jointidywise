@@ -142,6 +142,132 @@ const REGION_ALIASES: Record<string, string> = {
   'district of columbia': 'DC',
 };
 
+/**
+ * Inclusive USPS ZIP3 prefixes that belong to one state. Gaps are prefixes
+ * USPS does not assign; those stay null. 969 is Guam, the Marianas, and
+ * Palau together, so it is not a state. Keep this list in sync with
+ * growth_public_region_from_zip in the public-activity migration.
+ */
+export const ZIP3_RANGES: readonly (readonly [number, number, string])[] = [
+  [5, 5, 'NY'],
+  [6, 7, 'PR'],
+  [8, 8, 'VI'],
+  [9, 9, 'PR'],
+  [10, 27, 'MA'],
+  [28, 29, 'RI'],
+  [30, 38, 'NH'],
+  [39, 49, 'ME'],
+  [50, 54, 'VT'],
+  [55, 55, 'MA'],
+  [56, 59, 'VT'],
+  [60, 69, 'CT'],
+  [70, 89, 'NJ'],
+  [100, 149, 'NY'],
+  [150, 196, 'PA'],
+  [197, 199, 'DE'],
+  [200, 200, 'DC'],
+  [201, 201, 'VA'],
+  [202, 205, 'DC'],
+  [206, 212, 'MD'],
+  [214, 219, 'MD'],
+  [220, 246, 'VA'],
+  [247, 268, 'WV'],
+  [270, 289, 'NC'],
+  [290, 299, 'SC'],
+  [300, 319, 'GA'],
+  [320, 339, 'FL'],
+  [341, 342, 'FL'],
+  [344, 344, 'FL'],
+  [346, 347, 'FL'],
+  [349, 349, 'FL'],
+  [350, 352, 'AL'],
+  [354, 369, 'AL'],
+  [370, 385, 'TN'],
+  [386, 397, 'MS'],
+  [398, 399, 'GA'],
+  [400, 418, 'KY'],
+  [420, 427, 'KY'],
+  [430, 459, 'OH'],
+  [460, 479, 'IN'],
+  [480, 499, 'MI'],
+  [500, 516, 'IA'],
+  [520, 528, 'IA'],
+  [530, 532, 'WI'],
+  [534, 535, 'WI'],
+  [537, 549, 'WI'],
+  [550, 551, 'MN'],
+  [553, 567, 'MN'],
+  [570, 577, 'SD'],
+  [580, 588, 'ND'],
+  [590, 599, 'MT'],
+  [600, 603, 'IL'],
+  [604, 605, 'IL'],
+  [606, 608, 'IL'],
+  [609, 609, 'IL'],
+  [610, 611, 'IL'],
+  [612, 620, 'IL'],
+  [622, 629, 'IL'],
+  [630, 631, 'MO'],
+  [633, 641, 'MO'],
+  [644, 658, 'MO'],
+  [660, 679, 'KS'],
+  [680, 681, 'NE'],
+  [683, 693, 'NE'],
+  [700, 701, 'LA'],
+  [703, 708, 'LA'],
+  [710, 714, 'LA'],
+  [716, 729, 'AR'],
+  [730, 731, 'OK'],
+  [733, 733, 'TX'],
+  [734, 741, 'OK'],
+  [743, 749, 'OK'],
+  [750, 770, 'TX'],
+  [772, 799, 'TX'],
+  [800, 816, 'CO'],
+  [820, 831, 'WY'],
+  [832, 838, 'ID'],
+  [840, 847, 'UT'],
+  [850, 853, 'AZ'],
+  [855, 857, 'AZ'],
+  [859, 860, 'AZ'],
+  [863, 865, 'AZ'],
+  [870, 871, 'NM'],
+  [873, 884, 'NM'],
+  [885, 885, 'TX'],
+  [889, 891, 'NV'],
+  [893, 895, 'NV'],
+  [897, 898, 'NV'],
+  [900, 908, 'CA'],
+  [910, 928, 'CA'],
+  [930, 961, 'CA'],
+  [967, 968, 'HI'],
+  [970, 979, 'OR'],
+  [980, 986, 'WA'],
+  [988, 994, 'WA'],
+  [995, 999, 'AK'],
+];
+
+/** Canada Post first letter. X is both NT and NU, so it is not a province. */
+const CANADA_POSTAL: Record<string, string> = {
+  A: 'NL',
+  B: 'NS',
+  C: 'PE',
+  E: 'NB',
+  G: 'QC',
+  H: 'QC',
+  J: 'QC',
+  K: 'ON',
+  L: 'ON',
+  M: 'ON',
+  N: 'ON',
+  P: 'ON',
+  R: 'MB',
+  S: 'SK',
+  T: 'AB',
+  V: 'BC',
+  Y: 'YT',
+};
+
 const KIND_LIST: readonly PublicActivityKind[] = [
   'booked',
   'joined',
@@ -166,14 +292,14 @@ export function publicCity(raw: string | null | undefined): string | null {
   return city;
 }
 
-/** Known state or province only. A city, street, or unknown code is null. */
-export function publicRegion(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const trimmed = raw.trim().replace(/\s+/g, ' ');
-  if (!trimmed || trimmed.length > 40) return null;
+function isStateCode(code: string): boolean {
+  return Object.prototype.hasOwnProperty.call(STATE_NAMES, code);
+}
+
+function exactRegion(trimmed: string): string | null {
   if (/^[A-Za-z]{2}$/.test(trimmed)) {
     const code = trimmed.toUpperCase();
-    return Object.prototype.hasOwnProperty.call(STATE_NAMES, code) ? code : null;
+    return isStateCode(code) ? code : null;
   }
   const key = trimmed.toLowerCase();
   const alias = REGION_ALIASES[key];
@@ -182,6 +308,67 @@ export function publicRegion(raw: string | null | undefined): string | null {
     if (name.toLowerCase() === key) return code;
   }
   return null;
+}
+
+/**
+ * A state or province written on its own, or one explicit state inside a
+ * longer state field ("Dallas, TX"). A city name by itself is null.
+ */
+export function publicRegion(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim().replace(/\s+/g, ' ');
+  if (!trimmed || trimmed.length > 80) return null;
+  const exact = exactRegion(trimmed);
+  if (exact) return exact;
+
+  const codes = trimmed.toUpperCase().match(/\b[A-Z]{2}\b/g) ?? [];
+  const uniqueCodes = [...new Set(codes.filter((code) => isStateCode(code)))];
+  if (uniqueCodes.length === 1) return uniqueCodes[0];
+  if (uniqueCodes.length > 1) return null;
+
+  const lower = trimmed.toLowerCase();
+  const named: Array<[string, string]> = [
+    ...Object.entries(STATE_NAMES).filter(([, name]) => name.length >= 3),
+    ...Object.entries(REGION_ALIASES).map(([name, code]): [string, string] => [code, name]),
+  ];
+  const matched = named.filter(([, name]) => {
+    const escaped = name.toLowerCase().replace(/[.]/g, '\\.');
+    return new RegExp(`(^|[^a-z])${escaped}([^a-z]|$)`).test(lower);
+  });
+  const kept = matched.filter(([, name]) => !matched.some(([, other]) =>
+    other.length > name.length && other.toLowerCase().includes(name.toLowerCase()),
+  ));
+  const uniqueNames = [...new Set(kept.map(([code]) => code))];
+  return uniqueNames.length === 1 ? uniqueNames[0] : null;
+}
+
+/** State from a ZIP or Canadian postal code. Never from a city name. */
+export function publicRegionFromZip(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const cleaned = raw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (/^\d{5}(\d{4})?$/.test(cleaned)) {
+    const zip3 = Number(cleaned.slice(0, 3));
+    for (const [lo, hi, code] of ZIP3_RANGES) {
+      if (zip3 >= lo && zip3 <= hi) return code;
+    }
+    return null;
+  }
+  if (/^[A-Z]\d[A-Z]\d[A-Z]\d$/.test(cleaned)) {
+    return CANADA_POSTAL[cleaned[0]] ?? null;
+  }
+  return null;
+}
+
+/**
+ * Business state, then business ZIP, then the booking state when the row
+ * has one. A city is not an input.
+ */
+export function publicPlace(
+  state: string | null | undefined,
+  zip?: string | null,
+  bookingState?: string | null,
+): string | null {
+  return publicRegion(state) ?? publicRegionFromZip(zip) ?? publicRegion(bookingState);
 }
 
 /** "Florida", or "DC" when the place has no fuller state name. */
@@ -393,7 +580,11 @@ export function parseActivityFeed(payload: unknown): PublicActivityEvent[] {
     const record = asRecord(row);
     if (!record) continue;
     if (!isKind(record.kind)) continue;
-    const region = publicRegion(typeof record.region === 'string' ? record.region : null);
+    const region = publicPlace(
+      typeof record.region === 'string' ? record.region : null,
+      typeof record.zip === 'string' ? record.zip : null,
+      typeof record.booking_state === 'string' ? record.booking_state : null,
+    );
     if (!region) continue;
     const at = typeof record.at === 'string' ? record.at : '';
     if (!at || !Number.isFinite(Date.parse(at))) continue;
