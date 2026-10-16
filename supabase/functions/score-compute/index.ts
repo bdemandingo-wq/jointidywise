@@ -2,7 +2,7 @@
 // Pulls Google reviews via Places, runs AI sentiment on review text,
 // pings the website for basic quality signals, and writes everything to DB.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { generateObject } from "https://esm.sh/ai@5";
+import { generateObject } from "https://esm.sh/ai@4";
 import { createAnthropic } from "https://esm.sh/@ai-sdk/anthropic@1";
 import { z } from "npm:zod@3.25.76";
 
