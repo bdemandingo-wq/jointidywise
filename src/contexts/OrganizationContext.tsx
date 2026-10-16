@@ -15,6 +15,7 @@ import {
   readStartupSection,
   STARTUP_ORG_STALE_MS,
   startupOrgKey,
+  startupOrgSnapshotIsUsable,
   writeStartupSection,
 } from '@/lib/startupCache';
 
@@ -55,6 +56,9 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   const { user, loading: authLoading } = useAuth();
   const userId = user?.id ?? null;
   const cached = userId ? readStartupSection<OrgBundle>(userId, 'org') : null;
+  // An empty snapshot is how a sign-in race survived a refresh and opened
+  // onboarding. Only a confirmed workspace may paint before the refetch.
+  const usableCache = cached && startupOrgSnapshotIsUsable(cached.value) ? cached : null;
 
   const query = useQuery({
     queryKey: userId ? startupOrgKey(userId) : ['startup-org', 'signed-out'],
@@ -62,10 +66,10 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     enabled: !!userId && !authLoading,
     staleTime: STARTUP_ORG_STALE_MS,
     gcTime: 1000 * 60 * 60 * 24,
-    ...(cached ? { initialData: cached.value, initialDataUpdatedAt: cached.at } : {}),
+    ...(usableCache ? { initialData: usableCache.value, initialDataUpdatedAt: usableCache.at } : {}),
   });
 
-  const bundle = userId ? (query.data ?? cached?.value ?? null) : null;
+  const bundle = userId ? (query.data ?? usableCache?.value ?? null) : null;
   const loading = authLoading || (!!userId && !bundle && !query.isError);
   const resolution: OrganizationResolution = !userId
     ? (authLoading ? 'loading' : 'empty')

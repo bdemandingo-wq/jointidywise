@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
@@ -49,6 +49,7 @@ import {
   clearCapturedReferral,
 } from '@/lib/referralAttribution';
 import { persistSignupAttribution } from '@/lib/persistSignupAttribution';
+import { blockOnboardingInsert, createSubmitGuard } from '@/lib/onboardingInsertGuard';
 
 function slugify(input: string) {
   return input
@@ -99,6 +100,7 @@ export default function OnboardingPage() {
   const mayCreateAdditionalBusiness = Boolean(
     requestedNewBusiness && organization && user && organization.owner_id === user.id,
   );
+  const submitGuard = useRef(createSubmitGuard()).current;
 
   const handleLogout = async () => {
     await signOut();
@@ -274,6 +276,7 @@ export default function OnboardingPage() {
 
   const handleSubmit = async () => {
     if (!user || !businessName.trim() || !isHowHeardComplete(howHeard, howHeardOther)) return;
+    if (!submitGuard.enter()) return;
 
     setLoading(true);
     try {
@@ -326,6 +329,7 @@ export default function OnboardingPage() {
       // Query the DB authoritatively at submit time rather than trusting
       // context — OrganizationProvider may not have loaded yet if the page
       // mounted while the async fetch was still in flight.
+      if (orgLookupResult.error) throw orgLookupResult.error;
       const existingOrg = orgLookupResult.data;
 
       console.log('[ONBOARDING-SUBMIT] context org:', organization?.id, 'needs_onboarding:', organization?.needs_onboarding);
@@ -352,6 +356,28 @@ export default function OnboardingPage() {
         orgData = data;
       } else {
         // No provisioned org — create a new one from scratch.
+        // Re-check first. A false empty read can land an existing owner here,
+        // and a second tap can pass the button's disabled state before render.
+        if (!mayCreateAdditionalBusiness) {
+          const [membershipResult, ownedResult] = await Promise.all([
+            supabase.from('org_memberships').select('organization_id').eq('user_id', user.id).limit(1),
+            supabase.from('organizations').select('id').eq('owner_id', user.id).limit(1),
+          ]);
+          if (membershipResult.error) throw membershipResult.error;
+          if (ownedResult.error) throw ownedResult.error;
+          if (blockOnboardingInsert({
+            allowAdditionalBusiness: false,
+            probe: {
+              membershipOrgId: membershipResult.data?.[0]?.organization_id ?? null,
+              ownedOrgId: ownedResult.data?.[0]?.id ?? null,
+            },
+          })) {
+            console.log('[ONBOARDING-SUBMIT] existing workspace found, skipping insert');
+            await refetch();
+            navigate('/dashboard', { replace: true });
+            return;
+          }
+        }
         console.log('[ONBOARDING-SUBMIT] Branch B: INSERT new org');
         for (let attempt = 0; attempt < 3; attempt++) {
           const slug = attempt === 0 ? initialSlug : `${initialSlug}-${randomSuffix()}`;
@@ -592,6 +618,7 @@ export default function OnboardingPage() {
       console.error('Error creating organization:', error);
       toast.error(error.message || 'Failed to create business');
     } finally {
+      submitGuard.leave();
       setLoading(false);
     }
   };

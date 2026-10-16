@@ -23,6 +23,8 @@ import { touchLastLogin } from '@/lib/touchLastLogin';
 import { readMockedGoogleSignupUserId, trackTidyWiseConversion } from '@/lib/tidywiseTags';
 import { Sentry } from '@/lib/sentry';
 import { clearStartupCache, readStartupSection } from '@/lib/startupCache';
+import { lookupTrialWorkspace } from '@/lib/lookupTrialWorkspace';
+import { provisionTrialOrgIfMissing } from '@/lib/provisionTrialOrg';
 
 // Re-export for backward compatibility
 export const supabaseNoSession = supabase;
@@ -209,40 +211,30 @@ export function AuthProviderNoSession({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        const { data: memberships, error: memErr } = await supabaseNoSession
-          .from('org_memberships')
-          .select('organization_id')
-          .eq('user_id', userId)
-          .limit(1);
+        // Shares one in-flight call with native signup. The lookup inside
+        // that call is the re-check: a membership or an owned org skips the
+        // insert. A lookup error throws and must not be treated as "no org".
+        const result = await provisionTrialOrgIfMissing({
+          userId,
+          lookup: () => lookupTrialWorkspace(userId),
+          invoke: async () => {
+            const { data, error } = await supabaseNoSession.functions.invoke('provision-trial-org', {
+              body: { referral_code: readCapturedReferral() },
+            });
+            const organizationId = (data as { organization_id?: string } | null)?.organization_id ?? null;
+            return { organizationId, error: error ?? null };
+          },
+        });
 
         if (cancelled) return;
 
-        // Fail closed. A temporary membership lookup failure must never be
-        // interpreted as "this user has no workspace" and create a business.
-        if (memErr) throw memErr;
-
-        if (!memberships || memberships.length === 0) {
-          const { data, error: provErr } = await supabaseNoSession.functions.invoke('provision-trial-org', {
-            body: { referral_code: readCapturedReferral() },
-          });
-
-          if (cancelled) return;
-
-          const orgId = (data as { organization_id?: string })?.organization_id;
-          if (orgId) {
-            try { localStorage.setItem('tidywise_active_org', orgId); } catch { /* ignore */ }
-          }
-
-          if (provErr) {
-            console.error('Trial org provisioning failed:', provErr);
-            setProvisioning('failed');
-            return;
-          }
-          // trial_started fires from /onboarding or /dashboard, where the
-          // trial actually exists. Provisioning often finishes before that
-          // navigation, so firing here dropped the event.
+        if (result.created && result.organizationId) {
+          try { localStorage.setItem('tidywise_active_org', result.organizationId); } catch { /* ignore */ }
         }
-        if (!cancelled) setProvisioning('done');
+        // trial_started fires from /onboarding or /dashboard, where the
+        // trial actually exists. Provisioning often finishes before that
+        // navigation, so firing here dropped the event.
+        setProvisioning('done');
       } catch (err) {
         console.error('Trial org provisioning failed:', err);
         if (!cancelled) setProvisioning('failed');

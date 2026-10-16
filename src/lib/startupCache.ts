@@ -50,6 +50,32 @@ export function clearStartupCache() {
   }
 }
 
+/** Drop the org snapshot only. Subscription and profile stay. */
+export function clearStartupOrgSnapshot() {
+  const current = readSnapshot();
+  if (!current || (current.org === undefined && current.orgAt === undefined)) return;
+  const next: Snapshot = { ...current };
+  delete next.org;
+  delete next.orgAt;
+  writeSnapshot(next);
+}
+
+/**
+ * After sign-in, a cached empty org must not seed OrganizationContext.
+ * `removeQueries` is injected so this module does not import React Query.
+ */
+export function clearCachedStartupOrg(
+  removeQueries: (filters: { queryKey: readonly ['startup-org'] }) => void,
+) {
+  clearStartupOrgSnapshot();
+  removeQueries({ queryKey: ['startup-org'] });
+}
+
+/** A startup snapshot may seed the dashboard only after a real workspace loaded. */
+export function startupOrgSnapshotIsUsable(bundle: { resolution?: string; organization?: unknown } | null | undefined): boolean {
+  return !!bundle && bundle.resolution === 'ready' && !!bundle.organization;
+}
+
 export function readStartupSection<T>(userId: string, section: StartupSection): { value: T; at: number } | null {
   const snap = readSnapshot();
   if (!snap || snap.userId !== userId) return null;
