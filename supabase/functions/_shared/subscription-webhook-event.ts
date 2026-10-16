@@ -26,6 +26,7 @@ export interface SubscriptionPlanTierResult {
 }
 
 export interface SubscriptionWebhookEvent {
+  id?: string;
   type: string;
   created: number;
   data: {
@@ -88,22 +89,33 @@ export async function handleSubscriptionWebhookEvent(deps: {
     const email = customer?.email?.toLowerCase();
     if (!email) throw new Error("customer has no email");
 
-    // Find org via owner/admin membership -> profiles.email
-    const { data: profile } = await supabase.from("profiles").select("id").eq("email", email).maybeSingle();
-    if (!profile) {
-      log("No profile matches customer email", { email });
-      return new Response(JSON.stringify({ ok: true, skipped: "no_profile" }), { status: 200, headers: corsHeaders });
+    // The subscription's own org wins. Email is only the fallback, and a
+    // missing profile must not ack 200 or Stripe will never retry.
+    const orgId = await resolveWebhookOrganization(supabase, sub, email);
+    if (!orgId) {
+      log("subscription org was not resolved", { email, subId: sub.id });
+      return new Response(
+        JSON.stringify({ error: "subscription org was not resolved; Stripe will retry." }),
+        { status: subscriptionPersistHttpStatus("failed"), headers: corsHeaders },
+      );
     }
-    const { data: membership } = await supabase
-      .from("org_memberships")
-      .select("organization_id")
-      .eq("user_id", profile.id)
-      .in("role", ["owner", "admin"])
-      .limit(1)
-      .maybeSingle();
-    if (!membership) {
-      log("No owning org", { email });
-      return new Response(JSON.stringify({ ok: true, skipped: "no_org" }), { status: 200, headers: corsHeaders });
+
+    const eventId = event.id;
+    if (eventId) {
+      const claim = await claimSubscriptionWebhookEvent(supabase, eventId, event.type);
+      if (claim === "duplicate") {
+        log("duplicate subscription event; side effects skipped", { eventId });
+        return new Response(JSON.stringify({ ok: true, duplicate: true }), {
+          status: 200,
+          headers: corsHeaders,
+        });
+      }
+      if (claim === "failed") {
+        return new Response(
+          JSON.stringify({ error: "Idempotency lookup failed; Stripe will retry." }),
+          { status: subscriptionPersistHttpStatus("failed"), headers: corsHeaders },
+        );
+      }
     }
 
     // Current SaaS subscription. Retrieve only — no update and no charge.
@@ -168,8 +180,8 @@ export async function handleSubscriptionWebhookEvent(deps: {
         tier = subscriptionToPlanTier(source) ?? "trial";
       }
 
-      result = await updateOrgPlanTier(supabase, membership.organization_id, tier);
-      log("Updated plan_tier", { orgId: membership.organization_id, tier, ...result });
+      result = await updateOrgPlanTier(supabase, orgId, tier);
+      log("Updated plan_tier", { orgId, tier, ...result });
       if (result.skipped && result.skipped !== "org_not_found" && result.skipped !== "lifetime_locked") {
         log("plan_tier write failed", { message: result.skipped });
         subscriptionStateFailed = true;
@@ -215,6 +227,7 @@ export async function handleSubscriptionWebhookEvent(deps: {
     }
 
     if (subscriptionStateFailed) {
+      await releaseSubscriptionWebhookEvent(supabase, eventId);
       return new Response(
         JSON.stringify({ error: "subscription state was not saved; Stripe will retry." }),
         { status: subscriptionPersistHttpStatus("failed"), headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -248,9 +261,9 @@ export async function handleSubscriptionWebhookEvent(deps: {
         const { data: org } = await supabase
           .from("organizations")
           .select("name")
-          .eq("id", membership.organization_id)
+          .eq("id", orgId)
           .maybeSingle();
-        const organizationName = org?.name ?? membership.organization_id;
+        const organizationName = org?.name ?? orgId;
 
         const message =
           `TidyWise: trial converted to paid\n` +
@@ -306,19 +319,20 @@ export async function handleSubscriptionWebhookEvent(deps: {
     }
 
 
-    // Clock only. A failure here must not fail the plan_tier sync above.
+    // Clock only, and only after a write we actually applied. A duplicate
+    // already returned. An older event must not sync the coupon again.
+    // A failure here must not fail the plan_tier sync above.
     // The daily apply-loyalty-pricing job repeats this and is what attaches
     // the renewal coupon. proration_behavior is none inside the sync.
-    try {
-      // Cast: the real client is a structural superset of LoyaltyDb (its
-      // PostgrestBuilder is thenable but not literally a Promise), and the
-      // generic client's deep types overflow TS2589 at this call site.
-      await syncLoyaltySubscription(supabase, stripe, {
-        organizationId: membership.organization_id,
-        subscriptionId: sub.id,
-      });
-    } catch (loyaltyErr) {
-      log("Loyalty clock sync failed (non-fatal)", { message: (loyaltyErr as Error).message });
+    if (applyState) {
+      try {
+        await syncLoyaltySubscription(supabase, stripe, {
+          organizationId: orgId,
+          subscriptionId: sub.id,
+        });
+      } catch (loyaltyErr) {
+        log("Loyalty clock sync failed (non-fatal)", { message: (loyaltyErr as Error).message });
+      }
     }
 
     return new Response(JSON.stringify({ ok: true, tier, ...result }), {
@@ -332,4 +346,85 @@ export async function handleSubscriptionWebhookEvent(deps: {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+}
+
+const SUBSCRIPTION_WEBHOOK_SOURCE = "stripe-subscription-webhook";
+
+async function claimSubscriptionWebhookEvent(
+  supabase: any,
+  eventId: string,
+  eventType: string,
+): Promise<"claimed" | "duplicate" | "failed"> {
+  const { error } = await supabase.from("stripe_webhook_events").insert({
+    event_id: eventId,
+    event_type: eventType,
+    source: SUBSCRIPTION_WEBHOOK_SOURCE,
+  });
+  if (!error) return "claimed";
+  if (error.code === "23505") return "duplicate";
+  log("idempotency insert failed", { message: error.message });
+  return "failed";
+}
+
+async function releaseSubscriptionWebhookEvent(supabase: any, eventId: string | undefined): Promise<void> {
+  if (!eventId) return;
+  const { error } = await supabase
+    .from("stripe_webhook_events")
+    .delete()
+    .eq("event_id", eventId)
+    .eq("source", SUBSCRIPTION_WEBHOOK_SOURCE);
+  if (error) log("failed to release idempotency claim", { message: error.message });
+}
+
+/**
+ * Org for this subscription, not "the first membership of this email".
+ * A missing profile or membership is reported by returning null so the
+ * caller can ask Stripe to retry instead of acknowledging the event.
+ */
+async function resolveWebhookOrganization(
+  supabase: any,
+  sub: { id?: string; metadata?: Record<string, string> },
+  email: string,
+): Promise<string | null> {
+  const metaOrg = sub.metadata?.organization_id;
+  if (typeof metaOrg === "string" && metaOrg.trim()) return metaOrg.trim();
+
+  if (sub.id) {
+    const { data, error } = await supabase
+      .from("stripe_subscriptions")
+      .select("organization_id")
+      .eq("stripe_subscription_id", sub.id)
+      .maybeSingle();
+    if (error) {
+      if (!isMissingBillingColumn(error)) throw error;
+    } else if (data?.organization_id) {
+      return data.organization_id;
+    }
+  }
+
+  const { data: profile, error: profileErr } = await supabase
+    .from("profiles")
+    .select("id")
+    .ilike("email", email)
+    .maybeSingle();
+  if (profileErr) throw profileErr;
+  if (!profile?.id) {
+    log("No profile matches customer email", { email });
+    return null;
+  }
+
+  const { data: membership, error: memberErr } = await supabase
+    .from("org_memberships")
+    .select("organization_id")
+    .eq("user_id", profile.id)
+    .in("role", ["owner", "admin"])
+    .order("organization_id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (memberErr) throw memberErr;
+  if (!membership?.organization_id) {
+    log("No owning org", { email });
+    return null;
+  }
+  return membership.organization_id;
 }

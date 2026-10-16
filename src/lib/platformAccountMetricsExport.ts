@@ -104,12 +104,12 @@ function yesNo(value: boolean | null | undefined): string {
   return value ? "Yes" : "No";
 }
 
-/** Excel and Sheets treat a leading = + - @ tab or CR as a formula. */
+/** Excel and Sheets treat a leading = + - @ tab or CR as a formula, including after spaces. */
 const FORMULA_LEAD = /^[=+\-@\t\r]/;
 
 function cell(value: unknown): string {
   const raw = String(value ?? "");
-  const text = FORMULA_LEAD.test(raw) ? `'${raw}` : raw;
+  const text = FORMULA_LEAD.test(raw.trimStart()) ? `'${raw}` : raw;
   return `"${text.replace(/"/g, '""')}"`;
 }
 

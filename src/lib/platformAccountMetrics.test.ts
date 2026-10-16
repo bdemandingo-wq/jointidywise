@@ -14,6 +14,7 @@ import {
   normalizeMonthlyBilledCents,
   replaySubscriptionEvents,
   replayTestModeBillingEvents,
+  refundDraftsToStore,
   saasRefundDrafts,
   subscriptionBillingSnapshot,
   subscriptionPersistHttpStatus,
@@ -172,6 +173,13 @@ test("listed refunds are kept and the synthetic row is not added", () => {
     refunds: { data: [{ id: "re_1", amount: 500, created: 1_700_000_100 }, { id: "re_2", amount: 200, created: 1_700_000_200 }] },
   }, 1_700_000_000);
   assert.deepEqual(drafts.map((draft) => draft.stripeRefundId), ["re_1", "re_2"]);
+  const replaced = refundDraftsToStore(drafts, ["ch_1:unitemized"]);
+  assert.equal(replaced.dropUnitemized, true);
+  assert.deepEqual(replaced.rows.map((draft) => draft.stripeRefundId), ["re_1", "re_2"]);
+  const placeholder = saasRefundDrafts({ id: "ch_1", refunds: { data: [] } }, 1_700_000_000);
+  const kept = refundDraftsToStore(placeholder, ["re_1"]);
+  assert.deepEqual(kept.rows, []);
+  assert.match(migration, /stripe_refund_id LIKE '%:unitemized'/);
 });
 
 test("lifetime MRR is blank even when mrr_cents is filled", () => {
@@ -245,6 +253,11 @@ test("a cell that starts with a formula character is prefixed with a quote", () 
   assert.match(csv, /"'@SUM\(A1\)"/);
   assert.match(csv, /"'\t=1"/);
   assert.match(csv, /"'\r=1"/);
+  const spaced = buildAccountMetricsCsv([
+    row({ organization_name: " =HYPERLINK(\"http://evil\")", owner_email: "  +1", how_heard: "google" }),
+  ], new Date("2026-10-14T00:00:00.000Z"));
+  assert.match(spaced, /"' =HYPERLINK\(""http:\/\/evil""\)"/);
+  assert.match(spaced, /"'  \+1"/);
   assert.match(csv, /"89\.00"/);
   const header = csv.split("\n").find((line) => line.startsWith('"Organization id"'));
   assert.ok(header);
@@ -583,11 +596,17 @@ test("created and deleted side effects run only after the subscription mirror", 
   const mirrorWrite = deleted.indexOf('.from("stripe_subscriptions")');
   const cancelAt = deleted.indexOf("stripe.subscriptions.cancel");
   const noticeAt = deleted.indexOf("Ad Mgmt Cascade-Cancelled");
+  const catchAt = deleted.indexOf("subscription.deleted handler error");
   assert.ok(mirrorWrite > 0);
   assert.ok(cancelAt > mirrorWrite);
   assert.ok(noticeAt > cancelAt);
-  const afterCancel = deleted.slice(cancelAt);
-  assert.doesNotMatch(afterCancel, /subscriptionStateFailed\s*=\s*true/);
+  assert.ok(catchAt > noticeAt);
+  const cascade = deleted.slice(cancelAt, catchAt);
+  assert.doesNotMatch(cascade, /subscriptionStateFailed\s*=\s*true/);
+  assert.match(deleted.slice(catchAt), /subscriptionStateFailed = true/);
+  assert.doesNotMatch(deleted, /org_memberships/);
+  assert.match(deleted, /organizationIdForDeletedSubscription/);
+  assert.match(deleted, /subscription delete customer retrieve failed/);
 });
 
 test("a failed subscription write returns 500 and releases the idempotency claim", () => {
@@ -615,6 +634,35 @@ test("a failed subscription write returns 500 and releases the idempotency claim
   const smsAt = subscription.indexOf("Trial -> paid conversion notification");
   assert.ok(retryAt > 0);
   assert.ok(smsAt > retryAt);
+});
+
+test("a referral reversal matches the qualifying charge, not any refund on the subscription", () => {
+  const source = readFileSync(
+    new URL("../../supabase/functions/_shared/saas-referral-db.ts", import.meta.url),
+    "utf8",
+  );
+  const start = source.indexOf("export async function recordReferralReversal");
+  const fn = source.slice(start);
+  assert.ok(start > 0);
+  assert.match(fn, /qualifying_charge_id/);
+  assert.match(fn, /qualifying_invoice_id/);
+  assert.doesNotMatch(fn, /referred_org_id/);
+});
+
+test("platform admin is the support address only", () => {
+  const sql = readFileSync(
+    new URL("../../supabase/migrations/20261016040000_platform_admin_support_only.sql", import.meta.url),
+    "utf8",
+  );
+  const allowlist = sql.slice(sql.indexOf("lower(email) IN"), sql.indexOf("REVOKE EXECUTE"));
+  assert.match(allowlist, /support@tidywisecleaning\.com/);
+  assert.doesNotMatch(allowlist, /@gmail\.com/);
+  const access = readFileSync(
+    new URL("../../supabase/tests/platform_account_metrics_access.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(access, /SET LOCAL ROLE authenticated/);
+  assert.match(access, /SET LOCAL ROLE anon/);
 });
 
 test("an org owner and a cleaner are rejected with 42501", () => {

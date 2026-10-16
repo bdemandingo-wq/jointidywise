@@ -17,7 +17,9 @@ import {
   invoiceIdOf,
   isMissingBillingColumn,
   laterBillingEventAt,
+  refundDraftsToStore,
   saasRefundDrafts,
+  unitemizedRefundId,
   subscriptionIdFromInvoice,
   shouldWriteSubscriptionState,
   stripeSubscriptionBillingPatch,
@@ -1660,25 +1662,26 @@ const handler = async (req: Request): Promise<Response> => {
         // plan access and, only when that downgrade writes a row,
         // cascade-cancel ad-management retainers. Lifetime and
         // grandfathered orgs keep their ad subscriptions.
-        const customer = await stripe.customers.retrieve(sub.customer as string);
-        const email = (customer as Stripe.Customer).email;
+        // The customer read is only for the admin notice. A Stripe error
+        // here must not skip the downgrade or be swallowed as a 200.
+        let email: string | null = null;
+        const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
+        if (customerId) {
+          try {
+            const customer = await stripe.customers.retrieve(customerId);
+            if (customer && !(customer as { deleted?: boolean }).deleted) {
+              email = (customer as Stripe.Customer).email ?? null;
+            }
+          } catch (retrieveErr) {
+            console.error("[stripe-invoice-webhook] subscription delete customer retrieve failed:", retrieveErr);
+          }
+        }
 
-        if (email) {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("id")
-            .ilike("email", email)
-            .maybeSingle();
-
-          if (profile?.id) {
-            const { data: membership } = await supabase
-              .from("org_memberships")
-              .select("organization_id")
-              .eq("user_id", profile.id)
-              .limit(1)
-              .maybeSingle();
-
-            if (membership?.organization_id) {
+        const organizationId = await organizationIdForDeletedSubscription(supabase, sub);
+        if (!organizationId) {
+          console.error("[stripe-invoice-webhook] subscription delete could not resolve an org", { subscriptionId: sub.id });
+          subscriptionStateFailed = true;
+        } else {
               // Mark the org's subscription row from the SaaS subscription
               // as it is now. An older delete must not rewind a newer
               // status. retrieve is read-only; the event guard is the fallback.
@@ -1755,12 +1758,12 @@ const handler = async (req: Request): Promise<Response> => {
               if (applyState && !subscriptionStateFailed && (!authoritative || sourceIsEnded)) {
               const { error: planErr, downgraded } = await downgradeOrgOnSubscriptionDeleted(
                 supabase,
-                membership.organization_id,
+                organizationId,
               );
               if (planErr) {
                 console.error(
                   "[stripe-invoice-webhook] failed to revert org plan after subscription delete:",
-                  { organizationId: membership.organization_id, error: planErr },
+                  { organizationId, error: planErr },
                 );
                 // Same release as a failed refund write: drop this event's
                 // stripe_webhook_events row and return 500 so Stripe retries
@@ -1773,13 +1776,13 @@ const handler = async (req: Request): Promise<Response> => {
               } else if (downgraded) {
                 console.log(
                   "[stripe-invoice-webhook] Subscription deleted, org reverted to free:",
-                  membership.organization_id,
+                  organizationId,
                 );
                 // Same gate as the plan write: ads are cancelled only when
                 // the free-plan update affected a row.
                 await cascadeCancelAdSubscriptionsIfDowngraded(
                   supabase,
-                  membership.organization_id,
+                  organizationId,
                   downgraded,
                   {
                     cancelStripeSubscription: (stripeSubscriptionId) =>
@@ -1787,7 +1790,7 @@ const handler = async (req: Request): Promise<Response> => {
                     notifyAdmin: (activeCount) =>
                       sendAdminNotification(supabaseUrl, supabaseServiceKey, {
                         organizationName: "Ad Mgmt Cascade-Cancelled",
-                        ownerEmail: email,
+                        ownerEmail: email ?? "unknown",
                         subscriptionType: `${activeCount} ad-mgmt sub(s) cancelled along with TidyWise sub`,
                       }),
                   },
@@ -1795,15 +1798,14 @@ const handler = async (req: Request): Promise<Response> => {
               } else {
                 console.log(
                   "[stripe-invoice-webhook] Subscription deleted, left plan unchanged (lifetime or grandfathered):",
-                  membership.organization_id,
+                  organizationId,
                 );
               }
               }
-            }
-          }
         }
       } catch (e) {
         console.error("[stripe-invoice-webhook] subscription.deleted handler error:", e);
+        subscriptionStateFailed = true;
       }
     }
 
@@ -1929,6 +1931,42 @@ async function sendAdminNotification(
   } else {
     console.log("[stripe-invoice-webhook] Admin notification sent successfully");
   }
+}
+
+/**
+ * Org that owns this subscription. The stored stripe_subscriptions row is
+ * the subscription's own org. Customer id is the fallback, ordered so two
+ * rows cannot swap which org is chosen. Email membership is not used:
+ * an unordered first membership can downgrade a different org.
+ */
+async function organizationIdForDeletedSubscription(
+  supabase: any,
+  sub: Stripe.Subscription,
+): Promise<string | null> {
+  const { data: own, error: ownErr } = await supabase
+    .from("stripe_subscriptions")
+    .select("organization_id")
+    .eq("stripe_subscription_id", sub.id)
+    .maybeSingle();
+  if (ownErr) throw ownErr;
+  if (own?.organization_id) return own.organization_id;
+
+  const meta = (sub.metadata ?? {}) as Record<string, string>;
+  if (meta.organization_id) return meta.organization_id;
+
+  const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
+  if (!customerId) return null;
+  const { data: byCustomer, error: customerErr } = await supabase
+    .from("stripe_subscriptions")
+    .select("organization_id")
+    .eq("stripe_customer_id", customerId)
+    .not("organization_id", "is", null)
+    .order("updated_at", { ascending: false })
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (customerErr) throw customerErr;
+  return byCustomer?.organization_id ?? null;
 }
 
 /**
@@ -2282,7 +2320,36 @@ async function persistSaasRefunds(
   const drafts = saasRefundDrafts(charge, eventCreatedSec);
   if (drafts.length === 0) return true;
 
-  const customerId = drafts[0].stripeCustomerId;
+  let storedRefundIds: string[] = [];
+  if (charge.id) {
+    const { data: stored, error: storedErr } = await supabase
+      .from("platform_subscription_refunds")
+      .select("stripe_refund_id")
+      .eq("stripe_charge_id", charge.id);
+    if (storedErr && !isMissingBillingColumn(storedErr)) {
+      console.error("[stripe-invoice-webhook] refund id lookup failed:", storedErr);
+      return false;
+    }
+    if (!storedErr) {
+      storedRefundIds = (stored ?? [])
+        .map((row: { stripe_refund_id?: string | null }) => row.stripe_refund_id)
+        .filter((id: string | null | undefined): id is string => typeof id === "string" && id.length > 0);
+    }
+  }
+  const decision = refundDraftsToStore(drafts, storedRefundIds);
+  if (decision.dropUnitemized && charge.id) {
+    const { error: dropErr } = await supabase
+      .from("platform_subscription_refunds")
+      .delete()
+      .eq("stripe_refund_id", unitemizedRefundId(charge.id));
+    if (dropErr && !isMissingBillingColumn(dropErr)) {
+      console.error("[stripe-invoice-webhook] unitemized refund delete failed:", dropErr);
+      return false;
+    }
+  }
+  if (decision.rows.length === 0) return true;
+
+  const customerId = decision.rows[0].stripeCustomerId;
   let organizationId: string | null = lifetimeOrgId;
   if (!organizationId && customerId) {
     const { data, error } = await supabase
@@ -2298,7 +2365,7 @@ async function persistSaasRefunds(
     }
   }
 
-  const rows = drafts.map((draft) => ({
+  const rows = decision.rows.map((draft) => ({
     organization_id: organizationId,
     stripe_refund_id: draft.stripeRefundId,
     stripe_charge_id: draft.stripeChargeId,

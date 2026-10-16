@@ -631,7 +631,7 @@ export function saasRefundDrafts(charge: {
   }
   if (drafts.length > 0) return drafts;
   return [{
-    stripeRefundId: `${charge.id}:unitemized`,
+    stripeRefundId: unitemizedRefundId(charge.id),
     stripeChargeId: charge.id,
     stripeCustomerId: customerId,
     stripeInvoiceId: invoiceId,
@@ -639,4 +639,28 @@ export function saasRefundDrafts(charge: {
     currency,
     refundedAt: eventIso,
   }];
+}
+
+export function unitemizedRefundId(chargeId: string): string {
+  return `${chargeId}:unitemized`;
+}
+
+export function isUnitemizedRefundId(refundId: string): boolean {
+  return refundId.endsWith(":unitemized");
+}
+
+/**
+ * A charge.refunded event with no refund list stores one placeholder.
+ * A later event that lists re_ ids must replace that placeholder, and a
+ * later unexpanded event must not insert the placeholder beside them.
+ */
+export function refundDraftsToStore(
+  drafts: readonly SaasRefundDraft[],
+  storedRefundIdsForCharge: readonly string[],
+): { rows: SaasRefundDraft[]; dropUnitemized: boolean } {
+  const realDrafts = drafts.filter((draft) => !isUnitemizedRefundId(draft.stripeRefundId));
+  if (realDrafts.length > 0) return { rows: realDrafts, dropUnitemized: true };
+  const storedReal = storedRefundIdsForCharge.some((id) => !isUnitemizedRefundId(id));
+  if (storedReal) return { rows: [], dropUnitemized: false };
+  return { rows: [...drafts], dropUnitemized: false };
 }

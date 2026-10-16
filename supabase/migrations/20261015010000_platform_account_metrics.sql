@@ -337,6 +337,16 @@ refund_rows AS (
       ORDER BY s.updated_at DESC NULLS LAST, s.id
       LIMIT 1
     ) linked ON true
+    WHERE NOT (
+      r.stripe_refund_id LIKE '%:unitemized'
+      AND EXISTS (
+        SELECT 1
+        FROM public.platform_subscription_refunds newer
+        WHERE newer.stripe_charge_id = r.stripe_charge_id
+          AND newer.stripe_refund_id <> r.stripe_refund_id
+          AND newer.stripe_refund_id NOT LIKE '%:unitemized'
+      )
+    )
     UNION ALL
     SELECT
       be.organization_id,
