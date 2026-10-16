@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { parseAlertPhones, sendToExtraAlertPhones } from '../_shared/alertPhones.ts';
+import { notifyOwner } from "../_shared/owner-alert.ts";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
 
 const corsHeaders = {
@@ -15,6 +15,7 @@ interface CancellationNotificationRequest {
   formattedDate?: string; // Pre-formatted date from client
   formattedTime?: string; // Pre-formatted time from client
   bookingNumber: number;
+  bookingId?: string;
   organizationId: string;
 }
 
@@ -44,6 +45,7 @@ const handler = async (req: Request): Promise<Response> => {
       formattedDate: preFormattedDate,
       formattedTime: preFormattedTime,
       bookingNumber,
+      bookingId,
     }: CancellationNotificationRequest = await req.json();
 
     // SECURITY: never trust organizationId from the request body — resolve it
@@ -59,101 +61,39 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("[send-cancellation-sms-notification] Processing notification for org:", organizationId);
 
-    // Fetch SMS settings for the organization
-    const { data: smsSettings, error: settingsError } = await supabase
-      .from('organization_sms_settings')
-      .select('openphone_api_key, openphone_phone_number_id, sms_enabled')
-      .eq('organization_id', organizationId)
-      .maybeSingle();
-
-    if (settingsError) {
-      console.error("[send-cancellation-sms-notification] Error fetching SMS settings:", settingsError);
-      return new Response(
-        JSON.stringify({ success: false, error: "Failed to fetch SMS settings" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (!smsSettings?.sms_enabled) {
-      console.log("[send-cancellation-sms-notification] SMS disabled for organization:", organizationId);
-      return new Response(
-        JSON.stringify({ success: false, error: "SMS notifications are disabled" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (!smsSettings.openphone_api_key || !smsSettings.openphone_phone_number_id) {
-      console.log("[send-cancellation-sms-notification] OpenPhone not configured for org:", organizationId);
-      return new Response(
-        JSON.stringify({ success: false, error: "OpenPhone not configured" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Get admin phone and notification settings from business settings
     const { data: businessSettings, error: businessError } = await supabase
       .from('business_settings')
-      .select('company_phone, notification_phone, company_name, notify_cancellations, timezone')
+      .select('timezone')
       .eq('organization_id', organizationId)
       .maybeSingle();
 
     if (businessError) {
-      console.error("[send-cancellation-sms-notification] Error fetching business settings:", businessError);
-      return new Response(
-        JSON.stringify({ success: false, error: "Failed to fetch business settings" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      console.warn("[send-cancellation-sms-notification] timezone read failed, using Eastern:", businessError.message);
     }
 
-    // Check if cancellation notifications are enabled
-    if (businessSettings?.notify_cancellations === false) {
-      console.log("[send-cancellation-sms-notification] Cancellation notifications disabled for org:", organizationId);
-      return new Response(
-        JSON.stringify({ success: false, error: "Cancellation notifications are disabled" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    /* Personal cell first — company_phone is often the OpenPhone line itself,
-       and OpenPhone texting its own number never lands on a handset. */
-    const alertPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
-      || businessSettings?.company_phone;
-    const allAlertPhones = parseAlertPhones(alertPhone);
-
-    if (!alertPhone || allAlertPhones.length === 0) {
-      console.log("[send-cancellation-sms-notification] No admin phone configured for org:", organizationId);
-      return new Response(
-        JSON.stringify({ success: false, error: "No admin phone number configured in business settings" }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Use pre-formatted date/time if provided, otherwise fall back to parsing
     let formattedDate: string;
     let formattedTime: string;
-    
+
     if (preFormattedDate && preFormattedTime) {
       formattedDate = preFormattedDate;
       formattedTime = preFormattedTime;
     } else {
-      // Fallback: format in org timezone from business_settings
       const orgTimezone = businessSettings?.timezone || "America/New_York";
       const bookingDate = new Date(scheduledAt);
-      formattedDate = new Intl.DateTimeFormat('en-US', { 
+      formattedDate = new Intl.DateTimeFormat('en-US', {
         timeZone: orgTimezone,
-        weekday: 'short', 
-        month: 'short', 
-        day: 'numeric' 
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric'
       }).format(bookingDate);
-      formattedTime = new Intl.DateTimeFormat('en-US', { 
+      formattedTime = new Intl.DateTimeFormat('en-US', {
         timeZone: orgTimezone,
-        hour: 'numeric', 
-        minute: '2-digit', 
-        hour12: true 
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
       }).format(bookingDate);
     }
 
-    // Build cancellation notification message
     const message = `❌ BOOKING CANCELLED\n\n` +
       `Booking #${bookingNumber}\n` +
       `Customer: ${customerName}\n` +
@@ -161,83 +101,37 @@ const handler = async (req: Request): Promise<Response> => {
       `Was scheduled: ${formattedDate} at ${formattedTime}\n\n` +
       `Log in to your dashboard for details.`;
 
-    // Format admin phone
-    let formattedPhone = allAlertPhones[0].replace(/\D/g, '');
-    if (formattedPhone.length === 10) {
-      formattedPhone = `+1${formattedPhone}`;
-    } else if (!formattedPhone.startsWith('+')) {
-      formattedPhone = `+${formattedPhone}`;
-    }
-
-    // Extract phone number ID if full URL was provided
-    let phoneNumberId = smsSettings.openphone_phone_number_id;
-    if (phoneNumberId.includes('openphone.com')) {
-      const match = phoneNumberId.match(/phone-numbers\/([A-Za-z0-9]+)/);
-      if (match) {
-        phoneNumberId = match[1];
+    let scopedBookingId: string | undefined;
+    let occurrenceId: string | undefined;
+    if (bookingId) {
+      const { data: bookingRow, error: bookingError } = await supabase
+        .from('bookings')
+        .select('cancelled_at, updated_at')
+        .eq('id', bookingId)
+        .eq('organization_id', organizationId)
+        .maybeSingle();
+      if (bookingError) {
+        console.warn("[send-cancellation-sms-notification] booking lookup failed:", bookingError.message);
+      } else if (!bookingRow) {
+        console.warn("[send-cancellation-sms-notification] bookingId is not in this organization");
+      } else {
+        scopedBookingId = bookingId;
+        occurrenceId = bookingRow.cancelled_at || bookingRow.updated_at || undefined;
       }
     }
 
-    console.log(`[send-cancellation-sms-notification] Sending cancellation SMS to ${formattedPhone}`);
-
-    // OpenPhone expects the raw API key in the Authorization header
-    const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
-
-    await sendToExtraAlertPhones(allAlertPhones.slice(1), phoneNumberId, authHeader, message, 'send-cancellation-sms-notification');
-
-    // Send SMS via OpenPhone API
-    const response = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Authorization": authHeader,
-        "Content-Type": "application/json",
+    const owner = await notifyOwner(
+      { supabase, organizationId, bookingId: scopedBookingId, occurrenceId },
+      "booking.cancelled",
+      {
+        title: `Booking #${bookingNumber} cancelled`,
+        body: message,
+        link: "/dashboard/bookings?status=cancelled",
       },
-      body: JSON.stringify({
-        from: phoneNumberId,
-        to: [formattedPhone],
-        content: message,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[send-cancellation-sms-notification] OpenPhone API error: ${response.status} - ${errorText}`);
-      
-      // Handle billing/payment issues gracefully
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: "SMS service requires payment. Please check your OpenPhone account billing.", 
-            errorCode: "BILLING_REQUIRED" 
-          }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      
-      // Handle auth issues
-      if (response.status === 401) {
-        return new Response(
-          JSON.stringify({ 
-            success: false, 
-            error: "Invalid OpenPhone API key. Please update your SMS settings.", 
-            errorCode: "AUTH_FAILED" 
-          }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      
-      return new Response(
-        JSON.stringify({ success: false, error: "SMS delivery failed. Please try again later." }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    const result = await response.json();
-    console.log(`[send-cancellation-sms-notification] SMS sent successfully:`, result);
+    );
 
     return new Response(
-      JSON.stringify({ success: true, messageId: result.data?.id }),
+      JSON.stringify({ success: true, channels: owner }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 

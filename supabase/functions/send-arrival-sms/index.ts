@@ -1,10 +1,9 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
-import { parseAlertPhones } from '../_shared/alertPhones.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
-import { notifyOffice } from "../_shared/office-notify.ts";
+import { notifyOwner } from "../_shared/owner-alert.ts";
 import { jobEventCopy, shouldSendArrival } from "../_shared/job-event-copy.ts";
 
 const corsHeaders = {
@@ -93,7 +92,7 @@ const handler = async (req: Request): Promise<Response> => {
     const customerName = `${customer?.first_name ?? ''} ${customer?.last_name ?? ''}`.trim() || 'the customer';
     const { data: businessSettings } = await supabase
       .from('business_settings')
-      .select('company_name, company_phone, notification_phone')
+      .select('company_name')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
     const companyName = businessSettings?.company_name || 'Your cleaning service';
@@ -105,19 +104,10 @@ const handler = async (req: Request): Promise<Response> => {
       address: formatFullAddress(booking as any) || 'N/A',
       amountSuffix: '',
     });
-    const office = await notifyOffice(supabase, {
-      organizationId: booking.organization_id,
-      title: copy.bellTitle,
-      message: copy.bellMessage,
-      metadata: { booking_id: bookingId, staff_id: staffId },
-      pushTitle: copy.pushTitle,
-      pushBody: copy.pushBody,
-      pushData: { booking_id: bookingId, kind: copy.kind },
-    });
 
     const { data: smsSettings } = await supabase
       .from('organization_sms_settings')
-      .select('openphone_api_key, openphone_phone_number_id, sms_enabled, notify_admin_arrived, notify_client_arrived')
+      .select('openphone_api_key, openphone_phone_number_id, sms_enabled, notify_client_arrived')
       .eq('organization_id', booking.organization_id)
       .maybeSingle();
 
@@ -127,16 +117,9 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     let clientSent = false;
-    let adminSent = false;
 
     if (!smsSkippedReason && smsSettings) {
-    /* Personal cell wins. company_phone is often the OpenPhone line, and
-       OpenPhone texting itself never lands on a handset. */
-    const adminPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
-      || businessSettings?.company_phone;
-
     const notifyClient = (smsSettings as any).notify_client_arrived !== false;
-    const notifyAdmin = (smsSettings as any).notify_admin_arrived !== false;
 
     const formatPhoneNumber = (phone: string): string => {
       let f = phone.replace(/\D/g, '');
@@ -169,15 +152,31 @@ const handler = async (req: Request): Promise<Response> => {
       const msg = copy.customerSms;
       clientSent = await sendSms(formatPhoneNumber(customer.phone), msg, 'customer');
     }
+    }
 
-    if (notifyAdmin && adminPhone) {
-      const msg = copy.adminSms;
-      const phones = parseAlertPhones(adminPhone);
-      const list = phones.length ? phones : [formatPhoneNumber(adminPhone)];
-      adminSent = await sendSms(list[0], msg, 'admin');
-      for (const extra of list.slice(1)) await sendSms(extra, msg, 'admin');
+    let office: Awaited<ReturnType<typeof notifyOwner>> = {
+      deduped: false,
+      bell: false,
+      push: false,
+      sms: false,
+      email: false,
+      smsSkippedReason: null,
+      emailSkippedReason: null,
+    };
+    try {
+      office = await notifyOwner(
+        { supabase, organizationId: booking.organization_id, bookingId, staffId },
+        "job.arrived",
+        {
+          title: copy.pushTitle,
+          body: copy.adminSms,
+          link: "/dashboard/bookings",
+        },
+      );
+    } catch (ownerErr) {
+      console.error("[send-arrival-sms] owner alert failed:", ownerErr);
     }
-    }
+    const adminSent = office.sms;
 
     const { error: logInsertErr } = await supabase.from('booking_reminder_log').insert({
       booking_id: bookingId,

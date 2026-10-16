@@ -57,7 +57,7 @@ const CHANNEL_ICON: Record<NotificationChannel, typeof Bell> = {
 const PRESETS: { key: NotificationPreset; label: string; description: string }[] = [
   { key: 'action', label: 'Action required', description: 'Sidebar and bell only, and only for items that need a response.' },
   { key: 'balanced', label: 'Recommended', description: 'The default mix for each event.' },
-  { key: 'everything', label: 'Everything', description: 'Every event, on every channel.' },
+  { key: 'everything', label: 'Everything', description: 'Every event, on every channel except Also text me.' },
 ];
 
 interface NotificationAdvancedPanelProps {
@@ -99,6 +99,7 @@ function ChannelEditor({
         const Icon = CHANNEL_ICON[channel.key];
         const masterOn = isMasterChannelOn(channel.key, channels);
         const on = isChannelEnabled(type.key, channel.key, matrix, snoozed, channels);
+        const label = channel.key === 'sms' ? 'Also text me' : channel.label;
         return (
           <label
             key={channel.key}
@@ -110,7 +111,7 @@ function ChannelEditor({
             <span className="flex items-center gap-2 min-w-0">
               <Icon className="h-4 w-4 text-primary shrink-0" />
               <span className="min-w-0">
-                <span className="block text-sm">{channel.label}</span>
+                <span className="block text-sm">{label}</span>
                 {!masterOn && (
                   <span className="block text-[11px] text-muted-foreground">Turned off for everything</span>
                 )}
@@ -120,7 +121,7 @@ function ChannelEditor({
               checked={on}
               disabled={!masterOn}
               onCheckedChange={(value) => onChannel(type.key, channel.key, value)}
-              aria-label={`${type.label} — ${channel.label}`}
+              aria-label={`${type.label} — ${label}`}
               className="shrink-0"
             />
           </label>
@@ -185,12 +186,12 @@ export function NotificationAdvancedPanel({
             <label key={channel.key} className="flex items-center justify-between gap-3 px-3 py-3 min-h-[48px]">
               <span className="flex items-center gap-2 text-sm">
                 <Icon className="h-4 w-4 text-primary shrink-0" />
-                {channel.label} for every event
+                {channel.key === 'sms' ? 'Also text me' : channel.label} for every event
               </span>
               <Switch
                 checked={on}
                 onCheckedChange={(value) => onMaster(channel.key, value)}
-                aria-label={`${channel.label} for every event`}
+                aria-label={`${channel.key === 'sms' ? 'Also text me' : channel.label} for every event`}
                 className="shrink-0"
               />
             </label>
