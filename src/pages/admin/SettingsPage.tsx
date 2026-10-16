@@ -51,6 +51,7 @@ import { FormDisplaySettings } from '@/components/admin/FormDisplaySettings';
 import { SchedulingModeCard } from '@/components/admin/SchedulingModeCard';
 import { SidebarVisibilitySettings } from '@/components/admin/SidebarVisibilitySettings';
 import { TeamMembersCard } from '@/components/admin/TeamMembersCard';
+import { StaffPhoneVisibilityCard } from '@/components/admin/StaffPhoneVisibilityCard';
 import { YourProfileCard } from '@/components/admin/YourProfileCard';
 import { SubscriptionPanel } from '@/pages/admin/SubscriptionPage';
 import { useOrgRole } from '@/hooks/useOrgRole';
@@ -1430,6 +1431,7 @@ export default function SettingsPage() {
         {/* Team Tab */}
         <TabsContent value="team" className="space-y-6">
           <TeamMembersCard />
+          <StaffPhoneVisibilityCard />
         </TabsContent>
 
         {/* Integrations Tab */}
