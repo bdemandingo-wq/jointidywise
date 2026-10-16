@@ -28,6 +28,8 @@ import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from '@/lib/startSubscriptionCheckout';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import { SUPPORT_EMAIL } from "@/lib/supportEmail";
+import { LIFETIME_SPOT_CAP, PUBLIC_TIERS } from "@/lib/publicPlans";
+import { renewalDisclosure } from "@/lib/planBillingCopy";
 
 interface SubscriptionDialogProps {
   open: boolean;
@@ -74,7 +76,12 @@ export function SubscriptionDialog({
   const [checkingOut, setCheckingOut] = useState<"standard" | "lifetime" | null>(null);
   const [checking, setChecking] = useState(true);
   const [isSubscribed, setIsSubscribed] = useState(false);
-  const [spots, setSpots] = useState<LifetimeSpots>({ total: 100, used: 0, remaining: 100, available: true });
+  const [spots, setSpots] = useState<LifetimeSpots>({
+    total: LIFETIME_SPOT_CAP,
+    used: 0,
+    remaining: LIFETIME_SPOT_CAP,
+    available: true,
+  });
   const { canShowPaymentFlows, billingUrl } = usePlatform();
 
   const checkSubscription = async () => {
@@ -348,6 +355,9 @@ export function SubscriptionDialog({
               )}
               Start Monthly Plan
             </Button>
+            <p className="text-xs text-center text-muted-foreground">
+              {renewalDisclosure(PUBLIC_TIERS.find((tier) => tier.id === "pro")?.monthlyPrice ?? 0)}
+            </p>
           </div>
 
           {/* ── Lifetime $200 ──────────────────────────────────── */}

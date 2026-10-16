@@ -34,7 +34,6 @@ import { ALREADY_LIFETIME_MESSAGE } from "@/lib/alreadyLifetime";
 import { CustomPriceMissing } from "@/lib/priceNotConfigured";
 import { lifetimeSpotsLabel } from "@/lib/publicActivity";
 import { usePublicGrowth } from "@/hooks/usePublicGrowth";
-import { trialDaysLeft } from "@/lib/trialClock";
 import {
   DOWNGRADE_EFFECT_NOTE,
   lifetimeSpotsToShow,
@@ -42,8 +41,8 @@ import {
   planChoicesFooter,
   renewalDisclosure,
   showPlanChoices,
-  trialChargeLine,
-  trialEndDateLabel,
+  trialChargesOnSelection,
+  trialFirstChargeLine,
 } from "@/lib/planBillingCopy";
 
 const planButtonClass = "h-11 min-h-[44px] w-full px-3 md:h-11";
@@ -196,14 +195,18 @@ export function PlanSwitcher() {
     !!downgrade.to && !!targetDowngradePlan && planChoicesVisible && canShowPaymentFlows;
   const canChangePlan = hasChangeableStripeSubscription(subscription);
   const choosingFirstPlan = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
-  const showOrgTrialStatus = planChoicesVisible && (
-    isActiveOrgTrial(subscription) || (currentPlanId === "trial" && subscription?.trial_active === true)
-  );
-  const trialDays = showOrgTrialStatus ? trialDaysLeft(subscription?.trial_end) : null;
-  const trialCharge = showOrgTrialStatus
-    ? trialChargeLine({
-        endDate: trialEndDateLabel(subscription?.trial_end, orgTimezone),
-        daysLeft: trialDays,
+  // trial_end is the stored profile/org trial end returned by check-subscription.
+  const trialEndIso = subscription?.trial_end ?? null;
+  const selectingFirstPaidPlan = planChoicesVisible && !canChangePlan;
+  const nowMs = Date.now();
+  const chargeToday = selectingFirstPaidPlan && trialChargesOnSelection(trialEndIso, nowMs);
+  const trialDateLine = selectingFirstPaidPlan && !chargeToday
+    ? trialFirstChargeLine({
+        trialEndIso,
+        timeZone: orgTimezone,
+        // The date sentence does not include a price. Per-plan "today" copy is under each button.
+        price: 1,
+        nowMs,
       })
     : null;
 
@@ -271,8 +274,8 @@ export function PlanSwitcher() {
               })}</span> plan.</>
             )}
           </p>
-          {trialCharge && (
-            <p className="mt-1 text-sm text-muted-foreground">{trialCharge}</p>
+          {trialDateLine && (
+            <p className="mt-1 text-sm text-muted-foreground">{trialDateLine}</p>
           )}
           {lifetimeSpots && (
             <p className="mt-1 text-sm text-muted-foreground">
@@ -344,8 +347,10 @@ export function PlanSwitcher() {
           let downgradeNote = false;
           let showRenewal = false;
           if (choosingFirstPlan && contactPlan) {
+            showRenewal = true;
             planButton = talkToUs;
           } else if (choosingFirstPlan && !canShowPaymentFlows) {
+            showRenewal = true;
             planButton = onTheWebsite;
           } else if (choosingFirstPlan) {
             showRenewal = true;
@@ -378,8 +383,10 @@ export function PlanSwitcher() {
               </Button>
             );
           } else if (!canChangePlan && contactPlan) {
+            showRenewal = true;
             planButton = talkToUs;
           } else if (!canChangePlan && !canShowPaymentFlows) {
+            showRenewal = true;
             planButton = onTheWebsite;
           } else if (!canChangePlan) {
             showRenewal = true;
@@ -401,8 +408,10 @@ export function PlanSwitcher() {
               </Button>
             );
           } else if (contactPlan) {
+            showRenewal = true;
             planButton = talkToUs;
           } else if (!canShowPaymentFlows) {
+            showRenewal = true;
             planButton = onTheWebsite;
           } else {
             downgradeNote = !isUpgrade;
@@ -466,7 +475,17 @@ export function PlanSwitcher() {
                   {DOWNGRADE_EFFECT_NOTE}
                 </p>
               )}
-              {showRenewal && planBillingAction(plan.id) === "checkout" && (
+              {chargeToday && showRenewal && planBillingAction(plan.id) === "checkout" && plan.monthlyPrice > 0 && (
+                <p className="mt-2 text-center text-xs text-muted-foreground">
+                  {trialFirstChargeLine({
+                    trialEndIso,
+                    timeZone: orgTimezone,
+                    price: plan.monthlyPrice,
+                    nowMs,
+                  })}
+                </p>
+              )}
+              {showRenewal && plan.monthlyPrice > 0 && (
                 <p className="mt-2 text-center text-xs text-muted-foreground">
                   {renewalDisclosure(plan.monthlyPrice)}
                 </p>

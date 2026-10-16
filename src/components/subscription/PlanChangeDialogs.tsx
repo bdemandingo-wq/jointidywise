@@ -27,6 +27,10 @@ import {
   type CheckoutPlanId,
 } from "@/lib/startSubscriptionCheckout";
 import { CustomPriceMissing, isCustomPriceMissing } from "@/lib/priceNotConfigured";
+import { renewalDisclosure, trialFirstChargeLine } from "@/lib/planBillingCopy";
+import { hasChangeableStripeSubscription } from "@/lib/stripeMode";
+import { useAuth } from "@/hooks/useAuth";
+import { useOrgTimezone } from "@/hooks/useOrgTimezone";
 
 /**
  * Someone on a trial has no Stripe subscription to modify, so the plan-change
@@ -93,6 +97,8 @@ export function UpgradePlanDialog({
   const [needsCheckout, setNeedsCheckout] = useState(false);
   const { organizationId } = useOrgId();
   const navigate = useNavigate();
+  const { subscription } = useAuth();
+  const { timezone: orgTimezone } = useOrgTimezone();
 
 
   useEffect(() => {
@@ -191,6 +197,15 @@ export function UpgradePlanDialog({
   }
 
   if (!targetPlan) return null;
+
+  const trialEndIso = subscription?.trial_end ?? null;
+  const trialLine = !hasChangeableStripeSubscription(subscription)
+    ? trialFirstChargeLine({
+        trialEndIso,
+        timeZone: orgTimezone,
+        price: targetPlan.monthlyPrice,
+      })
+    : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -291,6 +306,14 @@ export function UpgradePlanDialog({
             {needsCheckout ? "Continue to Stripe checkout" : `Upgrade to ${targetPlan.name}`}
           </Button>
         </DialogFooter>
+        <div className="space-y-1 text-center">
+          {trialLine && (
+            <p className="text-xs text-muted-foreground">{trialLine}</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {renewalDisclosure(targetPlan.monthlyPrice)}
+          </p>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -410,6 +433,9 @@ export function DowngradePlanDialog({
             Downgrade Now
           </Button>
         </DialogFooter>
+        <p className="text-center text-xs text-muted-foreground">
+          {renewalDisclosure(targetPlan.monthlyPrice)}
+        </p>
       </DialogContent>
     </Dialog>
   );
