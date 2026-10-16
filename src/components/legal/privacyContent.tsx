@@ -9,8 +9,8 @@ import { SUPPORT_EMAIL } from "@/lib/supportEmail";
  * wording lives here so the two surfaces cannot drift. The page and the dialog
  * each supply their own title and effective-date line.
  *
- * Editorial notes from the draft (the FCM confirmation comment, and the note
- * that the refund policy belongs in the Terms) are not part of the policy.
+ * Editorial notes from the draft are not part of the policy. The refund
+ * section stays in the Terms of Service, which already has its own.
  */
 
 export const PRIVACY_POLICY_EFFECTIVE_DATE = "October 16, 2026";
@@ -40,6 +40,10 @@ export function PrivacyPolicyBody({ className }: { className?: string }) {
         customer or cleaner of a business that uses TidyWise, that business&apos;s own privacy policy also applies, and you
         may need to contact the business directly about your information.
       </p>
+      <p>
+        When a business imports leads from Facebook or other lead sources, that business is responsible for having the
+        right to contact those people.
+      </p>
 
       <h2>Information we collect</h2>
       <ul>
@@ -50,6 +54,12 @@ export function PrivacyPolicyBody({ className }: { className?: string }) {
         <li><strong>Device and usage information:</strong> device type, app version, push-notification tokens, crash and error reports, and basic log data.</li>
         <li><strong>Marketing attribution:</strong> when a business signs up, we store the UTM parameters and referral source from the link they used (for example, which ad or website sent them) so we can measure which marketing works.</li>
       </ul>
+      <p>
+        When you sign up, we record how you found us. That includes the ad or link you came from, its campaign tags, and
+        any ad click identifiers (such as Google&apos;s gclid, Meta&apos;s fbclid or TikTok&apos;s ttclid). We use this to
+        measure our own marketing. If your browser sends a Global Privacy Control signal, we don&apos;t keep ad click
+        identifiers.
+      </p>
 
       <h2>How we use information</h2>
       <ul>
@@ -144,12 +154,15 @@ export function PrivacyPolicyBody({ className }: { className?: string }) {
         <li><strong>Supabase</strong> – hosting, database, authentication, and file storage.</li>
         <li><strong>OpenPhone</strong> – business phone calls and SMS.</li>
         <li><strong>Resend</strong> – transactional email delivery.</li>
-        <li><strong>Apple Push Notification service / Google Firebase Cloud Messaging</strong> – push notifications on mobile devices.</li>
+        <li><strong>Apple Push Notification service</strong> – push notifications on iPhone.</li>
         <li><strong>Google Maps Platform</strong> – address lookup, geocoding, and driving time estimates.</li>
         <li><strong>Sentry</strong> – error and crash reporting.</li>
         <li><strong>Anthropic</strong> – AI features (for example, message drafting, AI SMS replies, and business insights). Content you submit to AI features is sent to Anthropic to generate a response.</li>
         <li><strong>Google (Gmail)</strong> – only if a business chooses to connect its Gmail account to send email from TidyWise.</li>
         <li><strong>Google Analytics, Google Ads, Meta</strong> – marketing and signup pages only (see above).</li>
+        <li><strong>Lovable</strong> – website hosting, Google and Apple sign-in on the web, and sending account emails such as signup, invitations, sign-in links and password resets.</li>
+        <li><strong>SitePong</strong> – error reporting (error details, page URL and browser type).</li>
+        <li><strong>Meta (Facebook Lead Ads)</strong> – if a business connects its Facebook lead forms, we receive the name, email, phone and any details the person submitted, and store them as a lead for that business.</li>
       </ul>
       <p>
         <strong>Integrations businesses turn on themselves:</strong> A business can connect <strong>Zapier</strong> or{" "}
