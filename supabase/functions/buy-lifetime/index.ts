@@ -19,6 +19,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { embeddedCheckoutBody, embeddedCheckoutParams, readPublishableKey } from "../_shared/embedded-checkout.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
+import { LIFETIME_SPOT_CAP } from "../_shared/lifetime-cap.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -56,7 +57,7 @@ serve(async (req) => {
       .eq("id", 1)
       .maybeSingle();
 
-    const total = state?.total_spots ?? 100;
+    const total = state?.total_spots ?? LIFETIME_SPOT_CAP;
     const sold = state?.sold_spots ?? 0;
     if (state?.sold_out_at || sold >= total) {
       return new Response(
