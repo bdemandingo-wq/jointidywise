@@ -31,7 +31,9 @@ import {
   type PhotoDownloadKind,
 } from '@/lib/photoDownload';
 import { useGalleryNavigation } from '@/hooks/useGalleryNavigation';
-import { useBookingMediaGallery, isVideoMedia, type BookingPhoto } from '@/hooks/useBookingMediaGallery';
+import { bookingMediaQueryKey, useBookingMediaGallery, isVideoMedia, type BookingPhoto } from '@/hooks/useBookingMediaGallery';
+import { withoutMediaId, type MediaGalleryCache } from '@/lib/bookingPhotoCache';
+import { mustAffectRows } from '@/lib/mustAffectRows';
 import { VirtualMediaGrid } from '@/components/admin/VirtualMediaGrid';
 import { GalleryZoom } from '@/components/admin/GalleryZoom';
 import { adjacentMedia } from '@/lib/bookingMediaGallery';
@@ -166,26 +168,37 @@ export default function BookingPhotosPage() {
   const handleDelete = async (photo: BookingPhoto) => {
     if (!(await confirmDialog(`Delete this ${isVideoMedia(photo) ? 'video' : 'photo'}? This cannot be undone.`))) return;
 
+    const queryKey = bookingMediaQueryKey(organization?.id);
+    await queryClient.cancelQueries({ queryKey });
+    const previous = queryClient.getQueryData(queryKey);
+    const previousViewerId = viewerId;
+    const neighbor = filtered[viewerIndex + 1] ?? filtered[viewerIndex - 1] ?? null;
+    queryClient.setQueryData(queryKey, (current) =>
+      withoutMediaId(current as MediaGalleryCache<BookingPhoto> | undefined, photo.id),
+    );
+    if (viewerId === photo.id) setViewerId(neighbor?.id ?? null);
+
     setDeletingId(photo.id);
     try {
-      // Delete DB record first so the photo list updates immediately
-      const { error: dbError } = await supabase.from('booking_photos').delete().eq('id', photo.id);
-      if (dbError) throw dbError;
+      await mustAffectRows(
+        supabase.from('booking_photos').delete().eq('id', photo.id),
+        'Photo was not deleted. You may not have access to it.',
+        { table: 'booking_photos' },
+      );
 
-      // Then remove from storage — failure here leaves an orphan file but doesn't affect UI
+      // Storage failure leaves an orphan file. The row is already gone, so the
+      // gallery stays without this photo.
       const paths = [photo.photo_url, photo.stamped_photo_url].filter((path): path is string => !!path);
       const { error: storageError } = await supabase.storage.from('booking-photos').remove(paths);
       if (storageError) {
         console.warn('Storage remove failed (orphaned file):', storageError.message);
       }
 
-      queryClient.invalidateQueries({ queryKey: ['booking-photos', organization?.id] });
+      void queryClient.invalidateQueries({ queryKey: ['booking-photos', organization?.id] });
       toast.success(`${isVideoMedia(photo) ? 'Video' : 'Photo'} deleted`);
-      if (viewerId === photo.id) {
-        const neighbor = filtered[viewerIndex + 1] ?? filtered[viewerIndex - 1] ?? null;
-        setViewerId(neighbor?.id ?? null);
-      }
     } catch (error) {
+      queryClient.setQueryData(queryKey, previous);
+      setViewerId(previousViewerId);
       console.error(error);
       toast.error('Failed to delete');
     } finally {

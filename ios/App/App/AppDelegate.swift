@@ -22,6 +22,9 @@ class TidyWiseBridgeViewController: CAPBridgeViewController {
         bridge.registerPluginInstance(NotificationAuthPlugin())
         print("[Push] registered NotificationAuthPlugin")
         registerLinkedPushNotificationsPlugin(on: bridge)
+        // A token that arrived before this plugin's load() is posted again
+        // so the observer added in load() can still notify JavaScript.
+        ApnsTokenStore.repostCachedToken()
         registerLinkedShellPlugins(on: bridge)
     }
 
@@ -67,11 +70,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationCenterD
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
+        ApnsTokenStore.remember(deviceToken: deviceToken)
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+        ApnsTokenStore.rememberFailure(error)
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

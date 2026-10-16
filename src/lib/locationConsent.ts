@@ -1,34 +1,31 @@
 /**
- * Cleaner consent for sharing location during On My Way.
+ * Cleaner disclosure for sharing location during On My Way.
  *
- * Owner's final approval of this wording is pending.
+ * There is no separate in-app toggle. Tracking follows the iOS or browser
+ * location permission. An os_permission_granted row is appended so the server
+ * trigger can see a yes. Copy version v4 is the legal disclosure plus the
+ * clock-in, photo, and last-location sentences.
  */
-export const CONSENT_COPY_VERSION = 'v1';
+export const CONSENT_COPY_VERSION = 'v4';
 
 export const LOCATION_CONSENT_HEADING = "Share your location while you're on the way";
-
-export const LOCATION_CONSENT_TOGGLE_LABEL = 'Share location during On My Way';
 
 export const LOCATION_SHARING_OFF_NOTE = 'Location sharing is off. Turn on in Settings.';
 
 /**
- * Owner's final approval of this wording is pending.
- * `{businessName}` is filled from the organization's name.
- *
- * Not now and the in-app toggle control only live On My Way sharing.
- * Clock-in and photo coordinates follow the OS or browser location
- * permission, which the last sentence tells the cleaner.
+ * Shown on the location card and in NSLocationWhenInUseUsageDescription.
+ * No business-name placeholder: the system prompt cannot fill one, and the
+ * two strings have to be the same text.
  */
 export const LOCATION_CONSENT_COPY =
-  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings. Separately, if location is turned on for TidyWise in your phone or browser settings, your location is recorded when you clock in or out and when you take job photos.";
+  "TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. Admins may see your last shared location until the job's start time. It is deleted after 30 days. You can turn it off anytime in iPhone Settings or in your browser settings. If location is turned on, your location is also recorded when you clock in or out and when you take job photos.";
 
 /**
  * Both NSLocationWhenInUseUsageDescription and
  * NSLocationAlwaysAndWhenInUseUsageDescription in Info.plist.
  * The system prompt uses this only after a new iOS build is shipped.
  */
-export const PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION =
-  "TidyWise uses your location while the app is open to share your ETA with your company's admins after you tap On My Way, to record where you clock in and out, and to record where job photos are taken.";
+export const PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION = LOCATION_CONSENT_COPY;
 
 /**
  * Native builds below this never share On My Way location.
@@ -68,8 +65,8 @@ export function remoteTrackingEnabled(value: unknown): boolean {
 
 const LOCATION_SHARING_OPEN: LocationSharingAvailability = {
   trackingEnabled: true,
-  showConsentSheet: true,
-  showSettingsToggle: true,
+  showConsentSheet: false,
+  showSettingsToggle: false,
   logConsent: true,
 };
 
@@ -112,11 +109,13 @@ export const CONSENT_DECISIONS = [
   'toggled_on',
   'toggled_off',
   'os_denied',
+  'os_permission_granted',
+  'revoked',
 ] as const;
 
 export type LocationConsentDecision = (typeof CONSENT_DECISIONS)[number];
 
-export const CONSENT_SOURCES = ['first_run_sheet', 'settings'] as const;
+export const CONSENT_SOURCES = ['first_run_sheet', 'settings', 'os_permission'] as const;
 
 export type LocationConsentSource = (typeof CONSENT_SOURCES)[number];
 
@@ -158,7 +157,15 @@ export function formatLocationConsentCopy(businessName: string | null | undefine
 }
 
 export function parseConsentDecision(value: string | null | undefined): LocationConsentDecision | null {
-  if (value === 'granted' || value === 'declined' || value === 'toggled_on' || value === 'toggled_off' || value === 'os_denied') {
+  if (
+    value === 'granted' ||
+    value === 'declined' ||
+    value === 'toggled_on' ||
+    value === 'toggled_off' ||
+    value === 'os_denied' ||
+    value === 'os_permission_granted' ||
+    value === 'revoked'
+  ) {
     return value;
   }
   return null;
@@ -171,35 +178,43 @@ export function consentSnapshot(hasRow: boolean, decision?: string | null): Cons
 }
 
 export function consentAllowsTracking(decision: LocationConsentDecision | null): boolean {
-  return decision === 'granted' || decision === 'toggled_on';
+  return decision === 'granted' || decision === 'toggled_on' || decision === 'os_permission_granted';
 }
 
 /**
- * Tracking may start only when the latest logged decision is an explicit yes
- * and the operating system has granted location.
+ * On My Way tracking follows the operating-system permission. The consent
+ * row is recorded when that permission is granted. It is not a second gate.
  */
-export function canStartLocationTracking(input: {
-  decision: LocationConsentDecision | null;
-  osPermissionGranted: boolean;
-}): boolean {
-  return consentAllowsTracking(input.decision) && input.osPermissionGranted;
+export function canStartLocationTracking(osPermissionGranted: boolean): boolean {
+  return osPermissionGranted;
+}
+
+/**
+ * One append-only row when On My Way finds the OS permission granted and the
+ * latest decision would still block the server trigger. An existing yes is
+ * left as-is. Source is `os_permission`: there is no first-run sheet.
+ */
+export function consentLogForOsPermissionGrant(
+  latest: LocationConsentDecision | null,
+): ConsentLogEvent | null {
+  if (consentAllowsTracking(latest)) return null;
+  return { decision: 'os_permission_granted', source: 'os_permission' };
+}
+
+/** One append-only revoked row when a current yes loses the OS permission. */
+export function consentLogForOsPermissionRevoke(
+  latest: LocationConsentDecision | null,
+): ConsentLogEvent | null {
+  if (!consentAllowsTracking(latest)) return null;
+  return { decision: 'revoked', source: 'os_permission' };
 }
 
 export function settingsToggleOn(decision: LocationConsentDecision | null): boolean {
   return consentAllowsTracking(decision);
 }
 
-export function onMyWayLocationPlan(input: {
-  hasDecision: boolean;
-  decision: LocationConsentDecision | null;
-  osState: OsLocationState;
-}): OnMyWayLocationPlan {
-  if (!input.hasDecision) {
-    return { showSheet: true, startTracking: false, showOffNote: false };
-  }
-  const startTracking =
-    consentAllowsTracking(input.decision) &&
-    (input.osState === 'granted' || input.osState === 'prompt');
+export function onMyWayLocationPlan(osState: OsLocationState): OnMyWayLocationPlan {
+  const startTracking = osState === 'granted' || osState === 'prompt';
   return {
     showSheet: false,
     startTracking,

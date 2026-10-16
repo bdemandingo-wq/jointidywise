@@ -11,12 +11,17 @@ import { registerPlugin } from '@capacitor/core';
  * The proxy is created here, at module scope. Do not return it from an async
  * function: Capacitor 8.0.0 treats plugin proxies as thenables and the await
  * never resolves.
+ *
+ * register() also returns the APNs device token when the app delegate has
+ * one. PushNotifications.register() resolves before that token exists.
  */
 export interface NotificationAuthResult {
   receive?: string;
   authorizationStatus?: string;
   source?: string;
   error?: string;
+  /** Hex APNs device token, when register() waited for or already had one. */
+  token?: string;
 }
 
 export interface NotificationAuthPlugin {

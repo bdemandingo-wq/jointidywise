@@ -47,10 +47,14 @@ const select = `id, booking_id, staff_id, photo_url, stamped_photo_url, photo_ty
 
 const selectWithoutStamped = select.replace('stamped_photo_url, ', '');
 
+export function bookingMediaQueryKey(orgId: string | undefined) {
+  return ['booking-photos', orgId, 'paged-v1'] as const;
+}
+
 export function useBookingMediaGallery(orgId: string | undefined) {
   const client = useQueryClient();
   const query = useInfiniteQuery({
-    queryKey: ['booking-photos', orgId, 'paged-v1'],
+    queryKey: bookingMediaQueryKey(orgId),
     enabled: !!orgId,
     initialPageParam: { source: 'direct' as 'direct' | 'legacy', page: 0 },
     queryFn: async ({ pageParam, signal }) => {

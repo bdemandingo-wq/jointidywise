@@ -1384,7 +1384,6 @@ export default function StaffPortal() {
                     photoCount={cardData?.photoCountByBooking[booking.id] ?? 0}
                     propertyNote={cardData?.propertyNoteByCustomer[(booking as any).customer_id] ?? null}
                     onTheWaySent={cardData?.onTheWaySent?.[booking.id] ?? false}
-                    businessName={activeStaffOrg?.name ?? organization?.name ?? null}
                     onUpdateStatus={(id, status) => updateStatus.mutate({ bookingId: id, status })}
                     isUpdating={updateStatus.isPending}
                   />
@@ -1544,8 +1543,6 @@ export default function StaffPortal() {
                 <CleanerProfile
                   staffInfo={staffInfo}
                   userId={user.id}
-                  organizationId={staffInfo.organization_id}
-                  businessName={activeStaffOrg?.name ?? organization?.name ?? null}
                 />
               ) : (
                 <TabFallback />

@@ -3,6 +3,7 @@ import { MapPin, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { recordOsPermissionRevoke } from '@/lib/recordLocationConsent';
 
 interface Props {
   staffId: string;
@@ -57,6 +58,13 @@ async function recordPermission(staffId: string, status: 'granted' | 'denied') {
       .eq('id', staffId);
   } catch (err) {
     console.warn('[location-prompt] Failed to record status:', err);
+  }
+  if (status === 'granted') return;
+  try {
+    await recordOsPermissionRevoke(staffId);
+  } catch (err) {
+    console.error('[location-prompt] could not record revoked permission', err);
+    toast.error('Location is off, but that change could not be saved. Try again.');
   }
 }
 

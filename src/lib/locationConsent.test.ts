@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
   CONSENT_COPY_VERSION,
   LOCATION_CONSENT_COPY,
   LOCATION_CONSENT_HEADING,
-  LOCATION_CONSENT_TOGGLE_LABEL,
   LOCATION_SHARING_OFF_NOTE,
   PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION,
   buildConsentLogRow,
   canStartLocationTracking,
+  consentLogForOsPermissionGrant,
+  consentLogForOsPermissionRevoke,
   consentLogsForAction,
   consentLogsIfSharingOpen,
   formatLocationConsentCopy,
@@ -20,84 +22,76 @@ import {
   settingsToggleOn,
   shouldLogOsDenied,
 } from './locationConsent.ts';
+import { LOCATION_WHY } from './locationPermission.ts';
 
 const APPROVED_COPY =
-  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings. Separately, if location is turned on for TidyWise in your phone or browser settings, your location is recorded when you clock in or out and when you take job photos.";
+  "TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. Admins may see your last shared location until the job's start time. It is deleted after 30 days. You can turn it off anytime in iPhone Settings or in your browser settings. If location is turned on, your location is also recorded when you clock in or out and when you take job photos.";
 
-test('consent copy is version v1 and fills the business name', () => {
-  assert.equal(CONSENT_COPY_VERSION, 'v1');
+test('consent copy is version v4 and states the On My Way window', () => {
+  assert.equal(CONSENT_COPY_VERSION, 'v4');
   assert.equal(LOCATION_CONSENT_COPY, APPROVED_COPY);
+  assert.equal(PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION, LOCATION_CONSENT_COPY);
+  assert.equal(LOCATION_WHY, LOCATION_CONSENT_COPY);
+  assert.match(LOCATION_CONSENT_COPY, /only during On My Way/);
+  assert.match(LOCATION_CONSENT_COPY, /until you arrive or until the job is marked started/);
+  assert.match(LOCATION_CONSENT_COPY, /business owner and the customer/);
+  assert.match(LOCATION_CONSENT_COPY, /Admins may see your last shared location until the job's start time/);
+  assert.match(LOCATION_CONSENT_COPY, /deleted after 30 days/);
+  assert.match(LOCATION_CONSENT_COPY, /turn it off anytime in iPhone Settings or in your browser settings/);
+  assert.match(LOCATION_CONSENT_COPY, /clock in or out and when you take job photos/);
+  assert.equal(/background/i.test(LOCATION_CONSENT_COPY), false);
   assert.equal(LOCATION_CONSENT_HEADING, "Share your location while you're on the way");
-  assert.equal(LOCATION_CONSENT_TOGGLE_LABEL, 'Share location during On My Way');
   assert.equal(LOCATION_SHARING_OFF_NOTE, 'Location sharing is off. Turn on in Settings.');
-  const filled = formatLocationConsentCopy('Bright Clean');
-  assert.equal(filled.includes('{businessName}'), false);
-  assert.equal(filled.includes('Bright Clean'), true);
-  assert.equal(formatLocationConsentCopy('  '), filled.replace('Bright Clean', 'your company'));
-  assert.equal(formatLocationConsentCopy(null).includes('your company'), true);
+  assert.equal(formatLocationConsentCopy('Bright Clean'), APPROVED_COPY);
 });
 
-test('in-app copy and the proposed iOS string do not mention customers or background use', () => {
-  const texts = [
-    LOCATION_CONSENT_COPY,
-    LOCATION_CONSENT_HEADING,
-    LOCATION_SHARING_OFF_NOTE,
-    PROPOSED_IOS_LOCATION_USAGE_DESCRIPTION,
-  ];
-  for (const text of texts) {
-    assert.equal(/customer/i.test(text), false, text);
-    assert.equal(/background/i.test(text), false, text);
-  }
+test('the iOS usage strings match the location-card sentence', () => {
+  const plist = readFileSync(new URL('../../ios/App/App/Info.plist', import.meta.url), 'utf8');
+  const whenInUse = plist.match(/<key>NSLocationWhenInUseUsageDescription<\/key>\s*<string>([^<]*)<\/string>/);
+  const alwaysKey = plist.match(/<key>NSLocationAlwaysAndWhenInUseUsageDescription<\/key>\s*<string>([^<]*)<\/string>/);
+  assert.equal(whenInUse?.[1], LOCATION_CONSENT_COPY);
+  assert.equal(alwaysKey?.[1], LOCATION_CONSENT_COPY);
+  assert.equal(plist.includes('<string>location</string>'), false);
 });
 
-test('tracking starts only for a current yes plus a granted OS permission', () => {
-  assert.equal(canStartLocationTracking({ decision: null, osPermissionGranted: true }), false);
-  assert.equal(canStartLocationTracking({ decision: 'granted', osPermissionGranted: false }), false);
-  assert.equal(canStartLocationTracking({ decision: 'toggled_on', osPermissionGranted: false }), false);
-  assert.equal(canStartLocationTracking({ decision: 'declined', osPermissionGranted: true }), false);
-  assert.equal(canStartLocationTracking({ decision: 'toggled_off', osPermissionGranted: true }), false);
-  assert.equal(canStartLocationTracking({ decision: 'os_denied', osPermissionGranted: true }), false);
-  assert.equal(canStartLocationTracking({ decision: 'granted', osPermissionGranted: true }), true);
-  assert.equal(canStartLocationTracking({ decision: 'toggled_on', osPermissionGranted: true }), true);
+test('tracking starts from the OS permission, and a grant row is appended only when the latest decision is not already a yes', () => {
+  assert.equal(canStartLocationTracking(true), true);
+  assert.equal(canStartLocationTracking(false), false);
+
+  assert.deepEqual(consentLogForOsPermissionGrant(null), { decision: 'os_permission_granted', source: 'os_permission' });
+  assert.deepEqual(consentLogForOsPermissionGrant('declined'), { decision: 'os_permission_granted', source: 'os_permission' });
+  assert.deepEqual(consentLogForOsPermissionGrant('toggled_off'), { decision: 'os_permission_granted', source: 'os_permission' });
+  assert.deepEqual(consentLogForOsPermissionGrant('os_denied'), { decision: 'os_permission_granted', source: 'os_permission' });
+  assert.deepEqual(consentLogForOsPermissionGrant('revoked'), { decision: 'os_permission_granted', source: 'os_permission' });
+  assert.equal(consentLogForOsPermissionGrant('granted'), null);
+  assert.equal(consentLogForOsPermissionGrant('toggled_on'), null);
+  assert.equal(consentLogForOsPermissionGrant('os_permission_granted'), null);
+
+  assert.deepEqual(consentLogForOsPermissionRevoke('os_permission_granted'), { decision: 'revoked', source: 'os_permission' });
+  assert.deepEqual(consentLogForOsPermissionRevoke('granted'), { decision: 'revoked', source: 'os_permission' });
+  assert.deepEqual(consentLogForOsPermissionRevoke('toggled_on'), { decision: 'revoked', source: 'os_permission' });
+  assert.equal(consentLogForOsPermissionRevoke('revoked'), null);
+  assert.equal(consentLogForOsPermissionRevoke(null), null);
+  assert.equal(consentLogForOsPermissionRevoke('declined'), null);
 });
 
-test('the first-run sheet shows once, and a no or a later OS denial does not bring it back', () => {
-  assert.deepEqual(onMyWayLocationPlan({ hasDecision: false, decision: null, osState: 'prompt' }), {
-    showSheet: true,
-    startTracking: false,
-    showOffNote: false,
-  });
-  assert.deepEqual(onMyWayLocationPlan({ hasDecision: true, decision: 'declined', osState: 'granted' }), {
-    showSheet: false,
-    startTracking: false,
-    showOffNote: true,
-  });
-  assert.deepEqual(onMyWayLocationPlan({ hasDecision: true, decision: 'os_denied', osState: 'denied' }), {
-    showSheet: false,
-    startTracking: false,
-    showOffNote: true,
-  });
-  assert.deepEqual(onMyWayLocationPlan({ hasDecision: true, decision: 'toggled_off', osState: 'prompt' }), {
-    showSheet: false,
-    startTracking: false,
-    showOffNote: true,
-  });
-  assert.deepEqual(onMyWayLocationPlan({ hasDecision: true, decision: 'granted', osState: 'granted' }), {
+test('On My Way does not show a consent sheet; tracking follows the OS permission', () => {
+  assert.deepEqual(onMyWayLocationPlan('prompt'), {
     showSheet: false,
     startTracking: true,
     showOffNote: false,
   });
-  assert.deepEqual(onMyWayLocationPlan({ hasDecision: true, decision: 'toggled_on', osState: 'prompt' }), {
+  assert.deepEqual(onMyWayLocationPlan('granted'), {
     showSheet: false,
     startTracking: true,
     showOffNote: false,
   });
-  assert.deepEqual(onMyWayLocationPlan({ hasDecision: true, decision: 'granted', osState: 'denied' }), {
+  assert.deepEqual(onMyWayLocationPlan('denied'), {
     showSheet: false,
     startTracking: false,
     showOffNote: true,
   });
-  assert.deepEqual(onMyWayLocationPlan({ hasDecision: true, decision: 'granted', osState: 'unknown' }), {
+  assert.deepEqual(onMyWayLocationPlan('unknown'), {
     showSheet: false,
     startTracking: false,
     showOffNote: true,
@@ -186,7 +180,7 @@ test('an OS denial is logged once, from a current yes, and the row is append-onl
       organization_id: 'org-1',
       user_id: 'user-1',
       decision: 'declined',
-      copy_version: 'v1',
+      copy_version: 'v4',
       source: 'first_run_sheet',
     },
   );
@@ -202,9 +196,9 @@ function assertSharingClosed(gate: ReturnType<typeof locationSharingAvailability
   assert.deepEqual(consentLogsIfSharingOpen(gate, CONTINUE_SHEET, null), []);
 }
 
-test('ios-old shows nothing and writes no consent decision', () => {
-  assert.ok(MIN_IOS_LOCATION_BUILD > 1018);
-  for (const build of ['1018', 1018, 'not-a-build', null]) {
+test('builds below MIN_IOS_LOCATION_BUILD show nothing and write no consent decision', () => {
+  const below = MIN_IOS_LOCATION_BUILD - 1;
+  for (const build of [String(below), below, 'not-a-build', null]) {
     assertSharingClosed(locationSharingAvailability({ platform: 'ios', build, remoteEnabled: true }));
     assertSharingClosed(locationSharingAvailability({ platform: 'ios', build, remoteEnabled: false }));
   }
@@ -227,8 +221,8 @@ test('ios-new may share only when the remote switch is on', () => {
     remoteEnabled: true,
   });
   assert.equal(open.trackingEnabled, true);
-  assert.equal(open.showConsentSheet, true);
-  assert.equal(open.showSettingsToggle, true);
+  assert.equal(open.showConsentSheet, false);
+  assert.equal(open.showSettingsToggle, false);
   assert.equal(open.logConsent, true);
   assert.equal(consentLogsIfSharingOpen(open, CONTINUE_SHEET, null).length, 1);
 });
@@ -246,8 +240,9 @@ test('unknown platform is off', () => {
 
 test('web still follows only the remote switch', () => {
   const open = locationSharingAvailability({ platform: 'web', build: '1018', remoteEnabled: true });
-  assert.equal(open.showSettingsToggle, true);
-  assert.equal(open.showConsentSheet, true);
+  assert.equal(open.trackingEnabled, true);
+  assert.equal(open.showSettingsToggle, false);
+  assert.equal(open.showConsentSheet, false);
   assert.equal(open.logConsent, true);
   assertSharingClosed(locationSharingAvailability({ platform: 'web', build: null, remoteEnabled: false }));
 });
@@ -260,5 +255,6 @@ test('the latest decision is the newest created_at, with id as the tiebreak', ()
   ]);
   assert.deepEqual(snapshot, { hasDecision: true, decision: 'toggled_off' });
   assert.deepEqual(latestConsentDecision([]), { hasDecision: false, decision: null });
-  assert.equal(canStartLocationTracking({ decision: snapshot.decision, osPermissionGranted: true }), false);
+  assert.equal(canStartLocationTracking(true), true);
+  assert.equal(canStartLocationTracking(false), false);
 });

@@ -5,6 +5,7 @@ import { parseAlertPhones } from '../_shared/alertPhones.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
 import { notifyOffice } from "../_shared/office-notify.ts";
+import { jobEventCopy, shouldSendArrival } from "../_shared/job-event-copy.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,7 +33,7 @@ const handler = async (req: Request): Promise<Response> => {
 
     const { data: booking } = await supabase
       .from('bookings')
-      .select('id, booking_number, organization_id, address, apt_suite, city, state, zip_code, customer:customers(first_name, last_name, phone)')
+      .select('id, booking_number, organization_id, status, address, apt_suite, city, state, zip_code, customer:customers(first_name, last_name, phone)')
       .eq('id', bookingId)
       .single();
     if (!booking?.organization_id) {
@@ -60,6 +61,14 @@ const handler = async (req: Request): Promise<Response> => {
         { status: auth.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (!shouldSendArrival((booking as { status?: string | null }).status)) {
+      return new Response(JSON.stringify({
+        success: true,
+        skipped: true,
+        message: "This job is already finished, so no arrival notice was sent.",
+      }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     // Dedupe per staff per booking, after auth so a stranger cannot probe it.
     const reminderType = `arrived:${staffId}`;
     const { data: existingLog, error: existingLogErr } = await supabase
@@ -82,14 +91,28 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     const customerName = `${customer?.first_name ?? ''} ${customer?.last_name ?? ''}`.trim() || 'the customer';
+    const { data: businessSettings } = await supabase
+      .from('business_settings')
+      .select('company_name, company_phone, notification_phone')
+      .eq('organization_id', booking.organization_id)
+      .maybeSingle();
+    const companyName = businessSettings?.company_name || 'Your cleaning service';
+    const copy = jobEventCopy('arrived', {
+      staffName: staff.name,
+      bookingNumber: booking.booking_number,
+      customerLabel: customerName,
+      companyName,
+      address: formatFullAddress(booking as any) || 'N/A',
+      amountSuffix: '',
+    });
     const office = await notifyOffice(supabase, {
       organizationId: booking.organization_id,
-      title: '📍 Cleaner arrived',
-      message: `${staff.name} has arrived at Booking #${booking.booking_number} for ${customerName}.`,
+      title: copy.bellTitle,
+      message: copy.bellMessage,
       metadata: { booking_id: bookingId, staff_id: staffId },
-      pushTitle: `📍 ${staff.name} has arrived`,
-      pushBody: `Booking #${booking.booking_number}`,
-      pushData: { booking_id: bookingId, kind: 'arrived' },
+      pushTitle: copy.pushTitle,
+      pushBody: copy.pushBody,
+      pushData: { booking_id: bookingId, kind: copy.kind },
     });
 
     const { data: smsSettings } = await supabase
@@ -107,12 +130,6 @@ const handler = async (req: Request): Promise<Response> => {
     let adminSent = false;
 
     if (!smsSkippedReason && smsSettings) {
-    const { data: businessSettings } = await supabase
-      .from('business_settings')
-      .select('company_name, company_phone, notification_phone')
-      .eq('organization_id', booking.organization_id)
-      .maybeSingle();
-    const companyName = businessSettings?.company_name || 'Your cleaning service';
     /* Personal cell wins. company_phone is often the OpenPhone line, and
        OpenPhone texting itself never lands on a handset. */
     const adminPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
@@ -148,15 +165,13 @@ const handler = async (req: Request): Promise<Response> => {
       return true;
     };
 
-    if (notifyClient && customer?.phone) {
-      const msg = `✅ ${staff.name} from ${companyName} has arrived for your appointment!\n\nBooking #${booking.booking_number}`;
+    if (notifyClient && customer?.phone && copy.customerSms) {
+      const msg = copy.customerSms;
       clientSent = await sendSms(formatPhoneNumber(customer.phone), msg, 'customer');
     }
 
     if (notifyAdmin && adminPhone) {
-      const msg = `📍 ${staff.name} has arrived at Job #${booking.booking_number}\n\n` +
-        `Customer: ${customer?.first_name ?? ''} ${customer?.last_name ?? ''}\n` +
-        `Address: ${formatFullAddress(booking as any) || 'N/A'}`;
+      const msg = copy.adminSms;
       const phones = parseAlertPhones(adminPhone);
       const list = phones.length ? phones : [formatPhoneNumber(adminPhone)];
       adminSent = await sendSms(list[0], msg, 'admin');

@@ -5,8 +5,9 @@ import { toast } from 'sonner';
 import { useOrgCountryCode } from '@/hooks/useDistanceUnit';
 import { calculateDistanceMiles, estimateDriveMinutes } from '@/lib/distanceUtils';
 import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
-import { consentAllowsTracking, parseConsentDecision } from '@/lib/locationConsent';
+import { nextArrivalErrorToast, runArrivalAttempt } from '@/lib/arrivalAttempt';
 import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
+import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
 import {
   nextWebSharePhase,
   webShareShouldReadGeolocation,
@@ -71,18 +72,6 @@ export type TrackingStartResult =
     }
   | { ok: false; reason: 'consent' | 'disabled' | 'os_denied' | 'unavailable' };
 
-async function latestConsentAllowsTracking(staffId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('cleaner_location_consents')
-    .select('decision')
-    .eq('staff_id', staffId)
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(1);
-  if (error) throw error;
-  return consentAllowsTracking(parseConsentDecision(data?.[0]?.decision));
-}
-
 // ─── types ───────────────────────────────────────────────────────────────────
 
 interface UseCleanerTrackingOptions {
@@ -103,11 +92,13 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   const trackingIdRef    = useRef<string | null>(null);
   const destCoordsRef    = useRef<{ lat: number; lng: number } | null>(null);
   const arrivedRef       = useRef<boolean>(false);
+  const arrivalErrorStreakRef = useRef(false);
   const wakeLockRef      = useRef<any>(null);
   const lastWriteRef     = useRef<number>(0);
   const watchIdRef       = useRef<string | null>(null);   // Capacitor watchId (string)
   const browserWatchRef  = useRef<number | null>(null);   // browser watchId (number)
   const stopTrackingRef  = useRef<() => Promise<void>>(async () => {});
+  const haltWatchRef = useRef<(markArrivedAt: boolean) => Promise<void>>(async () => {});
   const webSharePhaseRef = useRef<WebSharePhase>('idle');
   const [isTracking, setIsTracking] = useState(false);
   const [hasArrived, setHasArrived] = useState(false);
@@ -115,36 +106,37 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   // ── arrival firing (shared by geofence, resume-check, and manual button) ──
 
   const fireArrival = useCallback(async (source: string) => {
-    if (arrivedRef.current) {
-      return {
-        data: { success: true, deduplicated: true, message: 'Arrival already recorded.' },
-        error: null,
-      };
+    // runArrivalAttempt sets arrivedRef before the status read. A second
+    // position update that lands during that read is a duplicate, and a
+    // finished job stops the watch instead of toasting "skipped" again.
+    const result = await runArrivalAttempt(arrivedRef, {
+      onClaimed: () => setHasArrived(true),
+      onReleased: () => setHasArrived(false),
+      onSendFailed: () => {
+        if (source === 'manual') return;
+        const next = nextArrivalErrorToast(arrivalErrorStreakRef.current);
+        arrivalErrorStreakRef.current = next.streakActive;
+        if (next.show) toast.error('Could not send the arrival notice. Location sharing is still on.');
+      },
+      readStatus: async () => {
+        const { data: bookingRow, error: statusError } = await supabase
+          .from('bookings')
+          .select('status')
+          .eq('id', bookingId)
+          .maybeSingle();
+        return { status: bookingRow?.status, failed: !!statusError };
+      },
+      stopWatch: (markArrivedAt) => haltWatchRef.current(markArrivedAt),
+      send: async () => {
+        console.log(`[GPS] Arrival fired (${source})`);
+        return supabase.functions.invoke('send-arrival-sms', { body: { bookingId, staffId } });
+      },
+    });
+    const payload = result.data as { success?: boolean; skipped?: boolean; deduplicated?: boolean } | null;
+    if (!result.error && payload?.success !== false && !payload?.skipped && !payload?.deduplicated) {
+      arrivalErrorStreakRef.current = false;
     }
-    arrivedRef.current = true;
-    setHasArrived(true);
-    console.log(`[GPS] Arrival fired (${source})`);
-    try {
-      if (trackingIdRef.current) {
-        await supabase
-          .from('cleaner_location_tracking')
-          .update({ arrived_at: new Date().toISOString() } as any)
-          .eq('id', trackingIdRef.current);
-      }
-      const result = await supabase.functions.invoke('send-arrival-sms', { body: { bookingId, staffId } });
-      // A hard failure should leave the button usable. A success:true with
-      // SMS skipped still notified the office, so the arrival sticks.
-      if (result.error || result.data?.success === false) {
-        arrivedRef.current = false;
-        setHasArrived(false);
-      }
-      return result;
-    } catch (err) {
-      console.warn('[GPS] Arrival notification failed:', err);
-      arrivedRef.current = false;
-      setHasArrived(false);
-      return { data: null, error: err };
-    }
+    return result;
   }, [bookingId, staffId]);
 
   /** Manual "I've Arrived" — works even if GPS tracking never started.
@@ -176,6 +168,7 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   // ── write position to DB ──────────────────────────────────────────────────
 
   const writePosition = useCallback(async (latitude: number, longitude: number) => {
+    if (arrivedRef.current) return;
     if (!trackingIdRef.current) return;
     if (Capacitor.getPlatform() === 'web' && !webShareShouldReadGeolocation(webSharePhaseRef.current)) return;
     const now = Date.now();
@@ -205,9 +198,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     }
   }, []);
 
-  const stopTracking = useCallback(async () => {
+  const haltWatch = useCallback(async (markArrivedAt: boolean) => {
     webSharePhaseRef.current = 'idle';
-    // Clear Capacitor watch
     if (watchIdRef.current !== null) {
       try {
         const { Geolocation } = await import('@capacitor/geolocation');
@@ -216,24 +208,30 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       watchIdRef.current = null;
     }
     clearBrowserWatch();
-    // Release wake lock
     if (wakeLockRef.current) {
       try { await wakeLockRef.current.release(); } catch {}
       wakeLockRef.current = null;
     }
-    // Mark tracking record inactive
     if (trackingIdRef.current) {
+      const patch: { is_active: false; arrived_at?: string } = { is_active: false };
+      if (markArrivedAt) patch.arrived_at = new Date().toISOString();
       await supabase
         .from('cleaner_location_tracking')
-        .update({ is_active: false } as any)
+        .update(patch as any)
         .eq('id', trackingIdRef.current);
       trackingIdRef.current = null;
     }
+    setIsTracking(false);
+  }, [clearBrowserWatch]);
+
+  haltWatchRef.current = haltWatch;
+
+  const stopTracking = useCallback(async () => {
+    await haltWatch(false);
     arrivedRef.current = false;
     setHasArrived(false);
-    setIsTracking(false);
     console.log('[GPS] Tracking stopped');
-  }, [clearBrowserWatch]);
+  }, [haltWatch]);
 
   stopTrackingRef.current = stopTracking;
 
@@ -370,22 +368,25 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     const gate = await readLocationSharingAvailability();
     if (!gate.trackingEnabled) return { ok: false, reason: 'disabled' };
 
-    let allowed = false;
-    try {
-      allowed = await latestConsentAllowsTracking(staffId);
-    } catch (err) {
-      console.error('[GPS] consent check failed', err);
-      return { ok: false, reason: 'unavailable' };
-    }
-    if (!allowed) return { ok: false, reason: 'consent' };
-
     try {
       onStatus?.('Waiting for location access…');
       const permitted = await requestLocationPermission();
       if (!permitted) return { ok: false, reason: 'os_denied' };
 
       onStatus?.('Getting your location…');
-      const { latitude, longitude } = await getPositionWithFallback();
+      // Consent rows are looked up while the position fix is in flight.
+      // A failed consent write does not cancel the fix. The tracking insert
+      // still needs the row, and a 42501 from that insert is reported as consent.
+      const consentWrite = gate.logConsent
+        ? recordOsPermissionGrant(staffId).catch((err: unknown) => {
+            console.error('[GPS] could not record location consent', err);
+            toast.error('Location is on, but sharing could not be saved for this job.');
+          })
+        : Promise.resolve();
+      const { latitude, longitude } = (await Promise.all([
+        getPositionWithFallback(),
+        consentWrite,
+      ]))[0];
       console.log('[GPS] Initial position:', latitude, longitude);
 
       // Insert or resume tracking record
@@ -451,10 +452,10 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
         } catch { /* non-critical */ }
       }
 
-      void checkArrival(latitude, longitude);
       await startWatch();
       void acquireWakeLock();
       setIsTracking(true);
+      void checkArrival(latitude, longitude);
 
       return { ok: true, trackingToken, etaMinutes, latitude, longitude };
     } catch (err: unknown) {

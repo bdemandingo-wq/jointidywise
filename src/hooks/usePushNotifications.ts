@@ -18,6 +18,7 @@ import {
   routePushEnable,
   type PushDiagnosticDetail,
 } from '@/lib/pushRuntime';
+import { createRegistrationRace } from '@/lib/pushRegistrationRace';
 
 // PushNotifications is created here, at module scope. Awaiting a helper that
 // *returns* the push plugin does not reach native. Capacitor 8.0.0's proxy answers `.then`
@@ -449,39 +450,59 @@ export function usePushNotifications(staffId?: string) {
 
     try {
       const nativeToken = await new Promise<string>((resolve, reject) => {
+        const race = createRegistrationRace();
         const timeoutId = window.setTimeout(() => {
+          if (!race.fail()) return;
           reject(new Error('Push registration timed out. Please try again.'));
         }, 25000);
+        const finish = (token: string) => {
+          if (!race.finish(token)) return;
+          window.clearTimeout(timeoutId);
+          resolve(token);
+        };
+        const fail = (error: unknown) => {
+          if (!race.fail()) return;
+          window.clearTimeout(timeoutId);
+          reject(error);
+        };
+
+        // The official register() call resolves as soon as iOS is asked. The
+        // APNs token arrives later, and only if that plugin instance is the
+        // one observing the app delegate. Ask the app-target plugin at the
+        // same time. It returns a token it already cached, or waits for the
+        // callback itself. A missing plugin must not become this 25s timeout.
+        void NotificationAuth.register().then((result) => {
+          if (typeof result?.token === 'string' && result.token.length > 0) {
+            finish(result.token);
+            return;
+          }
+          if (result?.error) fail(new Error(result.error));
+        }).catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          if (/timed out/i.test(message) || /not implemented|not available|plugin is not/i.test(message)) {
+            console.error('[PUSH] NotificationAuth.register() did not return a token', message);
+            return;
+          }
+          fail(error instanceof Error ? error : new Error(message));
+        });
 
         (async () => {
           try {
             handles.registration = await PushNotifications.addListener('registration', (tokenData: { value: string }) => {
-              window.clearTimeout(timeoutId);
-              resolve(tokenData.value);
+              finish(tokenData.value);
             });
 
             handles.error = await PushNotifications.addListener('registrationError', (error: { error?: string }) => {
-              window.clearTimeout(timeoutId);
-              reject(new Error(error?.error || 'Failed to register for push notifications'));
+              fail(new Error(error?.error || 'Failed to register for push notifications'));
             });
 
-            try {
-              await withTimeout(
-                PushNotifications.register(),
-                NATIVE_RESPONSE_TIMEOUT_MS,
-                'PushNotifications.register()',
-              );
-            } catch (registerError) {
-              console.error('[PUSH] PushNotifications.register() failed; calling registerForRemoteNotifications directly', registerError);
-              await withTimeout(
-                NotificationAuth.register(),
-                NATIVE_RESPONSE_TIMEOUT_MS,
-                'NotificationAuth.register()',
-              );
-            }
+            await withTimeout(
+              PushNotifications.register(),
+              NATIVE_RESPONSE_TIMEOUT_MS,
+              'PushNotifications.register()',
+            );
           } catch (error) {
-            window.clearTimeout(timeoutId);
-            reject(error);
+            console.error('[PUSH] PushNotifications.register() failed; the direct APNs token path is still waiting', error);
           }
         })();
       });
