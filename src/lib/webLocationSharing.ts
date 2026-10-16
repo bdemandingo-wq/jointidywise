@@ -15,8 +15,9 @@ export type WebOnMyWayStage = 'before_choice' | 'continue' | 'not_now';
 
 /**
  * Order of the web On My Way flow.
- * The browser prompt is navigator.geolocation, and it is only listed after
- * the consent sheet. The first tap, before a choice, is the sheet alone.
+ * The browser prompt is navigator.geolocation. It runs when the OS will
+ * still allow it. The consent row is written when that permission is
+ * granted, not as a step the cleaner has to accept first.
  */
 export function webOnMyWaySteps(input: {
   stage: WebOnMyWayStage;
@@ -24,25 +25,15 @@ export function webOnMyWaySteps(input: {
   decision: LocationConsentDecision | null;
   osState: OsLocationState;
 }): WebOnMyWayStep[] {
-  if (input.stage === 'before_choice') {
-    if (!input.hasDecision) return ['sheet'];
-    // `toggled_on` is a Settings allow. The browser prompt still waits for
-    // the sheet, which is the only step that may lead to geolocation.
-    if (input.decision === 'toggled_on') return ['sheet'];
-    const plan = onMyWayLocationPlan({
-      hasDecision: true,
-      decision: input.decision,
-      osState: input.osState,
-    });
-    return plan.startTracking ? ['geolocation', 'sms'] : ['sms'];
-  }
-
-  if (input.stage === 'not_now') return ['sheet', 'consent_row', 'sms'];
-
-  const steps: WebOnMyWayStep[] = ['sheet', 'consent_row'];
-  if (input.osState !== 'denied') steps.push('geolocation');
-  steps.push('sms');
-  return steps;
+  void input.stage;
+  void input.hasDecision;
+  void input.decision;
+  const plan = onMyWayLocationPlan({
+    hasDecision: input.hasDecision,
+    decision: input.decision,
+    osState: input.osState,
+  });
+  return plan.startTracking ? ['geolocation', 'sms'] : ['sms'];
 }
 
 /** True when this plan never calls geolocation, or the sheet comes first. */

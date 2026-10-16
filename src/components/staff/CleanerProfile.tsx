@@ -13,7 +13,6 @@ import { AddressAutocomplete } from '@/components/address/AddressAutocomplete';
 import { maybeAdoptOrgCountry } from '@/lib/orgCountry';
 import { useOrgId } from '@/hooks/useOrgId';
 import { StaffLocationSection } from '@/components/staff/StaffLocationSection';
-import { LocationSharingToggle } from '@/components/staff/LocationSharingToggle';
 
 interface StaffInfo {
   id: string;
@@ -35,7 +34,7 @@ interface Props {
   businessName: string | null;
 }
 
-export function CleanerProfile({ staffInfo, userId, organizationId: staffOrganizationId, businessName }: Props) {
+export function CleanerProfile({ staffInfo, userId, businessName }: Props) {
   const queryClient = useQueryClient();
   const { organizationId } = useOrgId();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -174,12 +173,7 @@ export function CleanerProfile({ staffInfo, userId, organizationId: staffOrganiz
 
   return (
     <div className="space-y-6">
-      <StaffLocationSection staffId={staffInfo.id} />
-      <LocationSharingToggle
-        staffId={staffInfo.id}
-        organizationId={staffOrganizationId}
-        businessName={businessName}
-      />
+      <StaffLocationSection staffId={staffInfo.id} businessName={businessName} />
 
       {/* Profile Photo Card */}
       <Card>

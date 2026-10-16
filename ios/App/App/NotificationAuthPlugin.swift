@@ -46,10 +46,56 @@ public class NotificationAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    /// Resolves with the cached APNs token, or waits for the app delegate.
+    /// registerForRemoteNotifications itself does not return the token.
     @objc func register(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
+            if let token = ApnsTokenStore.cachedToken(), !token.isEmpty {
+                call.resolve(["source": "NotificationAuth", "token": token])
+                return
+            }
+
+            let center = NotificationCenter.default
+            var tokenObserver: NSObjectProtocol?
+            var failObserver: NSObjectProtocol?
+            var settled = false
+            let settle = { (token: String?, error: String?) in
+                if settled { return }
+                settled = true
+                if let tokenObserver { center.removeObserver(tokenObserver) }
+                if let failObserver { center.removeObserver(failObserver) }
+                if let token, !token.isEmpty {
+                    call.resolve(["source": "NotificationAuth", "token": token])
+                } else {
+                    call.reject(error ?? "APNs registration failed")
+                }
+            }
+
+            tokenObserver = center.addObserver(
+                forName: .capacitorDidRegisterForRemoteNotifications,
+                object: nil,
+                queue: .main
+            ) { note in
+                if let data = note.object as? Data {
+                    let hex = data.map { String(format: "%02X", $0) }.joined()
+                    settle(hex, nil)
+                } else if let string = note.object as? String, !string.isEmpty {
+                    settle(string, nil)
+                }
+            }
+            failObserver = center.addObserver(
+                forName: .capacitorDidFailToRegisterForRemoteNotifications,
+                object: nil,
+                queue: .main
+            ) { note in
+                let message = (note.object as? Error)?.localizedDescription ?? "APNs registration failed"
+                settle(nil, message)
+            }
+
             UIApplication.shared.registerForRemoteNotifications()
-            call.resolve(["source": "NotificationAuth"])
+            DispatchQueue.main.asyncAfter(deadline: .now() + 22) {
+                settle(nil, "Push registration timed out. Please try again.")
+            }
         }
     }
 
@@ -93,5 +139,41 @@ public class NotificationAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         @unknown default:
             return "unknown"
         }
+    }
+}
+
+/// Caches the APNs token in the app target.
+///
+/// PushNotifications.register() resolves as soon as it calls
+/// registerForRemoteNotifications. The token reaches JavaScript only when the
+/// SPM plugin instance that observed this notification is the instance on the
+/// bridge. A token that arrives first is kept here and can be returned by
+/// NotificationAuth.register(), and posted again after that plugin loads.
+enum ApnsTokenStore {
+    private static let lock = NSLock()
+    private static var token: String?
+
+    static func remember(deviceToken: Data) {
+        let hex = deviceToken.map { String(format: "%02X", $0) }.joined()
+        lock.lock()
+        token = hex
+        lock.unlock()
+        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
+    }
+
+    static func rememberFailure(_ error: Error) {
+        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+    }
+
+    static func cachedToken() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return token
+    }
+
+    /// Posts a cached string token. The push plugin accepts Data or String.
+    static func repostCachedToken() {
+        guard let token = cachedToken(), !token.isEmpty else { return }
+        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: token)
     }
 }

@@ -13,6 +13,8 @@ export interface JobNotifyChannels {
 export interface JobNotifyResult {
   success?: boolean;
   deduplicated?: boolean;
+  /** Arrival was refused because the job is already finished. */
+  skipped?: boolean;
   message?: string;
   error?: string;
   channels?: JobNotifyChannels;
@@ -101,6 +103,12 @@ export function describeArrival(data: JobNotifyResult | null | undefined): Notif
   }
   if (data.deduplicated) {
     return { ok: true, message: data.message || 'Arrival already recorded.' };
+  }
+  if (data.skipped) {
+    return {
+      ok: true,
+      message: data.message || 'This job is already finished, so no arrival notice was sent.',
+    };
   }
 
   const channels = data.channels;

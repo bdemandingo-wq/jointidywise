@@ -3,6 +3,7 @@ import { MapPin, AlertTriangle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
 
 interface Props {
   staffId: string;
@@ -57,6 +58,13 @@ async function recordPermission(staffId: string, status: 'granted' | 'denied') {
       .eq('id', staffId);
   } catch (err) {
     console.warn('[location-prompt] Failed to record status:', err);
+  }
+  if (status !== 'granted') return;
+  try {
+    await recordOsPermissionGrant(staffId);
+  } catch (err) {
+    console.error('[location-prompt] could not record consent', err);
+    toast.error('Location is on, but sharing could not be saved. Try again.');
   }
 }
 

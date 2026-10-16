@@ -1,6 +1,5 @@
 import { formatDuration } from '@/lib/formatDuration';
-import { useState, useEffect, useRef } from 'react';
-import { Capacitor } from '@capacitor/core';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -32,14 +31,13 @@ import { useCleanerTracking } from '@/hooks/useCleanerTracking';
 import { useLocationConsent } from '@/hooks/useLocationConsent';
 import { useLocationSharingGate } from '@/hooks/useLocationSharingGate';
 import { useLocationPermission } from '@/hooks/useLocationPermission';
-import { LocationConsentSheet, LocationSharingOffNote } from '@/components/staff/LocationConsentSheet';
+import { LocationSharingOffNote } from '@/components/staff/LocationConsentSheet';
 import {
   consentLogsForAction,
   onMyWayLocationPlan,
   type LocationConsentSource,
 } from '@/lib/locationConsent';
 import { osStateFromKind, readOsLocationState } from '@/lib/osLocationState';
-import { geolocationFollowsSheet, webOnMyWaySteps } from '@/lib/webLocationSharing';
 import { staffLocationSearch } from '@/lib/locationPermission';
 import { supabase } from '@/lib/supabase';
 import { resolveCleanerPay, describeCleanerPay, type WageBooking, type WageStaff } from '@/lib/wageCalculation';
@@ -103,13 +101,11 @@ interface Props {
   photoCount: number;
   propertyNote: PropertyNote | null;
   onTheWaySent: boolean;
-  /** Organization name shown in the location consent copy. */
-  businessName?: string | null;
   onUpdateStatus?: (bookingId: string, status: 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'no_show') => void;
   isUpdating?: boolean;
 }
 
-export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photoReqs, propertyNote, photoCount: initialPhotoCount, onTheWaySent: initialOnTheWaySent, businessName = null, onUpdateStatus, isUpdating }: Props) {
+export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photoReqs, propertyNote, photoCount: initialPhotoCount, onTheWaySent: initialOnTheWaySent, onUpdateStatus, isUpdating }: Props) {
   const navigate = useNavigate();
   const { timezone: orgTimezone } = useOrgTimezone(organizationId);
   const extraLabels = extrasToLabels(booking.extras, orgExtras);
@@ -152,9 +148,6 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
   const sharing = useLocationSharingGate();
   const consent = useLocationConsent(staffInfo.id, sharing.trackingEnabled);
   const loc = useLocationPermission(staffInfo.id);
-  const [consentSheetOpen, setConsentSheetOpen] = useState(false);
-  const [savingConsent, setSavingConsent] = useState(false);
-  const consentSourceRef = useRef<LocationConsentSource>('settings');
   const consentOrgId = booking.organization_id || organizationId;
 
   // Stop tracking when the job starts, is finished, or is cancelled.
@@ -221,12 +214,13 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
           if (started.ok) {
             trackingResult = started;
           } else if (started.reason === 'os_denied') {
-            const followUp = consentLogsForAction({
-              latest: 'granted',
-              action: { type: 'os_turned_off' },
-            }).map((row) => ({ ...row, source: consentSourceRef.current }));
             try {
-              await logConsentRows(followUp);
+              const latest = await consent.loadLatest();
+              const followUp = consentLogsForAction({
+                latest: latest.decision,
+                action: { type: 'os_turned_off' },
+              });
+              if (followUp.length > 0) await logConsentRows(followUp);
             } catch (logError) {
               console.error('[location-consent] could not record OS denial', logError);
             }
@@ -307,135 +301,27 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
       await sendOnTheWay(false);
       return;
     }
-    let snapshot;
-    try {
-      snapshot = await consent.loadLatest();
-    } catch (err) {
-      console.error('[location-consent] could not read the decision log', err);
-      toast.error('Could not check location sharing. The on-the-way notice will still send.');
-      await sendOnTheWay(false);
-      return;
-    }
-    if (!snapshot.hasDecision || (Capacitor.getPlatform() === 'web' && snapshot.decision === 'toggled_on')) {
-      const steps = webOnMyWaySteps({
-        stage: 'before_choice',
-        hasDecision: snapshot.hasDecision,
-        decision: snapshot.decision,
-        osState: 'prompt',
-      });
-      if (steps.includes('geolocation') || steps[0] !== 'sheet') {
-        await sendOnTheWay(false);
-        return;
-      }
-      setConsentSheetOpen(true);
-      return;
-    }
     const osState = await readOsLocationState();
     const plan = onMyWayLocationPlan({
       hasDecision: true,
-      decision: snapshot.decision,
+      decision: null,
       osState,
     });
-    consentSourceRef.current = 'settings';
     if (plan.startTracking) {
       await sendOnTheWay(true);
       return;
     }
-    const followUp = consentLogsForAction({
-      latest: snapshot.decision,
-      action: { type: 'os_turned_off' },
-    });
-    if (osState === 'denied' && followUp.length > 0) {
-      try {
-        await logConsentRows(followUp);
-      } catch (err) {
-        console.error('[location-consent] could not record OS denial', err);
-      }
-    }
-    await sendOnTheWay(false);
-  };
-
-  const handleConsentContinue = async () => {
-    if (!staffInfo.id) return;
-    const gate = await sharing.load();
-    if (!gate.logConsent) {
-      setConsentSheetOpen(false);
-      await sendOnTheWay(false);
-      return;
-    }
-    setSavingConsent(true);
-    consentSourceRef.current = 'first_run_sheet';
-    try {
-      const rows = consentLogsForAction({
-        latest: null,
-        action: { type: 'sheet', choice: 'continue', osDenied: false },
-      });
-      await logConsentRows(rows);
-    } catch (err) {
-      console.error('[location-consent] could not save continue', err);
-      toast.error('Could not save your choice. The on-the-way notice will still send without location.');
-      setConsentSheetOpen(false);
-      await sendOnTheWay(false);
-      return;
-    } finally {
-      setSavingConsent(false);
-    }
-    setConsentSheetOpen(false);
-    const osState = await readOsLocationState();
-    const steps = webOnMyWaySteps({
-      stage: 'continue',
-      hasDecision: false,
-      decision: null,
-      osState,
-    });
     if (osState === 'denied') {
-      const followUp = consentLogsForAction({
-        latest: 'granted',
-        action: { type: 'os_turned_off' },
-      }).map((row) => ({ ...row, source: 'first_run_sheet' as const }));
       try {
-        await logConsentRows(followUp);
+        const latest = await consent.loadLatest();
+        const followUp = consentLogsForAction({
+          latest: latest.decision,
+          action: { type: 'os_turned_off' },
+        });
+        if (followUp.length > 0) await logConsentRows(followUp);
       } catch (err) {
         console.error('[location-consent] could not record OS denial', err);
       }
-      await sendOnTheWay(false);
-      return;
-    }
-    const share = steps.includes('geolocation') && geolocationFollowsSheet(steps);
-    await sendOnTheWay(share);
-  };
-
-  const handleConsentNotNow = async () => {
-    if (!staffInfo.id) return;
-    const gate = await sharing.load();
-    if (!gate.logConsent) {
-      setConsentSheetOpen(false);
-      await sendOnTheWay(false);
-      return;
-    }
-    setSavingConsent(true);
-    try {
-      const steps = webOnMyWaySteps({
-        stage: 'not_now',
-        hasDecision: false,
-        decision: null,
-        osState: 'prompt',
-      });
-      const rows = consentLogsForAction({
-        latest: null,
-        action: { type: 'sheet', choice: 'not_now', osDenied: false },
-      });
-      await logConsentRows(rows);
-      if (steps.includes('geolocation')) {
-        await sendOnTheWay(false);
-        return;
-      }
-    } catch (err) {
-      console.error('[location-consent] could not save not now', err);
-      toast.error('Could not save your choice. The on-the-way notice will still send without location.');
-    } finally {
-      setSavingConsent(false);
-      setConsentSheetOpen(false);
     }
     await sendOnTheWay(false);
   };
@@ -510,16 +396,14 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
   const locationPlan = loc.kind === 'checking'
     ? null
     : onMyWayLocationPlan({
-        hasDecision: consent.hasDecision,
-        decision: consent.decision,
+        hasDecision: true,
+        decision: null,
         osState: osStateFromKind(loc.kind),
       });
   const showLocationOffNote =
     sharing.trackingEnabled &&
     !sharing.pending &&
     !isTracking &&
-    !consent.isLoading &&
-    !consent.isError &&
     locationPlan?.showOffNote === true;
 
   const handleDirectionsClick = () => {
@@ -533,15 +417,6 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
   return (
     <Card className="hover:shadow-md transition-shadow">
-      {sharing.showConsentSheet && (
-      <LocationConsentSheet
-        open={consentSheetOpen}
-        businessName={businessName}
-        busy={savingConsent}
-        onContinue={() => { void handleConsentContinue(); }}
-        onNotNow={() => { void handleConsentNotNow(); }}
-      />
-      )}
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between">
           <div>

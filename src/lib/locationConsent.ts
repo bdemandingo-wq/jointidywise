@@ -1,26 +1,23 @@
 /**
- * Cleaner consent for sharing location during On My Way.
+ * Cleaner disclosure for sharing location during On My Way.
  *
- * Owner's final approval of this wording is pending.
+ * There is no separate in-app toggle. Tracking follows the iOS or browser
+ * location permission. A granted row is still appended so the server trigger
+ * can see a yes. Copy version v2 is that shorter disclosure.
  */
-export const CONSENT_COPY_VERSION = 'v1';
+export const CONSENT_COPY_VERSION = 'v2';
 
 export const LOCATION_CONSENT_HEADING = "Share your location while you're on the way";
-
-export const LOCATION_CONSENT_TOGGLE_LABEL = 'Share location during On My Way';
 
 export const LOCATION_SHARING_OFF_NOTE = 'Location sharing is off. Turn on in Settings.';
 
 /**
- * Owner's final approval of this wording is pending.
  * `{businessName}` is filled from the organization's name.
- *
- * Not now and the in-app toggle control only live On My Way sharing.
- * Clock-in and photo coordinates follow the OS or browser location
- * permission, which the last sentence tells the cleaner.
+ * Clock-in and photo coordinates are a separate permission, described on
+ * the location card. This sentence is only about On My Way.
  */
 export const LOCATION_CONSENT_COPY =
-  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app, and admins may see your last shared location until the job's start time. You can turn it off anytime in Settings. Separately, if location is turned on for TidyWise in your phone or browser settings, your location is recorded when you clock in or out and when you take job photos.";
+  "TidyWise shares your location with {businessName} admins only while the app is open, from when you tap On My Way until the job starts or is cancelled. Sharing pauses if you leave the app.";
 
 /**
  * Both NSLocationWhenInUseUsageDescription and
@@ -68,8 +65,8 @@ export function remoteTrackingEnabled(value: unknown): boolean {
 
 const LOCATION_SHARING_OPEN: LocationSharingAvailability = {
   trackingEnabled: true,
-  showConsentSheet: true,
-  showSettingsToggle: true,
+  showConsentSheet: false,
+  showSettingsToggle: false,
   logConsent: true,
 };
 
@@ -175,14 +172,27 @@ export function consentAllowsTracking(decision: LocationConsentDecision | null):
 }
 
 /**
- * Tracking may start only when the latest logged decision is an explicit yes
- * and the operating system has granted location.
+ * On My Way tracking follows the operating-system permission. The consent
+ * row is recorded when that permission is granted. It is not a second gate.
  */
 export function canStartLocationTracking(input: {
   decision: LocationConsentDecision | null;
   osPermissionGranted: boolean;
 }): boolean {
-  return consentAllowsTracking(input.decision) && input.osPermissionGranted;
+  void input.decision;
+  return input.osPermissionGranted;
+}
+
+/**
+ * One append-only granted row when permission is on and the latest decision
+ * would still block the server trigger. An existing yes is left as-is.
+ * Source stays `first_run_sheet`, which the consent table already allows.
+ */
+export function consentLogForOsPermissionGrant(
+  latest: LocationConsentDecision | null,
+): ConsentLogEvent | null {
+  if (consentAllowsTracking(latest)) return null;
+  return { decision: 'granted', source: 'first_run_sheet' };
 }
 
 export function settingsToggleOn(decision: LocationConsentDecision | null): boolean {
@@ -194,12 +204,9 @@ export function onMyWayLocationPlan(input: {
   decision: LocationConsentDecision | null;
   osState: OsLocationState;
 }): OnMyWayLocationPlan {
-  if (!input.hasDecision) {
-    return { showSheet: true, startTracking: false, showOffNote: false };
-  }
-  const startTracking =
-    consentAllowsTracking(input.decision) &&
-    (input.osState === 'granted' || input.osState === 'prompt');
+  void input.hasDecision;
+  void input.decision;
+  const startTracking = input.osState === 'granted' || input.osState === 'prompt';
   return {
     showSheet: false,
     startTracking,

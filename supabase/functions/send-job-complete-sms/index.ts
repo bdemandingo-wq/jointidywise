@@ -5,6 +5,7 @@ import { parseAlertPhones, sendToExtraAlertPhones } from '../_shared/alertPhones
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
 import { notifyOffice } from "../_shared/office-notify.ts";
+import { jobEventCopy } from "../_shared/job-event-copy.ts";
 
 /**
  * Texts the owner's PERSONAL cell the moment a cleaner marks a job complete.
@@ -104,15 +105,26 @@ const handler = async (req: Request): Promise<Response> => {
     const adminPhone = (businessSettings as { notification_phone?: string | null } | null)?.notification_phone
       || businessSettings?.company_phone;
 
+    const address = formatFullAddress(booking as any) || 'N/A';
+    const amountSuffix = typeof booking.total_amount === 'number' ? `\nTotal: $${booking.total_amount.toFixed(2)}` : '';
+    const copy = jobEventCopy('completed', {
+      staffName: staff.name,
+      bookingNumber: booking.booking_number,
+      customerLabel,
+      companyName: businessSettings?.company_name || 'Your cleaning service',
+      address,
+      amountSuffix,
+    });
+
     // Bell + push whether or not SMS is configured.
     const office = await notifyOffice(supabase, {
       organizationId: booking.organization_id,
-      title: '✅ Job completed',
-      message: `${staff.name} completed Booking #${booking.booking_number} for ${customerLabel}.`,
+      title: copy.bellTitle,
+      message: copy.bellMessage,
       metadata: { booking_id: bookingId, staff_id: staffId },
-      pushTitle: `✅ ${staff.name} completed a job`,
-      pushBody: `Booking #${booking.booking_number}`,
-      pushData: { booking_id: bookingId, kind: 'job_complete' },
+      pushTitle: copy.pushTitle,
+      pushBody: copy.pushBody,
+      pushData: { booking_id: bookingId, kind: copy.kind },
     });
 
     const { data: smsSettings } = await supabase
@@ -145,10 +157,7 @@ const handler = async (req: Request): Promise<Response> => {
       return f;
     };
 
-    const amount = typeof booking.total_amount === 'number' ? `\nTotal: $${booking.total_amount.toFixed(2)}` : '';
-    const message = `✅ ${staff.name} completed Job #${booking.booking_number}\n\n` +
-      `Customer: ${customerLabel}\n` +
-      `Address: ${formatFullAddress(booking as any) || 'N/A'}${amount}`;
+    const message = copy.adminSms;
 
     const r = await fetch("https://api.openphone.com/v1/messages", {
       method: "POST",

@@ -159,6 +159,23 @@ test("the hook retries saves and does not tell the user to pull to refresh", () 
   assert.match(src, /background/);
 });
 
+test("registration waits on a direct APNs token, not only the push plugin event", () => {
+  const hook = readFileSync(new URL("../hooks/usePushNotifications.ts", import.meta.url), "utf8");
+  const auth = readFileSync(new URL("../../ios/App/App/NotificationAuthPlugin.swift", import.meta.url), "utf8");
+  const delegate = readFileSync(new URL("../../ios/App/App/AppDelegate.swift", import.meta.url), "utf8");
+  const direct = hook.indexOf("NotificationAuth.register()");
+  const listener = hook.indexOf("addListener('registration'");
+  assert.ok(direct !== -1 && listener !== -1 && direct < listener);
+  assert.match(hook, /result\?\.token/);
+  assert.match(hook, /Push registration timed out\. Please try again\./);
+  assert.match(auth, /ApnsTokenStore/);
+  assert.match(auth, /cachedToken\(\)/);
+  assert.match(auth, /registerForRemoteNotifications\(\)/);
+  assert.match(delegate, /ApnsTokenStore\.remember\(deviceToken:/);
+  assert.match(delegate, /ApnsTokenStore\.repostCachedToken\(\)/);
+  assert.equal(delegate.includes("NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)"), false);
+});
+
 test("register-push-token updates an existing row instead of only inserting", () => {
   const src = readFileSync(new URL("../../supabase/functions/register-push-token/index.ts", import.meta.url), "utf8");
   assert.match(src, /\.update\(/);

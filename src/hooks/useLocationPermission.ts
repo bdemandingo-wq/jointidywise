@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
 import {
   IOS_APP_SETTINGS_URL,
   classifyPermissionFailure,
@@ -216,6 +217,14 @@ export function useLocationPermission(staffId?: string): LocationPermissionState
       apply(next);
       toastFor(next.kind);
       if (staffId) await rememberPermission(staffId, next.kind);
+      if (staffId && (next.kind === 'on-always' || next.kind === 'on-while-using')) {
+        try {
+          await recordOsPermissionGrant(staffId);
+        } catch (err) {
+          console.error('[location] could not record consent', err);
+          toast.error('Location is on, but sharing could not be saved. Try again.');
+        }
+      }
       return next.kind;
     } finally {
       setRequesting(false);

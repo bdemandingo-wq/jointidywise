@@ -5,8 +5,9 @@ import { toast } from 'sonner';
 import { useOrgCountryCode } from '@/hooks/useDistanceUnit';
 import { calculateDistanceMiles, estimateDriveMinutes } from '@/lib/distanceUtils';
 import { geoFailureCode, getPositionWithFallback } from '@/lib/geo';
-import { consentAllowsTracking, parseConsentDecision } from '@/lib/locationConsent';
+import { shouldSendArrival } from '@/lib/jobEventCopy';
 import { readLocationSharingAvailability } from '@/lib/readLocationSharingAvailability';
+import { recordOsPermissionGrant } from '@/lib/recordLocationConsent';
 import {
   nextWebSharePhase,
   webShareShouldReadGeolocation,
@@ -71,18 +72,6 @@ export type TrackingStartResult =
     }
   | { ok: false; reason: 'consent' | 'disabled' | 'os_denied' | 'unavailable' };
 
-async function latestConsentAllowsTracking(staffId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('cleaner_location_consents')
-    .select('decision')
-    .eq('staff_id', staffId)
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(1);
-  if (error) throw error;
-  return consentAllowsTracking(parseConsentDecision(data?.[0]?.decision));
-}
-
 // ─── types ───────────────────────────────────────────────────────────────────
 
 interface UseCleanerTrackingOptions {
@@ -118,6 +107,22 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     if (arrivedRef.current) {
       return {
         data: { success: true, deduplicated: true, message: 'Arrival already recorded.' },
+        error: null,
+      };
+    }
+    const { data: bookingRow, error: statusError } = await supabase
+      .from('bookings')
+      .select('status')
+      .eq('id', bookingId)
+      .maybeSingle();
+    if (statusError) return { data: null, error: statusError };
+    if (!shouldSendArrival(bookingRow?.status)) {
+      return {
+        data: {
+          success: true,
+          skipped: true,
+          message: 'This job is already finished, so no arrival notice was sent.',
+        },
         error: null,
       };
     }
@@ -370,15 +375,6 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     const gate = await readLocationSharingAvailability();
     if (!gate.trackingEnabled) return { ok: false, reason: 'disabled' };
 
-    let allowed = false;
-    try {
-      allowed = await latestConsentAllowsTracking(staffId);
-    } catch (err) {
-      console.error('[GPS] consent check failed', err);
-      return { ok: false, reason: 'unavailable' };
-    }
-    if (!allowed) return { ok: false, reason: 'consent' };
-
     try {
       onStatus?.('Waiting for location access…');
       const permitted = await requestLocationPermission();
@@ -387,6 +383,16 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       onStatus?.('Getting your location…');
       const { latitude, longitude } = await getPositionWithFallback();
       console.log('[GPS] Initial position:', latitude, longitude);
+
+      if (gate.logConsent) {
+        try {
+          await recordOsPermissionGrant(staffId);
+        } catch (err) {
+          console.error('[GPS] could not record location consent', err);
+          toast.error('Location is on, but sharing could not be saved for this job.');
+          return { ok: false, reason: 'unavailable' };
+        }
+      }
 
       // Insert or resume tracking record
       let recordId: string;

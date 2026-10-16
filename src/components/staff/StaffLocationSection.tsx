@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useLocationPermission } from '@/hooks/useLocationPermission';
+import { useLocationSharingGate } from '@/hooks/useLocationSharingGate';
+import { formatLocationConsentCopy } from '@/lib/locationConsent';
 import { buildLocationSectionModel, type LocationSectionModel } from '@/lib/locationPermission';
 
 const TONE_CLASS = {
@@ -19,12 +21,14 @@ export function StaffLocationSectionView({
   requesting,
   onTurnOn,
   onOpenSettings,
+  disclosure,
   id = 'staff-location',
 }: {
   model: LocationSectionModel;
   requesting: boolean;
   onTurnOn: () => void;
   onOpenSettings: () => void;
+  disclosure?: string | null;
   id?: string;
 }) {
   return (
@@ -45,6 +49,7 @@ export function StaffLocationSectionView({
         </div>
 
         {model.statusNote && <p className="text-sm text-muted-foreground">{model.statusNote}</p>}
+        {disclosure && <p className="text-sm text-muted-foreground">{disclosure}</p>}
 
         <div className="flex flex-col gap-2">
           {model.showTurnOn && (
@@ -90,9 +95,16 @@ export function StaffLocationSectionView({
   );
 }
 
-export function StaffLocationSection({ staffId }: { staffId: string }) {
+export function StaffLocationSection({
+  staffId,
+  businessName = null,
+}: {
+  staffId: string;
+  businessName?: string | null;
+}) {
   const [params, setParams] = useSearchParams();
   const loc = useLocationPermission(staffId);
+  const sharing = useLocationSharingGate();
   const model =
     loc.kind === 'checking'
       ? null
@@ -129,14 +141,9 @@ export function StaffLocationSection({ staffId }: { staffId: string }) {
   return (
     <StaffLocationSectionView
       requesting={loc.requesting}
-      model={{
-        ...model,
-        // The web browser prompt waits for the On My Way consent sheet.
-        showTurnOn: loc.platform === 'web' ? false : model.showTurnOn,
-        showCheckAgain: loc.platform === 'web' ? false : model.showCheckAgain,
-      }}
+      model={model}
+      disclosure={sharing.trackingEnabled ? formatLocationConsentCopy(businessName) : null}
       onTurnOn={() => {
-        if (loc.platform === 'web') return;
         void loc.request();
       }}
       onOpenSettings={loc.openSettings}

@@ -15,57 +15,37 @@ import {
 
 const IDS = { staffId: 'staff-1', organizationId: 'org-1', userId: 'user-1' };
 
-test('web shows the consent sheet before navigator.geolocation', () => {
+test('web On My Way asks the browser for location without a consent sheet', () => {
   const firstTap = webOnMyWaySteps({
     stage: 'before_choice',
     hasDecision: false,
     decision: null,
     osState: 'prompt',
   });
-  assert.deepEqual(firstTap, ['sheet']);
-  assert.equal(firstTap.includes('geolocation'), false);
-  assert.equal(geolocationFollowsSheet(firstTap), true);
+  assert.deepEqual(firstTap, ['geolocation', 'sms']);
+  assert.equal(firstTap.includes('sheet'), false);
 
-  const allow = webOnMyWaySteps({
-    stage: 'continue',
-    hasDecision: false,
-    decision: null,
-    osState: 'prompt',
+  const alreadyYes = webOnMyWaySteps({
+    stage: 'before_choice',
+    hasDecision: true,
+    decision: 'toggled_on',
+    osState: 'granted',
   });
-  assert.deepEqual(allow, ['sheet', 'consent_row', 'geolocation', 'sms']);
-  assert.equal(geolocationFollowsSheet(allow), true);
-  assert.ok(allow.indexOf('sheet') < allow.indexOf('geolocation'));
-
-  const decline = webOnMyWaySteps({
-    stage: 'not_now',
-    hasDecision: false,
-    decision: null,
-    osState: 'prompt',
-  });
-  assert.deepEqual(decline, ['sheet', 'consent_row', 'sms']);
-  assert.equal(decline.includes('geolocation'), false);
+  assert.deepEqual(alreadyYes, ['geolocation', 'sms']);
 
   const browserDenied = webOnMyWaySteps({
-    stage: 'continue',
+    stage: 'before_choice',
     hasDecision: false,
     decision: null,
     osState: 'denied',
   });
+  assert.deepEqual(browserDenied, ['sms']);
   assert.equal(browserDenied.includes('geolocation'), false);
   assert.equal(geolocationFollowsSheet(browserDenied), true);
-
-  const settingsAllow = webOnMyWaySteps({
-    stage: 'before_choice',
-    hasDecision: true,
-    decision: 'toggled_on',
-    osState: 'prompt',
-  });
-  assert.deepEqual(settingsAllow, ['sheet']);
-  assert.equal(settingsAllow.includes('geolocation'), false);
 });
 
-test('every web allow or decline writes a consent row with copy version v1', () => {
-  assert.equal(CONSENT_COPY_VERSION, 'v1');
+test('allow and decline rows still carry the current copy version', () => {
+  assert.equal(CONSENT_COPY_VERSION, 'v2');
   const decisions = [
     webOnMyWayConsentEvents({ stage: 'continue', osState: 'prompt' }),
     webOnMyWayConsentEvents({ stage: 'continue', osState: 'denied' }),
@@ -81,7 +61,7 @@ test('every web allow or decline writes a consent row with copy version v1', () 
   ];
   for (const events of decisions) {
     const rows = consentRowsForDecisions(events, IDS);
-    assert.equal(everyAllowOrDeclineIsCopyVersion(rows, 'v1'), true);
+    assert.equal(everyAllowOrDeclineIsCopyVersion(rows, 'v2'), true);
     assert.ok(rows.some((row) =>
       row.decision === 'granted' ||
       row.decision === 'declined' ||
@@ -95,14 +75,14 @@ test('every web allow or decline writes a consent row with copy version v1', () 
     IDS,
   );
   assert.deepEqual(allow.map((row) => row.decision), ['granted']);
-  assert.equal(allow[0].copy_version, 'v1');
+  assert.equal(allow[0].copy_version, 'v2');
 
   const decline = consentRowsForDecisions(
     webOnMyWayConsentEvents({ stage: 'not_now', osState: 'prompt' }),
     IDS,
   );
   assert.deepEqual(decline.map((row) => row.decision), ['declined']);
-  assert.equal(decline[0].copy_version, 'v1');
+  assert.equal(decline[0].copy_version, 'v2');
 });
 
 test('web sharing pauses while hidden or unloading and resumes only when visible', () => {
