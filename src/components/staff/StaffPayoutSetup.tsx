@@ -263,7 +263,7 @@ export function StaffPayoutSetup({ staffId, organizationId }: StaffPayoutSetupPr
         throw new Error(serverError);
       }
 
-      return (await withStaffCustomers(data)) as unknown as { url: string; accountId: string };
+      return data as { url: string; accountId: string };
     },
     onSuccess: (data) => {
       setOnboardingUrl(data.url);

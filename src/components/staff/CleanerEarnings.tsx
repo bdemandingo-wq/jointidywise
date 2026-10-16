@@ -142,7 +142,7 @@ export function CleanerEarnings({ staffId, staffName }: Props) {
         .lte('scheduled_at', wEnd.toISOString())
         .order('scheduled_at', { ascending: true });
       if (error) throw error;
-      return data as (Booking & { staff_id: string })[];
+      return (await withStaffCustomers(data)) as unknown as (Booking & { staff_id: string })[];
     },
     enabled: !!staffId,
   });
