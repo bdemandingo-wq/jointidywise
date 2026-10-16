@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { requireOrgAdmin } from "../_shared/requireOrgAdmin.ts";
+import { orgReconnectResponse } from "../_shared/get-org-stripe-settings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,6 +50,9 @@ const handler = async (req: Request): Promise<Response> => {
     const { data: secretRows } = await supabaseAdmin.rpc("get_org_stripe_secret", {
       p_org_id: organizationId,
     });
+    const blocked = await orgReconnectResponse(organizationId, corsHeaders);
+    if (blocked) return blocked;
+
     const orgSecret = Array.isArray(secretRows) ? secretRows[0] : secretRows;
 
     // STRICT ISOLATION: Only use organization-specific key, never fallback to global keys

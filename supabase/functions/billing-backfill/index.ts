@@ -10,6 +10,7 @@
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
+import { connectPlatformFromEnv, selectBackfillReadKey } from "../_shared/connect-platform.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -481,16 +482,16 @@ Deno.serve(async (req) => {
       return json({ error: `resource must be one of ${RESOURCES.join(", ")}` }, 400);
     }
 
-    // New billing account when STRIPE_BILLING_SECRET_KEY is set. Until then
-    // keep STRIPE_BACKFILL_READ_KEY, the restricted key this job already
-    // uses. STRIPE_SECRET_KEY is the last fallback. A restricted key on the
-    // new account can be stored as STRIPE_BILLING_SECRET_KEY.
-    const key = (
-      Deno.env.get("STRIPE_BILLING_SECRET_KEY")
-      || Deno.env.get("STRIPE_BACKFILL_READ_KEY")
-      || Deno.env.get("STRIPE_SECRET_KEY")
-      || ""
-    ).trim();
+    // Prefer STRIPE_BILLING_SECRET_KEY, then the restricted read key this job
+    // already uses. STRIPE_SECRET_KEY is a fallback only while the Connect
+    // platform switch is off, so a Saas Connect secret cannot backfill billing.
+    const platform = connectPlatformFromEnv();
+    const key = selectBackfillReadKey({
+      billingSecret: Deno.env.get("STRIPE_BILLING_SECRET_KEY"),
+      backfillReadKey: Deno.env.get("STRIPE_BACKFILL_READ_KEY"),
+      connectSecret: Deno.env.get("STRIPE_SECRET_KEY"),
+      switched: platform.switched,
+    });
     if (!key) return json({ error: "STRIPE_BILLING_SECRET_KEY is not set" }, 500);
     const stripe = new Stripe(key, { apiVersion: "2025-08-27.basil" });
 

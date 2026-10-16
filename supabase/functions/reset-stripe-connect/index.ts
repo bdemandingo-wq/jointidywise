@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { connectPlatformFromEnv, platformAccountColumnReady, staffConnectNeedsReconnect, writeRowRetryWithoutPlatform } from "../_shared/connect-platform.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -98,14 +99,23 @@ serve(async (req: Request) => {
     }
 
     const stripe = new Stripe(platformStripeKey, { apiVersion: "2025-08-27.basil" });
+    const platform = connectPlatformFromEnv();
+    const stalePlatform = staffConnectNeedsReconnect(
+      existingAccount.platform_account_id,
+      existingAccount.stripe_account_id,
+      platform,
+    );
 
-    // Check current account status
+    // Check current account status. A stale platform account is not on this
+    // Stripe key, so do not retrieve it or read its balance.
     let oldAccount;
-    try {
-      oldAccount = await stripe.accounts.retrieve(existingAccount.stripe_account_id);
-    } catch (err: any) {
-      console.error("[reset-stripe-connect] Failed to retrieve old account:", err.message);
-      oldAccount = null;
+    if (!stalePlatform) {
+      try {
+        oldAccount = await stripe.accounts.retrieve(existingAccount.stripe_account_id);
+      } catch (err: any) {
+        console.error("[reset-stripe-connect] Failed to retrieve old account:", err.message);
+        oldAccount = null;
+      }
     }
 
     // Block reset if onboarding is in progress (details submitted but not yet verified)
@@ -133,6 +143,19 @@ serve(async (req: Request) => {
     }
 
     const previousAccountId = existingAccount.stripe_account_id;
+    const columnReady = await platformAccountColumnReady(() =>
+      supabase.from("staff_payout_accounts").select("platform_account_id").limit(1)
+    );
+    if ((platform.switched || platform.platformAccountId) && !columnReady) {
+      return new Response(JSON.stringify({
+        error: "Apply the platform_account_id migration before resetting payout accounts. Nothing was created.",
+      }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    if (platform.switched && !platform.platformAccountId) {
+      return new Response(JSON.stringify({
+        error: "STRIPE_PLATFORM_ACCOUNT_ID is not set. Nothing was created.",
+      }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // Get staff info for the new account
     const { data: staffInfo } = await supabase
@@ -163,10 +186,15 @@ serve(async (req: Request) => {
     // payouts would keep silently routing to the reset-away-from
     // account. Fail here rather than send them an onboarding link for
     // an account our system doesn't actually have linked.
-    const { error: payoutUpdateError } = await supabase
-      .from("staff_payout_accounts")
-      .update({
+    const { error: payoutUpdateError } = await writeRowRetryWithoutPlatform(
+      (row) => supabase
+        .from("staff_payout_accounts")
+        .update(row)
+        .eq("staff_id", staffId)
+        .eq("organization_id", organizationId),
+      {
         stripe_account_id: newAccount.id,
+        platform_account_id: platform.platformAccountId,
         account_status: "onboarding",
         payouts_enabled: false,
         charges_enabled: false,
@@ -180,9 +208,8 @@ serve(async (req: Request) => {
         onboarding_url: null,
         last_webhook_at: null,
         updated_at: new Date().toISOString(),
-      })
-      .eq("staff_id", staffId)
-      .eq("organization_id", organizationId);
+      },
+    );
 
     if (payoutUpdateError) {
       console.error(

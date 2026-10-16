@@ -21,7 +21,8 @@ export function embeddedCheckoutParams(origin: string): {
 
 /**
  * Billing-account publishable key. Public by design.
- * STRIPE_BILLING_PUBLISHABLE_KEY, then STRIPE_PUBLISHABLE_KEY.
+ * STRIPE_BILLING_PUBLISHABLE_KEY, then STRIPE_PUBLISHABLE_KEY only while
+ * STRIPE_CONNECT_PLATFORM_SWITCHED is off.
  * Must be the same Stripe account as the billing secret.
  */
 export function readPublishableKey(): string | null {

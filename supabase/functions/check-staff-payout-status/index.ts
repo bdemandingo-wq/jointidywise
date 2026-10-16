@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { sendStaffSms, PORTAL_URL, APP_URL, FORGOT_URL } from "../_shared/staff-notify.ts";
+import { NEEDS_RECONNECT, connectPlatformFromEnv, staffConnectNeedsReconnect } from "../_shared/connect-platform.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -115,6 +116,25 @@ serve(async (req: Request) => {
         status: "not_started",
         payoutsEnabled: false,
         detailsSubmitted: false,
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (staffConnectNeedsReconnect(
+      payoutAccount.platform_account_id,
+      payoutAccount.stripe_account_id,
+      connectPlatformFromEnv(),
+    )) {
+      return new Response(JSON.stringify({
+        status: NEEDS_RECONNECT,
+        needs_reconnect: true,
+        payoutsEnabled: false,
+        chargesEnabled: false,
+        detailsSubmitted: false,
+        bankLast4: null,
+        accountHolderName: payoutAccount.account_holder_name ?? null,
       }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

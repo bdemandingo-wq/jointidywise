@@ -51,6 +51,8 @@ import { OrgTimestamp } from '@/components/OrgTimestamp';
 
 interface ConnectionStatus {
   connected: boolean;
+  needs_reconnect?: boolean;
+  status?: string;
   legacy?: boolean;
   account_id?: string;
   email?: string;
@@ -406,7 +408,29 @@ export default function PaymentIntegrationPage() {
           </Card>
         )}
 
-        {connectionStatus?.connected ? (
+        {(connectionStatus?.needs_reconnect || connectionStatus?.status === "needs_reconnect") ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Stripe</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isOwner ? (
+                <Button
+                  onClick={handleConnect}
+                  disabled={isConnecting}
+                  className="bg-[#635BFF] hover:bg-[#5851DB] text-white gap-2"
+                >
+                  {isConnecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                  Reconnect Stripe
+                </Button>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Ask the workspace owner to reconnect Stripe.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        ) : connectionStatus?.connected ? (
           <>
             <Card className="border-success/30 bg-success/5">
               <CardContent className="pt-6">

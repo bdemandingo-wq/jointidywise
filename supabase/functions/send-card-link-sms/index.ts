@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { requireOrgAdmin } from "../_shared/requireOrgAdmin.ts";
+import { orgReconnectResponse } from "../_shared/get-org-stripe-settings.ts";
 
 // Hash an email for audit logs (don't store plaintext PII in logs)
 async function hashEmail(email: string | null | undefined): Promise<string | null> {
@@ -173,6 +174,9 @@ const handler = async (req: Request): Promise<Response> => {
     const { data: secretRows } = await supabase.rpc("get_org_stripe_secret", {
       p_org_id: organizationId,
     });
+    const blocked = await orgReconnectResponse(organizationId, corsHeaders);
+    if (blocked) return blocked;
+
     const orgSecret = Array.isArray(secretRows) ? secretRows[0] : secretRows;
     const stripeSecretKey: string | null = orgSecret?.stripe_access_token || orgSecret?.stripe_secret_key || null;
 

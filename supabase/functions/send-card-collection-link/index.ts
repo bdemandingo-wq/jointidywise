@@ -4,6 +4,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { requireOrgAdmin } from "../_shared/requireOrgAdmin.ts";
 import { sendOrgEmail } from "../_shared/send-org-email.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { orgReconnectResponse } from "../_shared/get-org-stripe-settings.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -144,6 +145,9 @@ const handler = async (req: Request): Promise<Response> => {
 
     // Stripe setup (shared across channels)
     const { data: secretRows } = await supabase.rpc("get_org_stripe_secret", { p_org_id: organizationId });
+    const blocked = await orgReconnectResponse(organizationId, corsHeaders);
+    if (blocked) return blocked;
+
     const orgSecret = Array.isArray(secretRows) ? secretRows[0] : secretRows;
     const stripeSecretKey: string | null = orgSecret?.stripe_access_token || orgSecret?.stripe_secret_key || null;
     if (!stripeSecretKey) {

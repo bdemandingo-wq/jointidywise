@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { orgReconnectResponse } from "../_shared/get-org-stripe-settings.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -77,6 +78,9 @@ const handler = async (req: Request): Promise<Response> => {
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    const blocked = await orgReconnectResponse(data.organizationId, corsHeaders);
+    if (blocked) return blocked;
 
     const orgSecret = Array.isArray(secretRows) ? secretRows[0] : secretRows;
     const stripeApiKey: string | null = orgSecret?.stripe_access_token || orgSecret?.stripe_secret_key || null;

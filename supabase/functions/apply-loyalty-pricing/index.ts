@@ -5,9 +5,9 @@
 // does not collect a payment for the current period. This function never
 // creates a charge, invoice, checkout session, or PaymentIntent.
 //
-// STRIPE_BILLING_SECRET_KEY (or STRIPE_SECRET_KEY until that is set) may be
-// live. That is the key the renewal coupon has to use. Do not point a
-// test-card script at this function.
+// STRIPE_BILLING_SECRET_KEY may be live. STRIPE_SECRET_KEY is a fallback only
+// until STRIPE_CONNECT_PLATFORM_SWITCHED is on. That billing key is the one
+// the renewal coupon has to use. Do not point a test-card script at this function.
 // Set LOYALTY_PRICING_DRY_RUN=1 to write the clock and skip the coupon update.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";

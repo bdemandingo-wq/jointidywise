@@ -1,16 +1,28 @@
 import Stripe from "https://esm.sh/stripe@18.5.0";
+import { connectPlatformFromEnv, selectBillingPublishableKey, selectBillingSecret } from "./connect-platform.ts";
 
 /**
  * TidyWise's own Stripe account: subscriptions, lifetime, plan changes,
  * loyalty, AI credits, ad management, winback coupons, and the billing ledger.
  *
- * STRIPE_SECRET_KEY stays the Connect platform key (cleaning-business
- * payouts, Connect OAuth, connected-account disputes, staff payouts,
- * STRIPE_CLIENT_ID). Do not read that key here except as the fallback
- * while STRIPE_BILLING_SECRET_KEY is still unset.
+ * Prefer the explicit STRIPE_BILLING_* variables. STRIPE_SECRET_KEY is the
+ * Connect platform key (Jointidywise Saas after the move: cleaning-business
+ * OAuth, Express payouts, STRIPE_CLIENT_ID). It is a billing fallback only
+ * while STRIPE_CONNECT_PLATFORM_SWITCHED is off.
+ *
+ * Before that flag is turned on, and before STRIPE_SECRET_KEY is swapped,
+ * set STRIPE_BILLING_SECRET_KEY, STRIPE_BILLING_PUBLISHABLE_KEY, and
+ * STRIPE_BILLING_WEBHOOK_SECRET to the existing billing account. After the
+ * flag is on, a missing billing key returns empty so checkout and webhooks
+ * do not follow the new Connect secret.
  */
 export function billingSecretKey(): string {
-  return (Deno.env.get("STRIPE_BILLING_SECRET_KEY") || Deno.env.get("STRIPE_SECRET_KEY") || "").trim();
+  const config = connectPlatformFromEnv();
+  return selectBillingSecret({
+    billingSecret: Deno.env.get("STRIPE_BILLING_SECRET_KEY"),
+    connectSecret: Deno.env.get("STRIPE_SECRET_KEY"),
+    switched: config.switched,
+  });
 }
 
 /** Connect platform secret. Never the billing account. */
@@ -20,9 +32,12 @@ export function connectSecretKey(): string {
 
 /** Publishable key for embedded checkout. Must be the same Stripe account as billingSecretKey(). */
 export function billingPublishableKey(): string | null {
-  const key = (Deno.env.get("STRIPE_BILLING_PUBLISHABLE_KEY") || Deno.env.get("STRIPE_PUBLISHABLE_KEY") || "").trim();
-  if (key.startsWith("pk_test_") || key.startsWith("pk_live_")) return key;
-  return null;
+  const config = connectPlatformFromEnv();
+  return selectBillingPublishableKey({
+    billingPublishable: Deno.env.get("STRIPE_BILLING_PUBLISHABLE_KEY"),
+    connectPublishable: Deno.env.get("STRIPE_PUBLISHABLE_KEY"),
+    switched: config.switched,
+  });
 }
 
 export const BILLING_KEY_MISSING = "STRIPE_BILLING_SECRET_KEY is not set";
@@ -62,9 +77,15 @@ export async function verifyStripeWebhook(
     attempts.push({ secret: connectWebhook, key: connectSecretKey(), account: "connect" });
   }
   if (billingWebhook && billingWebhook !== connectWebhook) {
-    attempts.push({ secret: billingWebhook, key: billingSecretKey(), account: "billing" });
+    const key = billingSecretKey();
+    // An empty key means the switch is on and STRIPE_BILLING_SECRET_KEY was
+    // not set. Do not verify billing events with a placeholder client.
+    if (key) attempts.push({ secret: billingWebhook, key, account: "billing" });
   }
   if (attempts.length === 0) {
+    if (billingWebhook && !billingSecretKey()) {
+      throw new Error("STRIPE_BILLING_SECRET_KEY is not set");
+    }
     throw new Error("Webhook secret not configured");
   }
 
