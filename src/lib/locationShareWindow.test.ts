@@ -123,8 +123,14 @@ test('stale On My Way rows are closed by pg_cron, and the customer point goes st
   assert.equal(failureSlice.includes("status: 'sent'"), false);
   assert.match(arrival, /nextMarkSentStep/);
   assert.match(arrival, /releaseArrivalClaimAfterError\(textDelivered\)/);
+  assert.match(arrival, /const supabase = createArrivalClient/);
+  assert.match(arrival, /supabaseForError = supabase/);
+  assert.match(arrival, /OPENPHONE_TIMEOUT_MS = 20_000/);
+  assert.match(arrival, /new AbortController\(\)/);
+  assert.match(arrival, /signal: ctrl\.signal/);
+  assert.equal(arrival.includes('let supabase: ArrivalDb | null'), false);
   const catchAt = arrival.indexOf('} catch (err: unknown)');
   const catchSlice = arrival.slice(catchAt);
-  assert.match(catchSlice, /textDelivered && supabase/);
+  assert.match(catchSlice, /textDelivered && supabaseForError/);
   assert.equal(catchSlice.includes('await releaseClaim()') && catchSlice.indexOf('releaseArrivalClaimAfterError(textDelivered)') < catchSlice.indexOf('await releaseClaim()'), true);
 });

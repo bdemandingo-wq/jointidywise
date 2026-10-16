@@ -18,7 +18,8 @@ interface ArrivalRequest {
   staffId: string;
 }
 
-type ArrivalDb = ReturnType<typeof createClient>;
+const createArrivalClient = (url: string, key: string) => createClient(url, key);
+type ArrivalDb = ReturnType<typeof createArrivalClient>;
 
 /** Claim the reminder row before any text. 23505 means another caller owns it. */
 async function claimArrivalSend(
@@ -123,18 +124,22 @@ async function releaseArrivalClaim(supabase: ArrivalDb, bookingId: string, staff
   if (error) console.error(`[send-arrival-sms] claim release failed for booking ${bookingId}:`, error);
 }
 
+/** OpenPhone must fail inside the 90s claim window so a hung request cannot be taken over mid-send. */
+const OPENPHONE_TIMEOUT_MS = 20_000;
+
 const handler = async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   let releaseClaim: (() => Promise<void>) | null = null;
   let textDelivered = false;
-  let supabase: ArrivalDb | null = null;
+  let supabaseForError: ArrivalDb | null = null;
   let bookingId = '';
   let staffId = '';
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createArrivalClient(supabaseUrl, supabaseServiceKey);
+    supabaseForError = supabase;
 
     const body = (await req.json()) as ArrivalRequest;
     bookingId = body.bookingId;
@@ -264,24 +269,39 @@ const handler = async (req: Request): Promise<Response> => {
     const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
     const sendSms = async (to: string, content: string, label: string) => {
-      const sent = await sendOpenPhoneMessage({
-        supabase,
-        organizationId: booking.organization_id,
-        to,
-        content,
-        from: phoneNumberId,
-        apiKey: authHeader,
-        tag: `send-arrival-sms:${label}`,
-      });
-      if (sent.skipped) return "skipped" as const;
-      if (!sent.response.ok) {
-        console.error(`[send-arrival-sms] ${label} SMS failed:`, sent.response.status, await sent.response.text());
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), OPENPHONE_TIMEOUT_MS);
+      try {
+        const sent = await sendOpenPhoneMessage({
+          supabase,
+          organizationId: booking.organization_id,
+          to,
+          content,
+          from: phoneNumberId,
+          apiKey: authHeader,
+          tag: `send-arrival-sms:${label}`,
+          fetchImpl: async (input, init) => {
+            const res = await fetch(input, { ...init, signal: ctrl.signal });
+            const body = await res.text();
+            return { ok: res.ok, status: res.status, text: async () => body };
+          },
+        });
+        if (sent.skipped) return "skipped" as const;
+        if (!sent.response.ok) {
+          console.error(`[send-arrival-sms] ${label} SMS failed:`, sent.response.status, await sent.response.text());
+          openPhoneSends.push(false);
+          return "failed" as const;
+        }
+        textDelivered = true;
+        openPhoneSends.push(true);
+        return "sent" as const;
+      } catch (err) {
+        console.error(`[send-arrival-sms] ${label} SMS failed:`, err);
         openPhoneSends.push(false);
         return "failed" as const;
+      } finally {
+        clearTimeout(timer);
       }
-      textDelivered = true;
-      openPhoneSends.push(true);
-      return "sent" as const;
     };
 
     if (notifyClient && customer?.phone && copy.customerSms) {
@@ -368,8 +388,8 @@ const handler = async (req: Request): Promise<Response> => {
       },
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err: unknown) {
-    if (textDelivered && supabase && bookingId && staffId) {
-      try { await markArrivalClaimSent(supabase, bookingId, staffId); } catch { /* logged inside the retry */ }
+    if (textDelivered && supabaseForError && bookingId && staffId) {
+      try { await markArrivalClaimSent(supabaseForError, bookingId, staffId); } catch { /* logged inside the retry */ }
     } else if (releaseClaim && releaseArrivalClaimAfterError(textDelivered)) {
       try { await releaseClaim(); } catch { /* the response below is the failure */ }
     }
