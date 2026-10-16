@@ -288,7 +288,10 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
         console.error('[location-consent] could not read the latest decision', err);
       }
       if (needsDisclosure) {
-        const shown = await confirmDialog(LOCATION_CONSENT_COPY, LOCATION_CONSENT_HEADING);
+        const shown = await confirmDialog(LOCATION_CONSENT_COPY, LOCATION_CONSENT_HEADING, {
+          confirmLabel: 'Allow',
+          destructive: false,
+        });
         if (!shown) {
           await sendOnTheWay(false);
           return;

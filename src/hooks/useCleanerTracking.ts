@@ -111,6 +111,11 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     return runArrivalAttempt(arrivedRef, {
       onClaimed: () => setHasArrived(true),
       onReleased: () => setHasArrived(false),
+      onSendFailed: () => {
+        if (source !== 'manual') {
+          toast.error('Could not send the arrival notice. Location sharing is still on.');
+        }
+      },
       readStatus: async () => {
         const { data: bookingRow, error: statusError } = await supabase
           .from('bookings')
@@ -440,10 +445,10 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
         } catch { /* non-critical */ }
       }
 
-      void checkArrival(latitude, longitude);
       await startWatch();
       void acquireWakeLock();
       setIsTracking(true);
+      void checkArrival(latitude, longitude);
 
       return { ok: true, trackingToken, etaMinutes, latitude, longitude };
     } catch (err: unknown) {

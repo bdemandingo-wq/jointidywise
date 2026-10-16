@@ -18,6 +18,7 @@ test('two concurrent updates send arrival once', async () => {
   const actions = {
     onClaimed: () => {},
     onReleased: () => {},
+    onSendFailed: () => {},
     readStatus: () => gate.promise,
     stopWatch: async () => {
       stops += 1;
@@ -50,6 +51,7 @@ test('a finished job stops the watch once and does not send again', async () => 
   const actions = {
     onClaimed: () => {},
     onReleased: () => {},
+    onSendFailed: () => {},
     readStatus: () => gate.promise,
     stopWatch: async () => {
       stops += 1;
@@ -84,6 +86,7 @@ test('a failed status read still sends, and only the first of two updates does',
   const actions = {
     onClaimed: () => {},
     onReleased: () => {},
+    onSendFailed: () => {},
     readStatus: () => gate.promise,
     stopWatch: async () => {},
     send: async (): Promise<ArrivalSendResult> => {
@@ -99,4 +102,47 @@ test('a failed status read still sends, and only the first of two updates does',
   gate.resolve({ status: null, failed: true });
   await pending;
   assert.equal(sends, 1);
+});
+
+test('a failed send leaves the watch running', async () => {
+  const claim = { current: false };
+  let watchRunning = true;
+  let failedNotices = 0;
+  const result = await runArrivalAttempt(claim, {
+    onClaimed: () => {},
+    onReleased: () => {},
+    onSendFailed: () => {
+      failedNotices += 1;
+    },
+    readStatus: async () => ({ status: 'confirmed', failed: false }),
+    stopWatch: async () => {
+      watchRunning = false;
+    },
+    send: async () => ({ data: null, error: { message: 'sms failed' } }),
+  });
+
+  assert.ok(result.error);
+  assert.equal(watchRunning, true);
+  assert.equal(claim.current, false);
+  assert.equal(failedNotices, 1);
+});
+
+test('a successful send stops the watch after the notice', async () => {
+  const events: string[] = [];
+  await runArrivalAttempt({ current: false }, {
+    onClaimed: () => {},
+    onReleased: () => {},
+    onSendFailed: () => {
+      events.push('failed');
+    },
+    readStatus: async () => ({ status: 'in_progress', failed: false }),
+    stopWatch: async () => {
+      events.push('stop');
+    },
+    send: async () => {
+      events.push('send');
+      return { data: { success: true }, error: null };
+    },
+  });
+  assert.deepEqual(events, ['send', 'stop']);
 });

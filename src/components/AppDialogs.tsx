@@ -46,14 +46,18 @@ function enqueue(pending: Pending): void {
   else pending.resolve(undefined);
 }
 
-export function confirmDialog(message: string, title = "Are you sure?"): Promise<boolean> {
+export function confirmDialog(
+  message: string,
+  title = "Are you sure?",
+  options?: { confirmLabel?: string; destructive?: boolean },
+): Promise<boolean> {
   return new Promise((resolve) => {
     enqueue({
       kind: "confirm",
       title,
       description: message,
-      confirmLabel: "Confirm",
-      destructive: true,
+      confirmLabel: options?.confirmLabel ?? "Confirm",
+      destructive: options?.destructive ?? true,
       resolve: (value) => resolve(value === true),
     });
   });
