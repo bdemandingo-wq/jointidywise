@@ -77,7 +77,7 @@ test('iOS denied model has the settings button and three plain steps', () => {
   );
   assert.equal(
     model.whyMore,
-    "We share your location with your business and its customer only while you're On My Way, and stop when you arrive. If location is on, we also record it when you clock in or out and take job photos. Admins may see your last shared location until the job's start time. You can turn it off anytime in Settings.",
+    "We share your location with your business and its customer only while you're On My Way, and stop when you arrive. If location is on, we also record it when you clock in or out and take job photos. Admins may see your last shared location until the job's start time. Location data is deleted after 30 days. You can turn it off anytime in Settings.",
   );
 });
 
