@@ -417,6 +417,26 @@ test("OpenPhone does not retry when the raw key is accepted", async () => {
   assert.deepEqual(auths, ["op-key"]);
 });
 
+test("an injected skip is not reported as a delivery failure", async () => {
+  const { deps, email } = harness(context({
+    matrix: { "booking.new": { sms: true } },
+    operatorIosTokens: 0,
+  }), { push: false });
+  deps.sendSms = async (args) => {
+    assert.equal(args.organizationId, org.organizationId);
+    assert.equal(args.supabase, org.supabase);
+    return { sent: 0, skipped: true };
+  };
+  const result = await notifyOwner(org, "booking.new", {
+    title: "New booking",
+    body: "Alex booked a clean",
+  }, deps);
+  assert.equal(result.sms, false);
+  assert.equal(result.smsSkippedReason, "Number opted out");
+  assert.equal(result.email, true);
+  assert.equal(email.length, 1);
+});
+
 test("an opted-out owner phone is not texted", async () => {
   let fetches = 0;
   globalThis.fetch = async () => {

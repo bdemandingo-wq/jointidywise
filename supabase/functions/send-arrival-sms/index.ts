@@ -146,17 +146,21 @@ const handler = async (req: Request): Promise<Response> => {
         apiKey: authHeader,
         tag: `send-arrival-sms:${label}`,
       });
-      if (sent.skipped) return false;
+      if (sent.skipped) return "skipped" as const;
       if (!sent.response.ok) {
         console.error(`[send-arrival-sms] ${label} SMS failed:`, sent.response.status, await sent.response.text());
-        return false;
+        return "failed" as const;
       }
-      return true;
+      return "sent" as const;
     };
 
     if (notifyClient && customer?.phone && copy.customerSms) {
       const msg = copy.customerSms;
-      clientSent = await sendSms(formatPhoneNumber(customer.phone), msg, 'customer');
+      const outcome = await sendSms(formatPhoneNumber(customer.phone), msg, 'customer');
+      if (outcome === "sent") clientSent = true;
+      else if (outcome === "skipped" && !smsSkippedReason) {
+        smsSkippedReason = "This number opted out by texting STOP";
+      }
     }
     }
 

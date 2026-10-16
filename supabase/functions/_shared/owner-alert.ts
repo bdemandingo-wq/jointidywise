@@ -9,7 +9,6 @@ import { parseAlertPhones } from "./alertPhones.ts";
 import { escapeHtml } from "./escapeHtml.ts";
 import { notifyOffice } from "./office-notify.ts";
 import { ownerChannelMasterOn } from "./owner-notify-gates.ts";
-import { sendOpenPhoneMessage, type SmsSuppressionDb } from "./send-sms.ts";
 
 const APP_ORIGIN = "https://jointidywise.com";
 
@@ -83,7 +82,7 @@ export interface OwnerAlertDeps {
     apiKey: string;
     organizationId: string;
     supabase: OwnerAlertDb;
-  }) => Promise<{ sent: number; optedOut?: number }>;
+  }) => Promise<{ sent: number; skipped?: boolean }>;
   sendEmail: (args: {
     organizationId: string;
     to: string;
@@ -374,14 +373,18 @@ async function defaultSendSms(args: {
   apiKey: string;
   organizationId: string;
   supabase: OwnerAlertDb;
-}): Promise<{ sent: number; optedOut: number }> {
+}): Promise<{ sent: number; skipped: boolean }> {
+  // Loaded only when a text is sent. A static import pulls marketing-guard's
+  // esm.sh type into every node:test that loads this file.
+  const { sendOpenPhoneMessage } = await import("./send-sms.ts");
   let sent = 0;
   let optedOut = 0;
+  let failed = 0;
   for (const to of args.phones) {
     // Bearer retry on 401 stays in sendOpenPhoneMessage. This number still
     // goes through the org opt-out check; it is the business's own phone.
     const result = await sendOpenPhoneMessage({
-      supabase: args.supabase as unknown as SmsSuppressionDb,
+      supabase: args.supabase as never,
       organizationId: args.organizationId,
       to,
       content: args.content,
@@ -391,16 +394,17 @@ async function defaultSendSms(args: {
     });
     if (result.skipped) {
       optedOut += 1;
-      console.error("[notifyOwner] SMS skipped opted_out", to);
+      console.log("[notifyOwner] SMS skipped opted_out", to);
       continue;
     }
     if (result.response.ok) {
       sent += 1;
     } else {
+      failed += 1;
       console.error("[notifyOwner] SMS failed", result.response.status, await result.response.text());
     }
   }
-  return { sent, optedOut };
+  return { sent, skipped: sent === 0 && failed === 0 && optedOut > 0 };
 }
 
 async function defaultSendEmail(args: {
@@ -574,9 +578,11 @@ export async function notifyOwner(
           organizationId: org.organizationId,
           supabase: org.supabase,
         });
-        sms = sent.sent > 0;
-        if (!sms) {
-          smsSkippedReason = (sent.optedOut ?? 0) > 0 ? "Number opted out" : "SMS delivery failed";
+        if (sent.skipped) {
+          smsSkippedReason = "Number opted out";
+        } else {
+          sms = sent.sent > 0;
+          if (!sms) smsSkippedReason = "SMS delivery failed";
         }
       } catch (err) {
         console.error("[notifyOwner] SMS failed:", failureText(err));
