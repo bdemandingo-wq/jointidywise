@@ -74,7 +74,7 @@ export default function StaffJobDetailPage() {
         .eq('id', id!)
         .maybeSingle();
       if (error) throw error;
-      return data;
+      return withStaffCustomer(data);
     },
   });
 

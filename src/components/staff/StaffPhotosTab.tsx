@@ -170,7 +170,12 @@ export function StaffPhotosTab({ staffId, organizationId }: StaffPhotosTabProps)
       }
       if (result.error) throw result.error;
 
-      return ((result.data || []) as unknown as PhotoRecord[]).filter((item) =>
+      const rows = (result.data || []) as unknown as (PhotoRecord & { booking: (PhotoRecord['booking'] & { customer_id?: string | null }) | null })[];
+      const custMap = await fetchStaffCustomers(rows.map((r) => r.booking?.customer_id));
+      for (const r of rows) {
+        if (r.booking) (r.booking as { customer?: unknown }).customer = (r.booking.customer_id && custMap[r.booking.customer_id]) || null;
+      }
+      return (rows as PhotoRecord[]).filter((item) =>
         photoVisibleToOrg(item.organization_id, item.booking?.organization_id, organizationId),
       );
     },
