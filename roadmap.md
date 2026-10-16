@@ -30,3 +30,5 @@
 - [x] Sync to e5424ab (#45 trial 30 days, #46 sitemap build fix); deploy check-subscription + provision-trial-org (live preflight 401s, not invoked); build OK, tsc OK
 - [x] check-subscription: 8s deadline on both Stripe calls, stripe_timeout JSON instead of 504; deployed live (source sha f3faf7ed2b22) + unit spec added
 - [x] score-compute: AI SDK import ai@5 -> ai@4 to match @ai-sdk/anthropic@1 (provider hands back a v1 model); deno check clean, deployed live (source sha 7bae1d995eda), verified by preflight 200 + empty POST 400 before any AI/DB work
+- [x] score-compute: in-memory IP rate limiter (10/3600s sliding window, 429 + Retry-After) added and deployed (source sha 689bb8443403); unit test passes. CAVEAT: live bursts never 429 — platform boots a fresh function instance per request (~48 boots for a 40-call burst), so in-memory counters reset each call. enforceAiRateLimit (DB-backed) can't take IPs (scope_id is uuid, scope restricted to org/user). Working fix would be a direct upsert to public.ai_rate_limits with scope 'ip' + hashed-IP uuid from the function — awaiting user go-ahead.
+

@@ -289,8 +289,53 @@ Tasks:
   return object;
 }
 
+// ---- In-memory IP rate limiter: 10 requests / 3600s sliding window ----
+// enforceAiRateLimit (../_shared/ai-rate-limit.ts) doesn't fit here: this
+// function is publicly callable (verify_jwt=false) with no org or user
+// context, and that helper's only scopes are org and user. Note the Map is
+// per-instance and resets on cold start — it blunts burst abuse; the
+// per-company cooldown and 7-day cache below remain the cost backstop.
+const RATE_LIMIT_MAX = 10;
+const RATE_LIMIT_WINDOW_MS = 3600 * 1000;
+const ipHits = new Map<string, number[]>();
+
+function rateLimit(ip: string): { allowed: boolean; retryAfterSeconds: number } {
+  const now = Date.now();
+  const hits = (ipHits.get(ip) ?? []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
+  if (hits.length >= RATE_LIMIT_MAX) {
+    ipHits.set(ip, hits); // drop expired entries so the window truly slides
+    const retryAfterSeconds = Math.max(1, Math.ceil((RATE_LIMIT_WINDOW_MS - (now - hits[0])) / 1000));
+    return { allowed: false, retryAfterSeconds };
+  }
+  hits.push(now);
+  ipHits.set(ip, hits);
+  // Opportunistic sweep so the map can't grow unbounded across IPs.
+  if (ipHits.size > 10000) {
+    for (const [key, times] of ipHits) {
+      if (times.every((t) => now - t >= RATE_LIMIT_WINDOW_MS)) ipHits.delete(key);
+    }
+  }
+  return { allowed: true, retryAfterSeconds: 0 };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  const ip = (req.headers.get("x-forwarded-for") ?? "unknown").split(",")[0].trim() || "unknown";
+  const rl = rateLimit(ip);
+  if (!rl.allowed) {
+    return new Response(
+      JSON.stringify({ error: "rate_limited", retryAfterSeconds: rl.retryAfterSeconds }),
+      {
+        status: 429,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+          "Retry-After": String(rl.retryAfterSeconds),
+        },
+      },
+    );
+  }
 
   try {
     const { company_id, force = false } = await req.json();
