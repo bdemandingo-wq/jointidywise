@@ -4,9 +4,7 @@ import {
   clearSmsSuppression,
   recordSmsSuppression,
   sendOpenPhoneMessage,
-  type SmsQuery,
   type SmsSendPurpose,
-  type SmsTable,
 } from "./send-sms.ts";
 
 const ORG = "org-1";
@@ -21,6 +19,7 @@ interface Row {
   phone: string;
   marketing_status: string | null;
   organization_id: string;
+  opted_out_method?: string | null;
 }
 
 interface Suppression {
@@ -59,8 +58,9 @@ function mockDb(opts: {
   };
 
   const supabase = {
-    from(table: string): SmsTable {
+    from(table: string) {
       const filters: Record<string, string> = {};
+      let phoneIn: string[] | null = null;
       let op: "select" | "delete" = "select";
       const api = {
         select() {
@@ -71,8 +71,13 @@ function mockDb(opts: {
           filters[column] = value;
           return api;
         },
+        in(column: string, values: string[]) {
+          if (column === "phone") phoneIn = values;
+          return api;
+        },
         not() { return api; },
         order() { return api; },
+        limit() { return api; },
         range() { return api; },
         delete() {
           op = "delete";
@@ -122,15 +127,17 @@ function mockDb(opts: {
             if (opts.customersError) {
               return Promise.resolve({ data: null, error: { message: opts.customersError } }).then(onfulfilled);
             }
-            const rows = (opts.customers ?? []).filter((row) =>
-              row.organization_id === filters.organization_id
-            );
+            const rows = (opts.customers ?? []).filter((row) => {
+              if (row.organization_id !== filters.organization_id) return false;
+              if (phoneIn && !phoneIn.includes(row.phone)) return false;
+              return true;
+            });
             return Promise.resolve({ data: rows, error: null }).then(onfulfilled);
           }
           return Promise.resolve({ data: null, error: null }).then(onfulfilled);
         },
       };
-      return api as SmsQuery & SmsTable;
+      return api;
     },
   };
 
@@ -146,12 +153,13 @@ const base = {
   tag: "unit",
 };
 
-test("an opted-out customer phone is not sent", async () => {
+test("an SMS STOP on the customer row is not sent", async () => {
   const db = mockDb({
     customers: [{
       id: "c1",
       phone: "(813) 555-0100",
       marketing_status: "opted_out",
+      opted_out_method: "sms_stop",
       organization_id: ORG,
     }],
   });
@@ -195,12 +203,13 @@ test("the same number in another org is still sent", async () => {
   assert.equal(db.logs.length, 0);
 });
 
-test("a differently formatted opted-out number blocks a transactional text", async () => {
+test("a differently formatted SMS STOP blocks a transactional text", async () => {
   const db = mockDb({
     customers: [{
       id: "c1",
       phone: "813-555-0100",
       marketing_status: "opted_out",
+      opted_out_method: "sms_stop",
       organization_id: ORG,
     }],
   });
@@ -215,7 +224,7 @@ test("a differently formatted opted-out number blocks a transactional text", asy
   assert.equal(db.fetches.length, 0);
 });
 
-test("one opted-out record blocks the number even when another record is still opted in", async () => {
+test("one SMS STOP blocks the number even when another record is still opted in", async () => {
   const db = mockDb({
     customers: [
       {
@@ -228,6 +237,7 @@ test("one opted-out record blocks the number even when another record is still o
         id: "c2",
         phone: "+18135550100",
         marketing_status: "opted_out",
+        opted_out_method: "sms_stop",
         organization_id: ORG,
       },
     ],
@@ -241,22 +251,25 @@ test("one opted-out record blocks the number even when another record is still o
   assert.equal(db.fetches.length, 0);
 });
 
-test("a manual opt-out on the customer row blocks transactional SMS", async () => {
-  const db = mockDb({
-    customers: [{
-      id: "c1",
-      phone: "8135550100",
-      marketing_status: "opted_out",
-      organization_id: ORG,
-    }],
-  });
-  const result = await sendOpenPhoneMessage({
-    ...base,
-    supabase: db.supabase,
-    fetchImpl: db.fetchImpl,
-  });
-  assert.deepEqual(result, { skipped: true, reason: "opted_out" });
-  assert.equal(db.fetches.length, 0);
+test("an email unsubscribe or an admin bulk opt-out does not block texts", async () => {
+  for (const method of ["email", "manual"]) {
+    const db = mockDb({
+      customers: [{
+        id: "c1",
+        phone: "(813) 555-0100",
+        marketing_status: "opted_out",
+        opted_out_method: method,
+        organization_id: ORG,
+      }],
+    });
+    const result = await sendOpenPhoneMessage({
+      ...base,
+      supabase: db.supabase,
+      fetchImpl: db.fetchImpl,
+    });
+    assert.equal(result.skipped, false, method);
+    assert.equal(db.fetches.length, 1, method);
+  }
 });
 
 test("a lead or cleaner suppression blocks a number with no customer row", async () => {
@@ -300,6 +313,7 @@ test("START clears the suppression and a non-blocking status allows the next tex
     id: "c1",
     phone: E164,
     marketing_status: "opted_out",
+    opted_out_method: "sms_stop",
     organization_id: ORG,
   }];
   const db = mockDb({

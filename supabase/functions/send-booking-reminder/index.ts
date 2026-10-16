@@ -4,7 +4,7 @@ import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { resolveTemplate, type AutomationKey } from "../_shared/automation-templates.ts";
-import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
+import { sendOpenPhoneMessage, type OpenPhoneHttpResponse } from "../_shared/send-sms.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -268,7 +268,7 @@ const handler = async (req: Request): Promise<Response> => {
       bookingId: string,
       reminderType: string,
       options?: { skipDedup?: boolean },
-    ): Promise<{ success: boolean; error?: string }> => {
+    ): Promise<{ success: boolean; error?: string; skipped?: boolean; reason?: string }> => {
       const formattedPhone = formatPhone(to);
 
       // Check if already sent (dedup) — only successful sends block a retry
@@ -309,7 +309,7 @@ const handler = async (req: Request): Promise<Response> => {
       };
 
       // Send via OpenPhone
-      let response: { ok: boolean; status: number; text: () => Promise<string>; json: () => Promise<any> };
+      let response: OpenPhoneHttpResponse;
       try {
         const sent = await sendOpenPhoneMessage({
           supabase,

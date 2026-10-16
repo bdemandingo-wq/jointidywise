@@ -3,8 +3,9 @@
  * - supabase/functions/_shared/send-sms.ts, the only file that may POST it
  * - supabase/functions/_shared/openphone-messages-read.ts, GET only
  *
- * A POST next to that URL anywhere else fails. A compliance send purpose
- * (stop_confirmation or help) may appear only in the inbound webhook.
+ * The messages URL identifier may appear only in send-sms.ts. A POST next to
+ * that URL anywhere else fails. A compliance send purpose (stop_confirmation
+ * or help) may appear only in the inbound webhook.
  *
  * Run: node scripts/check-openphone-messages-endpoint.mjs
  */
@@ -18,6 +19,7 @@ export const READ_FILE = "supabase/functions/_shared/openphone-messages-read.ts"
 export const PURPOSE_FILE = "supabase/functions/openphone-webhook/index.ts";
 
 const NEEDLE = ["api.openphone.com", "v1", "messages"].join("/");
+const URL_NAME = ["OPENPHONE", "MESSAGES", "URL"].join("_");
 const POST_RE = /method\s*:\s*['"]POST['"]/;
 const PURPOSE_RE = /purpose\s*:\s*['"](?:stop_confirmation|help)['"]/;
 
@@ -71,6 +73,7 @@ export function findOpenPhoneMessageEndpointViolations(root) {
       if (namesEndpoint && rel !== POST_FILE) {
         if (rel !== READ_FILE || posts) hits.push(rel);
       }
+      if (text.includes(URL_NAME) && rel !== POST_FILE) hits.push(rel);
       if (PURPOSE_RE.test(text) && rel !== PURPOSE_FILE) hits.push(rel);
     }
   }
@@ -94,7 +97,7 @@ if (isDirectRun()) {
   if (hits.length > 0) {
     console.error(
       "OpenPhone messages POST is only allowed in send-sms.ts. " +
-      "GET reads belong in openphone-messages-read.ts. " +
+      "GET reads belong in openphone-messages-read.ts and must not name the URL constant. " +
       "stop_confirmation and help belong only in openphone-webhook:",
     );
     for (const hit of hits) console.error(`  ${hit}`);

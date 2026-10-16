@@ -5,7 +5,7 @@ import {
 } from "../_shared/automation-templates.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { findCustomerIdByPhone } from "../_shared/marketing-guard.ts";
+import { findCustomerIdByPhone, findCustomerIdsByPhone, type SmsSupabaseClient } from "../_shared/marketing-guard.ts";
 import { internalDispatchHeaders } from "../_shared/internal-dispatch-auth.ts";
 import {
   classifySmsOptOut,
@@ -189,7 +189,7 @@ async function findLocalContactName(
  * per webhook delivery; a failed send is logged and not retried.
  */
 async function sendSmsComplianceReply(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SmsSupabaseClient,
   args: {
     organizationId: string;
     conversationId: string;
@@ -315,7 +315,7 @@ function consentStateFromRow(row: {
 }
 
 async function loadSmsConsent(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SmsSupabaseClient,
   organizationId: string,
   customerId: string,
 ): Promise<SmsConsentState | null> {
@@ -345,7 +345,7 @@ async function loadSmsConsent(
 }
 
 async function persistSmsConsent(
-  supabase: ReturnType<typeof createClient>,
+  supabase: SmsSupabaseClient,
   organizationId: string,
   customerId: string,
   state: SmsConsentState,
@@ -1116,7 +1116,8 @@ const handler = async (req: Request): Promise<Response> => {
     // it is still written to sms_messages so a person sees it in the inbox.
     // A keyword inside a normal sentence is not an opt-out; it is flagged.
     // START / UNSTOP clear sms_suppressions and set marketing_status to a
-    // non-blocking value. They do not send a second text. HELP gets one reply.
+    // non-blocking value on every customer row for that number. They do not
+    // send a second text. HELP gets one reply.
     const inboundText = direction === 'inbound' && typeof content === 'string' ? content : null;
     const optOutClassification = inboundText
       ? classifySmsOptOut(inboundText)
@@ -1313,25 +1314,36 @@ const handler = async (req: Request): Promise<Response> => {
           console.error(
             `[openphone-webhook] START/UNSTOP did not clear sms_suppressions for ${customerPhone} (org ${organizationId}).`,
           );
-        } else if (!customerIdForConsent) {
+        }
+        const matchedIds = await findCustomerIdsByPhone(supabase, organizationId, customerPhone);
+        const customerIds = [...new Set([
+          ...matchedIds,
+          ...(customerIdForConsent ? [customerIdForConsent] : []),
+        ])];
+        if (customerIds.length === 0 && cleared) {
           console.log(
             `[openphone-webhook] START/UNSTOP cleared sms_suppressions for ${customerPhone} (org ${organizationId}); no customer row.`,
           );
         }
-      } catch (clearErr) {
-        console.error('[openphone-webhook] Error clearing sms suppression:', clearErr);
-      }
-    }
-
-    if (consentStep?.smsResubscribed && consentStep.persist && customerIdForConsent) {
-      try {
-        const resubscribed = await persistSmsConsent(
-          supabase,
-          organizationId,
-          customerIdForConsent,
-          consentStep.state,
-        );
-        if (resubscribed && savedMessageId) {
+        const now = new Date().toISOString();
+        let anyResubscribed = false;
+        for (const customerId of customerIds) {
+          const current = await loadSmsConsent(supabase, organizationId, customerId);
+          if (!current) continue;
+          const step = nextSmsConsent(current, inboundText, now, null);
+          if (!step.smsResubscribed || !step.persist) continue;
+          const resubscribed = await persistSmsConsent(
+            supabase,
+            organizationId,
+            customerId,
+            step.state,
+          );
+          if (resubscribed) {
+            anyResubscribed = true;
+            console.log(`[openphone-webhook] Customer ${customerId} resubscribed via SMS. No confirmation text.`);
+          }
+        }
+        if (anyResubscribed && savedMessageId) {
           const { error: flagError } = await supabase
             .from('sms_messages')
             .update({ sms_resubscribed: true })
@@ -1344,9 +1356,6 @@ const handler = async (req: Request): Promise<Response> => {
               flagError,
             );
           }
-        }
-        if (resubscribed) {
-          console.log(`[openphone-webhook] Customer ${customerIdForConsent} resubscribed via SMS. No confirmation text.`);
         }
       } catch (resubErr) {
         console.error('[openphone-webhook] Error processing resubscribe:', resubErr);

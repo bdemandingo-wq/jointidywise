@@ -8,16 +8,10 @@
 
 import { isServiceRoleRequest } from "./require-caller-org.ts";
 
-type Row = Record<string, unknown> | null;
-
-interface RowQuery {
-  select(columns: string): RowQuery;
-  eq(column: string, value: string): RowQuery;
-  maybeSingle(): Promise<{ data: Row; error: { message?: string } | null }>;
-}
-
 type AdminClient = {
-  from: (table: string) => RowQuery;
+  // Widened from the real query builder. Matching PostgrestFilterBuilder
+  // structurally makes `deno check` instantiate that generic forever.
+  from: (table: string) => any;
   auth: {
     getUser: (jwt: string) => Promise<{
       data: { user: { id: string } | null };

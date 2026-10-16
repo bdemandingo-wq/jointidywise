@@ -60,6 +60,15 @@ test("a POST in the read helper fails", () => {
   assert.deepEqual(hits, [READ_FILE]);
 });
 
+test("the messages URL identifier outside the sender fails the check", () => {
+  const name = ["OPENPHONE", "MESSAGES", "URL"].join("_");
+  const hits = withTree({
+    [POST_FILE]: `const ${name} = "${ENDPOINT}";\nmethod: "POST"\n`,
+    "notes.txt": `const ${name} = "x";\n`,
+  }, findOpenPhoneMessageEndpointViolations);
+  assert.deepEqual(hits, ["notes.txt"]);
+});
+
 test("a compliance purpose outside the inbound webhook fails the check", () => {
   const purposeKey = "purpose";
   const stopPurpose = ["stop_confirma", "tion"].join("");

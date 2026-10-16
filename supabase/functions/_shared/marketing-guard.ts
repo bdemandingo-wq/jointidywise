@@ -11,14 +11,30 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { phoneMatchKey, toE164 } from "./phone.ts";
 
+type RealSupabaseClient = SupabaseClient<any, any, any>;
+
+/**
+ * The client passed into the SMS gate. It is the real SupabaseClient `from`
+ * method: a bare SupabaseClient defaults its schema to `never` and rejects the
+ * value `createClient()` returns, and esm.sh @2, esm.sh @2.57.2, and npm: are
+ * three different classes. The builder is widened so every one of those
+ * clients assigns, and so `.from().select().eq()` typechecks.
+ */
+export type SmsSupabaseClient = {
+  from: RealSupabaseClient["from"] extends (...args: infer _Args) => unknown
+    ? (table: string) => any
+    : never;
+};
+
 const OPTED_OUT = "opted_out";
+const SMS_STOP_METHOD = "sms_stop";
 
 /**
  * Returns true when the customer is opted out of marketing for this org.
  * Returns TRUE on any lookup error (fail closed).
  */
 export async function isOptedOut(
-  supabase: SupabaseClient,
+  supabase: SmsSupabaseClient,
   organizationId: string,
   customerId: string,
 ): Promise<boolean> {
@@ -59,7 +75,7 @@ export async function isOptedOut(
  * NOT opted out, preserving input order. Returns an EMPTY array on any error.
  */
 export async function filterOptedIn<T extends { id: string }>(
-  supabase: SupabaseClient,
+  supabase: SmsSupabaseClient,
   organizationId: string,
   customers: T[],
 ): Promise<T[]> {
@@ -101,48 +117,82 @@ export async function filterOptedIn<T extends { id: string }>(
   }
 }
 
-type PhoneRow = { id: string; phone: string | null; marketing_status: string | null };
+type CustomerPhoneRow = {
+  id: string;
+  phone: string | null;
+  marketing_status: string | null;
+  opted_out_method: string | null;
+};
 
 /**
- * Loads the org's customers that have a phone number. Throws on error so
- * callers can fail closed. Paged with a unique tiebreaker.
+ * Stored customer phones are not always E.164. These are the forms a US number
+ * is written as, so one indexed filter can find the row without reading every
+ * phone in the org. The sms_suppressions lookup stays an exact E.164 match on
+ * (organization_id, phone).
  */
-async function loadOrgPhoneRows(
-  supabase: SupabaseClient,
-  organizationId: string,
-): Promise<PhoneRow[]> {
-  const pageSize = 1000;
-  const rows: PhoneRow[] = [];
-  for (let page = 0; ; page++) {
-    const { data, error } = await supabase
-      .from("customers")
-      .select("id, phone, marketing_status")
-      .eq("organization_id", organizationId)
-      .not("phone", "is", null)
-      .order("id")
-      .range(page * pageSize, page * pageSize + pageSize - 1);
+export function phoneLookupCandidates(raw: string | null | undefined): string[] {
+  const key = phoneMatchKey(raw);
+  if (!key) return [];
+  const area = key.slice(0, 3);
+  const prefix = key.slice(3, 6);
+  const line = key.slice(6);
+  const dashed = `${area}-${prefix}-${line}`;
+  const pretty = `(${area}) ${prefix}-${line}`;
+  const values = [
+    raw?.trim() ?? "",
+    toE164(raw) ?? "",
+    key,
+    `1${key}`,
+    `+1${key}`,
+    pretty,
+    `(${area})${prefix}-${line}`,
+    `(${area}) ${prefix} ${line}`,
+    dashed,
+    `${area}.${prefix}.${line}`,
+    `${area} ${prefix} ${line}`,
+    `+1 ${pretty}`,
+    `+1 ${dashed}`,
+    `+1 ${area} ${prefix} ${line}`,
+    `1-${dashed}`,
+    `1 ${pretty}`,
+  ];
+  return [...new Set(values.filter((value) => value.length > 0))];
+}
 
-    if (error) throw new Error(error.message);
-    const batch = (data ?? []) as PhoneRow[];
-    rows.push(...batch);
-    if (batch.length < pageSize) break;
-  }
-  return rows;
+async function loadCustomersForPhone(
+  supabase: SmsSupabaseClient,
+  organizationId: string,
+  phone: string,
+): Promise<CustomerPhoneRow[]> {
+  const candidates = phoneLookupCandidates(phone);
+  if (candidates.length === 0) return [];
+  const { data, error } = await supabase
+    .from("customers")
+    .select("id, phone, marketing_status, opted_out_method")
+    .eq("organization_id", organizationId)
+    .in("phone", candidates);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CustomerPhoneRow[];
+}
+
+function isSmsStop(row: { marketing_status: string | null; opted_out_method: string | null }): boolean {
+  return row.marketing_status === OPTED_OUT && row.opted_out_method === SMS_STOP_METHOD;
 }
 
 export type PhoneOptOutStatus = "opted_out" | "clear" | "lookup_failed" | "invalid_phone";
 
 /**
- * Opt-out for one org and phone. Either source is enough:
- * - a customer in this org who shares the last 10 digits and whose
- *   marketing_status is opted_out (what persistSmsConsent writes on STOP)
- * - a row in sms_suppressions for this org and the E.164 number (leads and
- *   cleaners who texted STOP and have no customer row)
- * No matching customer and no suppression row is clear. A lookup error is
- * lookup_failed so the sender does not text and does not call it an opt-out.
+ * Opt-out for one org and phone. A text is blocked only by an SMS STOP:
+ * - a row in sms_suppressions for this org and the E.164 number (indexed on
+ *   organization_id, phone), including leads and cleaners with no customer row
+ * - a customer in this org whose stored phone is that number and whose
+ *   marketing_status is opted_out with opted_out_method sms_stop
+ * An email unsubscribe or an admin bulk opt-out (method manual) does not block
+ * texts. No matching row is clear. A lookup error is lookup_failed so the
+ * sender does not text and does not call it an opt-out.
  */
 export async function phoneOptOutStatus(
-  supabase: SupabaseClient,
+  supabase: SmsSupabaseClient,
   organizationId: string,
   phone: string | null | undefined,
 ): Promise<PhoneOptOutStatus> {
@@ -164,9 +214,8 @@ export async function phoneOptOutStatus(
       if (suppressed.data) return "opted_out";
     }
 
-    const rows = await loadOrgPhoneRows(supabase, organizationId);
-    const matches = rows.filter((r) => phoneMatchKey(r.phone) === target);
-    if (matches.some((r) => r.marketing_status === OPTED_OUT)) return "opted_out";
+    const rows = await loadCustomersForPhone(supabase, organizationId, phone ?? "");
+    if (rows.some(isSmsStop)) return "opted_out";
     return "clear";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -182,10 +231,11 @@ export async function phoneOptOutStatus(
  * STOP webhook fallback). Matches on the last 10 digits, digits only.
  *
  * Returns TRUE (do not send) on any error, on a null/unusable phone, and when
- * ANY customer in the org sharing that number is opted out.
+ * this number has an SMS STOP (a suppression row, or a customer opted out by
+ * texting STOP). An email unsubscribe or admin opt-out does not count.
  */
 export async function isPhoneOptedOut(
-  supabase: SupabaseClient,
+  supabase: SmsSupabaseClient,
   organizationId: string,
   phone: string | null | undefined,
 ): Promise<boolean> {
@@ -200,25 +250,45 @@ export async function isPhoneOptedOut(
 }
 
 /**
- * Resolves a phone number to a customer id within the org, matching on the
- * last 10 digits. Returns null on error or when nothing matches. When several
- * records share the number, an opted-out one is preferred so callers acting on
- * a STOP request update the record that already reflects it.
+ * Customer ids in this org whose stored phone is this number. Looks the number
+ * up by its stored forms. Does not read the rest of the org. Empty on error.
+ */
+export async function findCustomerIdsByPhone(
+  supabase: SmsSupabaseClient,
+  organizationId: string,
+  phone: string | null | undefined,
+): Promise<string[]> {
+  if (!phoneMatchKey(phone)) return [];
+  try {
+    const rows = await loadCustomersForPhone(supabase, organizationId, phone ?? "");
+    return rows.map((row) => row.id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(
+      `[marketing-guard] findCustomerIdsByPhone lookup failed | org:${organizationId} | ${message}`,
+    );
+    return [];
+  }
+}
+
+/**
+ * Resolves a phone number to a customer id within the org. Returns null on
+ * error or when nothing matches. When several records share the number, an
+ * SMS STOP row is preferred so callers acting on a STOP request update the
+ * record that already reflects it.
  */
 export async function findCustomerIdByPhone(
-  supabase: SupabaseClient,
+  supabase: SmsSupabaseClient,
   organizationId: string,
   phone: string | null | undefined,
 ): Promise<string | null> {
-  const target = phoneMatchKey(phone);
-  if (!target) return null;
+  if (!phoneMatchKey(phone)) return null;
 
   try {
-    const rows = await loadOrgPhoneRows(supabase, organizationId);
-    const matches = rows.filter((r) => phoneMatchKey(r.phone) === target);
-    if (matches.length === 0) return null;
-    const optedOut = matches.find((r) => r.marketing_status === OPTED_OUT);
-    return (optedOut ?? matches[0]).id;
+    const rows = await loadCustomersForPhone(supabase, organizationId, phone ?? "");
+    if (rows.length === 0) return null;
+    const smsStop = rows.find(isSmsStop);
+    return (smsStop ?? rows[0]).id;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(
@@ -237,7 +307,7 @@ export async function findCustomerIdByPhone(
  * (owners, staff, leads) have nothing to opt out of here.
  */
 export async function isEmailOptedOut(
-  supabase: SupabaseClient,
+  supabase: SmsSupabaseClient,
   organizationId: string,
   email: string | null | undefined,
 ): Promise<boolean> {

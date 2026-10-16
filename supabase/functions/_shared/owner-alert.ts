@@ -68,7 +68,7 @@ type Row = Record<string, unknown>;
 export interface OwnerAlertDb {
   from: (table: string) => {
     select: (columns: string) => unknown;
-    insert: (values: Record<string, unknown>) => Promise<{ error: QueryError }>;
+    insert: (values: Record<string, unknown>) => PromiseLike<{ error: QueryError }>;
   };
 }
 

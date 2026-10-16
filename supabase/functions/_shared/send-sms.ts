@@ -3,10 +3,11 @@
  *
  * Every customer, cleaner, and lead text goes through sendOpenPhoneMessage.
  * Before the request, the destination is normalized to E.164 and checked with
- * phoneOptOutStatus. A number is blocked when customers.marketing_status is
- * opted_out for that phone in the org, or when sms_suppressions has a row for
- * the org and that E.164 number. Either source blocks every text, including
- * transactional ones.
+ * phoneOptOutStatus. A number is blocked only by an SMS STOP: an
+ * sms_suppressions row for the org and that E.164 number, or a customer row
+ * with marketing_status opted_out and opted_out_method sms_stop. An email
+ * unsubscribe or an admin bulk opt-out does not block texts. An SMS STOP
+ * blocks every text, including transactional ones.
  * A match returns { skipped: true, reason: "opted_out" }, writes system_logs,
  * and does not call OpenPhone and does not throw.
  *
@@ -21,7 +22,9 @@
  * URL, any POST outside this file, and any compliance purpose outside the
  * inbound webhook.
  */
-import { phoneOptOutStatus } from "./marketing-guard.ts";
+import { phoneOptOutStatus, type SmsSupabaseClient } from "./marketing-guard.ts";
+
+export type { SmsSupabaseClient };
 import { toE164 } from "./phone.ts";
 
 const OPENPHONE_MESSAGES_URL = "https://api.openphone.com/v1/messages";
@@ -37,46 +40,23 @@ const COMPLIANCE_PURPOSES: ReadonlySet<string> = new Set<SmsSendPurpose>([
   "help",
 ]);
 
+/** OpenPhone message create body. `data.id` is the provider message id. */
+export interface OpenPhoneMessageBody {
+  data: {
+    id?: string;
+  };
+}
+
 export interface OpenPhoneHttpResponse {
   ok: boolean;
   status: number;
   text: () => Promise<string>;
-  json: () => Promise<unknown>;
+  json: () => Promise<OpenPhoneMessageBody>;
 }
 
 export type OpenPhoneSendResult =
   | { skipped: true; reason: "opted_out" }
   | { skipped: false; response: OpenPhoneHttpResponse };
-
-interface QueryResult {
-  data: unknown;
-  error: { message?: string } | null;
-}
-
-export interface SmsQuery {
-  select(columns: string): SmsQuery;
-  eq(column: string, value: string): SmsQuery;
-  order(column: string, options?: { ascending: boolean }): SmsQuery;
-  range?(from: number, to: number): SmsQuery;
-  maybeSingle(): Promise<QueryResult>;
-  then<T>(onfulfilled: (value: QueryResult) => T | PromiseLike<T>): Promise<T>;
-}
-
-export interface SmsTable {
-  select(columns: string): SmsQuery;
-  insert(
-    values: Record<string, unknown>,
-  ): PromiseLike<{ error: { message?: string } | null }>;
-  upsert(
-    values: Record<string, unknown>,
-    options?: { onConflict?: string },
-  ): PromiseLike<{ error: { message?: string } | null }>;
-  delete(): SmsQuery;
-}
-
-export interface SmsSuppressionDb {
-  from(table: string): SmsTable;
-}
 
 type FetchLike = (
   input: string,
@@ -84,7 +64,7 @@ type FetchLike = (
 ) => Promise<{ ok: boolean; status: number; text: () => Promise<string> }>;
 
 export interface SendOpenPhoneMessageInput {
-  supabase: SmsSuppressionDb;
+  supabase: SmsSupabaseClient;
   organizationId: string;
   to: string;
   content: string;
@@ -108,7 +88,7 @@ function httpResult(status: number, ok: boolean, body: string): OpenPhoneHttpRes
     ok,
     status,
     text: async () => body,
-    json: async () => JSON.parse(body),
+    json: async () => JSON.parse(body) as OpenPhoneMessageBody,
   };
 }
 
@@ -122,7 +102,7 @@ function looseConfirmationAddress(raw: string): string | null {
 }
 
 async function logBlockedSend(
-  supabase: SmsSuppressionDb,
+  supabase: SmsSupabaseClient,
   organizationId: string,
   to: string,
   tag: string,
@@ -151,7 +131,7 @@ async function logBlockedSend(
  * Returns false when the phone cannot be normalized or the write fails.
  */
 export async function recordSmsSuppression(
-  supabase: SmsSuppressionDb,
+  supabase: SmsSupabaseClient,
   organizationId: string,
   phone: string,
 ): Promise<boolean> {
@@ -181,7 +161,7 @@ export async function recordSmsSuppression(
 
 /** Delete the org + E.164 suppression. A missing row is success. */
 export async function clearSmsSuppression(
-  supabase: SmsSuppressionDb,
+  supabase: SmsSupabaseClient,
   organizationId: string,
   phone: string,
 ): Promise<boolean> {
@@ -229,7 +209,7 @@ export async function sendOpenPhoneMessage(
 
   if (!complianceReply) {
     const gate = await phoneOptOutStatus(
-      input.supabase as never,
+      input.supabase,
       input.organizationId,
       destination,
     );
