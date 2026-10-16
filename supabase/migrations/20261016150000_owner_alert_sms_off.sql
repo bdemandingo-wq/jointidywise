@@ -1,6 +1,7 @@
 -- Owner/admin texts are opt-in, except for a business that can already text
--- and has no operator iPhone. Those orgs keep sms on, because push cannot
--- reach them yet. Everyone else starts with "Also text me" off.
+-- and has no operator iPhone. Those orgs keep each text only when the old
+-- switch is not explicitly false (null still means on). job.completed has no
+-- old switch, so it stays on. Everyone else starts with "Also text me" off.
 --
 -- Dedupe uses admin_system_notifications.dedupe_key. Job alerts include the
 -- cleaner, and a cancellation includes that cancellation's timestamp, so a
@@ -13,8 +14,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_admin_system_notif_dedupe
   WHERE dedupe_key IS NOT NULL;
 
 CREATE TEMP TABLE owner_alert_keep_sms AS
-SELECT s.organization_id
+SELECT
+  s.organization_id,
+  -- NULL is distinct from false, so a missing switch keeps the text on.
+  (b.notify_new_booking IS DISTINCT FROM false) AS notify_new_booking,
+  (b.notify_cancellations IS DISTINCT FROM false) AS notify_cancellations,
+  (s.notify_admin_on_the_way IS DISTINCT FROM false) AS notify_admin_on_the_way,
+  (s.notify_admin_arrived IS DISTINCT FROM false) AS notify_admin_arrived
 FROM public.organization_sms_settings s
+LEFT JOIN public.business_settings b ON b.organization_id = s.organization_id
 WHERE s.sms_enabled IS TRUE
   AND length(btrim(coalesce(s.openphone_api_key, ''))) > 0
   AND length(btrim(coalesce(s.openphone_phone_number_id, ''))) > 0
@@ -32,11 +40,11 @@ INSERT INTO public.organization_notification_preferences (organization_id, notif
 SELECT
   k.organization_id,
   jsonb_build_object(
-    'booking.new', jsonb_build_object('sms', true),
-    'booking.cancelled', jsonb_build_object('sms', true),
-    'client.portal_request', jsonb_build_object('sms', true),
-    'job.on_the_way', jsonb_build_object('sms', true),
-    'job.arrived', jsonb_build_object('sms', true),
+    'booking.new', jsonb_build_object('sms', k.notify_new_booking),
+    'booking.cancelled', jsonb_build_object('sms', k.notify_cancellations),
+    'client.portal_request', jsonb_build_object('sms', k.notify_new_booking),
+    'job.on_the_way', jsonb_build_object('sms', k.notify_admin_on_the_way),
+    'job.arrived', jsonb_build_object('sms', k.notify_admin_arrived),
     'job.completed', jsonb_build_object('sms', true)
   )
 FROM owner_alert_keep_sms k
@@ -57,38 +65,38 @@ SET
       'booking.new',
         CASE
           WHEN jsonb_typeof(p.notification_matrix -> 'booking.new') = 'object'
-            THEN (p.notification_matrix -> 'booking.new') || jsonb_build_object('sms', k.organization_id IS NOT NULL)
-          ELSE jsonb_build_object('sms', k.organization_id IS NOT NULL)
+            THEN (p.notification_matrix -> 'booking.new') || jsonb_build_object('sms', k.notify_new_booking)
+          ELSE jsonb_build_object('sms', k.notify_new_booking)
         END,
       'booking.cancelled',
         CASE
           WHEN jsonb_typeof(p.notification_matrix -> 'booking.cancelled') = 'object'
-            THEN (p.notification_matrix -> 'booking.cancelled') || jsonb_build_object('sms', k.organization_id IS NOT NULL)
-          ELSE jsonb_build_object('sms', k.organization_id IS NOT NULL)
+            THEN (p.notification_matrix -> 'booking.cancelled') || jsonb_build_object('sms', k.notify_cancellations)
+          ELSE jsonb_build_object('sms', k.notify_cancellations)
         END,
       'client.portal_request',
         CASE
           WHEN jsonb_typeof(p.notification_matrix -> 'client.portal_request') = 'object'
-            THEN (p.notification_matrix -> 'client.portal_request') || jsonb_build_object('sms', k.organization_id IS NOT NULL)
-          ELSE jsonb_build_object('sms', k.organization_id IS NOT NULL)
+            THEN (p.notification_matrix -> 'client.portal_request') || jsonb_build_object('sms', k.notify_new_booking)
+          ELSE jsonb_build_object('sms', k.notify_new_booking)
         END,
       'job.on_the_way',
         CASE
           WHEN jsonb_typeof(p.notification_matrix -> 'job.on_the_way') = 'object'
-            THEN (p.notification_matrix -> 'job.on_the_way') || jsonb_build_object('sms', k.organization_id IS NOT NULL)
-          ELSE jsonb_build_object('sms', k.organization_id IS NOT NULL)
+            THEN (p.notification_matrix -> 'job.on_the_way') || jsonb_build_object('sms', k.notify_admin_on_the_way)
+          ELSE jsonb_build_object('sms', k.notify_admin_on_the_way)
         END,
       'job.arrived',
         CASE
           WHEN jsonb_typeof(p.notification_matrix -> 'job.arrived') = 'object'
-            THEN (p.notification_matrix -> 'job.arrived') || jsonb_build_object('sms', k.organization_id IS NOT NULL)
-          ELSE jsonb_build_object('sms', k.organization_id IS NOT NULL)
+            THEN (p.notification_matrix -> 'job.arrived') || jsonb_build_object('sms', k.notify_admin_arrived)
+          ELSE jsonb_build_object('sms', k.notify_admin_arrived)
         END,
       'job.completed',
         CASE
           WHEN jsonb_typeof(p.notification_matrix -> 'job.completed') = 'object'
-            THEN (p.notification_matrix -> 'job.completed') || jsonb_build_object('sms', k.organization_id IS NOT NULL)
-          ELSE jsonb_build_object('sms', k.organization_id IS NOT NULL)
+            THEN (p.notification_matrix -> 'job.completed') || jsonb_build_object('sms', true)
+          ELSE jsonb_build_object('sms', true)
         END
     ),
   updated_at = now()
