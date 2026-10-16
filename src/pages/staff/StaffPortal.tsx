@@ -410,7 +410,7 @@ export default function StaffPortal() {
       const bookingMap = new Map<string, Booking>();
       
       for (const b of directBookings || []) {
-        bookingMap.set(b.id, b as Booking);
+        bookingMap.set(b.id, b as unknown as Booking);
       }
       
       for (const b of teamBookings) {
@@ -683,7 +683,7 @@ export default function StaffPortal() {
         .maybeSingle();
       if (error) throw error;
       if (!data) throw new Error('Job was already claimed by someone else');
-      return withStaffCustomer(data);
+      return (await withStaffCustomer(data))!;
     },
     onSuccess: (data) => {
       setClaimingBookingId(null);
