@@ -170,6 +170,8 @@ test("registration waits on a direct APNs token, not only the push plugin event"
   assert.match(hook, /Push registration timed out\. Please try again\./);
   assert.match(auth, /ApnsTokenStore/);
   assert.match(auth, /cachedToken\(\)/);
+  const failure = auth.slice(auth.indexOf('static func rememberFailure'), auth.indexOf('static func cachedToken'));
+  assert.match(failure, /token = nil/);
   assert.match(auth, /registerForRemoteNotifications\(\)/);
   assert.match(delegate, /ApnsTokenStore\.remember\(deviceToken:/);
   assert.match(delegate, /ApnsTokenStore\.repostCachedToken\(\)/);

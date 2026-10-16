@@ -1543,7 +1543,6 @@ export default function StaffPortal() {
                 <CleanerProfile
                   staffInfo={staffInfo}
                   userId={user.id}
-                  organizationId={staffInfo.organization_id}
                 />
               ) : (
                 <TabFallback />

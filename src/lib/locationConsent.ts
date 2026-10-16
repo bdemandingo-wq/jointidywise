@@ -3,9 +3,10 @@
  *
  * There is no separate in-app toggle. Tracking follows the iOS or browser
  * location permission. An os_permission_granted row is appended so the server
- * trigger can see a yes. Copy version v3 is the legal disclosure.
+ * trigger can see a yes. Copy version v4 is the legal disclosure plus the
+ * clock-in, photo, and last-location sentences.
  */
-export const CONSENT_COPY_VERSION = 'v3';
+export const CONSENT_COPY_VERSION = 'v4';
 
 export const LOCATION_CONSENT_HEADING = "Share your location while you're on the way";
 
@@ -17,7 +18,7 @@ export const LOCATION_SHARING_OFF_NOTE = 'Location sharing is off. Turn on in Se
  * two strings have to be the same text.
  */
 export const LOCATION_CONSENT_COPY =
-  'TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. It is deleted after 30 days. You can turn this off in iPhone Settings or in your browser settings.';
+  "TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. Admins may see your last shared location until the job's start time. It is deleted after 30 days. You can turn it off anytime in iPhone Settings or in your browser settings. If location is turned on, your location is also recorded when you clock in or out and when you take job photos.";
 
 /**
  * Both NSLocationWhenInUseUsageDescription and
@@ -114,7 +115,7 @@ export const CONSENT_DECISIONS = [
 
 export type LocationConsentDecision = (typeof CONSENT_DECISIONS)[number];
 
-export const CONSENT_SOURCES = ['first_run_sheet', 'settings'] as const;
+export const CONSENT_SOURCES = ['first_run_sheet', 'settings', 'os_permission'] as const;
 
 export type LocationConsentSource = (typeof CONSENT_SOURCES)[number];
 
@@ -184,24 +185,20 @@ export function consentAllowsTracking(decision: LocationConsentDecision | null):
  * On My Way tracking follows the operating-system permission. The consent
  * row is recorded when that permission is granted. It is not a second gate.
  */
-export function canStartLocationTracking(input: {
-  decision: LocationConsentDecision | null;
-  osPermissionGranted: boolean;
-}): boolean {
-  void input.decision;
-  return input.osPermissionGranted;
+export function canStartLocationTracking(osPermissionGranted: boolean): boolean {
+  return osPermissionGranted;
 }
 
 /**
- * One append-only granted row when permission is on and the latest decision
- * would still block the server trigger. An existing yes is left as-is.
- * Source stays `first_run_sheet`, which the consent table already allows.
+ * One append-only row when On My Way finds the OS permission granted and the
+ * latest decision would still block the server trigger. An existing yes is
+ * left as-is. Source is `os_permission`: there is no first-run sheet.
  */
 export function consentLogForOsPermissionGrant(
   latest: LocationConsentDecision | null,
 ): ConsentLogEvent | null {
   if (consentAllowsTracking(latest)) return null;
-  return { decision: 'os_permission_granted', source: 'first_run_sheet' };
+  return { decision: 'os_permission_granted', source: 'os_permission' };
 }
 
 /** One append-only revoked row when a current yes loses the OS permission. */
@@ -209,21 +206,15 @@ export function consentLogForOsPermissionRevoke(
   latest: LocationConsentDecision | null,
 ): ConsentLogEvent | null {
   if (!consentAllowsTracking(latest)) return null;
-  return { decision: 'revoked', source: 'settings' };
+  return { decision: 'revoked', source: 'os_permission' };
 }
 
 export function settingsToggleOn(decision: LocationConsentDecision | null): boolean {
   return consentAllowsTracking(decision);
 }
 
-export function onMyWayLocationPlan(input: {
-  hasDecision: boolean;
-  decision: LocationConsentDecision | null;
-  osState: OsLocationState;
-}): OnMyWayLocationPlan {
-  void input.hasDecision;
-  void input.decision;
-  const startTracking = input.osState === 'granted' || input.osState === 'prompt';
+export function onMyWayLocationPlan(osState: OsLocationState): OnMyWayLocationPlan {
+  const startTracking = osState === 'granted' || osState === 'prompt';
   return {
     showSheet: false,
     startTracking,

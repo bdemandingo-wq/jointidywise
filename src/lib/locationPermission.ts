@@ -49,7 +49,7 @@ const ANDROID_STEPS = [
 export const IOS_APP_SETTINGS_URL = 'app-settings:';
 
 export const LOCATION_WHY =
-  'TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. It is deleted after 30 days. You can turn this off in iPhone Settings or in your browser settings.';
+  "TidyWise shares your location only during On My Way, until you arrive or until the job is marked started. It is shared with the business owner and the customer. Admins may see your last shared location until the job's start time. It is deleted after 30 days. You can turn it off anytime in iPhone Settings or in your browser settings. If location is turned on, your location is also recorded when you clock in or out and when you take job photos.";
 
 export function classifyPluginStatus(status: PluginPermissionStatus): ClassifiedLocation {
   const location = status.location ?? '';

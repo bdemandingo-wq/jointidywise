@@ -116,8 +116,9 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       .select('status')
       .eq('id', bookingId)
       .maybeSingle();
-    if (statusError) return { data: null, error: statusError };
-    if (!shouldSendArrival(bookingRow?.status)) {
+    // A failed status read still calls the edge function. The server checks
+    // status after auth. Only a known finished job is skipped here.
+    if (!statusError && !shouldSendArrival(bookingRow?.status)) {
       return {
         data: {
           success: true,
@@ -383,18 +384,20 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       if (!permitted) return { ok: false, reason: 'os_denied' };
 
       onStatus?.('Getting your location…');
-      const { latitude, longitude } = await getPositionWithFallback();
+      // Consent rows are looked up while the position fix is in flight.
+      // A failed consent write does not cancel the fix. The tracking insert
+      // still needs the row, and a 42501 from that insert is reported as consent.
+      const consentWrite = gate.logConsent
+        ? recordOsPermissionGrant(staffId).catch((err: unknown) => {
+            console.error('[GPS] could not record location consent', err);
+            toast.error('Location is on, but sharing could not be saved for this job.');
+          })
+        : Promise.resolve();
+      const { latitude, longitude } = (await Promise.all([
+        getPositionWithFallback(),
+        consentWrite,
+      ]))[0];
       console.log('[GPS] Initial position:', latitude, longitude);
-
-      if (gate.logConsent) {
-        try {
-          await recordOsPermissionGrant(staffId);
-        } catch (err) {
-          console.error('[GPS] could not record location consent', err);
-          toast.error('Location is on, but sharing could not be saved for this job.');
-          return { ok: false, reason: 'unavailable' };
-        }
-      }
 
       // Insert or resume tracking record
       let recordId: string;

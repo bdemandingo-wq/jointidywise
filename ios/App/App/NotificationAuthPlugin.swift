@@ -162,6 +162,9 @@ enum ApnsTokenStore {
     }
 
     static func rememberFailure(_ error: Error) {
+        lock.lock()
+        token = nil
+        lock.unlock()
         NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
     }
 

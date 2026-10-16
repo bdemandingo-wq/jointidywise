@@ -73,7 +73,10 @@ test('iOS denied model has the settings button and three plain steps', () => {
   assert.match(model.steps?.[2] ?? '', /Precise Location/);
   assert.match(model.why, /only during On My Way/);
   assert.match(model.why, /deleted after 30 days/);
-  assert.match(model.why, /owner/);
+  assert.match(model.why, /turn it off anytime/);
+  assert.match(model.why, /last shared location/);
+  assert.match(model.why, /clock in or out/);
+  assert.match(model.why, /job photos/);
 });
 
 test('android denied model explains that Settings must be opened by hand', () => {

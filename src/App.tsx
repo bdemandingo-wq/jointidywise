@@ -96,9 +96,6 @@ const NotificationsPage = lazy(() => import("./pages/admin/NotificationsPage"));
 const NotificationSettingsPreview = import.meta.env.DEV
   ? lazy(() => import("./pages/dev/NotificationSettingsPreview"))
   : null;
-const LocationConsentPreview = import.meta.env.DEV
-  ? lazy(() => import("./pages/dev/LocationConsentPreview"))
-  : null;
 const RecurringBookingsPage = lazy(() => import("./pages/admin/RecurringBookingsPage"));
 const LeadsPage = lazy(() => import("./pages/admin/LeadsPage"));
 const InventoryPage = lazy(() => import("./pages/admin/InventoryPage"));
@@ -549,9 +546,6 @@ const App = () => (
                     <Route path="/" element={<LandingPage />} />
                     {NotificationSettingsPreview && (
                       <Route path="/dev/notification-settings" element={<NotificationSettingsPreview />} />
-                    )}
-                    {LocationConsentPreview && (
-                      <Route path="/dev/location-consent" element={<LocationConsentPreview />} />
                     )}
                     {SmsCompliancePreview && (
                       <Route path="/dev/sms-compliance-preview" element={<SmsCompliancePreview />} />

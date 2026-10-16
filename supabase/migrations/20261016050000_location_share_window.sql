@@ -3,9 +3,10 @@
 -- Run this file in the Supabase SQL editor. A git push does not apply it.
 --
 -- The consent log stays append-only: authenticated still has SELECT and
--- INSERT only. os_permission_granted is the OS permission yes. revoked is
--- written when that permission is removed. Older granted and toggled_on
--- rows still allow a coordinate write.
+-- INSERT only. os_permission_granted is the OS permission yes, and its
+-- source is os_permission. revoked is written when that permission is
+-- removed. Older granted and toggled_on rows still allow a coordinate write.
+-- first_run_sheet and settings stay valid for older rows.
 --
 -- Coordinate writes are refused once the cleaner has arrived or the job
 -- is marked started, completed, cancelled, or a no-show.
@@ -30,6 +31,13 @@ ALTER TABLE public.cleaner_location_consents
     'os_permission_granted',
     'revoked'
   ));
+
+ALTER TABLE public.cleaner_location_consents
+  DROP CONSTRAINT IF EXISTS cleaner_location_consents_source_chk;
+
+ALTER TABLE public.cleaner_location_consents
+  ADD CONSTRAINT cleaner_location_consents_source_chk
+  CHECK (source IN ('first_run_sheet', 'settings', 'os_permission'));
 
 CREATE OR REPLACE FUNCTION public.enforce_cleaner_location_tracking_consent()
 RETURNS trigger

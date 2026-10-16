@@ -57,6 +57,14 @@ async function latestDecision(staffId: string) {
   return consentSnapshot(!!rows?.[0], rows?.[0]?.decision);
 }
 
+/** True until this cleaner already has a yes row. A read failure is thrown. */
+export async function onMyWayShareNeedsDisclosure(staffId: string): Promise<boolean> {
+  const gate = await readLocationSharingAvailability();
+  if (!gate.logConsent) return false;
+  const snapshot = await latestDecision(staffId);
+  return !consentAllowsTracking(snapshot.decision);
+}
+
 export async function recordOsPermissionGrant(staffId: string): Promise<void> {
   const gate = await readLocationSharingAvailability();
   if (!gate.logConsent) return;

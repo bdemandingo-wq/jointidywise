@@ -1,88 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CONSENT_COPY_VERSION, consentLogsForAction } from './locationConsent.ts';
 import {
-  consentRowsForDecisions,
-  everyAllowOrDeclineIsCopyVersion,
-  geolocationFollowsSheet,
   nextWebSharePhase,
-  webOnMyWayConsentEvents,
   webOnMyWaySteps,
   webShareShouldReadGeolocation,
   type WebSharePhase,
   type WebShareSignal,
 } from './webLocationSharing.ts';
 
-const IDS = { staffId: 'staff-1', organizationId: 'org-1', userId: 'user-1' };
-
 test('web On My Way asks the browser for location without a consent sheet', () => {
-  const firstTap = webOnMyWaySteps({
-    stage: 'before_choice',
-    hasDecision: false,
-    decision: null,
-    osState: 'prompt',
-  });
-  assert.deepEqual(firstTap, ['geolocation', 'sms']);
-  assert.equal(firstTap.includes('sheet'), false);
-
-  const alreadyYes = webOnMyWaySteps({
-    stage: 'before_choice',
-    hasDecision: true,
-    decision: 'toggled_on',
-    osState: 'granted',
-  });
-  assert.deepEqual(alreadyYes, ['geolocation', 'sms']);
-
-  const browserDenied = webOnMyWaySteps({
-    stage: 'before_choice',
-    hasDecision: false,
-    decision: null,
-    osState: 'denied',
-  });
+  assert.deepEqual(webOnMyWaySteps('prompt'), ['geolocation', 'sms']);
+  assert.deepEqual(webOnMyWaySteps('granted'), ['geolocation', 'sms']);
+  const browserDenied = webOnMyWaySteps('denied');
   assert.deepEqual(browserDenied, ['sms']);
   assert.equal(browserDenied.includes('geolocation'), false);
-  assert.equal(geolocationFollowsSheet(browserDenied), true);
-});
-
-test('allow and decline rows still carry the current copy version', () => {
-  assert.equal(CONSENT_COPY_VERSION, 'v3');
-  const decisions = [
-    webOnMyWayConsentEvents({ stage: 'continue', osState: 'prompt' }),
-    webOnMyWayConsentEvents({ stage: 'continue', osState: 'denied' }),
-    webOnMyWayConsentEvents({ stage: 'not_now', osState: 'prompt' }),
-    consentLogsForAction({
-      latest: null,
-      action: { type: 'settings', nextOn: true, osDenied: false },
-    }),
-    consentLogsForAction({
-      latest: 'toggled_on',
-      action: { type: 'settings', nextOn: false, osDenied: false },
-    }),
-  ];
-  for (const events of decisions) {
-    const rows = consentRowsForDecisions(events, IDS);
-    assert.equal(everyAllowOrDeclineIsCopyVersion(rows, 'v3'), true);
-    assert.ok(rows.some((row) =>
-      row.decision === 'granted' ||
-      row.decision === 'declined' ||
-      row.decision === 'toggled_on' ||
-      row.decision === 'toggled_off',
-    ));
-  }
-
-  const allow = consentRowsForDecisions(
-    webOnMyWayConsentEvents({ stage: 'continue', osState: 'prompt' }),
-    IDS,
-  );
-  assert.deepEqual(allow.map((row) => row.decision), ['granted']);
-  assert.equal(allow[0].copy_version, 'v3');
-
-  const decline = consentRowsForDecisions(
-    webOnMyWayConsentEvents({ stage: 'not_now', osState: 'prompt' }),
-    IDS,
-  );
-  assert.deepEqual(decline.map((row) => row.decision), ['declined']);
-  assert.equal(decline[0].copy_version, 'v3');
+  assert.equal(webOnMyWaySteps('unknown').includes('geolocation'), false);
 });
 
 test('web sharing pauses while hidden or unloading and resumes only when visible', () => {

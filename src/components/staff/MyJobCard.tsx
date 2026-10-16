@@ -31,8 +31,9 @@ import { useCleanerTracking } from '@/hooks/useCleanerTracking';
 import { useLocationSharingGate } from '@/hooks/useLocationSharingGate';
 import { useLocationPermission } from '@/hooks/useLocationPermission';
 import { LocationSharingOffNote } from '@/components/staff/LocationConsentSheet';
-import { onMyWayLocationPlan } from '@/lib/locationConsent';
-import { recordOsPermissionRevoke } from '@/lib/recordLocationConsent';
+import { LOCATION_CONSENT_COPY, LOCATION_CONSENT_HEADING, onMyWayLocationPlan } from '@/lib/locationConsent';
+import { onMyWayShareNeedsDisclosure, recordOsPermissionRevoke } from '@/lib/recordLocationConsent';
+import { confirmDialog } from '@/components/AppDialogs';
 import { osStateFromKind, readOsLocationState } from '@/lib/osLocationState';
 import { staffLocationSearch } from '@/lib/locationPermission';
 import { supabase } from '@/lib/supabase';
@@ -278,12 +279,21 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
       return;
     }
     const osState = await readOsLocationState();
-    const plan = onMyWayLocationPlan({
-      hasDecision: true,
-      decision: null,
-      osState,
-    });
+    const plan = onMyWayLocationPlan(osState);
     if (plan.startTracking) {
+      let needsDisclosure = true;
+      try {
+        needsDisclosure = await onMyWayShareNeedsDisclosure(staffInfo.id);
+      } catch (err) {
+        console.error('[location-consent] could not read the latest decision', err);
+      }
+      if (needsDisclosure) {
+        const shown = await confirmDialog(LOCATION_CONSENT_COPY, LOCATION_CONSENT_HEADING);
+        if (!shown) {
+          await sendOnTheWay(false);
+          return;
+        }
+      }
       await sendOnTheWay(true);
       return;
     }
@@ -367,11 +377,7 @@ export function MyJobCard({ booking, staffInfo, organizationId, orgExtras, photo
 
   const locationPlan = loc.kind === 'checking'
     ? null
-    : onMyWayLocationPlan({
-        hasDecision: true,
-        decision: null,
-        osState: osStateFromKind(loc.kind),
-      });
+    : onMyWayLocationPlan(osStateFromKind(loc.kind));
   const showLocationOffNote =
     sharing.trackingEnabled &&
     !sharing.pending &&

@@ -18,6 +18,7 @@ import {
   routePushEnable,
   type PushDiagnosticDetail,
 } from '@/lib/pushRuntime';
+import { createRegistrationRace } from '@/lib/pushRegistrationRace';
 
 // PushNotifications is created here, at module scope. Awaiting a helper that
 // *returns* the push plugin does not reach native. Capacitor 8.0.0's proxy answers `.then`
@@ -449,21 +450,18 @@ export function usePushNotifications(staffId?: string) {
 
     try {
       const nativeToken = await new Promise<string>((resolve, reject) => {
-        let settled = false;
+        const race = createRegistrationRace();
         const timeoutId = window.setTimeout(() => {
-          if (settled) return;
-          settled = true;
+          if (!race.fail()) return;
           reject(new Error('Push registration timed out. Please try again.'));
         }, 25000);
         const finish = (token: string) => {
-          if (settled || !token) return;
-          settled = true;
+          if (!race.finish(token)) return;
           window.clearTimeout(timeoutId);
           resolve(token);
         };
         const fail = (error: unknown) => {
-          if (settled) return;
-          settled = true;
+          if (!race.fail()) return;
           window.clearTimeout(timeoutId);
           reject(error);
         };

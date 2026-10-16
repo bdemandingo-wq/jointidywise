@@ -30,7 +30,6 @@ interface StaffInfo {
 interface Props {
   staffInfo: StaffInfo;
   userId: string;
-  organizationId: string | null;
 }
 
 export function CleanerProfile({ staffInfo, userId }: Props) {

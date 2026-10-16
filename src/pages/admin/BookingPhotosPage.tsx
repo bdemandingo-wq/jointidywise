@@ -169,6 +169,7 @@ export default function BookingPhotosPage() {
     if (!(await confirmDialog(`Delete this ${isVideoMedia(photo) ? 'video' : 'photo'}? This cannot be undone.`))) return;
 
     const queryKey = bookingMediaQueryKey(organization?.id);
+    await queryClient.cancelQueries({ queryKey });
     const previous = queryClient.getQueryData(queryKey);
     const previousViewerId = viewerId;
     const neighbor = filtered[viewerIndex + 1] ?? filtered[viewerIndex - 1] ?? null;
