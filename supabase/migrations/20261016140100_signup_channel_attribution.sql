@@ -6,7 +6,7 @@
 --
 -- Run after:
 --   20261014230000_activation_tracking_and_signup_utm.sql
---   20261016050000_platform_account_metrics.sql
+--   20261016050200_platform_account_metrics.sql
 --   20261016140000_save_how_heard.sql
 -- This file does not send email, SMS, or push, and it does not touch Stripe.
 --

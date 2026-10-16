@@ -186,7 +186,7 @@ CREATE TABLE public.account_signup_attribution (
   captured_at timestamptz NOT NULL DEFAULT now()
 );
 
-\ir ../migrations/20261016050000_platform_account_metrics.sql
+\ir ../migrations/20261016050200_platform_account_metrics.sql
 
 INSERT INTO auth.users (id, email) VALUES
   ('11111111-1111-4111-8111-111111111111', 'owner@example.com'),
