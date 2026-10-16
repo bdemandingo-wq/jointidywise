@@ -10,9 +10,45 @@
 
 export type MediaType = 'photo' | 'video';
 
+/** Photos are checked against this after compression. Videos use their own cap. */
+export const PHOTO_MAX_BYTES = 10 * 1024 * 1024;
+export const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+export const MAX_MEDIA_PER_SELECTION = 30;
+export const SELECTION_LIMIT_MESSAGE = 'Up to 30 at a time. Add the rest after these finish.';
+/** Shown when the phone cannot decode a photo. Never upload that file as HEIC. */
+export const PHOTO_DECODE_ERROR = "Couldn't read this photo. Retake it with the camera button and try again.";
+export const PHOTO_TOO_LARGE_ERROR = 'Photo must be under 10MB.';
+export const VIDEO_TOO_LARGE_ERROR = 'Video must be under 100MB.';
+export const UPLOAD_TIMEOUT_MS = 60_000;
+export const UPLOAD_TIMEOUT_ERROR = 'Upload timed out. Check your connection and try again.';
+
+/**
+ * One upload at a time. The proof stamp decodes the photo again while the
+ * bytes are in flight, so a second upload would put two bitmaps in the
+ * webview — the same pressure that kills a big batch.
+ */
+export const PHOTO_UPLOAD_CONCURRENCY = 1;
+
 /** `.mov` files often arrive with an empty or non-video MIME type on iOS. */
-export function isVideoFile(file: File): boolean {
+export function isVideoFile(file: { name: string; type: string }): boolean {
   return file.type.startsWith('video/') || file.name.toLowerCase().endsWith('.mov');
+}
+
+/** iOS library photos are often HEIC/HEIF, sometimes with an empty MIME type. */
+export function isHeicFile(file: { name: string; type: string }): boolean {
+  const type = file.type.toLowerCase();
+  if (type === 'image/heic' || type === 'image/heif') return true;
+  return /\.(heic|heif)$/i.test(file.name);
+}
+
+export function isStoredImageType(type: string): boolean {
+  return type === 'image/jpeg' || type === 'image/png' || type === 'image/webp';
+}
+
+/** First `limit` files of one picker selection. The rest stay on the phone. */
+export function takeSelection<T>(files: readonly T[], limit = MAX_MEDIA_PER_SELECTION): { accepted: T[]; overLimit: boolean } {
+  if (files.length <= limit) return { accepted: [...files], overLimit: false };
+  return { accepted: files.slice(0, limit), overLimit: true };
 }
 
 /**
@@ -51,10 +87,14 @@ export function getUploadErrorMessage(error: unknown, isVideo: boolean): string 
       : 'That image format is not supported. Retake the photo with the camera button and try again.';
   }
 
-  if (msg.includes('payload') || msg.includes('too large') || msg.includes('size')) {
+  if (msg.includes("couldn't read") || msg.includes('could not read')) {
+    return PHOTO_DECODE_ERROR;
+  }
+
+  if (msg.includes('payload') || msg.includes('too large') || msg.includes('size') || msg.includes('photo must') || msg.includes('video must')) {
     return isVideo
       ? 'Video must be under 100MB. Try trimming it or recording a shorter clip.'
-      : 'Photo must be under 100MB. Please try again.';
+      : 'Photo must be under 10MB. Please try again.';
   }
 
 

@@ -503,23 +503,30 @@ function drawStamp(ctx: CanvasRenderingContext2D, width: number, height: number,
 export async function burnProofStamp(file: File, lines: string[]): Promise<File> {
   if (!lines.length) return file;
   const bitmap = await createImageBitmap(file);
+  let canvas: HTMLCanvasElement | null = null;
   try {
     const maxEdge = 2560;
     const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
     const width = Math.max(1, Math.round(bitmap.width * scale));
     const height = Math.max(1, Math.round(bitmap.height * scale));
-    const canvas = document.createElement('canvas');
+    canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Could not draw the proof stamp');
     ctx.drawImage(bitmap, 0, 0, width, height);
     drawStamp(ctx, width, height, lines);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+    const blob = await new Promise<Blob | null>((resolve) => {
+      canvas?.toBlob(resolve, 'image/jpeg', 0.92);
+    });
     if (!blob) throw new Error('Could not encode the stamped photo');
     const base = file.name.replace(/\.[^.]+$/, '') || 'photo';
     return new File([blob], `${base}.jpg`, { type: 'image/jpeg', lastModified: Date.now() });
   } finally {
     bitmap.close?.();
+    if (canvas) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
   }
 }
