@@ -114,11 +114,17 @@ test('stale On My Way rows are closed by pg_cron, and the customer point goes st
   assert.match(arrival, /error\.code === '23505'/);
   assert.equal(arrival.includes('SMS sent but booking_reminder_log insert failed'), false);
   const decisionAt = arrival.indexOf('arrivalOpenPhoneClaim(openPhoneSends)');
-  const markSentAt = arrival.indexOf("status: 'sent'");
+  const markSentAt = arrival.indexOf('await markArrivalClaimSent(');
   assert.ok(decisionAt !== -1 && markSentAt > decisionAt);
   const failureSlice = arrival.slice(decisionAt, markSentAt);
   assert.match(failureSlice, /success: false/);
   assert.match(failureSlice, /Arrival text failed/);
   assert.match(failureSlice, /releaseArrivalClaim/);
   assert.equal(failureSlice.includes("status: 'sent'"), false);
+  assert.match(arrival, /nextMarkSentStep/);
+  assert.match(arrival, /releaseArrivalClaimAfterError\(textDelivered\)/);
+  const catchAt = arrival.indexOf('} catch (err: unknown)');
+  const catchSlice = arrival.slice(catchAt);
+  assert.match(catchSlice, /textDelivered && supabase/);
+  assert.equal(catchSlice.includes('await releaseClaim()') && catchSlice.indexOf('releaseArrivalClaimAfterError(textDelivered)') < catchSlice.indexOf('await releaseClaim()'), true);
 });

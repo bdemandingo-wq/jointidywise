@@ -6,7 +6,7 @@ import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
 import { notifyOwner } from "../_shared/owner-alert.ts";
 import { jobEventCopy, shouldSendArrival } from "../_shared/job-event-copy.ts";
-import { arrivalOpenPhoneClaim, nextArrivalClaimAction, type ArrivalClaimInsert, type ArrivalClaimRow } from "../_shared/arrival-claim.ts";
+import { arrivalOpenPhoneClaim, nextArrivalClaimAction, nextMarkSentStep, releaseArrivalClaimAfterError, type ArrivalClaimInsert, type ArrivalClaimRow } from "../_shared/arrival-claim.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -83,6 +83,36 @@ async function claimArrivalSend(
   return 'in_progress';
 }
 
+async function markArrivalClaimSent(supabase: ArrivalDb, bookingId: string, staffId: string): Promise<boolean> {
+  let attempt = 0;
+  let updateFailed = true;
+  while (updateFailed) {
+    const { data, error } = await supabase
+      .from('booking_reminder_log')
+      .update({ status: 'sent' })
+      .eq('booking_id', bookingId)
+      .eq('reminder_type', `arrived:${staffId}`)
+      .eq('status', 'pending')
+      .select('id');
+    updateFailed = !!error || !data?.length;
+    const step = nextMarkSentStep(attempt, updateFailed);
+    if (step === 'done') return true;
+    console.error(`[send-arrival-sms] claim mark-sent failed for booking ${bookingId} (attempt ${attempt + 1}):`, error ?? 'no pending row');
+    if (step === 'give_up') {
+      const forced = await supabase
+        .from('booking_reminder_log')
+        .update({ status: 'sent' })
+        .eq('booking_id', bookingId)
+        .eq('reminder_type', `arrived:${staffId}`)
+        .select('id');
+      if (!forced.error && forced.data?.length) return true;
+      return false;
+    }
+    attempt += 1;
+  }
+  return false;
+}
+
 async function releaseArrivalClaim(supabase: ArrivalDb, bookingId: string, staffId: string): Promise<void> {
   const { error } = await supabase
     .from('booking_reminder_log')
@@ -97,12 +127,18 @@ const handler = async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
 
   let releaseClaim: (() => Promise<void>) | null = null;
+  let textDelivered = false;
+  let supabase: ArrivalDb | null = null;
+  let bookingId = '';
+  let staffId = '';
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { bookingId, staffId } = (await req.json()) as ArrivalRequest;
+    const body = (await req.json()) as ArrivalRequest;
+    bookingId = body.bookingId;
+    staffId = body.staffId;
     if (!bookingId || !staffId) {
       return new Response(JSON.stringify({ success: false, error: "Missing required fields" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -243,6 +279,7 @@ const handler = async (req: Request): Promise<Response> => {
         openPhoneSends.push(false);
         return "failed" as const;
       }
+      textDelivered = true;
       openPhoneSends.push(true);
       return "sent" as const;
     };
@@ -257,9 +294,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
     }
 
-    // A non-2xx from OpenPhone did not deliver the text. Marking the claim
-    // sent would end sharing and block the retry. A STOP skip is not a
-    // failed delivery: sendOpenPhoneMessage never called OpenPhone.
+    // Every OpenPhone call failed. One delivered text stays claimed.
     if (arrivalOpenPhoneClaim(openPhoneSends) === 'release') {
       await releaseArrivalClaim(supabase, bookingId, staffId);
       releaseClaim = null;
@@ -271,18 +306,22 @@ const handler = async (req: Request): Promise<Response> => {
       }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const { error: markSentErr } = await supabase
-      .from('booking_reminder_log')
-      .update({ status: 'sent' })
-      .eq('booking_id', bookingId)
-      .eq('reminder_type', `arrived:${staffId}`)
-      .eq('status', 'pending');
-    if (markSentErr) {
-      console.error(`[send-arrival-sms] claim mark-sent failed for booking ${bookingId}:`, markSentErr);
+    if (openPhoneSends.some((ok) => !ok)) {
+      console.warn(`[send-arrival-sms] a recipient text failed for booking ${bookingId}; delivered texts will not be retried`);
     }
-    // The text already went out, or OpenPhone was never called. Releasing the
-    // claim would let a retry send it again.
+
+    const markedSent = await markArrivalClaimSent(supabase, bookingId, staffId);
+    if (!markedSent && !textDelivered) {
+      await releaseArrivalClaim(supabase, bookingId, staffId);
+      releaseClaim = null;
+      return new Response(JSON.stringify({ success: false, error: 'Could not record the arrival send' }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+    // A delivered text must not be released, even if the sent write is still failing.
     releaseClaim = null;
+    if (!markedSent) {
+      console.error(`[send-arrival-sms] claim stayed pending after retries for booking ${bookingId}`);
+    }
 
     let office: Awaited<ReturnType<typeof notifyOwner>> = {
       deduped: false,
@@ -329,7 +368,9 @@ const handler = async (req: Request): Promise<Response> => {
       },
     }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err: unknown) {
-    if (releaseClaim) {
+    if (textDelivered && supabase && bookingId && staffId) {
+      try { await markArrivalClaimSent(supabase, bookingId, staffId); } catch { /* logged inside the retry */ }
+    } else if (releaseClaim && releaseArrivalClaimAfterError(textDelivered)) {
       try { await releaseClaim(); } catch { /* the response below is the failure */ }
     }
     const msg = err instanceof Error ? err.message : "Unknown error";

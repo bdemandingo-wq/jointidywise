@@ -17,7 +17,9 @@ import {
   planAlwaysPrompt,
   recordedAtForLocationWrite,
   trackingUpdateDisposition,
+  NATIVE_ARRIVAL_JS_RETRY_MS,
   TRIP_HEARTBEAT_MS,
+  nativeArrivalRetryDelayMs,
   tripTimedOut,
   tripWatchCommands,
   type TripLocationAuth,
@@ -270,6 +272,12 @@ test('a foreground heartbeat stays inside the reaper, and a closed row stops sha
     nowIso: '2026-10-16T12:00:00.000Z',
     fixIso: '2026-10-16T11:00:00.000Z',
   }), '2026-10-16T11:00:00.000Z');
+  assert.equal(NATIVE_ARRIVAL_JS_RETRY_MS, 45_000);
+  assert.equal(nativeArrivalRetryDelayMs(1), 45_000);
+  assert.equal(nativeArrivalRetryDelayMs(2), 90_000);
+  assert.equal(nativeArrivalRetryDelayMs(3), 180_000);
+  assert.equal(nativeArrivalRetryDelayMs(4), TRIP_HEARTBEAT_MS);
+  assert.equal(nativeArrivalRetryDelayMs(8), TRIP_HEARTBEAT_MS);
 });
 
 test('the hook starts background updates on the shared write path and stops them on every stop', () => {
@@ -350,9 +358,11 @@ test('the hook starts background updates on the shared write path and stops them
   assert.match(hook, /PGRST204/);
   const arrivedBranch = hook.slice(hook.indexOf("reason === 'arrived'"), hook.indexOf("reason === 'closed'"));
   const failedAt = arrivedBranch.indexOf("sms === 'failed'");
+  const retryDelayAt = arrivedBranch.indexOf('nativeArrivalRetryDelayMs', failedAt);
+  const retryTimerAt = arrivedBranch.indexOf('setTimeout', failedAt);
   const failedReturn = arrivedBranch.indexOf('return;', failedAt);
   const haltAt = arrivedBranch.indexOf('haltWatchRef');
-  assert.ok(failedAt >= 0 && failedReturn > failedAt && haltAt > failedReturn);
+  assert.ok(failedAt >= 0 && retryDelayAt > failedAt && retryTimerAt > retryDelayAt && failedReturn > retryTimerAt && haltAt > failedReturn);
   assert.match(hook, /destinationLat: destCoordsRef\.current\?\.lat/);
   assert.match(hook, /bookingId,/);
   assert.match(hook, /trackingId: trackingIdRef\.current/);

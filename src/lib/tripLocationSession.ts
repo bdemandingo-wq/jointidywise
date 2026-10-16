@@ -33,6 +33,18 @@ export const BACKGROUND_LOCATION_SHARE_BANNER =
 export const TRIP_HEARTBEAT_MS = 4 * 60 * 1000;
 
 /**
+ * Same gap as the native arrival retry. The JS follow-up waits, then
+ * doubles, and never waits longer than the native heartbeat.
+ */
+export const NATIVE_ARRIVAL_JS_RETRY_MS = 45_000;
+
+export function nativeArrivalRetryDelayMs(failures: number): number {
+  const n = Number.isFinite(failures) && failures > 0 ? Math.floor(failures) : 1;
+  const delay = NATIVE_ARRIVAL_JS_RETRY_MS * 2 ** (n - 1);
+  return Math.min(delay, TRIP_HEARTBEAT_MS);
+}
+
+/**
  * The iOS Always watcher sends the arrival text itself. A JS geofence
  * check at the same time sends a second text.
  */

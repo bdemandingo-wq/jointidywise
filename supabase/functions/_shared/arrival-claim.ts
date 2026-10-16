@@ -25,11 +25,26 @@ export function nextArrivalClaimAction(input: {
 }
 
 /**
- * OpenPhone non-2xx (`sendSms` false) did not deliver the text.
- * Leave the claim pending so the caller deletes it and retries.
- * No OpenPhone call (SMS off, or nobody to text) is not that failure.
+ * Release only when every OpenPhone call failed. One delivered text
+ * (the customer, or any other recipient) keeps the claim so that number
+ * is not texted again. No OpenPhone call is not a failed delivery.
  */
 export function arrivalOpenPhoneClaim(sends: readonly boolean[]): 'mark_sent' | 'release' {
-  if (sends.some((ok) => !ok)) return 'release';
-  return 'mark_sent';
+  if (sends.some((ok) => ok)) return 'mark_sent';
+  if (sends.length === 0) return 'mark_sent';
+  return 'release';
+}
+
+/** The catch path deletes the pending claim only when no text went out. */
+export function releaseArrivalClaimAfterError(textDelivered: boolean): boolean {
+  return !textDelivered;
+}
+
+/** A failed status=sent write is tried again so the row does not sit pending until the 90s takeover. */
+export const ARRIVAL_MARK_SENT_ATTEMPTS = 4;
+
+export function nextMarkSentStep(attempt: number, updateFailed: boolean): 'done' | 'retry' | 'give_up' {
+  if (!updateFailed) return 'done';
+  if (attempt + 1 < ARRIVAL_MARK_SENT_ATTEMPTS) return 'retry';
+  return 'give_up';
 }

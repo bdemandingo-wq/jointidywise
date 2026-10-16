@@ -25,6 +25,7 @@ import {
   endTripWatch,
   initialTripWatchSession,
   jsArrivalCheckEnabled,
+  nativeArrivalRetryDelayMs,
   recordedAtForLocationWrite,
   trackingUpdateDisposition,
   TRIP_HEARTBEAT_MS,
@@ -168,6 +169,8 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
   const lastFixRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const tripStartedAtRef = useRef<number | null>(null);
   const tripTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nativeArrivalRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nativeArrivalFailuresRef = useRef(0);
   const writePositionRef = useRef<(latitude: number, longitude: number) => Promise<void>>(async () => {});
   const [isTracking, setIsTracking] = useState(false);
   const [hasArrived, setHasArrived] = useState(false);
@@ -313,6 +316,11 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
       clearTimeout(tripTimeoutRef.current);
       tripTimeoutRef.current = null;
     }
+    if (nativeArrivalRetryRef.current != null) {
+      clearTimeout(nativeArrivalRetryRef.current);
+      nativeArrivalRetryRef.current = null;
+    }
+    nativeArrivalFailuresRef.current = 0;
     tripStartedAtRef.current = null;
     webSharePhaseRef.current = 'idle';
     const resolvedReason = reason ?? (markArrivedAt ? 'arrival' : 'job_finished');
@@ -467,11 +475,18 @@ export function useCleanerTracking({ bookingId, staffId, organizationId, destina
     }, (reason, sms) => {
       if (reason === 'arrived') {
         // Native calls send-arrival-sms and leaves the watcher running until
-        // that call succeeds. Retry from JS only when it failed. A second
-        // success is claimed by the reminder row. A failed send does not
-        // write arrived_at. 409 is in-flight and does not toast.
+        // that call succeeds. The JS retry waits, then backs off, so it does
+        // not stack on the failure that just happened. A second success is
+        // claimed by the reminder row. A failed send does not write arrived_at.
+        // 409 is in-flight and does not toast.
         if (sms === 'failed') {
-          void fireArrival('native');
+          nativeArrivalFailuresRef.current += 1;
+          if (nativeArrivalRetryRef.current != null) clearTimeout(nativeArrivalRetryRef.current);
+          const delay = nativeArrivalRetryDelayMs(nativeArrivalFailuresRef.current);
+          nativeArrivalRetryRef.current = setTimeout(() => {
+            nativeArrivalRetryRef.current = null;
+            void fireArrival('native');
+          }, delay);
           return;
         }
         arrivedRef.current = true;
