@@ -16,13 +16,12 @@ import {
 import { useState } from "react";
 
 const comparisonData = [
-  { feature: "Monthly Pricing", tidywise: "$49/month", launch27: "$75–$299/month", winner: "tidywise" },
   { feature: "Online Booking", tidywise: true, launch27: true, winner: "tie" },
   { feature: "Smart Scheduling", tidywise: true, launch27: true, winner: "tie" },
   { feature: "GPS Check-ins", tidywise: true, launch27: false, winner: "tidywise" },
-  { feature: "Automated Payroll", tidywise: true, launch27: "Pro plan only ($150/mo)", winner: "tidywise" },
+  { feature: "Automated Payroll", tidywise: true, launch27: "Higher plan only", winner: "tidywise" },
   { feature: "P&L Reports", tidywise: true, launch27: false, winner: "tidywise" },
-  { feature: "Mobile App", tidywise: true, launch27: "Plus plan only ($299/mo)", winner: "tidywise" },
+  { feature: "Mobile App", tidywise: true, launch27: "Higher plan only", winner: "tidywise" },
   { feature: "AI Revenue Tools", tidywise: true, launch27: false, winner: "tidywise" },
   { feature: "Inventory Tracking", tidywise: true, launch27: false, winner: "tidywise" },
   { feature: "In-App SMS Inbox", tidywise: true, launch27: false, winner: "tidywise" },
@@ -52,7 +51,7 @@ export default function CompareLaunch27() {
     <div className="min-h-screen bg-background">
       <SEOHead
         title="TidyWise vs Launch27 2026: Pricing & Feature Comparison"
-        description="Launch27 starts at $75/mo and locks payroll behind $150/mo and its mobile app behind $299/mo. See how TidyWise compares at a flat $49/month."
+        description="See how TidyWise compares with Launch27. TidyWise plans start at $49/mo."
         canonical="/compare/launch27"
         ogImage="/images/tidywise-og.png"
       />
@@ -97,7 +96,7 @@ export default function CompareLaunch27() {
               TIDYWISE vs Launch27
             </h1>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Launch27 is an established booking platform for maid services, but its best features sit behind expensive tiers: payroll at $150/month, the mobile app at $299/month. TIDYWISE includes payroll, P&L reporting, a mobile app, and AI tools at one flat rate.
+              Launch27 is an established booking platform for maid services. TIDYWISE includes payroll, P&L reporting, a mobile app, and AI tools. Plans start at $49/mo.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center mt-8">
               <Button size="lg" onClick={handleStartFreeTrial}>
@@ -134,7 +133,7 @@ export default function CompareLaunch27() {
                 <span className="font-bold text-foreground text-lg">Launch27</span>
               </div>
               <ul className="space-y-2 text-sm text-muted-foreground">
-                {["$75–$299/month across three tiers", "Payroll only on Pro ($150/mo)", "Mobile app only on Plus ($299/mo)", "No P&L reporting", "No AI tools", "14-day trial"].map(p => (
+                {["Payroll is not on every plan", "The mobile app is not on every plan", "No P&L reporting", "No AI tools", "14-day trial"].map(p => (
                   <li key={p} className="flex items-start gap-2">
                     <XCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />{p}
                   </li>
@@ -159,10 +158,10 @@ export default function CompareLaunch27() {
                 </thead>
                 <tbody>
                   {[
-                    { plan: "Entry plan", tw: "$49/month", l27: "Base — $75/month" },
-                    { plan: "With payroll", tw: "$49/month (included)", l27: "Pro — $150/month" },
-                    { plan: "With mobile app", tw: "$49/month (included)", l27: "Plus — $299/month" },
-                    { plan: "Annual cost (full features)", tw: "$588/year", l27: "$3,049/year (Plus)" },
+                    { plan: "Entry plan", tw: "$49/mo", l27: "—" },
+                    { plan: "With payroll", tw: "$49/mo (included)", l27: "—" },
+                    { plan: "With mobile app", tw: "$49/mo (included)", l27: "—" },
+                    { plan: "Annual cost (full features)", tw: "See pricing", l27: "—" },
                     { plan: "P&L reporting", tw: "Yes", l27: "No" },
                   ].map((row, i) => (
                     <tr key={i} className={i % 2 === 0 ? "bg-background" : "bg-muted/20"}>
@@ -174,7 +173,7 @@ export default function CompareLaunch27() {
                 </tbody>
               </table>
             </div>
-            <p className="text-sm text-muted-foreground mt-3">To match what TIDYWISE includes at $49/month, you'd need Launch27's Plus plan at $299/month — a difference of over $2,400 per year.</p>
+            <p className="text-sm text-muted-foreground mt-3">TIDYWISE plans start at $49/mo. Pro is $97/mo and Custom is $197/mo.</p>
           </div>
 
           {/* Feature Comparison */}
@@ -208,9 +207,9 @@ export default function CompareLaunch27() {
             <h2 className="text-2xl font-bold text-foreground mb-6">Where TIDYWISE Wins</h2>
             <div className="space-y-4">
               {[
-                { icon: <DollarSign className="h-5 w-5 text-primary" />, title: "One price, everything included", body: "Launch27 splits its features across Base ($75), Pro ($150), and Plus ($299). Payroll requires Pro. The mobile app requires Plus. TIDYWISE includes payroll, mobile app, GPS check-ins, and P&L reports at $49/month — no tier ladder to climb as your needs grow." },
+                { icon: <DollarSign className="h-5 w-5 text-primary" />, title: "One price, everything included", body: "TIDYWISE includes payroll, mobile app, GPS check-ins, and P&L reports. Plans start at $49/mo." },
                 { icon: <Clock className="h-5 w-5 text-primary" />, title: "P&L reporting Launch27 doesn't offer at any price", body: "Launch27's analytics track bookings and revenue. TIDYWISE generates profit-and-loss statements by service type and per job, so you know which clients and job types actually make money — not just how much you billed." },
-                { icon: <Smartphone className="h-5 w-5 text-primary" />, title: "Mobile app without the $299/month toll", body: "Field teams live on their phones. Launch27 reserves its mobile app for the Plus tier at $299/month, and user reviews have flagged app reliability issues. TIDYWISE ships its app to every customer, with GPS check-ins included." },
+                { icon: <Smartphone className="h-5 w-5 text-primary" />, title: "Mobile app included", body: "Field teams live on their phones. TIDYWISE ships its app to every customer, with GPS check-ins included." },
               ].map((item, i) => (
                 <div key={i} className="flex gap-4 p-5 bg-card rounded-xl border border-border">
                   <div className="flex-shrink-0 mt-0.5">{item.icon}</div>

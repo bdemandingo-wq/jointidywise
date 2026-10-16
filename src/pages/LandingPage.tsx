@@ -713,7 +713,7 @@ export default function LandingPage() {
               },
               {
                 q: "How does TidyWise compare to Jobber?",
-                a: "TidyWise starts at $49/mo vs Jobber's $69/month starter. Both handle scheduling, invoicing, and client management. TidyWise Pro at $97/mo adds built-in payroll, GPS reporting, AI Intelligence, automations, and route optimization — features that cost extra or require Jobber's higher tiers."
+                a: "Jobber is a general field-service product. TidyWise is built for cleaning companies and starts at $49/mo. Both handle scheduling, invoicing, and client management. TidyWise Pro at $97/mo adds built-in payroll, GPS reporting, AI Intelligence, automations, and route optimization."
               },
               {
                 q: "Does TidyWise work for small cleaning businesses?",

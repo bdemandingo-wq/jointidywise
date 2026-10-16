@@ -20,7 +20,6 @@ import { useState } from "react";
 import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
 
 const comparisonData = [
-  { feature: "Monthly Pricing", tidywise: "$49/month", housecallpro: "$59-$199/month", winner: "tidywise" },
   { feature: "Online Booking", tidywise: true, housecallpro: true, winner: "tie" },
   { feature: "Smart Scheduling", tidywise: true, housecallpro: true, winner: "tie" },
   { feature: "GPS Check-ins", tidywise: true, housecallpro: true, winner: "tie" },
@@ -44,7 +43,7 @@ const testimonials = [
     rating: 5
   },
   {
-    quote: "Saved $150/month switching from Housecall Pro. Plus I finally got real P&L reports.",
+    quote: "Switched from Housecall Pro. I finally got real P&L reports.",
     author: "Robert H.",
     role: "CleanSweep Services",
     rating: 5
@@ -76,7 +75,7 @@ export default function CompareHousecallPro() {
     <div className="min-h-screen bg-background">
       <SEOHead 
         title="TidyWise vs Housecall Pro 2026: Best Cleaning Software?"
-        description="Compare TIDYWISE vs Housecall Pro for cleaning businesses. Cleaning-specific features, payroll, and $49/mo pricing vs Housecall Pro's $59–$199/mo."
+        description="Compare TIDYWISE vs Housecall Pro for cleaning businesses. Cleaning-specific features and payroll. Plans from $49/mo."
         canonical="/compare/housecall-pro"
         ogImage="/images/tidywise-og.png"
       />
@@ -222,9 +221,9 @@ export default function CompareHousecallPro() {
               <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
                 <DollarSign className="h-6 w-6 text-primary" />
               </div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Save $100+/Month</h3>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Plans from $49/mo</h3>
               <p className="text-muted-foreground">
-                Housecall Pro's Pro plan costs $199/month. TidyWise gives you more cleaning features for just $49/month.
+                TIDYWISE plans start at $49/mo. Pro is $97/mo and Custom is $197/mo.
               </p>
             </div>
 

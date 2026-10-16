@@ -7,7 +7,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DOWNGRADE_EFFECT_NOTE,
+  chargeLineFromPreview,
   expiredTrialNudgeCopy,
+  formatChargeDollars,
   lifetimeSpotsToShow,
   planBillingAction,
   planChoicesFooter,
@@ -17,6 +19,13 @@ import {
   trialFirstChargeLine,
   trialEndDateLabel,
 } from "./planBillingCopy.ts";
+import {
+  WINBACK_PERCENT_OFF,
+  amountCentsAfterDiscounts,
+  chooseCheckoutOrg,
+  subscriptionChargeTiming,
+} from "../../supabase/functions/_shared/subscription-charge.ts";
+import { stripeTrialEndUnix as stripeTrialEndForTiming } from "../../supabase/functions/_shared/trial-end.ts";
 import { stripeTrialEndUnix } from "../../supabase/functions/_shared/trial-end.ts";
 import { LIFETIME_SPOT_CAP, PUBLIC_TIERS } from "./publicPlans.ts";
 
@@ -100,6 +109,119 @@ test("trial charge copy follows stripeTrialEndUnix, the same rule as create-subs
   assert.ok(eastern);
   assert.ok(eastern.length * 6.6 <= innerPx);
   assert.ok("You'll be charged $1970 today.".length * 6.6 <= innerPx);
+});
+
+test("the charge preview uses the server clock and the discounted cents", () => {
+  const now = Date.parse("2026-10-16T16:00:00.000Z");
+  const soon = new Date(now + 36 * 60 * 60 * 1000).toISOString();
+  const exactly48h = new Date(now + 48 * 60 * 60 * 1000).toISOString();
+  const billedNow = subscriptionChargeTiming({
+    hasUser: true,
+    orgPlanType: "trial",
+    trialEndsAt: soon,
+    nowMs: now,
+  });
+  assert.equal(billedNow.billNow, true);
+  assert.equal(billedNow.firstChargeAt, null);
+  assert.equal(billedNow.trialEndUnix, null);
+  assert.equal(billedNow.trialPeriodDays, null);
+  assert.equal(stripeTrialEndForTiming(soon, now), null);
+
+  const held = subscriptionChargeTiming({
+    hasUser: true,
+    orgPlanType: "trial",
+    trialEndsAt: exactly48h,
+    nowMs: now,
+  });
+  assert.equal(held.billNow, false);
+  assert.equal(held.trialEndUnix, stripeTrialEndForTiming(exactly48h, now));
+  assert.equal(held.firstChargeAt, new Date(held.trialEndUnix! * 1000).toISOString());
+
+  const missing = subscriptionChargeTiming({
+    hasUser: true,
+    orgPlanType: "trial",
+    trialEndsAt: null,
+    nowMs: now,
+  });
+  assert.equal(missing.billNow, true);
+
+  const existing = subscriptionChargeTiming({
+    hasUser: true,
+    orgPlanType: "pro",
+    trialEndsAt: exactly48h,
+    nowMs: now,
+  });
+  assert.equal(existing.billNow, false);
+  assert.equal(existing.trialPeriodDays, 14);
+  assert.equal(existing.paymentMethodCollection, "always");
+
+  const anonymous = subscriptionChargeTiming({
+    hasUser: false,
+    orgPlanType: null,
+    trialEndsAt: null,
+    nowMs: now,
+  });
+  assert.equal(anonymous.trialPeriodDays, 30);
+  assert.equal(anonymous.paymentMethodCollection, "if_required");
+
+  assert.equal(amountCentsAfterDiscounts(9700, { percentOff: 50 }), 4850);
+  assert.equal(amountCentsAfterDiscounts(9700, { percentOff: WINBACK_PERCENT_OFF.first_month_free }), 0);
+  assert.equal(amountCentsAfterDiscounts(9700, { amountOffCents: 500 }), 9200);
+  assert.equal(WINBACK_PERCENT_OFF.half_off_first_month, 50);
+
+  const chosen = chooseCheckoutOrg(
+    [
+      { role: "owner", organizations: { id: "paid", plan_type: "pro" } },
+      { role: "staff", organizations: { id: "trial-org", plan_type: "trial" } },
+    ],
+    "",
+  );
+  assert.equal(chosen.referredOrgId, "trial-org");
+  assert.equal(chosen.orgPlanType, "trial");
+  const requested = chooseCheckoutOrg(
+    [
+      { role: "owner", organizations: { id: "paid", plan_type: "pro" } },
+      { role: "staff", organizations: { id: "trial-org", plan_type: "trial" } },
+    ],
+    "paid",
+  );
+  assert.equal(requested.orgPlanType, "pro");
+
+  assert.equal(formatChargeDollars(4850), "$48.50");
+  assert.equal(formatChargeDollars(9700), "$97");
+  assert.equal(
+    chargeLineFromPreview({
+      billNow: true,
+      firstChargeAt: null,
+      amountCents: 4850,
+      timeZone: "America/New_York",
+    }),
+    "You'll be charged $48.50 today.",
+  );
+  assert.equal(
+    chargeLineFromPreview({
+      billNow: false,
+      firstChargeAt: exactly48h,
+      amountCents: 4850,
+      timeZone: "America/New_York",
+    })?.startsWith("Your first charge is "),
+    true,
+  );
+
+  const preview = readFileSync(new URL("../../supabase/functions/preview-subscription-charge/index.ts", import.meta.url), "utf8");
+  const checkout = readFileSync(new URL("../../supabase/functions/create-subscription/index.ts", import.meta.url), "utf8");
+  assert.match(preview, /subscriptionChargeTiming/);
+  assert.match(preview, /lookupCheckoutDiscount/);
+  assert.doesNotMatch(preview, /checkout\.sessions\.create/);
+  assert.doesNotMatch(preview, /coupons\.create/);
+  assert.doesNotMatch(preview, /\.update\(/);
+  assert.match(checkout, /subscriptionChargeTiming/);
+  assert.match(checkout, /lookupCheckoutDiscount/);
+  const pricing = readFileSync(new URL("../pages/PricingPage.tsx", import.meta.url), "utf8");
+  assert.match(pricing, /LIFETIME_SPOT_CAP\} spots only/);
+  assert.doesNotMatch(pricing, /\(100 spots only\)/);
+  const switcher = readFileSync(new URL("../components/subscription/PlanSwitcher.tsx", import.meta.url), "utf8");
+  assert.match(switcher, /!contactPlan && plan\.monthlyPrice/);
 });
 
 test("Custom is $197/mo in the app and in SEO copy", () => {
