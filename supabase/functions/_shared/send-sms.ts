@@ -3,11 +3,12 @@
  *
  * Every customer, cleaner, and lead text goes through sendOpenPhoneMessage.
  * Before the request, the destination is normalized to E.164 and checked with
- * phoneOptOutStatus. A number is blocked only by an SMS STOP: an
+ * phoneOptOutStatus. A transactional text is blocked only by an SMS STOP: an
  * sms_suppressions row for the org and that E.164 number, or a customer row
- * with marketing_status opted_out and opted_out_method sms_stop. An email
- * unsubscribe or an admin bulk opt-out does not block texts. An SMS STOP
- * blocks every text, including transactional ones.
+ * with marketing_status opted_out and opted_out_method sms_stop, matched on
+ * the last 10 digits. An email unsubscribe or an admin bulk opt-out does not
+ * block transactional texts. Marketing sends call isPhoneOptedOut first, and
+ * that check blocks any opted_out. An SMS STOP blocks every text.
  * A match returns { skipped: true, reason: "opted_out" }, writes system_logs,
  * and does not call OpenPhone and does not throw.
  *
@@ -127,7 +128,8 @@ async function logBlockedSend(
 }
 
 /**
- * Upsert the org + E.164 suppression written for every inbound STOP.
+ * Record the org + E.164 suppression for an inbound STOP.
+ * An existing row with a source other than sms_stop is left as it is.
  * Returns false when the phone cannot be normalized or the write fails.
  */
 export async function recordSmsSuppression(
@@ -141,25 +143,37 @@ export async function recordSmsSuppression(
     return false;
   }
   try {
-    const written = await supabase.from("sms_suppressions").upsert(
+    const existing = await supabase
+      .from("sms_suppressions")
+      .select("source")
+      .eq("organization_id", organizationId)
+      .eq("phone", e164)
+      .maybeSingle();
+    if (existing.error) {
+      console.error(
+        `[send-sms] sms_suppressions read failed org=${organizationId}: ${existing.error.message ?? "unknown"}`,
+      );
+      return false;
+    }
+    if (existing.data) return true;
+    const written = await supabase.from("sms_suppressions").insert(
       { organization_id: organizationId, phone: e164, source: "sms_stop" },
-      { onConflict: "organization_id,phone" },
     );
     if (written.error) {
       console.error(
-        `[send-sms] sms_suppressions upsert failed org=${organizationId}: ${written.error.message ?? "unknown"}`,
+        `[send-sms] sms_suppressions insert failed org=${organizationId}: ${written.error.message ?? "unknown"}`,
       );
       return false;
     }
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[send-sms] sms_suppressions upsert threw org=${organizationId}: ${message}`);
+    console.error(`[send-sms] sms_suppressions insert threw org=${organizationId}: ${message}`);
     return false;
   }
 }
 
-/** Delete the org + E.164 suppression. A missing row is success. */
+/** Delete the org + E.164 sms_stop suppression. Another source is left in place. A missing row is success. */
 export async function clearSmsSuppression(
   supabase: SupabaseClient,
   organizationId: string,
@@ -175,7 +189,8 @@ export async function clearSmsSuppression(
       .from("sms_suppressions")
       .delete()
       .eq("organization_id", organizationId)
-      .eq("phone", e164);
+      .eq("phone", e164)
+      .eq("source", "sms_stop");
     if (removed.error) {
       console.error(
         `[send-sms] sms_suppressions delete failed org=${organizationId}: ${removed.error.message ?? "unknown"}`,

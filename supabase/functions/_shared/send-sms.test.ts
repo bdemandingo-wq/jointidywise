@@ -88,6 +88,16 @@ function mockDb(opts: {
             if (opts.logsThrow) throw new Error("logs down");
             logs.push(values);
           }
+          if (table === "sms_suppressions") {
+            const row = values as unknown as Suppression;
+            const idx = suppressions.findIndex((entry) =>
+              entry.organization_id === row.organization_id && entry.phone === row.phone
+            );
+            if (idx >= 0) {
+              return Promise.resolve({ error: { message: "duplicate suppression" } });
+            }
+            suppressions.push(row);
+          }
           return Promise.resolve({ error: null });
         },
         upsert(values: Record<string, unknown>) {
@@ -117,7 +127,8 @@ function mockDb(opts: {
           if (table === "sms_suppressions" && op === "delete") {
             for (let i = suppressions.length - 1; i >= 0; i--) {
               const row = suppressions[i];
-              if (row.organization_id === filters.organization_id && row.phone === filters.phone) {
+              const sourceOk = filters.source === undefined || row.source === filters.source;
+              if (row.organization_id === filters.organization_id && row.phone === filters.phone && sourceOk) {
                 suppressions.splice(i, 1);
               }
             }
@@ -201,6 +212,26 @@ test("the same number in another org is still sent", async () => {
   assert.deepEqual(db.fetches[0].body.to, [E164]);
   assert.equal(db.fetches[0].authorization, "secret-key");
   assert.equal(db.logs.length, 0);
+});
+
+test("a last-10 match blocks an SMS STOP stored in another format", async () => {
+  const db = mockDb({
+    customers: [{
+      id: "c1",
+      phone: "please call 813.555.0100 today",
+      marketing_status: "opted_out",
+      opted_out_method: "sms_stop",
+      organization_id: ORG,
+    }],
+  });
+  const result = await sendOpenPhoneMessage({
+    ...base,
+    to: "+1 (813) 555-0100",
+    supabase: db.supabase,
+    fetchImpl: db.fetchImpl,
+  });
+  assert.deepEqual(result, { skipped: true, reason: "opted_out" });
+  assert.equal(db.fetches.length, 0);
 });
 
 test("a differently formatted SMS STOP blocks a transactional text", async () => {
@@ -305,6 +336,30 @@ test("recording STOP for a non-customer number blocks the next text", async () =
     fetchImpl: db.fetchImpl,
   });
   assert.deepEqual(result, { skipped: true, reason: "opted_out" });
+  assert.equal(db.fetches.length, 0);
+});
+
+test("STOP does not overwrite a non-STOP suppression and START does not delete it", async () => {
+  const db = mockDb({
+    customers: [],
+    suppressions: [{ organization_id: ORG, phone: E164, source: "carrier_block" }],
+  });
+  const recorded = await recordSmsSuppression(db.supabase, ORG, "(813) 555-0100");
+  assert.equal(recorded, true);
+  assert.equal(db.suppressions.length, 1);
+  assert.equal(db.suppressions[0].source, "carrier_block");
+
+  const cleared = await clearSmsSuppression(db.supabase, ORG, E164);
+  assert.equal(cleared, true);
+  assert.equal(db.suppressions.length, 1);
+  assert.equal(db.suppressions[0].source, "carrier_block");
+
+  const stillBlocked = await sendOpenPhoneMessage({
+    ...base,
+    supabase: db.supabase,
+    fetchImpl: db.fetchImpl,
+  });
+  assert.deepEqual(stillBlocked, { skipped: true, reason: "opted_out" });
   assert.equal(db.fetches.length, 0);
 });
 

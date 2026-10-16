@@ -1427,8 +1427,9 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
                     organizationId: organizationId ?? undefined,
                   },
                 });
-                // Handle SMS-specific errors
-                if (!(await handleSmsError(response, { afterBookingSave: true }))) {
+                if (response.data?.skipped === true && response.data?.reason === 'opted_out') {
+                  toast.error('This customer texted STOP, so the confirmation was not texted.');
+                } else if (!(await handleSmsError(response, { afterBookingSave: true }))) {
                   toast.success('Confirmation text sent to customer');
                 }
               } catch (smsError: any) {
