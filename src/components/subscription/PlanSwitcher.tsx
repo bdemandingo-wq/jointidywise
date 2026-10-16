@@ -20,6 +20,7 @@ import {
   type PlanInfo,
 } from "./PlanChangeDialogs";
 import { useAuth } from "@/hooks/useAuth";
+import { useOrganization } from "@/contexts/OrganizationContext";
 import { useOrgId } from "@/hooks/useOrgId";
 import { usePlatform } from "@/hooks/usePlatform";
 import { supabase } from "@/integrations/supabase/client";
@@ -33,10 +34,13 @@ import { lifetimeSpotsLabel } from "@/lib/publicActivity";
 import { usePublicGrowth } from "@/hooks/usePublicGrowth";
 import { trialDaysLeft } from "@/lib/trialClock";
 import {
+  DOWNGRADE_EFFECT_NOTE,
   lifetimeSpotsToShow,
   planBillingAction,
   renewalDisclosure,
-  trialStatusLine,
+  showPlanChoices,
+  trialChargeLine,
+  trialEndDateLabel,
 } from "@/lib/planBillingCopy";
 
 const planButtonClass = "h-11 min-h-[44px] w-full px-3 md:h-11";
@@ -103,6 +107,7 @@ export function PlanSwitcher() {
   const navigate = useNavigate();
   const planState = usePlanState();
   const { subscription, checkSubscription } = useAuth();
+  const { organization } = useOrganization();
   const { organizationId } = useOrgId();
   const { canShowPaymentFlows } = usePlatform();
   const [upgradeTarget, setUpgradeTarget] = useState<PlanInfo | null>(null);
@@ -123,6 +128,8 @@ export function PlanSwitcher() {
   // and hid the plan switcher that would have converted them.
   const currentPlanId = planState.rawPlanType;
   const isLifetime = currentPlanId === "lifetime";
+  const isGrandfathered = organization?.grandfathered_lifetime === true;
+  const planChoicesVisible = showPlanChoices({ lifetime: isLifetime, grandfathered: isGrandfathered });
 
   const currentPlan = useMemo(
     () => PLANS.find((p) => p.id === currentPlanId) ?? null,
@@ -181,11 +188,19 @@ export function PlanSwitcher() {
   }
 
   const hasScheduledDowngrade =
-    !!downgrade.to && !!targetDowngradePlan && !isLifetime;
+    !!downgrade.to && !!targetDowngradePlan && planChoicesVisible;
   const canChangePlan = hasChangeableStripeSubscription(subscription);
   const choosingFirstPlan = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
-  const showOrgTrialStatus = isActiveOrgTrial(subscription) || (currentPlanId === "trial" && subscription?.trial_active === true);
+  const showOrgTrialStatus = planChoicesVisible && (
+    isActiveOrgTrial(subscription) || (currentPlanId === "trial" && subscription?.trial_active === true)
+  );
   const trialDays = showOrgTrialStatus ? trialDaysLeft(subscription?.trial_end) : null;
+  const trialCharge = showOrgTrialStatus
+    ? trialChargeLine({
+        chargeDate: trialEndDateLabel(subscription?.trial_end),
+        daysLeft: trialDays,
+      })
+    : null;
 
   async function subscribe(plan: PlanInfo) {
     // Native builds do not start checkout in the app. The button for that
@@ -238,7 +253,7 @@ export function PlanSwitcher() {
         <div>
           <h3 className="text-base font-semibold">Current plan</h3>
           <p className="text-sm text-muted-foreground">
-            {isLifetime ? (
+            {isLifetime || isGrandfathered ? (
               <span className="inline-flex items-center gap-1">
                 <Crown className="h-3.5 w-3.5 text-amber-500" /> Lifetime — locked in forever
               </span>
@@ -251,8 +266,8 @@ export function PlanSwitcher() {
               })}</span> plan.</>
             )}
           </p>
-          {showOrgTrialStatus && (
-            <p className="mt-1 text-sm text-muted-foreground">{trialStatusLine(trialDays)}</p>
+          {trialCharge && (
+            <p className="mt-1 text-sm text-muted-foreground">{trialCharge}</p>
           )}
           {lifetimeSpots && (
             <p className="mt-1 text-sm text-muted-foreground">
@@ -260,7 +275,7 @@ export function PlanSwitcher() {
             </p>
           )}
         </div>
-        {isLifetime && (
+        {(isLifetime || isGrandfathered) && (
           <Badge variant="secondary" className="gap-1">
             <Lock className="h-3 w-3" /> Locked
           </Badge>
@@ -299,7 +314,7 @@ export function PlanSwitcher() {
         </Alert>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      {planChoicesVisible && <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         {PLANS.map((plan) => {
           const Icon = ICONS[plan.id];
           const isCurrent = plan.id === currentPlanId;
@@ -321,6 +336,7 @@ export function PlanSwitcher() {
           );
 
           let planButton: ReactNode;
+          let downgradeNote = false;
           if (choosingFirstPlan && contactPlan) {
             planButton = talkToUs;
           } else if (choosingFirstPlan && !canShowPaymentFlows) {
@@ -387,6 +403,7 @@ export function PlanSwitcher() {
           } else if (!canShowPaymentFlows) {
             planButton = onTheWebsite;
           } else {
+            downgradeNote = !isUpgrade;
             planButton = (
               <Button
                 variant={isUpgrade ? "default" : "outline"}
@@ -439,6 +456,11 @@ export function PlanSwitcher() {
               </ul>
 
               {planButton}
+              {downgradeNote && (
+                <p className="mt-2 text-center text-xs text-muted-foreground">
+                  {DOWNGRADE_EFFECT_NOTE}
+                </p>
+              )}
               {planBillingAction(plan.id) === "checkout" && (
                 <p className="mt-2 text-center text-xs text-muted-foreground">
                   {renewalDisclosure(plan.monthlyPrice)}
@@ -447,15 +469,15 @@ export function PlanSwitcher() {
             </div>
           );
         })}
-      </div>
+      </div>}
 
-      {canChangePlan && !isLifetime && (
+      {canChangePlan && planChoicesVisible && (
         <p className="mt-3 text-xs text-muted-foreground">
           Upgrades take effect now, with proration. Downgrades take effect at renewal.
         </p>
       )}
 
-      {!isLifetime && !canChangePlan && (
+      {planChoicesVisible && !canChangePlan && (
         <p className="mt-3 text-xs text-muted-foreground">
           {subscription?.payment_failed
             ? "The last payment failed. Update payment method opens Stripe's billing portal."

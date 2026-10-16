@@ -11,6 +11,8 @@ export interface Organization {
   needs_onboarding?: boolean;
   created_at?: string | null;
   plan_type?: string | null;
+  /** Original launch accounts. Not the same as a purchased lifetime plan. */
+  grandfathered_lifetime?: boolean | null;
 }
 
 export type OrgRole = 'owner' | 'admin' | 'manager' | 'member';

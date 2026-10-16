@@ -676,7 +676,7 @@ export default function SettingsPage() {
               Your current plan, trial, and invoices.
             </p>
           </div>
-          <Button variant="premium" className="h-11 min-h-[44px] shrink-0 px-4 md:h-11" onClick={() => setActiveTab('subscription')}>
+          <Button variant="outline" className="h-11 min-h-[44px] shrink-0 px-4 md:h-11" onClick={() => setActiveTab('subscription')}>
             View
           </Button>
         </div>

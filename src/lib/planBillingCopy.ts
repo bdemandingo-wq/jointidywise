@@ -1,5 +1,3 @@
-import { TRIAL_DAYS } from "./trialOffer.ts";
-
 /**
  * Settings plan cards. Basic and Pro reuse the existing monthly checkout
  * and plan-change calls. Custom has no in-app checkout on this screen.
@@ -14,17 +12,45 @@ export function renewalDisclosure(monthlyPrice: number): string {
   return `Renews monthly at $${monthlyPrice} until you cancel.`;
 }
 
+/** Shown under a downgrade button. The section footer stays as well. */
+export const DOWNGRADE_EFFECT_NOTE = "Takes effect at your next renewal.";
+
 /**
- * New org trials are TRIAL_DAYS of Pro. daysLeft is the live clock
- * (null when the end timestamp is missing). The length and the clock
- * are both shown so a shortened existing trial is not described as
- * having the full length left.
+ * Calendar date of a stored trial end. UTC so the label matches the
+ * timestamp's date and does not shift with the device timezone.
  */
-export function trialStatusLine(daysLeft: number | null): string {
-  const offer = `Free trial: ${TRIAL_DAYS} days of Pro.`;
-  if (daysLeft == null) return offer;
-  const left = daysLeft === 1 ? "1 day left." : `${daysLeft} days left.`;
-  return `${offer} ${left}`;
+export function trialEndDateLabel(trialEndIso: string | null | undefined): string | null {
+  if (!trialEndIso) return null;
+  const end = Date.parse(trialEndIso);
+  if (!Number.isFinite(end)) return null;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(end));
+}
+
+/**
+ * Trial copy names the real end date twice: when Pro access ends, and
+ * when the first charge happens if they add a card. daysLeft stays.
+ * A missing timestamp does not invent a date.
+ */
+export function trialChargeLine(opts: {
+  chargeDate: string | null;
+  daysLeft: number | null;
+}): string {
+  const days = opts.daysLeft == null
+    ? ""
+    : opts.daysLeft === 1
+      ? " 1 day left."
+      : ` ${opts.daysLeft} days left.`;
+  if (!opts.chargeDate) return `Free trial of Pro.${days}`;
+  return `Free trial of Pro until ${opts.chargeDate}. Add a card and your first charge is ${opts.chargeDate}.${days}`;
+}
+
+/** Lifetime and grandfathered accounts see the current plan only. */
+export function showPlanChoices(opts: { lifetime: boolean; grandfathered: boolean }): boolean {
+  return !opts.lifetime && !opts.grandfathered;
 }
 
 /**
