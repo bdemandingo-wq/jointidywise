@@ -261,6 +261,10 @@ export function dashboardUpcomingKey(organizationId: string) {
   return ['bookings', 'dashboard-upcoming', organizationId] as const;
 }
 
+export function dashboardChartKey(organizationId: string | undefined) {
+  return ['bookings', 'dashboard-chart', organizationId] as const;
+}
+
 export async function fetchDashboardUpcoming(organizationId: string): Promise<BookingWithDetails[]> {
   const start = new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString();
   const end = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString();
@@ -407,7 +411,7 @@ export function useDashboardChart(ready = true) {
   const { organization } = useOrganization();
   const organizationId = organization?.id;
   return useQuery({
-    queryKey: ['bookings', 'dashboard-chart', organizationId],
+    queryKey: dashboardChartKey(organizationId),
     queryFn: () => fetchDashboardChart(organizationId as string),
     // The chart is a year of rows. It waits until today's jobs are on screen
     // so it does not compete with the query the first paint is blocked on.

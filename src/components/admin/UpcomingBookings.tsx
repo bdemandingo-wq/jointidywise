@@ -1,5 +1,5 @@
 import { formatDuration } from '@/lib/formatDuration';
-import { useState, useMemo } from 'react';
+import { lazy, Suspense, useState, useMemo } from 'react';
 import { BookingWithDetails } from '@/hooks/useBookings';
 import { cn } from '@/lib/utils';
 import { Clock, User, ChevronRight, Phone, Loader2, Edit, MapPin, Bell } from 'lucide-react';
@@ -17,8 +17,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useNavigate } from 'react-router-dom';
-import { EditCustomerDialog } from './EditCustomerDialog';
-import { AddBookingDialog } from './AddBookingDialog';
 import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { formatInOrgTz } from '@/lib/orgDateRange';
@@ -27,6 +25,15 @@ import { FarCheckinNotice } from '@/components/admin/FarCheckinNotice';
 interface UpcomingBookingsProps {
   bookings: BookingWithDetails[];
 }
+
+// The edit dialogs pull in the booking stepper and Stripe card form.
+// They are not part of the dashboard's first paint.
+const EditCustomerDialog = lazy(() =>
+  import('./EditCustomerDialog').then((m) => ({ default: m.EditCustomerDialog })),
+);
+const AddBookingDialog = lazy(() =>
+  import('./AddBookingDialog').then((m) => ({ default: m.AddBookingDialog })),
+);
 
 const statusColors: Record<string, string> = {
   pending: 'bg-warning/20 text-warning border-warning/30',
@@ -64,6 +71,10 @@ export function UpcomingBookings({ bookings }: UpcomingBookingsProps) {
   const [sendingClientNotif, setSendingClientNotif] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<BookingWithDetails['customer'] | null>(null);
   const [editingBooking, setEditingBooking] = useState<BookingWithDetails | null>(null);
+  const [mountCustomerDialog, setMountCustomerDialog] = useState(false);
+  const [mountBookingDialog, setMountBookingDialog] = useState(false);
+  if (editingCustomer && !mountCustomerDialog) setMountCustomerDialog(true);
+  if (editingBooking && !mountBookingDialog) setMountBookingDialog(true);
   const { isTestMode, maskName, maskEmail, maskAddress, maskAmount } = useTestMode();
   const { organization } = useOrganization();
   const { timezone: orgTimezone } = useOrgTimezone();
@@ -397,19 +408,25 @@ export function UpcomingBookings({ bookings }: UpcomingBookingsProps) {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Customer Dialog */}
-      <EditCustomerDialog 
-        open={!!editingCustomer} 
-        onOpenChange={(open) => !open && setEditingCustomer(null)}
-        customer={editingCustomer}
-      />
+      {mountCustomerDialog && (
+        <Suspense fallback={null}>
+          <EditCustomerDialog
+            open={!!editingCustomer}
+            onOpenChange={(open) => !open && setEditingCustomer(null)}
+            customer={editingCustomer}
+          />
+        </Suspense>
+      )}
 
-      {/* Edit Booking Dialog */}
-      <AddBookingDialog 
-        open={!!editingBooking} 
-        onOpenChange={(open) => !open && setEditingBooking(null)}
-        booking={editingBooking}
-      />
+      {mountBookingDialog && (
+        <Suspense fallback={null}>
+          <AddBookingDialog
+            open={!!editingBooking}
+            onOpenChange={(open) => !open && setEditingBooking(null)}
+            booking={editingBooking}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

@@ -280,15 +280,26 @@ export function useSidebarBadgesFull(): SidebarBadgeData {
       // Was the UTC date, so the "due today" badge changed over mid-afternoon
       // in the Americas instead of at the business's midnight.
       const today = orgDateKey(new Date(), orgTimezone);
-      const { data } = await supabase
+      // Head counts. The previous select downloaded every open task so the
+      // client could count two numbers the database already knows.
+      const openQuery = supabase
         .from('tasks_and_notes')
-        .select('due_date, is_completed, type')
+        .select('id', { count: 'exact', head: true })
         .eq('organization_id', orgId)
         .in('type', ['daily', 'weekly', 'monthly'])
         .eq('is_completed', false);
-      const rows = data || [];
-      const overdue = rows.filter((r: any) => r.due_date && r.due_date < today).length;
-      return { open: rows.length, overdue };
+      const overdueQuery = supabase
+        .from('tasks_and_notes')
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_id', orgId)
+        .in('type', ['daily', 'weekly', 'monthly'])
+        .eq('is_completed', false)
+        .not('due_date', 'is', null)
+        .lt('due_date', today);
+      const [open, overdue] = await Promise.all([openQuery, overdueQuery]);
+      if (open.error) throw open.error;
+      if (overdue.error) throw overdue.error;
+      return { open: open.count || 0, overdue: overdue.count || 0 };
     },
   });
 
@@ -372,16 +383,23 @@ export function useSidebarBadgesFull(): SidebarBadgeData {
     ...REALTIME_BACKED,
     queryFn: async () => {
       if (!orgId) return { unresolved: 0, followup: 0 };
-      const { data } = await supabase
+      // Null is_resolved counts as unresolved, matching !row.is_resolved.
+      // Follow-up still has to be unresolved, matching the on-page filter.
+      const unresolvedQuery = supabase
         .from('client_feedback')
-        .select('is_resolved, followup_needed')
-        .eq('organization_id', orgId);
-      const rows = data || [];
-      const unresolved = rows.filter((r: any) => !r.is_resolved).length;
-      // Follow-ups that still need attention (regardless of resolved flag,
-      // matches the on-page "Needs Follow-up" filter which excludes resolved).
-      const followup = rows.filter((r: any) => r.followup_needed && !r.is_resolved).length;
-      return { unresolved, followup };
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_id', orgId)
+        .or('is_resolved.is.null,is_resolved.eq.false');
+      const followupQuery = supabase
+        .from('client_feedback')
+        .select('id', { count: 'exact', head: true })
+        .eq('organization_id', orgId)
+        .eq('followup_needed', true)
+        .or('is_resolved.is.null,is_resolved.eq.false');
+      const [unresolved, followup] = await Promise.all([unresolvedQuery, followupQuery]);
+      if (unresolved.error) throw unresolved.error;
+      if (followup.error) throw followup.error;
+      return { unresolved: unresolved.count || 0, followup: followup.count || 0 };
     },
   });
 
