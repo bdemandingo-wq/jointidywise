@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DOWNGRADE_EFFECT_NOTE,
+  CHARGE_TODAY_NO_AMOUNT,
   chargeLineFromPreview,
   expiredTrialNudgeCopy,
   formatChargeDollars,
@@ -15,9 +16,11 @@ import {
   planChoicesFooter,
   renewalDisclosure,
   showPlanChoices,
+  todayChargeCopy,
   trialBillsOnCheckout,
   trialFirstChargeLine,
   trialEndDateLabel,
+  visibleBillingLine,
 } from "./planBillingCopy.ts";
 import {
   WINBACK_PERCENT_OFF,
@@ -79,11 +82,11 @@ test("trial charge copy follows stripeTrialEndUnix, the same rule as create-subs
   assert.equal(trialBillsOnCheckout(soon, now), true);
   assert.equal(
     trialFirstChargeLine({ trialEndIso: soon, timeZone: "America/New_York", price: 97, nowMs: now }),
-    "You'll be charged $97 today.",
+    "You'll be charged today.",
   );
   assert.equal(
     trialFirstChargeLine({ trialEndIso: soon, timeZone: "America/New_York", nowMs: now }),
-    null,
+    "You'll be charged today.",
   );
 
   const exactly48h = new Date(now + 48 * 60 * 60 * 1000).toISOString();
@@ -98,7 +101,7 @@ test("trial charge copy follows stripeTrialEndUnix, the same rule as create-subs
   assert.equal(stripeTrialEndUnix(justUnder, now), null);
   assert.equal(
     trialFirstChargeLine({ trialEndIso: justUnder, timeZone: "America/New_York", price: 49, nowMs: now }),
-    "You'll be charged $49 today.",
+    "You'll be charged today.",
   );
 
   assert.equal(trialFirstChargeLine({ trialEndIso: null, timeZone: "America/New_York", price: 49, nowMs: now }), null);
@@ -189,6 +192,20 @@ test("the charge preview uses the server clock and the discounted cents", () => 
 
   assert.equal(formatChargeDollars(4850), "$48.50");
   assert.equal(formatChargeDollars(9700), "$97");
+  assert.equal(CHARGE_TODAY_NO_AMOUNT, "You'll be charged today.");
+  assert.equal(visibleBillingLine(null), null);
+  assert.equal(visibleBillingLine(""), null);
+  assert.equal(visibleBillingLine("   "), null);
+  assert.equal(visibleBillingLine("Renews monthly at $49 until you cancel. Cancel anytime in Settings."), renewalDisclosure(49));
+  assert.equal(
+    chargeLineFromPreview({
+      billNow: true,
+      firstChargeAt: null,
+      amountCents: null,
+      timeZone: "America/New_York",
+    }),
+    "You'll be charged today.",
+  );
   assert.equal(
     chargeLineFromPreview({
       billNow: true,
@@ -197,6 +214,21 @@ test("the charge preview uses the server clock and the discounted cents", () => 
       timeZone: "America/New_York",
     }),
     "You'll be charged $48.50 today.",
+  );
+  assert.equal(todayChargeCopy(undefined, "America/New_York"), "You'll be charged today.");
+  assert.equal(
+    todayChargeCopy(
+      { bill_now: true, first_charge_at: null, amount_cents_after_discounts: 4850 },
+      "America/New_York",
+    ),
+    "You'll be charged $48.50 today.",
+  );
+  assert.equal(
+    todayChargeCopy(
+      { bill_now: false, first_charge_at: exactly48h, amount_cents_after_discounts: 9700 },
+      "America/New_York",
+    ),
+    null,
   );
   assert.equal(
     chargeLineFromPreview({
@@ -221,7 +253,14 @@ test("the charge preview uses the server clock and the discounted cents", () => 
   assert.match(pricing, /LIFETIME_SPOT_CAP\} spots only/);
   assert.doesNotMatch(pricing, /\(100 spots only\)/);
   const switcher = readFileSync(new URL("../components/subscription/PlanSwitcher.tsx", import.meta.url), "utf8");
-  assert.match(switcher, /!contactPlan && plan\.monthlyPrice/);
+  const dialogs = readFileSync(new URL("../components/subscription/PlanChangeDialogs.tsx", import.meta.url), "utf8");
+  const choose = readFileSync(new URL("../pages/ChoosePlanPage.tsx", import.meta.url), "utf8");
+  assert.match(switcher, /showRenewal && !contactPlan \? renewalDisclosure/);
+  assert.match(switcher, /visibleBillingLine/);
+  assert.match(pricing, /visibleBillingLine\(renewalDisclosure/);
+  assert.match(choose, /visibleBillingLine\(renewalDisclosure/);
+  assert.match(dialogs, /contactPlan \? null : renewalDisclosure/);
+  assert.doesNotMatch(readFileSync(new URL("./planBillingCopy.ts", import.meta.url), "utf8"), /You'll be charged \$\$\{/);
 });
 
 test("Custom is $197/mo in the app and in SEO copy", () => {
@@ -235,6 +274,16 @@ test("Custom is $197/mo in the app and in SEO copy", () => {
   const pricingMd = read("../../public/pricing.md");
   const customPrice = PUBLIC_TIERS.find((tier) => tier.id === "custom")?.monthlyPrice;
   assert.equal(customPrice, 197);
+  assert.deepEqual(
+    PUBLIC_TIERS.map((tier) => [tier.id, tier.monthlyPrice, tier.yearlyPrice]),
+    [
+      ["basic", 49, 490],
+      ["pro", 97, 970],
+      ["custom", 197, 1970],
+    ],
+  );
+  assert.match(switcher, /PUBLIC_TIERS\.map/);
+  assert.doesNotMatch(switcher, /monthlyPrice:\s*(49|97|197)\b/);
   assert.match(comparison, /\$\$\{tier\.monthlyPrice\}\/mo/);
   assert.match(comparison, /custom\.monthlyPrice/);
   assert.doesNotMatch(comparison, /Booking Koala/);
@@ -267,6 +316,9 @@ test("the lifetime cap is one shared constant at 100", () => {
     "../../supabase/functions/generate-daily-blogs/index.ts",
     "../../supabase/functions/stripe-invoice-webhook/index.ts",
   ].map(read);
+  const schema = read("./seo/schemas.ts");
+  assert.match(schema, /limited to \$\{LIFETIME_SPOT_CAP\} spots/);
+  assert.doesNotMatch(schema, /limited to 100 spots/);
   assert.match(cap, /export const LIFETIME_SPOT_CAP = 100/);
   assert.match(plans, /lifetime-cap\.ts/);
   assert.doesNotMatch(plans, /LIFETIME_SPOT_CAP = 100/);

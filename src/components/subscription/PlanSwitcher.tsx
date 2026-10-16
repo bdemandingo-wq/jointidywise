@@ -33,6 +33,7 @@ import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from "@/lib/startS
 import { ALREADY_LIFETIME_MESSAGE } from "@/lib/alreadyLifetime";
 import { CustomPriceMissing } from "@/lib/priceNotConfigured";
 import { lifetimeSpotsLabel } from "@/lib/publicActivity";
+import { PUBLIC_TIERS } from "@/lib/publicPlans";
 import { usePublicGrowth } from "@/hooks/usePublicGrowth";
 import {
   DOWNGRADE_EFFECT_NOTE,
@@ -42,60 +43,54 @@ import {
   planChoicesFooter,
   renewalDisclosure,
   showPlanChoices,
+  todayChargeCopy,
+  visibleBillingLine,
 } from "@/lib/planBillingCopy";
 import { chargePreviewKey, useSubscriptionChargePreview } from "@/hooks/useSubscriptionChargePreview";
 
 const planButtonClass = "h-11 min-h-[44px] w-full px-3 md:h-11";
 
-const PLANS: PlanInfo[] = [
-  {
-    id: "basic",
-    name: "Basic",
-    monthlyPrice: 49,
-    features: [
-      "Online booking system",
-      "Unlimited customers + CRM",
-      "Smart team scheduler",
-      "Estimates, invoices, Stripe payments",
-      "Recurring bookings + jobs",
-      "Staff management",
-      "In-app messaging",
-      "Email support",
-    ],
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    monthlyPrice: 97,
-    features: [
-      "Everything in Basic",
-      "Automations (reviews, reminders, win-back, promos)",
-      "Email marketing campaigns",
-      "AI Intelligence + Copilot",
-      "Advanced reports + benchmarks",
-      "GPS tracking + operations dashboard",
-      "Payroll for cleaners",
-      "Inventory + expenses",
-      "Client portal",
-      "Data import",
-      "Lead pipeline",
-    ],
-  },
-  {
-    id: "custom",
-    name: "Custom",
-    monthlyPrice: 197,
-    features: [
-      "Everything in Pro",
-      "1 done-for-you request per month",
-      "Build me a website + connect to TidyWise",
-      "Set up my SMS + email marketing",
-      "Import my customers from another CRM",
-      "Scripts & documents pack",
-      "Priority support",
-    ],
-  },
-];
+const PLAN_FEATURES: Record<PlanInfo["id"], string[]> = {
+  basic: [
+    "Online booking system",
+    "Unlimited customers + CRM",
+    "Smart team scheduler",
+    "Estimates, invoices, Stripe payments",
+    "Recurring bookings + jobs",
+    "Staff management",
+    "In-app messaging",
+    "Email support",
+  ],
+  pro: [
+    "Everything in Basic",
+    "Automations (reviews, reminders, win-back, promos)",
+    "Email marketing campaigns",
+    "AI Intelligence + Copilot",
+    "Advanced reports + benchmarks",
+    "GPS tracking + operations dashboard",
+    "Payroll for cleaners",
+    "Inventory + expenses",
+    "Client portal",
+    "Data import",
+    "Lead pipeline",
+  ],
+  custom: [
+    "Everything in Pro",
+    "1 done-for-you request per month",
+    "Build me a website + connect to TidyWise",
+    "Set up my SMS + email marketing",
+    "Import my customers from another CRM",
+    "Scripts & documents pack",
+    "Priority support",
+  ],
+};
+
+const PLANS: PlanInfo[] = PUBLIC_TIERS.map((tier) => ({
+  id: tier.id,
+  name: tier.name,
+  monthlyPrice: tier.monthlyPrice,
+  features: PLAN_FEATURES[tier.id],
+}));
 
 const RANK: Record<string, number> = { basic: 1, pro: 2, custom: 3, lifetime: 99 };
 const ICONS = { basic: Sparkles, pro: Zap, custom: Crown } as const;
@@ -356,14 +351,9 @@ export function PlanSwitcher() {
           const planPreview = plan.id === "basic" || plan.id === "pro"
             ? chargePreview.data?.previews[chargePreviewKey(plan.id, "monthly")]
             : undefined;
-          const todayLine = planPreview?.bill_now
-            ? chargeLineFromPreview({
-                billNow: true,
-                firstChargeAt: planPreview.first_charge_at,
-                amountCents: planPreview.amount_cents_after_discounts,
-                timeZone: orgTimezone,
-              })
-            : null;
+          const todayLine = visibleBillingLine(
+            orgTrialCheckout && !contactPlan ? todayChargeCopy(planPreview, orgTimezone) : null,
+          );
           if (choosingFirstPlan && contactPlan) {
             planButton = talkToUs;
           } else if (choosingFirstPlan && !canShowPaymentFlows) {
@@ -443,6 +433,10 @@ export function PlanSwitcher() {
             );
           }
 
+          const renewal = visibleBillingLine(
+            showRenewal && !contactPlan ? renewalDisclosure(plan.monthlyPrice) : null,
+          );
+
           return (
             <div
               key={plan.id}
@@ -483,7 +477,7 @@ export function PlanSwitcher() {
               </ul>
 
               {planButton}
-              {todayLine && planBillingAction(plan.id) === "checkout" && (
+              {todayLine && (
                 <p className="mt-2 whitespace-nowrap text-center text-xs text-muted-foreground">
                   {todayLine}
                 </p>
@@ -493,9 +487,9 @@ export function PlanSwitcher() {
                   {DOWNGRADE_EFFECT_NOTE}
                 </p>
               )}
-              {showRenewal && !contactPlan && plan.monthlyPrice > 0 && (
+              {renewal && (
                 <p className="mt-2 text-center text-xs text-muted-foreground">
-                  {renewalDisclosure(plan.monthlyPrice)}
+                  {renewal}
                 </p>
               )}
             </div>

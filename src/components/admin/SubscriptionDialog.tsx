@@ -29,7 +29,7 @@ import { AlreadyLifetimeCheckout, startSubscriptionCheckout } from '@/lib/startS
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import { SUPPORT_EMAIL } from "@/lib/supportEmail";
 import { LIFETIME_SPOT_CAP, PUBLIC_TIERS } from "@/lib/publicPlans";
-import { renewalDisclosure } from "@/lib/planBillingCopy";
+import { renewalDisclosure, visibleBillingLine } from "@/lib/planBillingCopy";
 
 interface SubscriptionDialogProps {
   open: boolean;
@@ -83,6 +83,9 @@ export function SubscriptionDialog({
     available: true,
   });
   const { canShowPaymentFlows, billingUrl } = usePlatform();
+  const proRenewal = visibleBillingLine(
+    renewalDisclosure(PUBLIC_TIERS.find((tier) => tier.id === "pro")?.monthlyPrice ?? 0),
+  );
 
   const checkSubscription = async () => {
     try {
@@ -355,9 +358,11 @@ export function SubscriptionDialog({
               )}
               Start Monthly Plan
             </Button>
-            <p className="text-xs text-center text-muted-foreground">
-              {renewalDisclosure(PUBLIC_TIERS.find((tier) => tier.id === "pro")?.monthlyPrice ?? 0)}
-            </p>
+            {proRenewal && (
+              <p className="text-xs text-center text-muted-foreground">
+                {proRenewal}
+              </p>
+            )}
           </div>
 
           {/* ── Lifetime $200 ──────────────────────────────────── */}
