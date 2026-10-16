@@ -9,6 +9,7 @@ import {
   DOWNGRADE_EFFECT_NOTE,
   CHARGE_TODAY_NO_AMOUNT,
   chargeLineFromPreview,
+  chargePreviewRefetchMs,
   expiredTrialNudgeCopy,
   formatChargeDollars,
   lifetimeSpotsToShow,
@@ -215,6 +216,29 @@ test("the charge preview uses the server clock and the discounted cents", () => 
     }),
     "You'll be charged $48.50 today.",
   );
+  const inThreeDays = new Date(now + 72 * 60 * 60 * 1000).toISOString();
+  assert.equal(
+    chargePreviewRefetchMs(
+      { pro: { bill_now: false, first_charge_at: inThreeDays } },
+      now,
+    ),
+    24 * 60 * 60 * 1000,
+  );
+  const insideLead = new Date(now + 10 * 60 * 60 * 1000).toISOString();
+  assert.equal(
+    chargePreviewRefetchMs(
+      { pro: { bill_now: false, first_charge_at: insideLead } },
+      now,
+    ),
+    60_000,
+  );
+  assert.equal(
+    chargePreviewRefetchMs({ pro: { bill_now: true, first_charge_at: null } }, now),
+    false,
+  );
+  const hook = readFileSync(new URL("../hooks/useSubscriptionChargePreview.ts", import.meta.url), "utf8");
+  assert.match(hook, /chargePreviewRefetchMs/);
+  assert.match(hook, /refetchOnWindowFocus: true/);
   assert.equal(todayChargeCopy(undefined, "America/New_York"), "You'll be charged today.");
   assert.equal(
     todayChargeCopy(
@@ -255,7 +279,15 @@ test("the charge preview uses the server clock and the discounted cents", () => 
   const switcher = readFileSync(new URL("../components/subscription/PlanSwitcher.tsx", import.meta.url), "utf8");
   const dialogs = readFileSync(new URL("../components/subscription/PlanChangeDialogs.tsx", import.meta.url), "utf8");
   const choose = readFileSync(new URL("../pages/ChoosePlanPage.tsx", import.meta.url), "utf8");
+  assert.match(switcher, /organization\?\.plan_type === "trial"/);
+  assert.doesNotMatch(switcher, /currentPlanId === "trial" \|\| isActiveOrgTrial/);
+  assert.doesNotMatch(switcher, /showRenewal = true;\s*planButton = onTheWebsite/);
+  assert.match(switcher, /showChargeLine && orgTrialCheckout && !contactPlan/);
   assert.match(switcher, /showRenewal && !contactPlan \? renewalDisclosure/);
+  assert.doesNotMatch(pricing, /isActiveOrgTrial/);
+  assert.match(pricing, /organization\?\.plan_type === 'trial'/);
+  assert.doesNotMatch(choose, /isActiveOrgTrial/);
+  assert.doesNotMatch(dialogs, /isActiveOrgTrial/);
   assert.match(switcher, /visibleBillingLine/);
   assert.match(pricing, /visibleBillingLine\(renewalDisclosure/);
   assert.match(choose, /visibleBillingLine\(renewalDisclosure/);
@@ -317,6 +349,29 @@ test("the lifetime cap is one shared constant at 100", () => {
     "../../supabase/functions/stripe-invoice-webhook/index.ts",
   ].map(read);
   const schema = read("./seo/schemas.ts");
+  const lifetimeCheckout = read("../../supabase/functions/create-lifetime-checkout/index.ts");
+  const lifetimeSpots = read("../../supabase/functions/get-lifetime-spots/index.ts");
+  for (const source of [lifetimeCheckout, lifetimeSpots]) {
+    assert.match(source, /lifetime_offer_state/);
+    assert.match(source, /total_spots/);
+    assert.match(source, /\?\? LIFETIME_SPOT_CAP/);
+    assert.doesNotMatch(source, /lifetime_access_purchases[\s\S]{0,80}count/);
+  }
+  const dialog = read("../components/admin/SubscriptionDialog.tsx");
+  assert.match(dialog, /LIFETIME_PRICE/);
+  assert.match(dialog, /PUBLIC_TIERS\.find/);
+  assert.doesNotMatch(dialog, /\$200/);
+  assert.doesNotMatch(dialog, /\$97</);
+  const blogIndex = read("../pages/blog/BlogIndex.tsx");
+  const crm = read("../pages/blog/CleaningBusinessCRM.tsx");
+  const routes = read("../pages/features/RouteOptimization.tsx");
+  assert.doesNotMatch(blogIndex, /Join 5,000/);
+  assert.doesNotMatch(crm, /4\.9\/5/);
+  assert.doesNotMatch(routes, /25%/);
+  assert.doesNotMatch(routes, /fuel costs/i);
+  for (const page of ["CompareBookingKoala", "CompareJobber", "CompareHousecallPro"]) {
+    assert.doesNotMatch(read(`../pages/compare/${page}.tsx`), /4\.9★/);
+  }
   assert.match(schema, /limited to \$\{LIFETIME_SPOT_CAP\} spots/);
   assert.doesNotMatch(schema, /limited to 100 spots/);
   assert.match(cap, /export const LIFETIME_SPOT_CAP = 100/);

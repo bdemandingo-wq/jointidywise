@@ -29,8 +29,6 @@ import {
 import { CustomPriceMissing, isCustomPriceMissing } from "@/lib/priceNotConfigured";
 import { CHARGE_TODAY_NO_AMOUNT, chargeLineFromPreview, planBillingAction, renewalDisclosure, visibleBillingLine } from "@/lib/planBillingCopy";
 import { chargePreviewKey, useSubscriptionChargePreview } from "@/hooks/useSubscriptionChargePreview";
-import { isActiveOrgTrial } from "@/lib/stripeMode";
-import { useAuth } from "@/hooks/useAuth";
 import { useOrganization } from "@/contexts/OrganizationContext";
 import { useOrgTimezone } from "@/hooks/useOrgTimezone";
 
@@ -99,10 +97,9 @@ export function UpgradePlanDialog({
   const [needsCheckout, setNeedsCheckout] = useState(false);
   const { organizationId } = useOrgId();
   const navigate = useNavigate();
-  const { subscription } = useAuth();
   const { organization } = useOrganization();
   const { timezone: orgTimezone } = useOrgTimezone();
-  const orgTrialCheckout = organization?.plan_type === "trial" || isActiveOrgTrial(subscription);
+  const orgTrialCheckout = organization?.plan_type === "trial";
   const chargePreview = useSubscriptionChargePreview({
     enabled: open && orgTrialCheckout && !!targetPlan,
     organizationId,

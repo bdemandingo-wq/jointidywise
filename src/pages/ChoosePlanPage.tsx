@@ -20,7 +20,7 @@ import { readEdgeFunctionError } from '@/lib/edgeFunctionError';
 import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyLifetime';
 import { isCustomPriceMissing } from '@/lib/priceNotConfigured';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
-import { isActiveOrgTrial, shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
+import { shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
 import { chargeLineFromPreview, renewalDisclosure, todayChargeCopy, visibleBillingLine } from '@/lib/planBillingCopy';
 import { chargePreviewKey, useSubscriptionChargePreview } from '@/hooks/useSubscriptionChargePreview';
 import {
@@ -115,7 +115,7 @@ export default function ChoosePlanPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const upgradeRequested = new URLSearchParams(location.search).get('upgrade') === '1';
-  const { user, loading: authLoading, signOut, checkSubscription, subscription } = useAuth();
+  const { user, loading: authLoading, signOut, checkSubscription } = useAuth();
   const { timezone: orgTimezone } = useOrgTimezone();
   const { organization } = useOrganization();
   const { hasFullAccess, isLoading: subLoading } = useSubscription();
@@ -141,7 +141,7 @@ export default function ChoosePlanPage() {
   const painPitch = pain ? PAIN_PITCH[pain] : null;
   // One redirect per click — same duplicate-session guard as PricingPage.
   const isRedirectingRef = useRef(false);
-  const orgTrialCheckout = organization?.plan_type === 'trial' || isActiveOrgTrial(subscription);
+  const orgTrialCheckout = organization?.plan_type === 'trial';
   const chargePreview = useSubscriptionChargePreview({
     enabled: orgTrialCheckout,
     organizationId: organization?.id,

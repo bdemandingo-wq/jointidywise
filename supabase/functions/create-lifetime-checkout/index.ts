@@ -40,17 +40,20 @@ serve(async (req) => {
     const user = userData.user;
     logStep("User authenticated", { userId: user.id, email: user.email });
 
-    // Check spots remaining
-    const { count, error: countError } = await supabase
-      .from("lifetime_access_purchases")
-      .select("id", { count: "exact", head: true });
+    // Same cap as buy-lifetime and the webhook: lifetime_offer_state.total_spots.
+    // LIFETIME_SPOT_CAP is only the fallback when that row is missing.
+    const { data: offerState, error: offerError } = await supabase
+      .from("lifetime_offer_state")
+      .select("total_spots, sold_spots, sold_out_at")
+      .eq("id", 1)
+      .maybeSingle();
+    if (offerError) throw offerError;
+    const totalSpots = offerState?.total_spots ?? LIFETIME_SPOT_CAP;
+    const soldSpots = offerState?.sold_spots ?? 0;
 
-    if (countError) throw countError;
-    const used = count ?? 0;
-
-    if (used >= LIFETIME_SPOT_CAP) {
+    if (offerState?.sold_out_at || soldSpots >= totalSpots) {
       return new Response(
-        JSON.stringify({ error: `Sorry — all ${LIFETIME_SPOT_CAP} lifetime spots have been claimed.` }),
+        JSON.stringify({ error: `Sorry — all ${totalSpots} lifetime spots have been claimed.` }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 400 }
       );
     }
@@ -121,12 +124,12 @@ serve(async (req) => {
     };
 
     const session = await stripe.checkout.sessions.create(sessionParams);
-    logStep("Lifetime checkout session created", { sessionId: session.id, spotsLeft: LIFETIME_SPOT_CAP - used - 1 });
+    logStep("Lifetime checkout session created", { sessionId: session.id, spotsLeft: totalSpots - soldSpots - 1 });
 
     return new Response(
       JSON.stringify({
         ...embeddedCheckoutBody(session.client_secret, publishableKey),
-        spotsRemaining: LIFETIME_SPOT_CAP - used,
+        spotsRemaining: totalSpots - soldSpots,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
     );
