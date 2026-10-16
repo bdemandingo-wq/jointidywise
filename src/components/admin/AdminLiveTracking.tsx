@@ -241,12 +241,15 @@ export function AdminLiveTracking({
           )}
         </div>
 
-        <MiniMap
-          lat={tracking.latitude}
-          lng={tracking.longitude}
-          destLat={destCoords?.lat}
-          destLng={destCoords?.lng}
-        />
+        {/* Location-off rows have no coordinates: never draw a pin for them. */}
+        {tracking.latitude != null && tracking.longitude != null && (
+          <MiniMap
+            lat={tracking.latitude}
+            lng={tracking.longitude}
+            destLat={destCoords?.lat}
+            destLng={destCoords?.lng}
+          />
+        )}
 
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-1">
