@@ -306,7 +306,7 @@ Deno.serve(async (req) => {
 
   const ip = (req.headers.get("x-forwarded-for") ?? "unknown").split(",")[0].trim() || "unknown";
   const rlClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-  const rl = await checkAndRecord(rlClient, "score_compute", `ip:${await hashIp(ip)}`, RATE_LIMIT);
+  const rl = await checkAndRecord(rlClient, "score-compute", `ip:${await hashIp(ip)}`, RATE_LIMIT);
   if (rl.error) console.error("[score-compute] rate-limit DB error:", rl.error);
   if (rl.blocked) {
     return new Response(
