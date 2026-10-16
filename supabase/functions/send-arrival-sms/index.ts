@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
+import { sendOpenPhoneMessage } from '../_shared/openphone-send.ts';
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { assertAssignedStaffEvent } from "../_shared/verify-staff-event.ts";
 import { notifyOwner } from "../_shared/owner-alert.ts";
@@ -136,13 +137,18 @@ const handler = async (req: Request): Promise<Response> => {
     const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
     const sendSms = async (to: string, content: string, label: string) => {
-      const r = await fetch("https://api.openphone.com/v1/messages", {
-        method: "POST",
-        headers: { "Authorization": authHeader, "Content-Type": "application/json" },
-        body: JSON.stringify({ from: phoneNumberId, to: [to], content }),
+      const sent = await sendOpenPhoneMessage({
+        supabase,
+        organizationId: booking.organization_id,
+        to,
+        content,
+        from: phoneNumberId,
+        apiKey: authHeader,
+        tag: `send-arrival-sms:${label}`,
       });
-      if (!r.ok) {
-        console.error(`[send-arrival-sms] ${label} SMS failed:`, r.status, await r.text());
+      if (sent.skipped) return false;
+      if (!sent.response.ok) {
+        console.error(`[send-arrival-sms] ${label} SMS failed:`, sent.response.status, await sent.response.text());
         return false;
       }
       return true;

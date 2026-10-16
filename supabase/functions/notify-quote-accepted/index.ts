@@ -9,6 +9,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendOrgEmail } from "../_shared/send-org-email.ts";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -122,11 +123,24 @@ serve(async (req) => {
           : `+1${body.customer_phone.replace(/\D/g, "")}`;
         const msg = `Hi ${firstName}, your quote ${quoteLabel} with ${orgName} is approved — your service is booked${totalDisplay ? ` (${totalDisplay})` : ""}. We'll follow up shortly with timing.`;
         try {
-          await fetch("https://api.openphone.com/v1/messages", {
-            method: "POST",
-            headers: { Authorization: auth, "Content-Type": "application/json" },
-            body: JSON.stringify({ from: phoneNumberId, to: [to], content: msg }),
+          const sent = await sendOpenPhoneMessage({
+            supabase,
+            organizationId: body.organization_id,
+            to,
+            content: msg,
+            from: phoneNumberId,
+            apiKey: auth,
+            tag: "notify-quote-accepted",
           });
+          if (sent.skipped) {
+            console.log(`[notify-quote-accepted] SMS skipped opted_out org=${body.organization_id}`);
+          } else if (!sent.response.ok) {
+            console.error(
+              `[notify-quote-accepted] SMS failed:`,
+              sent.response.status,
+              await sent.response.text(),
+            );
+          }
         } catch (err) {
           console.error("[notify-quote-accepted] SMS failed:", err);
         }

@@ -23,6 +23,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
+import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -47,16 +48,29 @@ async function alertAdmin(reason: string, details: Record<string, unknown>): Pro
       `⚠️ CHECKOUT RECONCILE FAILED\n\n${reason}\n\n` +
       Object.entries(details).map(([k, v]) => `${k}: ${v}`).join("\n") +
       `\n\nCustomer may be paid but not provisioned — needs manual check.`;
-    const res = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: {
-        Authorization: apiKey.startsWith("Bearer ") ? apiKey : `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ from: numberId, to: ADMIN_PHONES, content: message }),
-    });
-    if (!res.ok) {
-      console.error("[reconcile-checkout-session] alertAdmin: OpenPhone send failed:", res.status, await res.text());
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      { auth: { persistSession: false } },
+    );
+    for (const phone of ADMIN_PHONES) {
+      const sent = await sendOpenPhoneMessage({
+        supabase,
+        organizationId: TIDYWISE_PLATFORM_ORG_ID,
+        to: phone,
+        content: message,
+        from: numberId,
+        apiKey,
+        tag: "reconcile-checkout-session",
+      });
+      if (sent.skipped) continue;
+      if (!sent.response.ok) {
+        console.error(
+          "[reconcile-checkout-session] alertAdmin: OpenPhone send failed:",
+          sent.response.status,
+          await sent.response.text(),
+        );
+      }
     }
   } catch (e) {
     console.error("[reconcile-checkout-session] alertAdmin threw:", e);

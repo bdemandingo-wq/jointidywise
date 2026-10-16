@@ -5,6 +5,7 @@ import { REFUND_POLICY, CANCELLATION_POLICY, POLICY_DISCLOSURE, TOS_VERSION } fr
 import { rejectReason, isVested } from "../_shared/referral-eligibility.ts";
 import { recordReferralInvoicePaid, recordReferralReversal, type BalanceClient } from "../_shared/saas-referral-db.ts";
 import { platformAdminPhone } from "../_shared/platform-admin-phones.ts";
+import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/openphone-send.ts";
 import { verifyStripeWebhook } from "../_shared/billing-stripe.ts";
 import {
   cascadeCancelAdSubscriptionsIfDowngraded,
@@ -1927,18 +1928,18 @@ async function sendAdminNotification(
 
   console.log(`[stripe-invoice-webhook] Sending admin notification to ${PLATFORM_ADMIN_PHONE}`);
 
-  const response = await fetch("https://api.openphone.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Authorization": openphoneApiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: openphonePhoneNumberId,
-      to: [PLATFORM_ADMIN_PHONE],
-      content: message,
-    }),
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  const sent = await sendOpenPhoneMessage({
+    supabase,
+    organizationId: TIDYWISE_PLATFORM_ORG_ID,
+    to: PLATFORM_ADMIN_PHONE,
+    content: message,
+    from: openphonePhoneNumberId,
+    apiKey: openphoneApiKey,
+    tag: "stripe-invoice-webhook",
   });
+  if (sent.skipped) return;
+  const response = sent.response;
 
   if (!response.ok) {
     const errorText = await response.text();

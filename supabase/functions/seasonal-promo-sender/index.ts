@@ -251,7 +251,12 @@ serve(async (req: Request): Promise<Response> => {
               }),
             },
           );
-          const result = await res.json() as { success?: boolean; error?: string };
+          const result = await res.json() as { success?: boolean; error?: string; skipped?: boolean; reason?: string };
+          if (result.skipped) {
+            summary.skipped += 1;
+            console.log(`[seasonal-promo-sender] SMS skipped opted_out org=${orgId} customer=${c.id}`);
+            continue;
+          }
           if (!result.success) {
             console.warn(
               `[seasonal-promo-sender] SMS failed org=${orgId} customer=${c.id}: ${result.error}`,

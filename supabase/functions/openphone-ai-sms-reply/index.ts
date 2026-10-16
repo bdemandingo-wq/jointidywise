@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { anthropicChat, MODEL_HAIKU } from "../_shared/anthropic.ts";
 import { isInternalDispatchRequest } from "../_shared/internal-dispatch-auth.ts";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -359,15 +360,22 @@ RULES:
     else if (!formattedPhone.startsWith('+')) formattedPhone = `+${formattedPhone}`;
 
     // Send via OpenPhone
-    const sendResp = await fetch('https://api.openphone.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Authorization': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: phoneNumberId,
-        to: [formattedPhone],
-        content: generatedReply,
-      }),
+    const sent = await sendOpenPhoneMessage({
+      supabase,
+      organizationId,
+      to: formattedPhone,
+      content: generatedReply,
+      from: phoneNumberId,
+      apiKey,
+      tag: "openphone-ai-sms-reply",
     });
+    if (sent.skipped) {
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "opted_out" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+    const sendResp = sent.response;
 
     if (!sendResp.ok) {
       const errText = await sendResp.text();

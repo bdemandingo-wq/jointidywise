@@ -94,6 +94,14 @@ const handler = async (req: Request): Promise<Response> => {
 
     const result = await response.json();
 
+    if (result.skipped) {
+      console.log(`[send-referral-request] Referral SMS skipped opted_out customer ${customerId}`);
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: "opted_out" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     if (result.success) {
       console.log(`[send-referral-request] Referral SMS sent to customer ${customerId}`);
       

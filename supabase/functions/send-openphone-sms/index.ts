@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { verifyOrgAccess } from "../_shared/verify-org-access.ts";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -138,19 +139,32 @@ const handler = async (req: Request): Promise<Response> => {
     // OpenPhone expects the raw API key in the Authorization header
     const authHeader = apiKey.trim().replace(/^Bearer\s+/i, '');
 
-    // Send SMS via OpenPhone API
-    const response = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Authorization": authHeader,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: phoneNumberId,
-        to: [formattedPhone],
-        content: message,
-      }),
+    // Manual inbox send. Opt-outs are skipped here so every caller of this
+    // function (referral, seasonal promo, upsell, quote reminders) is covered.
+    const sent = await sendOpenPhoneMessage({
+      supabase,
+      organizationId,
+      to: formattedPhone,
+      content: message,
+      from: phoneNumberId,
+      apiKey: authHeader,
+      tag: "send-openphone-sms",
     });
+    if (sent.skipped) {
+      logAudit({
+        action: AuditActions.SMS_GENERIC,
+        organizationId,
+        resourceType: "phone",
+        resourceId: formattedPhone,
+        success: false,
+        error: "skipped: opted_out",
+      });
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "opted_out" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const response = sent.response;
 
     if (!response.ok) {
       const errorText = await response.text();

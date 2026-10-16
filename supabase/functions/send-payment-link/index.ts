@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { verifyAdminAuth, createUnauthorizedResponse, createForbiddenResponse } from "../_shared/verify-admin-auth.ts";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { getOrgStripeClient } from "../_shared/get-org-stripe-settings.ts";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -185,18 +186,22 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("[send-payment-link] Sending SMS via OpenPhone to:", formattedPhone);
 
-    const openPhoneResponse = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        content: smsMessage,
-        from: phoneNumberId,
-        to: [formattedPhone],
-      }),
+    const paymentSent = await sendOpenPhoneMessage({
+      supabase,
+      organizationId,
+      to: formattedPhone,
+      content: smsMessage,
+      from: phoneNumberId,
+      apiKey,
+      tag: "send-payment-link",
     });
+    if (paymentSent.skipped) {
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "opted_out" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const openPhoneResponse = paymentSent.response;
 
     if (!openPhoneResponse.ok) {
       const errorText = await openPhoneResponse.text();

@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { requireOrgAdmin } from "../_shared/requireOrgAdmin.ts";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 
 // Hash an email for audit logs (don't store plaintext PII in logs)
 async function hashEmail(email: string | null | undefined): Promise<string | null> {
@@ -281,18 +282,22 @@ const handler = async (req: Request): Promise<Response> => {
      // OpenPhone expects the raw API key in the Authorization header
      const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
-    const openPhoneResponse = await fetch('https://api.openphone.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Authorization': authHeader,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        content: smsMessage,
-        from: phoneNumberId,
-        to: [formattedPhone],
-      }),
+    const cardSent = await sendOpenPhoneMessage({
+      supabase,
+      organizationId,
+      to: formattedPhone,
+      content: smsMessage,
+      from: phoneNumberId,
+      apiKey: authHeader,
+      tag: "send-card-link-sms",
     });
+    if (cardSent.skipped) {
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "opted_out" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const openPhoneResponse = cardSent.response;
 
     if (!openPhoneResponse.ok) {
       const errorText = await openPhoneResponse.text();

@@ -14,6 +14,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { isPhoneOptedOut } from "../_shared/marketing-guard.ts";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 import { phoneMatchKey, toE164 } from "../_shared/phone.ts";
 import { greetingNameFromLead } from "../_shared/facebook-lead-mapping.ts";
 import {
@@ -310,18 +311,27 @@ serve(async (req: Request) => {
   // malformed address, so there is nothing to format here.
 
   try {
-    const res = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: {
-        Authorization: smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, ""),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: smsSettings.openphone_phone_number_id,
-        to: [toPhone],
-        content: messageText,
-      }),
+    const sent = await sendOpenPhoneMessage({
+      supabase,
+      organizationId,
+      to: toPhone,
+      content: messageText,
+      from: smsSettings.openphone_phone_number_id,
+      apiKey: smsSettings.openphone_api_key,
+      tag: "notify-new-lead",
     });
+    if (sent.skipped) {
+      await supabase
+        .from("lead_notification_sends")
+        .update({
+          status: "skipped",
+          skip_reason: "opted_out",
+          completed_at: new Date().toISOString(),
+        })
+        .eq("lead_id", leadId);
+      return done("skipped_opted_out");
+    }
+    const res = sent.response;
 
     if (!res.ok) {
       const detail = await res.text();

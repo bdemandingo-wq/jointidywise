@@ -21,6 +21,7 @@ import {
   getReplyTo,
 } from "../_shared/get-org-email-settings.ts";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -323,7 +324,7 @@ async function dispatch(
   }
 
   if (nudge.channel === "sms") {
-    const result = await sendSms(nudge);
+    const result = await sendSms(supabase, nudge);
     return await logAndReturn(supabase, nudge, result.success, {
       error: result.error,
       provider_message_id: result.providerMessageId,
@@ -391,6 +392,7 @@ async function sendEmail(
 }
 
 async function sendSms(
+  supabase: SupabaseClient,
   nudge: PlannedNudge,
 ): Promise<{ success: boolean; providerMessageId?: string; error?: string }> {
   if (!nudge.recipient) return { success: false, error: "no recipient" };
@@ -400,18 +402,19 @@ async function sendSms(
     return { success: false, error: "OpenPhone not configured" };
   }
   try {
-    const res = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": apiKey,
-      },
-      body: JSON.stringify({
-        from: fromNumber,
-        to: [nudge.recipient],
-        content: nudge.body,
-      }),
+    const sent = await sendOpenPhoneMessage({
+      supabase,
+      organizationId: TIDYWISE_PLATFORM_ORG_ID,
+      to: nudge.recipient,
+      content: nudge.body,
+      from: fromNumber,
+      apiKey,
+      tag: "copilot-reengagement-cron",
     });
+    if (sent.skipped) {
+      return { success: false, error: "opted_out" };
+    }
+    const res = sent.response;
     if (!res.ok) {
       const txt = await res.text();
       return { success: false, error: `OpenPhone ${res.status}: ${txt}` };

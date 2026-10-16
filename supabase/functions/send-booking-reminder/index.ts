@@ -4,6 +4,7 @@ import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { resolveTemplate, type AutomationKey } from "../_shared/automation-templates.ts";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -308,13 +309,22 @@ const handler = async (req: Request): Promise<Response> => {
       };
 
       // Send via OpenPhone
-      let response: Response;
+      let response: { ok: boolean; status: number; text: () => Promise<string>; json: () => Promise<any> };
       try {
-        response = await fetch("https://api.openphone.com/v1/messages", {
-          method: "POST",
-          headers: { Authorization: authHeader, "Content-Type": "application/json" },
-          body: JSON.stringify({ from: phoneNumberId, to: [formattedPhone], content: message }),
+        const sent = await sendOpenPhoneMessage({
+          supabase,
+          organizationId,
+          to: formattedPhone,
+          content: message,
+          from: phoneNumberId,
+          apiKey: authHeader,
+          tag: "send-booking-reminder",
         });
+        if (sent.skipped) {
+          console.log(`[send-booking-reminder] skipped opted-out ${formattedPhone} for booking ${bookingId}`);
+          return { success: true, skipped: true, reason: "opted_out" };
+        }
+        response = sent.response;
       } catch (netErr: any) {
         const msg = `Network error: ${netErr?.message || netErr}`;
         console.error(`[send-booking-reminder] ${msg}`);

@@ -21,6 +21,7 @@
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { isOptedOut } from '../_shared/marketing-guard.ts'
+import { sendOpenPhoneMessage } from '../_shared/openphone-send.ts'
 import { isServiceRoleRequest } from '../_shared/require-caller-org.ts'
 
 const QUEUE = 'campaign_sms'
@@ -917,18 +918,27 @@ Deno.serve(async (req) => {
       let sendError = ''
 
       try {
-        const response = await fetch('https://api.openphone.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            Authorization: smsSettings.openphone_api_key as string,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            from: smsSettings.openphone_phone_number_id,
-            to: [toPhone],
-            content: personalizedMessage,
-          }),
+        const sent = await sendOpenPhoneMessage({
+          supabase,
+          organizationId: run.organization_id,
+          to: toPhone,
+          content: personalizedMessage,
+          from: smsSettings.openphone_phone_number_id,
+          apiKey: smsSettings.openphone_api_key as string,
+          tag: 'process-campaign-queue',
         })
+        if (sent.skipped) {
+          await deleteMessage(supabase, msg.msg_id, run.id)
+          claimed.delete(msg.msg_id)
+          await bumpRunCounter(supabase, run.id, 'skipped_opted_out_count', 1, null)
+          summary.skipped_opted_out++
+          console.log('[process-campaign-queue] Skipped opted-out phone at send', {
+            run_id: run.id,
+            customer_id: payload.customer_id,
+          })
+          continue
+        }
+        const response = sent.response
 
         if (response.ok) {
           sendOk = true

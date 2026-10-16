@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -130,29 +131,32 @@ serve(async (req: Request) => {
       // 24-hour reminder to client (send between 23-25 hours before)
       if (hoursUntilDemo >= 23 && hoursUntilDemo <= 25 && !sentSet.has(`${demo.id}:24h_client`)) {
         try {
-          await fetch("https://api.openphone.com/v1/messages", {
-            method: "POST",
-            headers: {
-              Authorization: smsSettings.openphone_api_key,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              content: `Hey ${firstName}! Just a reminder your TidyWise demo with Emmanuel is tomorrow at ${timeDisplay} EST. ${howLine}\n\nNeed to reschedule?\n→ jointidywise.com/demo\nor reply to this message.\n\nSee you tomorrow! 🎉`,
-              to: [demo.phone],
-              from: smsSettings.openphone_phone_number_id,
-            }),
+          const sent = await sendOpenPhoneMessage({
+            supabase,
+            organizationId: TIDYWISE_ORG_ID,
+            to: demo.phone,
+            content: `Hey ${firstName}! Just a reminder your TidyWise demo with Emmanuel is tomorrow at ${timeDisplay} EST. ${howLine}\n\nNeed to reschedule?\n→ jointidywise.com/demo\nor reply to this message.\n\nSee you tomorrow! 🎉`,
+            from: smsSettings.openphone_phone_number_id,
+            apiKey: smsSettings.openphone_api_key,
+            tag: "demo-reminders:24h",
           });
+          if (sent.skipped) {
+            console.log(`[demo-reminders] 24h client reminder skipped opted_out ${demo.phone}`);
+          } else {
+            if (!sent.response.ok) {
+              console.error(`[demo-reminders] 24h client reminder failed:`, sent.response.status, await sent.response.text());
+            }
+            const { error: logErr } = await supabase.from("demo_reminder_log").insert({
+              demo_booking_id: demo.id,
+              reminder_type: "24h_client",
+            });
+            if (logErr) {
+              console.error(`[demo-reminders] 24h reminder sent but log insert failed for demo ${demo.id} — dedupe will not catch this next run:`, logErr);
+            }
 
-          const { error: logErr } = await supabase.from("demo_reminder_log").insert({
-            demo_booking_id: demo.id,
-            reminder_type: "24h_client",
-          });
-          if (logErr) {
-            console.error(`[demo-reminders] 24h reminder sent but log insert failed for demo ${demo.id} — dedupe will not catch this next run:`, logErr);
+            console.log(`[demo-reminders] 24h client reminder sent to ${demo.phone}`);
+            sentCount++;
           }
-
-          console.log(`[demo-reminders] 24h client reminder sent to ${demo.phone}`);
-          sentCount++;
         } catch (err) {
           console.error(`[demo-reminders] 24h client reminder failed:`, err);
         }
@@ -165,18 +169,22 @@ serve(async (req: Request) => {
 
         try {
           for (const adminPhone of ADMIN_PHONES) {
-            await fetch("https://api.openphone.com/v1/messages", {
-              method: "POST",
-              headers: {
-                Authorization: smsSettings.openphone_api_key,
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                content: adminMsg,
-                to: [adminPhone],
-                from: smsSettings.openphone_phone_number_id,
-              }),
+            const sent = await sendOpenPhoneMessage({
+              supabase,
+              organizationId: TIDYWISE_ORG_ID,
+              to: adminPhone,
+              content: adminMsg,
+              from: smsSettings.openphone_phone_number_id,
+              apiKey: smsSettings.openphone_api_key,
+              tag: "demo-reminders:1h-admin",
             });
+            if (sent.skipped) {
+              console.log(`[demo-reminders] 1h admin reminder skipped opted_out ${adminPhone}`);
+              continue;
+            }
+            if (!sent.response.ok) {
+              console.error(`[demo-reminders] 1h admin reminder failed:`, sent.response.status, await sent.response.text());
+            }
           }
 
           const { error: logErr } = await supabase.from("demo_reminder_log").insert({
@@ -200,29 +208,32 @@ serve(async (req: Request) => {
           ? `Join here: ${demo.meeting_link}`
           : `Emmanuel will call you at ${demo.phone}.`;
         try {
-          await fetch("https://api.openphone.com/v1/messages", {
-            method: "POST",
-            headers: {
-              Authorization: smsSettings.openphone_api_key,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              content: `Hi ${firstName}! Your TidyWise demo with Emmanuel starts in 30 minutes (${timeDisplay} EST).\n\n${soonLine}\n\nSee you soon! 🎉`,
-              to: [demo.phone],
-              from: smsSettings.openphone_phone_number_id,
-            }),
+          const sent = await sendOpenPhoneMessage({
+            supabase,
+            organizationId: TIDYWISE_ORG_ID,
+            to: demo.phone,
+            content: `Hi ${firstName}! Your TidyWise demo with Emmanuel starts in 30 minutes (${timeDisplay} EST).\n\n${soonLine}\n\nSee you soon! 🎉`,
+            from: smsSettings.openphone_phone_number_id,
+            apiKey: smsSettings.openphone_api_key,
+            tag: "demo-reminders:30min",
           });
+          if (sent.skipped) {
+            console.log(`[demo-reminders] 30min client reminder skipped opted_out ${demo.phone}`);
+          } else {
+            if (!sent.response.ok) {
+              console.error(`[demo-reminders] 30min client reminder failed:`, sent.response.status, await sent.response.text());
+            }
+            const { error: logErr } = await supabase.from("demo_reminder_log").insert({
+              demo_booking_id: demo.id,
+              reminder_type: "30min_client",
+            });
+            if (logErr) {
+              console.error(`[demo-reminders] 30min reminder sent but log insert failed for demo ${demo.id} — dedupe will not catch this next run:`, logErr);
+            }
 
-          const { error: logErr } = await supabase.from("demo_reminder_log").insert({
-            demo_booking_id: demo.id,
-            reminder_type: "30min_client",
-          });
-          if (logErr) {
-            console.error(`[demo-reminders] 30min reminder sent but log insert failed for demo ${demo.id} — dedupe will not catch this next run:`, logErr);
+            console.log(`[demo-reminders] 30min client reminder sent to ${demo.phone}`);
+            sentCount++;
           }
-
-          console.log(`[demo-reminders] 30min client reminder sent to ${demo.phone}`);
-          sentCount++;
         } catch (err) {
           console.error(`[demo-reminders] 30min client reminder failed:`, err);
         }

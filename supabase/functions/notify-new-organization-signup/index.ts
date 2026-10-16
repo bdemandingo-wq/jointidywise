@@ -1,5 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { platformAdminPhones } from "../_shared/platform-admin-phones.ts";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -178,18 +179,20 @@ Deno.serve(async (req: Request) => {
       // Send individually to each admin phone to ensure delivery
       for (const phone of ADMIN_PHONES) {
         try {
-          const smsRes = await fetch("https://api.openphone.com/v1/messages", {
-            method: "POST",
-            headers: {
-              Authorization: openphoneApiKey.trim().replace(/^Bearer\s+/i, ''),
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              from: openphonePhoneNumberId,
-              to: [phone],
-              content: message,
-            }),
+          const sent = await sendOpenPhoneMessage({
+            supabase,
+            organizationId: TIDYWISE_ORG_ID,
+            to: phone,
+            content: message,
+            from: openphonePhoneNumberId,
+            apiKey: openphoneApiKey,
+            tag: "notify-new-organization-signup",
           });
+          if (sent.skipped) {
+            smsResults.push({ phone, success: false, error: "opted_out" });
+            continue;
+          }
+          const smsRes = sent.response;
 
           if (smsRes.ok) {
             smsSent = true;

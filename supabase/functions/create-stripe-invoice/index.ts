@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -225,6 +226,8 @@ const handler = async (req: Request): Promise<Response> => {
 
     const resolvedInvoiceNumber = invoiceRow?.invoice_number ?? null;
 
+    let smsOptedOut = false;
+
     // Send SMS if requested
     if (wantsSms && data.customerPhone) {
       // Get organization SMS settings
@@ -263,28 +266,30 @@ const handler = async (req: Request): Promise<Response> => {
         const invLabel = resolvedInvoiceNumber ? `INV-${String(resolvedInvoiceNumber).padStart(4, '0')}` : 'your invoice';
         const smsContent = `Hi ${data.customerName}! 📄 ${invLabel} for $${data.totalAmount.toFixed(2)} from ${companyName}.${dueDateText}\n\nPay securely here: ${session.url}`;
 
-        const smsResponse = await fetch("https://api.openphone.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Authorization": openPhoneApiKey,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            content: smsContent,
-            from: openPhoneNumberId,
-            to: [formattedPhone],
-          }),
+        const sent = await sendOpenPhoneMessage({
+          supabase,
+          organizationId: data.organizationId,
+          to: formattedPhone,
+          content: smsContent,
+          from: openPhoneNumberId,
+          apiKey: openPhoneApiKey,
+          tag: "create-stripe-invoice",
         });
-
-        if (smsResponse.ok) {
-          console.log("Invoice SMS sent to:", formattedPhone);
+        if (sent.skipped) {
+          console.log(`[create-stripe-invoice] SMS skipped opted_out org=${data.organizationId}`);
+          smsOptedOut = true;
         } else {
-          const errorText = await smsResponse.text();
-          console.error("Invoice SMS failed:", errorText);
-          return new Response(
-            JSON.stringify({ error: `Failed to send SMS: ${errorText}` }),
-            { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+          const smsResponse = sent.response;
+          if (smsResponse.ok) {
+            console.log("Invoice SMS sent to:", formattedPhone);
+          } else {
+            const errorText = await smsResponse.text();
+            console.error("Invoice SMS failed:", errorText);
+            return new Response(
+              JSON.stringify({ error: `Failed to send SMS: ${errorText}` }),
+              { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
         }
       } catch (smsError: any) {
         console.error("Failed to send invoice SMS:", smsError);
@@ -345,6 +350,7 @@ const handler = async (req: Request): Promise<Response> => {
         success: true,
         checkoutUrl: session.url,
         sessionId: session.id,
+        ...(smsOptedOut ? { skipped: true, reason: "opted_out" } : {}),
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

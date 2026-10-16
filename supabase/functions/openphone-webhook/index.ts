@@ -15,6 +15,11 @@ import {
   renderOptOutConfirmation,
   type SmsConsentState,
 } from "../_shared/sms-opt-out.ts";
+import {
+  clearSmsSuppression,
+  recordSmsSuppression,
+  sendOpenPhoneMessage,
+} from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -238,11 +243,24 @@ async function sendSmsOptOutConfirmation(
   }
 
   const authHeader = openphoneApiKey.trim().replace(/^Bearer\s+/i, '');
-  const response = await fetch('https://api.openphone.com/v1/messages', {
-    method: 'POST',
-    headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: fromId, to: [destination], content: confirmation }),
+  // The number is already suppressed. This is the one reply that is still allowed.
+  const sent = await sendOpenPhoneMessage({
+    supabase,
+    organizationId,
+    to: destination,
+    content: confirmation,
+    from: fromId,
+    apiKey: authHeader,
+    allowOptedOut: true,
+    tag: 'openphone-webhook:opt-out-confirmation',
   });
+  if (sent.skipped) {
+    console.error(
+      `[openphone-webhook] CRITICAL: opt-out confirmation was skipped for org ${organizationId}`,
+    );
+    return;
+  }
+  const response = sent.response;
 
   if (!response.ok) {
     const errText = await response.text();
@@ -851,11 +869,21 @@ const handler = async (req: Request): Promise<Response> => {
         if (toPhoneFmt.length === 10) toPhoneFmt = `+1${toPhoneFmt}`;
         else if (!toPhoneFmt.startsWith('+')) toPhoneFmt = `+${toPhoneFmt}`;
 
-        const mcSendResp = await fetch('https://api.openphone.com/v1/messages', {
-          method: 'POST',
-          headers: { Authorization: mcAuthHeader, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: sendPhoneId, to: [toPhoneFmt], content: textbackMessage }),
+        const mcSent = await sendOpenPhoneMessage({
+          supabase,
+          organizationId: mcOrgId,
+          to: toPhoneFmt,
+          content: textbackMessage,
+          from: sendPhoneId,
+          apiKey: mcAuthHeader,
+          tag: 'openphone-webhook:missed-call-textback',
         });
+        if (mcSent.skipped) {
+          console.log(`[openphone-webhook] Missed-call textback skipped; ${toPhoneFmt} opted out`);
+          return new Response(JSON.stringify({ success: true, skipped: true, reason: 'opted_out' }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        const mcSendResp = mcSent.response;
         if (!mcSendResp.ok) {
           const errText = await mcSendResp.text();
           console.error(`[openphone-webhook] Missed-call textback send failed (${mcSendResp.status}): ${errText}`);
@@ -1209,6 +1237,13 @@ const handler = async (req: Request): Promise<Response> => {
 
     if (optOutClassification.optOut) {
       let optOutSaved = false;
+      // Phone-level STOP. Covers cleaners and leads who are not a customer row,
+      // and any customer whose column update fails.
+      const suppressionRecorded = await recordSmsSuppression(
+        supabase,
+        organizationId,
+        customerPhone,
+      );
       try {
         if (customerIdForConsent && consentStep?.persist) {
           optOutSaved = await persistSmsConsent(
@@ -1221,11 +1256,18 @@ const handler = async (req: Request): Promise<Response> => {
             console.log(`[openphone-webhook] Customer ${customerIdForConsent} opted out via SMS keyword "${matchedOptOut}"`);
           }
         } else if (!customerIdForConsent || !consentStep) {
-          console.error(
-            `[openphone-webhook] CRITICAL: STOP RECEIVED BUT NOT RECORDED — inbound "${matchedOptOut}" ` +
-            `from phone ${customerPhone} (org ${organizationId}) could not be resolved to a customer ` +
-            `via conversation, campaign send, or phone lookup. This opt-out must be applied by hand.`,
-          );
+          if (suppressionRecorded) {
+            console.log(
+              `[openphone-webhook] STOP from ${customerPhone} (org ${organizationId}) ` +
+              `recorded on sms_suppressions; no customer row to update.`,
+            );
+          } else {
+            console.error(
+              `[openphone-webhook] CRITICAL: STOP RECEIVED BUT NOT RECORDED — inbound "${matchedOptOut}" ` +
+              `from phone ${customerPhone} (org ${organizationId}) could not be resolved to a customer ` +
+              `and sms_suppressions was not written. This opt-out must be applied by hand.`,
+            );
+          }
         } else {
           console.log(
             `[openphone-webhook] Inbound "${matchedOptOut}" from ${customerPhone} (org ${organizationId}) ` +
@@ -1236,8 +1278,11 @@ const handler = async (req: Request): Promise<Response> => {
         console.error('[openphone-webhook] Error processing opt-out:', optOutErr);
       }
 
-      // One confirmation, and only after the opt-out row is saved. Not marketing.
-      if (optOutSaved && consentStep?.sendConfirmation) {
+      // One confirmation. Customer saves keep the previous rule. A cleaner or
+      // lead with no customer row still gets the receipt once the suppression
+      // row exists. allowOptedOut on the send path is what lets it leave.
+      const confirmNonCustomer = !customerIdForConsent && suppressionRecorded;
+      if ((optOutSaved && consentStep?.sendConfirmation) || confirmNonCustomer) {
         try {
           await sendSmsOptOutConfirmation(supabase, {
             organizationId,
@@ -1255,6 +1300,12 @@ const handler = async (req: Request): Promise<Response> => {
           `("${matchedOptOut}") because the opt-out save did not succeed.`,
         );
       }
+    }
+
+    if (resubscribeKeyword) {
+      // START/UNSTOP clears the phone suppression even when there is no
+      // customer row. Customer columns still follow nextSmsConsent.
+      await clearSmsSuppression(supabase, organizationId, customerPhone);
     }
 
     if (consentStep?.smsResubscribed && consentStep.persist && customerIdForConsent) {

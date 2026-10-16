@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -108,18 +109,22 @@ const handler = async (req: Request): Promise<Response> => {
     console.log(`[send-onboarding-complete-sms] Sending onboarding complete SMS to ${formattedPhone} for org: ${organizationId}`);
 
     // Send SMS via OpenPhone API
-    const response = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Authorization": apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: phoneNumberId,
-        to: [formattedPhone],
-        content: message,
-      }),
+    const sent = await sendOpenPhoneMessage({
+      supabase,
+      organizationId,
+      to: formattedPhone,
+      content: message,
+      from: phoneNumberId,
+      apiKey,
+      tag: "send-onboarding-complete-sms",
     });
+    if (sent.skipped) {
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "opted_out" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const response = sent.response;
 
     if (!response.ok) {
       const errorText = await response.text();

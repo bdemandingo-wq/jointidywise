@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { checkAndRecord, getClientIp } from "../_shared/rate-limit.ts";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -276,18 +277,22 @@ serve(async (req) => {
 
     const authHeader = smsSettings.openphone_api_key.trim().replace(/^Bearer\s+/i, '');
 
-    const response = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Authorization": authHeader,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: smsSettings.openphone_phone_number_id,
-        to: [formattedPhone],
-        content: message,
-      }),
+    const sent = await sendOpenPhoneMessage({
+      supabase: supabaseAdmin,
+      organizationId,
+      to: formattedPhone,
+      content: message,
+      from: smsSettings.openphone_phone_number_id,
+      apiKey: authHeader,
+      tag: "send-staff-password-reset",
     });
+    if (sent.skipped) {
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "opted_out" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const response = sent.response;
 
     if (!response.ok) {
       const errorText = await response.text();

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { sendOpenPhoneMessage, TIDYWISE_PLATFORM_ORG_ID } from "../_shared/openphone-send.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -98,18 +99,22 @@ Complete your setup to start managing your cleaning business like a pro. Questio
 
     console.log(`[send-signup-welcome-sms] Sending to user ${userId} at ${formattedPhone}`);
 
-    const response = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Authorization": apiKey.startsWith('Bearer ') ? apiKey : `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: extractedPhoneNumberId,
-        to: [formattedPhone],
-        content: message,
-      }),
+    const sent = await sendOpenPhoneMessage({
+      supabase: admin,
+      organizationId: TIDYWISE_PLATFORM_ORG_ID,
+      to: formattedPhone,
+      content: message,
+      from: extractedPhoneNumberId,
+      apiKey,
+      tag: "send-signup-welcome-sms",
     });
+    if (sent.skipped) {
+      return new Response(
+        JSON.stringify({ success: false, skipped: true, reason: "opted_out" }),
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const response = sent.response;
 
     if (!response.ok) {
       const errorText = await response.text();

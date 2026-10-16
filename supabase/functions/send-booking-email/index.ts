@@ -6,6 +6,7 @@ import { loadOrgBrand, renderBrandedEmail } from "../_shared/org-email-renderer.
 import { isServiceRoleRequest, rejectUnauthenticated, resolveCallerOrg } from "../_shared/require-caller-org.ts";
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { sendOpenPhoneMessage } from "../_shared/openphone-send.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -87,18 +88,20 @@ async function sendBookingSMS(
 
     console.log(`[send-booking-email] Sending SMS to ${formattedPhone}`);
 
-    const response = await fetch("https://api.openphone.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Authorization": smsSettings.openphone_api_key,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: smsSettings.openphone_phone_number_id,
-        to: [formattedPhone],
-        content: message,
-      }),
+    const sent = await sendOpenPhoneMessage({
+      supabase,
+      organizationId,
+      to: formattedPhone,
+      content: message,
+      from: smsSettings.openphone_phone_number_id,
+      apiKey: smsSettings.openphone_api_key,
+      tag: "send-booking-email",
     });
+    if (sent.skipped) {
+      console.log(`[send-booking-email] SMS skipped; ${formattedPhone} opted out`);
+      return;
+    }
+    const response = sent.response;
 
     if (!response.ok) {
       const errorText = await response.text();
