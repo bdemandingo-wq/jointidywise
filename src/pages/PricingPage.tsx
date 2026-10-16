@@ -36,7 +36,7 @@ import {
   Loader2,
 } from 'lucide-react';
 
-import { LIFETIME_FEATURES, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
+import { LIFETIME_FEATURES, LIFETIME_SPOT_CAP, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
 import { isActiveOrgTrial } from '@/lib/stripeMode';
 import { renewalDisclosure, trialBillsOnCheckout, trialFirstChargeLine } from '@/lib/planBillingCopy';
 import { formatLoyaltyDollars, LOYALTY_PRICING, pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
@@ -416,7 +416,7 @@ export default function PricingPage() {
     <>
       <SEOHead
         title="Pricing | TidyWise — Cleaning Business Software"
-        description="Four plans for cleaning businesses of every size. Basic $49, Pro $97, Custom $197, or a one-time Lifetime deal at $300 (100 spots only)."
+        description={`Four plans for cleaning businesses of every size. Basic $49/mo, Pro $97/mo, Custom $197/mo, or a one-time Lifetime deal at $300 (${LIFETIME_SPOT_CAP} spots only).`}
         canonical="/pricing"
         ogImage="/images/og/og-pricing.png"
         schemaJson={[

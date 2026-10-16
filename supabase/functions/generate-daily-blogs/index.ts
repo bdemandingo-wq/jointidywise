@@ -149,7 +149,7 @@ Depth over length. Never pad. Cut any sentence that doesn't teach something.
 
 FACTS YOU MUST NOT INVENT. These are the only correct values. If a fact you want to state is not on this list, leave it out rather than guessing:
   - Free trial: 30 days of Pro, no card. Never any other number for new signups. Existing trials keep the end date already on the account.
-  - Plans: Basic $49/month, Pro $97/month, Custom $197/month. Yearly billing includes 2 months free.
+  - Plans: Basic $49/mo, Pro $97/mo, Custom $197/mo. Yearly billing includes 2 months free.
   - Lifetime: one-time $300, limited to the first ${LIFETIME_SPOT_CAP} customers.
   - There is NO $50 tier, NO free-forever tier, and NO money-back guarantee. All payments are final and non-refundable per our Terms of Service.
   - Never state a price, trial length, discount or guarantee for TidyWise that does not appear above.

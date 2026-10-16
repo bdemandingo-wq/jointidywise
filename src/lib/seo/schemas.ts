@@ -1,6 +1,7 @@
 // Reusable schema.org JSON-LD builders for TidyWise pages.
 
 import { SUPPORT_EMAIL } from "../supportEmail";
+import { LIFETIME_SPOT_CAP, PUBLIC_TIERS } from "../publicPlans";
 
 const SITE = "https://www.jointidywise.com";
 
@@ -13,7 +14,7 @@ export const HOME_FAQS: FaqItem[] = [
   {
     question: "How much does TidyWise cost?",
     answer:
-      "Plans start at $49/month for Basic, $97/month for Pro, $197/month for Custom, and a one-time $300 Lifetime deal (limited to 100 spots). All plans include unlimited users and bookings.",
+      `Plans start at $${PUBLIC_TIERS.find((tier) => tier.id === "basic")?.monthlyPrice}/mo for Basic, $${PUBLIC_TIERS.find((tier) => tier.id === "pro")?.monthlyPrice}/mo for Pro, $${PUBLIC_TIERS.find((tier) => tier.id === "custom")?.monthlyPrice}/mo for Custom, and a one-time $300 Lifetime deal (limited to ${LIFETIME_SPOT_CAP} spots). All plans include unlimited users and bookings.`,
   },
   {
     question: "Is there a free trial?",
