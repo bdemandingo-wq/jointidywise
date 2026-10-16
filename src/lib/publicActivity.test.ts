@@ -25,6 +25,7 @@ import {
 } from "./publicActivity.ts";
 
 const AT = "2026-10-16T12:00:00.000Z";
+const FEED_NOW = Date.parse("2026-10-16T18:00:00.000Z");
 
 function event(partial: Partial<PublicActivityEvent> & Pick<PublicActivityEvent, "kind">): PublicActivityEvent {
   return {
@@ -55,20 +56,23 @@ test("keeps a city and drops an address", () => {
 test("place is a state name, never a city", () => {
   assert.equal(publicRegion("FL"), "FL");
   assert.equal(publicRegion("fl"), "FL");
-  assert.equal(publicRegion("Florida"), "FL");
-  assert.equal(publicRegion("District of Columbia"), "DC");
+  assert.equal(publicRegion(" tx "), "TX");
   assert.equal(publicStateName("FL"), "Florida");
   assert.equal(publicStateName("DC"), "DC");
+  assert.equal(publicRegion("Florida"), null);
+  assert.equal(publicRegion("Texas"), null);
+  assert.equal(publicRegion("District of Columbia"), null);
+  assert.equal(publicRegion("Dallas, TX"), null);
+  assert.equal(publicRegion("Dallas, Texas"), null);
+  assert.equal(publicRegion("Washington, DC"), null);
+  assert.equal(publicRegion("Charleston, West Virginia"), null);
   assert.equal(publicRegion("Tampa"), null);
   assert.equal(publicRegion("Dallas"), null);
   assert.equal(publicRegion("NA"), null);
   assert.equal(publicRegion("500 Oak Avenue"), null);
   assert.equal(publicStateName("Tampa"), null);
   assert.equal(publicStateName("Dallas"), null);
-  assert.equal(publicRegion("Dallas, TX"), "TX");
-  assert.equal(publicRegion("Dallas, Texas"), "TX");
-  assert.equal(publicRegion("Washington, DC"), "DC");
-  assert.equal(publicRegion("Charleston, West Virginia"), "WV");
+  assert.equal(publicStateName("Florida"), null);
 });
 
 test("a ZIP or booking state supplies the place, and a city name does not", () => {
@@ -83,7 +87,9 @@ test("a ZIP or booking state supplies the place, and a city name does not", () =
 
   assert.equal(publicPlace(null, "75201"), "TX");
   assert.equal(publicPlace("FL", "75201", "CA"), "FL");
-  assert.equal(publicPlace("Dallas", null, "Texas"), "TX");
+  assert.equal(publicPlace("Dallas", null, "TX"), "TX");
+  assert.equal(publicPlace("Dallas", null, "Texas"), null);
+  assert.equal(publicPlace("Dallas, TX", null, null), null);
   assert.equal(publicPlace("Dallas", null, null), null);
   assert.equal(publicPlace("Dallas", "Dallas", "Dallas"), null);
 });
@@ -100,9 +106,29 @@ test("the migration resolves place from state, zip, or booking state", () => {
     );
   }
   assert.equal(sql.includes("company_city"), false);
+  assert.equal(sql.includes("growth_public_region_token(p_"), false);
+  assert.equal(sql.includes("CREATE OR REPLACE FUNCTION public.growth_public_region_token"), false);
+  assert.ok(sql.includes("DROP FUNCTION IF EXISTS public.growth_public_region_token(text)"));
+  assert.equal(sql.includes("interval '7 days'"), false);
+  assert.equal(sql.includes("b.updated_at"), false);
+  assert.equal(sql.includes("coalesce(b.completed_at, b.updated_at)"), false);
+  assert.ok(sql.includes("WHEN upper(input.value) ~ '^[A-Z]{2}$'"));
+  assert.equal((sql.match(/interval '24 hours'/g) ?? []).length, 6);
   assert.equal((sql.match(/growth_public_place\(bs\.company_state, bs\.company_zip, b\.state\)/g) ?? []).length, 3);
   assert.equal((sql.match(/growth_public_place\(bs\.company_state, bs\.company_zip, NULL::text\)/g) ?? []).length, 3);
   assert.equal(sql.includes("20261016180000"), false);
+  assert.ok(sql.includes("i.stripe_payment_intent_id IS NOT NULL"));
+  assert.ok(sql.includes("b.completed_at AS at"));
+  assert.ok(sql.includes("b.completed_at > now() - interval '24 hours'"));
+  assert.ok(sql.includes("rr.booking_id IS NOT NULL"));
+  assert.ok(sql.includes("public.booking_is_real_job(to_jsonb(b))"));
+  assert.ok(sql.includes("NULLIF(btrim(rr.review_link_token), '') IS NOT NULL"));
+  assert.ok(sql.includes("rr.sent_at IS NOT NULL"));
+  assert.ok(sql.includes("rr.submitted_by_token = true"));
+  assert.ok(sql.includes("PERFORM set_config('app.review_submit', 'on', true)"));
+  assert.ok(sql.includes("submitted_by_token = true"));
+  assert.ok(sql.includes("ordered -> -1"));
+  assert.ok(sql.includes("ordered - (-1)"));
 });
 
 test("writes real event sentences at state level and nothing else", () => {
@@ -194,7 +220,7 @@ test("parser ignores extra fields and drops a row with no real state", () => {
       {
         kind: "joined",
         city: "Dallas",
-        region: "Texas",
+        region: "TX",
         amount: null,
         service: null,
         at: "2026-10-16T10:00:00.000Z",
@@ -228,8 +254,19 @@ test("parser ignores extra fields and drops a row with no real state", () => {
         email: "sam@example.com",
       },
       { kind: "made-up", region: "FL", at: "2026-10-16T06:00:00.000Z" },
+      {
+        kind: "joined",
+        city: "Dallas",
+        region: "Dallas, TX",
+        at: "2026-10-16T05:00:00.000Z",
+      },
+      {
+        kind: "joined",
+        region: "Florida",
+        at: "2026-10-16T04:00:00.000Z",
+      },
     ],
-  });
+  }, FEED_NOW);
 
   assert.deepEqual(events.map((row) => row.kind), ["booked", "joined", "paid", "reviewed", "cleaner"]);
   assert.equal("city" in events[0], false);
@@ -247,55 +284,33 @@ test("parser ignores extra fields and drops a row with no real state", () => {
   assert.equal(activitySentence(events[0]), "A cleaning company in Florida just booked a $180 deep clean");
 });
 
-test("a Dallas signup gets a state from a ZIP or booking state, never from the city", () => {
-  const fromZip = parseActivityFeed({
+test("the client keeps a server state code and does not infer one", () => {
+  const fromServer = parseActivityFeed({
     events: [
       {
         kind: "joined",
         city: "Dallas",
-        region: null,
+        region: "TX",
         zip: "75201",
         at: "2026-10-16T09:59:00.000Z",
       },
     ],
-  });
-  assert.equal(fromZip.length, 1);
-  assert.equal(fromZip[0].region, "TX");
-  assert.equal("city" in fromZip[0], false);
-  assert.equal("zip" in fromZip[0], false);
-  assert.equal(activitySentence(fromZip[0]), "A new cleaning business joined from Texas");
+  }, FEED_NOW);
+  assert.equal(fromServer.length, 1);
+  assert.equal(fromServer[0].region, "TX");
+  assert.equal("city" in fromServer[0], false);
+  assert.equal("zip" in fromServer[0], false);
+  assert.equal(activitySentence(fromServer[0]), "A new cleaning business joined from Texas");
 
   const cityOnly = parseActivityFeed({
     events: [
-      {
-        kind: "joined",
-        city: "Dallas",
-        region: "Dallas",
-        at: "2026-10-16T09:59:00.000Z",
-      },
+      { kind: "joined", city: "Dallas", region: "Dallas", at: "2026-10-16T09:59:00.000Z" },
+      { kind: "joined", city: "Dallas", region: null, zip: "75201", at: "2026-10-16T09:30:00.000Z" },
+      { kind: "joined", region: "Texas", at: "2026-10-16T09:00:00.000Z" },
+      { kind: "booked", city: "Dallas", region: null, booking_state: "TX", amount: 180, service: "clean", at: "2026-10-16T08:00:00.000Z" },
     ],
-  });
+  }, FEED_NOW);
   assert.deepEqual(cityOnly, []);
-
-  const fromBooking = parseActivityFeed({
-    events: [
-      {
-        kind: "booked",
-        city: "Dallas",
-        region: null,
-        booking_state: "TX",
-        amount: 180,
-        service: "clean",
-        at: "2026-10-16T09:00:00.000Z",
-      },
-    ],
-  });
-  assert.equal(fromBooking.length, 1);
-  assert.equal(fromBooking[0].region, "TX");
-  const line = activitySentence(fromBooking[0]);
-  assert.ok(line);
-  assert.equal(line.toLowerCase().includes("dallas"), false);
-  assert.equal(line.includes("Texas"), true);
 });
 
 test("an empty feed stays empty", () => {
@@ -349,11 +364,56 @@ test("a feed that already alternates kinds keeps its order", () => {
       { kind: "paid", region: "TX", amount: 90, at: "2026-10-16T02:00:00.000Z" },
       { kind: "booked", region: "GA", amount: 100, service: "clean", at: "2026-10-16T01:00:00.000Z" },
     ],
-  });
-  assert.deepEqual(repaired.map((row) => row.kind), ["paid", "booked", "paid"]);
+  }, FEED_NOW);
+  assert.deepEqual(repaired.map((row) => row.kind), ["paid", "booked"]);
   for (let i = 1; i < repaired.length; i++) {
     assert.notEqual(repaired[i].kind, repaired[i - 1].kind);
   }
+  assert.notEqual(repaired[0].kind, repaired[repaired.length - 1].kind);
+});
+
+test("events outside 24 hours are dropped before ordering", () => {
+  const now = Date.parse("2026-10-16T12:00:00.000Z");
+  const events = parseActivityFeed({
+    events: [
+      { kind: "paid", region: "FL", amount: 180, at: "2026-10-16T11:00:00.000Z" },
+      { kind: "booked", region: "TX", amount: 120, service: "clean", at: "2026-10-15T10:00:00.000Z" },
+      { kind: "paid", region: "GA", amount: 200, at: "2026-10-16T10:00:00.000Z" },
+    ],
+  }, now);
+  assert.deepEqual(events.map((row) => row.region), ["FL"]);
+
+  const lines = tickerLines([
+    event({ kind: "paid", amount: 180, at: "2026-10-16T11:00:00.000Z" }),
+    event({ kind: "booked", region: "TX", amount: 120, service: "clean", at: "2026-10-15T10:00:00.000Z" }),
+    event({ kind: "paid", region: "GA", amount: 200, at: "2026-10-16T10:00:00.000Z" }),
+  ], now);
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].includes("Florida"), true);
+  assert.equal(lines[0].includes("Georgia"), false);
+  assert.equal(lines[0].includes("Texas"), false);
+});
+
+test("the ticker wrap never shows the same kind twice in a row", () => {
+  const rows = [
+    { kind: "paid", at: "2026-10-16T03:00:00.000Z" },
+    { kind: "reviewed", at: "2026-10-16T02:00:00.000Z" },
+    { kind: "paid", at: "2026-10-16T01:00:00.000Z" },
+  ];
+  const ordered = enforceActivityOrder(rows);
+  assert.deepEqual(ordered.map((row) => row.kind), ["paid", "reviewed"]);
+  assert.notEqual(ordered[0].kind, ordered[ordered.length - 1].kind);
+
+  const now = Date.parse("2026-10-16T12:00:00.000Z");
+  const lines = tickerLines([
+    event({ kind: "paid", amount: 180, at: "2026-10-16T11:00:00.000Z" }),
+    event({ kind: "reviewed", at: "2026-10-16T10:00:00.000Z" }),
+    event({ kind: "paid", region: "GA", amount: 200, at: "2026-10-16T09:00:00.000Z" }),
+  ], now);
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0].includes("$180"), true);
+  assert.equal(lines[1].includes("5-star"), true);
+  assert.equal(lines.some((line) => line.includes("Georgia")), false);
 });
 
 test("the ticker uses the last 24 hours and rotates every 8 seconds", () => {

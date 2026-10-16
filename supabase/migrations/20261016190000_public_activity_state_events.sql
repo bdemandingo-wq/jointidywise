@@ -17,8 +17,17 @@
 -- Place comes from business_settings company_state, then company_zip, then
 -- the booking state when that row has one. A ZIP maps through USPS ZIP3
 -- prefixes or a Canada Post letter. A city name is never turned into a
--- state. The payload has kind, region (two-letter code), rounded amount,
--- service, and at. It has no city, zip, name, address, review text, or id.
+-- state. A 2-letter value counts only when the whole field is that code
+-- ("TX", not "Dallas, TX"). The payload has kind, region (two-letter code),
+-- rounded amount, service, and at. It has no city, zip, name, address,
+-- review text, or id. Every candidate is from the last 24 hours, which is
+-- the same window the ticker displays.
+--
+-- A reviewed row has to be a real customer submission: booking_id set,
+-- booking_is_real_job, review_link_token and sent_at set, and
+-- submitted_by_token. Only submit_review_by_token may write rating,
+-- responded_at, or that flag. A paid row needs stripe_payment_intent_id.
+-- A completed row uses completed_at, never updated_at.
 -- Ordering
 -- matches orderActivityEvents in src/lib/publicActivity.ts: never the same
 -- kind twice in a row, and spread across orgs (1000 if this org was the
@@ -118,24 +127,10 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.growth_public_region(text) FROM PUBLIC, anon, authenticated;
 
--- The only 2-letter state code in a longer state field ("Dallas, TX").
--- Two codes is ambiguous, so the result is null. City words are ignored.
-CREATE OR REPLACE FUNCTION public.growth_public_region_token(raw text)
-RETURNS text
-LANGUAGE sql
-IMMUTABLE
-AS $function$
-  WITH codes AS (
-    SELECT DISTINCT m[1] AS abbr
-    FROM regexp_matches(upper(coalesce(raw, '')), '\m([A-Z]{2})\M', 'g') AS m
-    WHERE m[1] IN (
-      'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'DC', 'PR', 'VI', 'GU', 'AS', 'MP', 'AB', 'BC', 'MB', 'NB', 'NL', 'NS', 'NT', 'NU', 'ON', 'PE', 'QC', 'SK', 'YT'
-    )
-  )
-  SELECT CASE WHEN count(*) = 1 THEN min(abbr) ELSE NULL END
-  FROM codes;
-$function$;
+DROP FUNCTION IF EXISTS public.growth_public_region_token(text);
 
+-- A 2-letter value is accepted above only when the whole field is that code
+-- and the code is in the list. "TX" is Texas. "Dallas, TX" and "NA" are not.
 -- USPS ZIP3 or a Canadian postal code. Unassigned and ambiguous prefixes
 -- (military, 969, Canada Post X) stay null. Keep the WHEN list in sync with
 -- ZIP3_RANGES in src/lib/publicActivity.ts.
@@ -282,7 +277,8 @@ BEGIN
 END;
 $function$;
 
--- company_state, then company_zip, then the booking state when one exists.
+-- Exact state (code or full name), then ZIP, then the booking state the same way.
+-- No substring match, so a city plus a code ("Dallas, TX") is not a state.
 CREATE OR REPLACE FUNCTION public.growth_public_place(p_state text, p_zip text, p_booking_state text)
 RETURNS text
 LANGUAGE sql
@@ -290,19 +286,148 @@ IMMUTABLE
 AS $function$
   SELECT coalesce(
     public.growth_public_region(p_state),
-    public.growth_public_region_token(p_state),
     public.growth_public_region_from_zip(p_zip),
-    public.growth_public_region(p_booking_state),
-    public.growth_public_region_token(p_booking_state)
+    public.growth_public_region(p_booking_state)
   );
 $function$;
 
-REVOKE ALL ON FUNCTION public.growth_public_region_token(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.growth_public_region_from_zip(text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.growth_public_place(text, text, text) FROM PUBLIC, anon, authenticated;
 
 COMMENT ON COLUMN public.business_settings.show_public_activity IS
   'When false, this org is left out of the public TidyWise activity feed. State and rounded amount only; default on.';
+
+-- Only submit_review_by_token may record a rating. Org admins can still
+-- update the rest of the row (status, sent_at, the link) through RLS.
+ALTER TABLE public.review_requests
+  ADD COLUMN IF NOT EXISTS submitted_by_token boolean NOT NULL DEFAULT false;
+
+COMMENT ON COLUMN public.review_requests.submitted_by_token IS
+  'True only when submit_review_by_token stored the rating. Direct writes of rating, responded_at, and this flag are rejected.';
+
+CREATE OR REPLACE FUNCTION public.guard_review_request_submission()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF coalesce(current_setting('app.review_submit', true), '') = 'on' THEN
+    NEW.submitted_by_token := true;
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.rating IS NOT NULL
+      OR NEW.responded_at IS NOT NULL
+      OR NEW.submitted_by_token IS TRUE
+    THEN
+      RAISE EXCEPTION 'rating and responded_at are recorded only by submit_review_by_token'
+        USING ERRCODE = '42501';
+    END IF;
+    NEW.submitted_by_token := false;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.rating IS DISTINCT FROM OLD.rating
+    OR NEW.responded_at IS DISTINCT FROM OLD.responded_at
+    OR NEW.submitted_by_token IS DISTINCT FROM OLD.submitted_by_token
+  THEN
+    RAISE EXCEPTION 'rating and responded_at are recorded only by submit_review_by_token'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.guard_review_request_submission() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS review_requests_guard_submission ON public.review_requests;
+CREATE TRIGGER review_requests_guard_submission
+  BEFORE INSERT OR UPDATE ON public.review_requests
+  FOR EACH ROW
+  EXECUTE FUNCTION public.guard_review_request_submission();
+
+-- Same body as 20260819175815, plus the session flag and submitted_by_token.
+-- Grants from 20260501010000 stay on this signature.
+CREATE OR REPLACE FUNCTION public.submit_review_by_token(p_token text, p_rating integer, p_review_text text DEFAULT NULL::text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_id uuid;
+  v_customer_id uuid;
+  v_org_id uuid;
+  v_customer_name text;
+  v_issue text;
+  v_tz text;
+  v_feedback_date date;
+BEGIN
+  IF p_token IS NULL OR length(p_token) < 16 THEN
+    RETURN false;
+  END IF;
+  IF p_rating IS NULL OR p_rating < 1 OR p_rating > 5 THEN
+    RETURN false;
+  END IF;
+
+  SELECT id, customer_id, organization_id
+    INTO v_id, v_customer_id, v_org_id
+  FROM public.review_requests
+  WHERE review_link_token = p_token
+  LIMIT 1;
+
+  IF v_id IS NULL THEN
+    RETURN false;
+  END IF;
+
+  PERFORM set_config('app.review_submit', 'on', true);
+
+  UPDATE public.review_requests
+  SET rating = p_rating,
+      review_text = COALESCE(p_review_text, review_text),
+      status = 'completed',
+      responded_at = COALESCE(responded_at, now()),
+      submitted_by_token = true
+  WHERE id = v_id;
+
+  IF v_customer_id IS NOT NULL THEN
+    SELECT trim(coalesce(c.first_name, '') || ' ' || coalesce(c.last_name, ''))
+      INTO v_customer_name
+    FROM public.customers c
+    WHERE c.id = v_customer_id;
+
+    SELECT bs.timezone INTO v_tz
+    FROM public.business_settings bs
+    WHERE bs.organization_id = v_org_id
+    LIMIT 1;
+
+    v_tz := COALESCE(NULLIF(v_tz, ''), 'America/New_York');
+    v_feedback_date := (now() AT TIME ZONE v_tz)::date;
+
+    v_issue := COALESCE(NULLIF(btrim(p_review_text), ''),
+                        'Customer gave ' || p_rating || ' star rating');
+
+    BEGIN
+      INSERT INTO public.client_feedback (
+        organization_id, customer_name, issue_description,
+        feedback_date, is_resolved, followup_needed
+      ) VALUES (
+        v_org_id, v_customer_name, v_issue, v_feedback_date, false, true
+      );
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'submit_review_by_token: client_feedback insert failed (review_request=%, org=%, customer=%): % [%]',
+        v_id, v_org_id, v_customer_id, SQLERRM, SQLSTATE;
+    END;
+  END IF;
+
+  RETURN true;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.submit_review_by_token(text, integer, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.submit_review_by_token(text, integer, text) TO anon, authenticated, service_role;
 
 -- Recent paid invoices, submitted reviews, and new staff are filtered by
 -- time. These keep that scan inside the feed's statement timeout.
@@ -312,7 +437,13 @@ CREATE INDEX IF NOT EXISTS invoices_paid_at_public_feed_idx
 
 CREATE INDEX IF NOT EXISTS review_requests_five_star_responded_idx
   ON public.review_requests (responded_at DESC)
-  WHERE rating = 5 AND status = 'completed' AND responded_at IS NOT NULL;
+  WHERE rating = 5
+    AND status = 'completed'
+    AND responded_at IS NOT NULL
+    AND booking_id IS NOT NULL
+    AND review_link_token IS NOT NULL
+    AND sent_at IS NOT NULL
+    AND submitted_by_token = true;
 
 CREATE INDEX IF NOT EXISTS staff_created_active_public_feed_idx
   ON public.staff (created_at DESC)
@@ -378,7 +509,7 @@ BEGIN
         FROM public.bookings b
         LEFT JOIN public.services s ON s.id = b.service_id
         LEFT JOIN public.business_settings bs ON bs.organization_id = b.organization_id
-        WHERE b.created_at > now() - interval '7 days'
+        WHERE b.created_at > now() - interval '24 hours'
           AND b.organization_id IS NOT NULL
           AND coalesce(b.is_test, false) = false
           AND coalesce(b.is_draft, false) = false
@@ -401,10 +532,10 @@ BEGIN
           public.growth_public_place(bs.company_state, bs.company_zip, b.state) AS region,
           NULL::int AS amount,
           NULL::text AS service,
-          coalesce(b.completed_at, b.updated_at) AS at
+          b.completed_at AS at
         FROM public.bookings b
         LEFT JOIN public.business_settings bs ON bs.organization_id = b.organization_id
-        WHERE coalesce(b.completed_at, b.updated_at) > now() - interval '7 days'
+        WHERE b.completed_at > now() - interval '24 hours'
           AND b.organization_id IS NOT NULL
           AND coalesce(b.is_test, false) = false
           AND coalesce(b.is_draft, false) = false
@@ -430,7 +561,7 @@ BEGIN
           o.created_at AS at
         FROM public.organizations o
         LEFT JOIN public.business_settings bs ON bs.organization_id = o.id
-        WHERE o.created_at > now() - interval '7 days'
+        WHERE o.created_at > now() - interval '24 hours'
           AND public.growth_org_is_public(o.id, true)
       ) joined
       WHERE region IS NOT NULL
@@ -451,8 +582,9 @@ BEGIN
           i.paid_at AS at
         FROM public.invoices i
         LEFT JOIN public.business_settings bs ON bs.organization_id = i.organization_id
-        WHERE i.paid_at > now() - interval '7 days'
+        WHERE i.paid_at > now() - interval '24 hours'
           AND i.organization_id IS NOT NULL
+          AND i.stripe_payment_intent_id IS NOT NULL
           AND i.status = 'paid'
           AND i.total_amount >= 20
           AND i.total_amount <= 5000
@@ -476,22 +608,19 @@ BEGIN
           NULL::text AS service,
           rr.responded_at AS at
         FROM public.review_requests rr
-        LEFT JOIN public.bookings b ON b.id = rr.booking_id
+        INNER JOIN public.bookings b ON b.id = rr.booking_id
         LEFT JOIN public.business_settings bs
           ON bs.organization_id = coalesce(rr.organization_id, b.organization_id)
-        WHERE rr.responded_at > now() - interval '7 days'
+        WHERE rr.responded_at > now() - interval '24 hours'
+          AND rr.booking_id IS NOT NULL
           AND rr.rating = 5
           AND rr.status = 'completed'
+          AND NULLIF(btrim(rr.review_link_token), '') IS NOT NULL
+          AND rr.sent_at IS NOT NULL
+          AND rr.submitted_by_token = true
+          AND public.booking_is_real_job(to_jsonb(b))
           AND coalesce(rr.organization_id, b.organization_id) IS NOT NULL
           AND public.growth_org_is_public(coalesce(rr.organization_id, b.organization_id), true)
-          AND (
-            b.id IS NULL
-            OR (
-              coalesce(b.is_test, false) = false
-              AND coalesce(b.is_draft, false) = false
-              AND NOT public.row_is_imported(to_jsonb(b))
-            )
-          )
       ) reviewed
       WHERE region IS NOT NULL
       ORDER BY at DESC
@@ -511,7 +640,7 @@ BEGIN
           st.created_at AS at
         FROM public.staff st
         LEFT JOIN public.business_settings bs ON bs.organization_id = st.organization_id
-        WHERE st.created_at > now() - interval '7 days'
+        WHERE st.created_at > now() - interval '24 hours'
           AND st.organization_id IS NOT NULL
           AND st.is_active = true
           AND NOT public.row_is_imported(to_jsonb(st))
@@ -585,6 +714,15 @@ BEGIN
       );
     END IF;
     candidates := candidates - best_i;
+  END LOOP;
+
+  -- The ticker advances from the last line back to the first. Drop the
+  -- oldest tail until those two kinds differ. A single remaining event
+  -- stays, even when every other row was the same kind.
+  WHILE jsonb_array_length(ordered) > 1
+    AND (ordered -> 0 ->> 'kind') IS NOT DISTINCT FROM (ordered -> -1 ->> 'kind')
+  LOOP
+    ordered := ordered - (-1);
   END LOOP;
 
   payload := jsonb_build_object('limited', false, 'events', coalesce(ordered, '[]'::jsonb));

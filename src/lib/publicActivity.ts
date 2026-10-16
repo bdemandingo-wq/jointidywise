@@ -138,10 +138,6 @@ const STATE_NAMES: Record<string, string> = {
   YT: 'Yukon',
 };
 
-const REGION_ALIASES: Record<string, string> = {
-  'district of columbia': 'DC',
-};
-
 /**
  * Inclusive USPS ZIP3 prefixes that belong to one state. Gaps are prefixes
  * USPS does not assign; those stay null. 969 is Guam, the Marianas, and
@@ -296,50 +292,17 @@ function isStateCode(code: string): boolean {
   return Object.prototype.hasOwnProperty.call(STATE_NAMES, code);
 }
 
-function exactRegion(trimmed: string): string | null {
-  if (/^[A-Za-z]{2}$/.test(trimmed)) {
-    const code = trimmed.toUpperCase();
-    return isStateCode(code) ? code : null;
-  }
-  const key = trimmed.toLowerCase();
-  const alias = REGION_ALIASES[key];
-  if (alias) return alias;
-  for (const [code, name] of Object.entries(STATE_NAMES)) {
-    if (name.toLowerCase() === key) return code;
-  }
-  return null;
-}
-
 /**
- * A state or province written on its own, or one explicit state inside a
- * longer state field ("Dallas, TX"). A city name by itself is null.
+ * The server already resolved the place to a two-letter code. A full name,
+ * a city, or a code buried in a longer string ("Dallas, TX", "Florida") is
+ * not accepted here.
  */
 export function publicRegion(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  const trimmed = raw.trim().replace(/\s+/g, ' ');
-  if (!trimmed || trimmed.length > 80) return null;
-  const exact = exactRegion(trimmed);
-  if (exact) return exact;
-
-  const codes = trimmed.toUpperCase().match(/\b[A-Z]{2}\b/g) ?? [];
-  const uniqueCodes = [...new Set(codes.filter((code) => isStateCode(code)))];
-  if (uniqueCodes.length === 1) return uniqueCodes[0];
-  if (uniqueCodes.length > 1) return null;
-
-  const lower = trimmed.toLowerCase();
-  const named: Array<[string, string]> = [
-    ...Object.entries(STATE_NAMES).filter(([, name]) => name.length >= 3),
-    ...Object.entries(REGION_ALIASES).map(([name, code]): [string, string] => [code, name]),
-  ];
-  const matched = named.filter(([, name]) => {
-    const escaped = name.toLowerCase().replace(/[.]/g, '\\.');
-    return new RegExp(`(^|[^a-z])${escaped}([^a-z]|$)`).test(lower);
-  });
-  const kept = matched.filter(([, name]) => !matched.some(([, other]) =>
-    other.length > name.length && other.toLowerCase().includes(name.toLowerCase()),
-  ));
-  const uniqueNames = [...new Set(kept.map(([code]) => code))];
-  return uniqueNames.length === 1 ? uniqueNames[0] : null;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!/^[A-Za-z]{2}$/.test(trimmed)) return null;
+  const code = trimmed.toUpperCase();
+  return isStateCode(code) ? code : null;
 }
 
 /** State from a ZIP or Canadian postal code. Never from a city name. */
@@ -360,8 +323,9 @@ export function publicRegionFromZip(raw: string | null | undefined): string | nu
 }
 
 /**
- * Business state, then business ZIP, then the booking state when the row
- * has one. A city is not an input.
+ * Exact state code, then ZIP, then an exact booking-state code. Full names
+ * and substrings are not codes. The feed parser does not call this: the
+ * server sends the code it already resolved.
  */
 export function publicPlace(
   state: string | null | undefined,
@@ -457,7 +421,8 @@ export interface ActivitySpreadEvent {
  * the input; nothing is synthesized.
  *
  * The SQL feed uses the same scores (1000 for the org just shown, 100 for
- * each earlier pick of that org). Keep them together.
+ * each earlier pick of that org). The last kind also has to differ from the
+ * first, because the ticker wraps. Keep them together.
  */
 export function orderActivityEvents<T extends ActivitySpreadEvent>(events: readonly T[], limit = 12): T[] {
   const remaining = events.map((event, index) => ({ event, index }));
@@ -497,12 +462,22 @@ export function orderActivityEvents<T extends ActivitySpreadEvent>(events: reado
     lastOrg = org === '' ? null : org;
     if (org !== '') orgCounts.set(org, (orgCounts.get(org) ?? 0) + 1);
   }
+  return closeActivityKindLoop(result);
+}
+
+/** Drop the oldest tail until the wrap from last back to first changes kind. */
+function closeActivityKindLoop<T extends { kind: string }>(events: readonly T[]): T[] {
+  const result = events.slice();
+  while (result.length > 1 && result[0].kind === result[result.length - 1].kind) {
+    result.pop();
+  }
   return result;
 }
 
 /**
  * A feed that already alternates kinds is left in place so org spreading
- * done in SQL survives. A run of the same kind is reordered.
+ * done in SQL survives. A run of the same kind is reordered. Either way the
+ * last kind must differ from the first.
  */
 export function enforceActivityOrder<T extends ActivitySpreadEvent>(events: readonly T[], limit = 12): T[] {
   for (let i = 1; i < events.length; i++) {
@@ -510,7 +485,7 @@ export function enforceActivityOrder<T extends ActivitySpreadEvent>(events: read
       return orderActivityEvents(events, limit);
     }
   }
-  return events.slice(0, limit);
+  return closeActivityKindLoop(events.slice(0, limit));
 }
 
 export function eventsForTicker(
@@ -530,7 +505,7 @@ export function eventsForTicker(
 /** Sentences for the landing ticker. Empty means the ticker stays hidden. */
 export function tickerLines(events: readonly PublicActivityEvent[], now = Date.now()): string[] {
   const lines: string[] = [];
-  for (const event of eventsForTicker(events, now)) {
+  for (const event of enforceActivityOrder(eventsForTicker(events, now))) {
     const line = activitySentence(event);
     if (line) lines.push(line);
   }
@@ -568,7 +543,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-export function parseActivityFeed(payload: unknown): PublicActivityEvent[] {
+export function parseActivityFeed(payload: unknown, now = Date.now()): PublicActivityEvent[] {
   const root = asRecord(payload);
   const rows = Array.isArray(payload)
     ? payload
@@ -580,11 +555,7 @@ export function parseActivityFeed(payload: unknown): PublicActivityEvent[] {
     const record = asRecord(row);
     if (!record) continue;
     if (!isKind(record.kind)) continue;
-    const region = publicPlace(
-      typeof record.region === 'string' ? record.region : null,
-      typeof record.zip === 'string' ? record.zip : null,
-      typeof record.booking_state === 'string' ? record.booking_state : null,
-    );
+    const region = publicRegion(typeof record.region === 'string' ? record.region : null);
     if (!region) continue;
     const at = typeof record.at === 'string' ? record.at : '';
     if (!at || !Number.isFinite(Date.parse(at))) continue;
@@ -605,7 +576,7 @@ export function parseActivityFeed(payload: unknown): PublicActivityEvent[] {
       at,
     });
   }
-  return enforceActivityOrder(events);
+  return enforceActivityOrder(eventsForTicker(events, now));
 }
 
 export function parseGrowthCounters(payload: unknown): PublicGrowthCounters | null {
