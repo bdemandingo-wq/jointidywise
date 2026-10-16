@@ -4,24 +4,69 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  ALLOWED_FILE,
+  POST_FILE,
+  PURPOSE_FILE,
+  READ_FILE,
   findOpenPhoneMessageEndpointViolations,
 } from "./check-openphone-messages-endpoint.mjs";
 
 const ENDPOINT = ["https://api.openphone.com", "v1", "messages"].join("/");
 
-test("the repository names the OpenPhone messages endpoint only in send-sms.ts", () => {
-  assert.deepEqual(findOpenPhoneMessageEndpointViolations(process.cwd()), []);
-});
-
-test("a messages call outside the shared sender fails the check", () => {
+function withTree(files, run) {
   const root = mkdtempSync(join(tmpdir(), "sms-endpoint-"));
-  mkdirSync(join(root, "supabase/functions/_shared"), { recursive: true });
-  writeFileSync(join(root, ALLOWED_FILE), `export const URL = "${ENDPOINT}";\n`);
-  writeFileSync(join(root, "direct.ts"), `await fetch("${ENDPOINT}", { method: "POST" });\n`);
   try {
-    assert.deepEqual(findOpenPhoneMessageEndpointViolations(root), ["direct.ts"]);
+    for (const [rel, body] of Object.entries(files)) {
+      const full = join(root, rel);
+      mkdirSync(join(full, ".."), { recursive: true });
+      writeFileSync(full, body);
+    }
+    return run(root);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+test("the repository names the messages endpoint only in the sender and the GET helper", () => {
+  assert.deepEqual(findOpenPhoneMessageEndpointViolations(process.cwd()), []);
+});
+
+test("a messages POST outside the shared sender fails the check", () => {
+  const hits = withTree({
+    [POST_FILE]: `const url = "${ENDPOINT}";\nmethod: "POST"\n`,
+    "direct.ts": `await fetch("${ENDPOINT}", { method: "POST" });\n`,
+  }, findOpenPhoneMessageEndpointViolations);
+  assert.deepEqual(hits, ["direct.ts"]);
+});
+
+test("a GET-only copy of the messages URL outside the read helper fails", () => {
+  const hits = withTree({
+    "sync.ts": `const url = "${ENDPOINT}";\nmethod: "GET"\n`,
+  }, findOpenPhoneMessageEndpointViolations);
+  assert.deepEqual(hits, ["sync.ts"]);
+});
+
+test("the read helper may name the messages URL when it does not POST", () => {
+  const hits = withTree({
+    [POST_FILE]: `const url = "${ENDPOINT}";\nmethod: "POST"\n`,
+    [READ_FILE]: `const url = "${ENDPOINT}";\nmethod: "GET"\n`,
+  }, findOpenPhoneMessageEndpointViolations);
+  assert.deepEqual(hits, []);
+});
+
+test("a POST in the read helper fails", () => {
+  const hits = withTree({
+    [READ_FILE]: `const url = "${ENDPOINT}";\nmethod: "POST"\n`,
+  }, findOpenPhoneMessageEndpointViolations);
+  assert.deepEqual(hits, [READ_FILE]);
+});
+
+test("a compliance purpose outside the inbound webhook fails the check", () => {
+  const purposeKey = "purpose";
+  const stopPurpose = ["stop_confirma", "tion"].join("");
+  const helpPurpose = ["hel", "p"].join("");
+  const hits = withTree({
+    [PURPOSE_FILE]: `send({ ${purposeKey}: "${stopPurpose}" });\n`,
+    "other.ts": `send({ ${purposeKey}: "${helpPurpose}" });\n`,
+  }, findOpenPhoneMessageEndpointViolations);
+  assert.deepEqual(hits, ["other.ts"]);
 });

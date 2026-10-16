@@ -6,9 +6,11 @@ import {
   GSM_7_SINGLE_SEGMENT,
   cancelOptOutTagVisible,
   classifySmsOptOut,
+  isExactHelp,
   isExactResubscribe,
   nextSmsConsent,
   optOutReplyAddress,
+  renderHelpReply,
   renderOptOutConfirmation,
   type SmsConsentState,
 } from "./sms-opt-out.ts";
@@ -193,7 +195,17 @@ test("START and UNSTOP match the whole message only", () => {
   }
 });
 
-test("START restores sms_stop consent and leaves a manual opt-out alone", () => {
+function subscribedCustomer(): SmsConsentState {
+  return {
+    marketing_status: "subscribed",
+    opted_out_at: null,
+    opted_out_method: null,
+    opted_out_campaign_id: null,
+    marketing_status_before_sms_stop: null,
+  };
+}
+
+test("START restores the previous status, or subscribed, for every opt-out", () => {
   const smsStop: SmsConsentState = {
     marketing_status: "opted_out",
     opted_out_at: "2026-10-01T00:00:00.000Z",
@@ -218,15 +230,18 @@ test("START restores sms_stop consent and leaves a manual opt-out alone", () => 
     opted_out_campaign_id: null,
     marketing_status_before_sms_stop: null,
   };
-  const blocked = nextSmsConsent(manual, " start ", "2026-10-02T00:00:00.000Z", null);
-  assert.equal(blocked.smsResubscribed, false);
-  assert.equal(blocked.optOutReview, true);
-  assert.equal(blocked.persist, false);
-  assert.equal(blocked.sendConfirmation, false);
-  assert.deepEqual(blocked.state, manual);
+  const manualStart = nextSmsConsent(manual, " start ", "2026-10-02T00:00:00.000Z", null);
+  assert.equal(manualStart.smsResubscribed, true);
+  assert.equal(manualStart.optOutReview, false);
+  assert.equal(manualStart.persist, true);
+  assert.equal(manualStart.sendConfirmation, false);
+  assert.deepEqual(manualStart.state, subscribedCustomer());
 
   const emailOptOut: SmsConsentState = { ...manual, opted_out_method: "email" };
-  assert.deepEqual(nextSmsConsent(emailOptOut, "UNSTOP", "2026-10-02T00:00:00.000Z", null).state, emailOptOut);
+  const emailStart = nextSmsConsent(emailOptOut, "UNSTOP", "2026-10-02T00:00:00.000Z", null);
+  assert.equal(emailStart.smsResubscribed, true);
+  assert.equal(emailStart.persist, true);
+  assert.deepEqual(emailStart.state, subscribedCustomer());
 
   const notOptedOut = nextSmsConsent(activeCustomer(), "START", "2026-10-02T00:00:00.000Z", null);
   assert.deepEqual(notOptedOut.state, activeCustomer());
@@ -235,7 +250,7 @@ test("START restores sms_stop consent and leaves a manual opt-out alone", () => 
   assert.equal(notOptedOut.persist, false);
 });
 
-test("START does not invent opted-in consent when the prior status was not saved", () => {
+test("START sets subscribed when the prior status was not saved", () => {
   const legacy: SmsConsentState = {
     marketing_status: "opted_out",
     opted_out_at: "2026-08-01T00:00:00.000Z",
@@ -244,12 +259,31 @@ test("START does not invent opted-in consent when the prior status was not saved
     marketing_status_before_sms_stop: null,
   };
   const step = nextSmsConsent(legacy, "START", "2026-10-02T00:00:00.000Z", null);
-  assert.equal(step.state.marketing_status, "opted_out");
+  assert.equal(step.smsResubscribed, true);
+  assert.equal(step.persist, true);
+  assert.equal(step.sendConfirmation, false);
+  assert.equal(step.state.marketing_status, "subscribed");
   assert.equal(step.state.opted_out_at, null);
   assert.equal(step.state.opted_out_method, null);
   assert.equal(step.state.opted_out_campaign_id, null);
   assert.equal(step.state.marketing_status_before_sms_stop, null);
-  assert.notEqual(step.state.marketing_status, "active");
+});
+
+test("HELP matches the whole message and renders one GSM-7 reply", () => {
+  for (const text of ["HELP", "help", " Help ", "HELP!"]) {
+    assert.equal(isExactHelp(text), true, text);
+    assert.equal(classifySmsOptOut(text).optOut, false, text);
+  }
+  for (const text of ["help me", "please help", "STOP", "START"]) {
+    assert.equal(isExactHelp(text), false, text);
+  }
+  const withPhone = renderHelpReply("Sparkle", "813-555-0199");
+  assert.match(withPhone, /For help call 813-555-0199/);
+  assert.match(withPhone, /Reply STOP to unsubscribe/);
+  assertGsm7BasicConfirmation(withPhone);
+  const withoutPhone = renderHelpReply("Sparkle", "");
+  assert.match(withoutPhone, /Reply START to resubscribe/);
+  assertGsm7BasicConfirmation(withoutPhone);
 });
 
 test("a manual opt-out is not rewritten when they text STOP", () => {

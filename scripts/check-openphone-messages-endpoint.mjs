@@ -1,9 +1,10 @@
 /**
- * The OpenPhone messages URL may appear only in supabase/functions/_shared/send-sms.ts.
- * Every outbound SMS goes through sendOpenPhoneMessage there, which applies the
- * STOP check. Message reads import OPENPHONE_MESSAGES_URL from that file.
+ * The OpenPhone messages URL may be named in two files:
+ * - supabase/functions/_shared/send-sms.ts, the only file that may POST it
+ * - supabase/functions/_shared/openphone-messages-read.ts, GET only
  *
- * A second copy of the endpoint is how a new sender skips the opt-out gate.
+ * A POST next to that URL anywhere else fails. A compliance send purpose
+ * (stop_confirmation or help) may appear only in the inbound webhook.
  *
  * Run: node scripts/check-openphone-messages-endpoint.mjs
  */
@@ -12,9 +13,13 @@ import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
-export const ALLOWED_FILE = "supabase/functions/_shared/send-sms.ts";
+export const POST_FILE = "supabase/functions/_shared/send-sms.ts";
+export const READ_FILE = "supabase/functions/_shared/openphone-messages-read.ts";
+export const PURPOSE_FILE = "supabase/functions/openphone-webhook/index.ts";
 
 const NEEDLE = ["api.openphone.com", "v1", "messages"].join("/");
+const POST_RE = /method\s*:\s*['"]POST['"]/;
+const PURPOSE_RE = /purpose\s*:\s*['"](?:stop_confirmation|help)['"]/;
 
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -55,19 +60,23 @@ export function findOpenPhoneMessageEndpointViolations(root) {
       }
       if (size > 1_000_000) continue;
       const rel = relative(root, full).split(sep).join("/");
-      if (rel === ALLOWED_FILE) continue;
       let text = "";
       try {
         text = readFileSync(full, "utf8");
       } catch {
         continue;
       }
-      if (text.includes(NEEDLE)) hits.push(rel);
+      const namesEndpoint = text.includes(NEEDLE);
+      const posts = POST_RE.test(text);
+      if (namesEndpoint && rel !== POST_FILE) {
+        if (rel !== READ_FILE || posts) hits.push(rel);
+      }
+      if (PURPOSE_RE.test(text) && rel !== PURPOSE_FILE) hits.push(rel);
     }
   }
 
   walk(root);
-  return hits.sort();
+  return [...new Set(hits)].sort();
 }
 
 function isDirectRun() {
@@ -84,10 +93,12 @@ if (isDirectRun()) {
   const hits = findOpenPhoneMessageEndpointViolations(process.cwd());
   if (hits.length > 0) {
     console.error(
-      "OpenPhone messages endpoint is only allowed in supabase/functions/_shared/send-sms.ts:",
+      "OpenPhone messages POST is only allowed in send-sms.ts. " +
+      "GET reads belong in openphone-messages-read.ts. " +
+      "stop_confirmation and help belong only in openphone-webhook:",
     );
     for (const hit of hits) console.error(`  ${hit}`);
     process.exit(1);
   }
-  console.log("✓ openphone messages endpoint is only named in send-sms.ts");
+  console.log("✓ openphone messages endpoint and compliance purposes are contained");
 }

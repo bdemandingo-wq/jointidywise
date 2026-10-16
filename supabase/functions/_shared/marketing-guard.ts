@@ -9,7 +9,7 @@
  */
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { phoneMatchKey } from "./phone.ts";
+import { phoneMatchKey, toE164 } from "./phone.ts";
 
 const OPTED_OUT = "opted_out";
 
@@ -133,10 +133,13 @@ async function loadOrgPhoneRows(
 export type PhoneOptOutStatus = "opted_out" | "clear" | "lookup_failed" | "invalid_phone";
 
 /**
- * Same rule as isPhoneOptedOut, with the lookup failure kept separate from a
- * real opt-out. A match is any customer in this org whose phone shares the
- * last 10 digits and whose marketing_status is opted_out — the columns
- * persistSmsConsent writes on STOP. No matching customer is clear.
+ * Opt-out for one org and phone. Either source is enough:
+ * - a customer in this org who shares the last 10 digits and whose
+ *   marketing_status is opted_out (what persistSmsConsent writes on STOP)
+ * - a row in sms_suppressions for this org and the E.164 number (leads and
+ *   cleaners who texted STOP and have no customer row)
+ * No matching customer and no suppression row is clear. A lookup error is
+ * lookup_failed so the sender does not text and does not call it an opt-out.
  */
 export async function phoneOptOutStatus(
   supabase: SupabaseClient,
@@ -147,10 +150,24 @@ export async function phoneOptOutStatus(
   if (!target) return "invalid_phone";
 
   try {
+    const e164 = toE164(phone);
+    if (e164) {
+      const suppressed = await supabase
+        .from("sms_suppressions")
+        .select("id")
+        .eq("organization_id", organizationId)
+        .eq("phone", e164)
+        .maybeSingle();
+      if (suppressed.error) {
+        throw new Error(suppressed.error.message ?? "sms_suppressions lookup failed");
+      }
+      if (suppressed.data) return "opted_out";
+    }
+
     const rows = await loadOrgPhoneRows(supabase, organizationId);
     const matches = rows.filter((r) => phoneMatchKey(r.phone) === target);
-    if (matches.length === 0) return "clear";
-    return matches.some((r) => r.marketing_status === OPTED_OUT) ? "opted_out" : "clear";
+    if (matches.some((r) => r.marketing_status === OPTED_OUT)) return "opted_out";
+    return "clear";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(

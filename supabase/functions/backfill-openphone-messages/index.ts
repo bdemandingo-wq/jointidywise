@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { OPENPHONE_MESSAGES_URL } from "../_shared/send-sms.ts";
+import { fetchOpenPhoneMessages } from "../_shared/openphone-messages-read.ts";
 import { verifyAdminAuth, createUnauthorizedResponse } from "../_shared/verify-admin-auth.ts";
 
 const corsHeaders = {
@@ -119,13 +119,10 @@ const handler = async (req: Request): Promise<Response> => {
 
       try {
         // Fetch 1 page of messages (50 max) per conversation
-        const msgUrl = new URL(OPENPHONE_MESSAGES_URL);
-        msgUrl.searchParams.set('phoneNumberId', phoneNumberId);
-        for (const p of participants) msgUrl.searchParams.append('participants', p);
-        msgUrl.searchParams.set('maxResults', '50');
-
-        const msgResponse = await fetch(msgUrl.toString(), {
-          headers: { 'Authorization': apiKey, 'Content-Type': 'application/json' },
+        const msgResponse = await fetchOpenPhoneMessages(apiKey, (params) => {
+          params.set('phoneNumberId', phoneNumberId);
+          for (const p of participants) params.append('participants', p);
+          params.set('maxResults', '50');
         });
 
         if (!msgResponse.ok) {
