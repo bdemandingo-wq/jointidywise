@@ -68,9 +68,23 @@ export function trialBillsOnCheckout(
 }
 
 /**
+ * Shown when checkout bills today and the discounted server amount is not
+ * available yet. The dollar figure is never a catalog price.
+ */
+export const CHARGE_TODAY_NO_AMOUNT = "You'll be charged today.";
+
+/** Drop null and blank copy so a caller does not render an empty paragraph. */
+export function visibleBillingLine(line: string | null | undefined): string | null {
+  if (typeof line !== "string") return null;
+  const trimmed = line.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
  * One short line. The date is the org-local trial end. Inside the 48-hour
- * window the line names today's price, because checkout will not set trial_end.
- * A missing or invalid timestamp does not invent a date or an amount.
+ * window checkout will not set trial_end, so the line says the charge is
+ * today and leaves the amount out. The discounted amount comes only from
+ * the server preview. A missing or invalid timestamp does not invent a date.
  */
 export function trialFirstChargeLine(opts: {
   trialEndIso: string | null | undefined;
@@ -80,10 +94,7 @@ export function trialFirstChargeLine(opts: {
 }): string | null {
   const nowMs = opts.nowMs ?? Date.now();
   if (!opts.trialEndIso || !Number.isFinite(Date.parse(opts.trialEndIso))) return null;
-  if (trialBillsOnCheckout(opts.trialEndIso, nowMs)) {
-    if (!(opts.price != null && opts.price > 0)) return null;
-    return `You'll be charged $${opts.price} today.`;
-  }
+  if (trialBillsOnCheckout(opts.trialEndIso, nowMs)) return CHARGE_TODAY_NO_AMOUNT;
   const date = trialEndDateLabel(opts.trialEndIso, opts.timeZone, true);
   if (!date) return null;
   return `Your first charge is ${date}.`;
@@ -99,7 +110,8 @@ export function formatChargeDollars(cents: number): string | null {
 
 /**
  * Charge sentence from preview-subscription-charge. The browser does not
- * decide bill-now or the amount. A missing preview does not invent one.
+ * decide bill-now. The dollar amount is amount_cents_after_discounts.
+ * Until that amount is known, a today charge has no dollar figure.
  */
 export function chargeLineFromPreview(opts: {
   billNow: boolean;
@@ -108,14 +120,38 @@ export function chargeLineFromPreview(opts: {
   timeZone: string;
 }): string | null {
   if (opts.billNow) {
-    if (opts.amountCents == null) return null;
+    if (opts.amountCents == null) return CHARGE_TODAY_NO_AMOUNT;
     const amount = formatChargeDollars(opts.amountCents);
-    if (!amount) return null;
+    if (!amount) return CHARGE_TODAY_NO_AMOUNT;
     return `You'll be charged ${amount} today.`;
   }
   const date = trialEndDateLabel(opts.firstChargeAt, opts.timeZone, true);
   if (!date) return null;
   return `Your first charge is ${date}.`;
+}
+
+/**
+ * Per-card line for an org trial that can check out on this plan.
+ * Call it only in that case. No preview yet means the charge is described
+ * without an amount. A preview that bills later returns null so the date
+ * line can stand on its own. A today charge uses the discounted cents.
+ */
+export function todayChargeCopy(
+  preview: {
+    bill_now: boolean;
+    first_charge_at: string | null;
+    amount_cents_after_discounts: number | null;
+  } | null | undefined,
+  timeZone: string,
+): string | null {
+  if (!preview) return CHARGE_TODAY_NO_AMOUNT;
+  if (!preview.bill_now) return null;
+  return chargeLineFromPreview({
+    billNow: true,
+    firstChargeAt: preview.first_charge_at,
+    amountCents: preview.amount_cents_after_discounts,
+    timeZone,
+  });
 }
 
 /** Dashboard home copy when the account cannot use the product. */

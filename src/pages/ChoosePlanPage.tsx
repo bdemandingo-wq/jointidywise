@@ -21,7 +21,7 @@ import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyL
 import { isCustomPriceMissing } from '@/lib/priceNotConfigured';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import { isActiveOrgTrial, shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
-import { chargeLineFromPreview, renewalDisclosure } from '@/lib/planBillingCopy';
+import { chargeLineFromPreview, renewalDisclosure, todayChargeCopy, visibleBillingLine } from '@/lib/planBillingCopy';
 import { chargePreviewKey, useSubscriptionChargePreview } from '@/hooks/useSubscriptionChargePreview';
 import {
   hasAnswer,
@@ -440,23 +440,25 @@ export default function ChoosePlanPage() {
                   </Button>
                   {(() => {
                     const preview = chargePreview.data?.previews[chargePreviewKey(tier.id, billingInterval)];
-                    const todayLine = preview?.bill_now
-                      ? chargeLineFromPreview({
-                          billNow: true,
-                          firstChargeAt: preview.first_charge_at,
-                          amountCents: preview.amount_cents_after_discounts,
-                          timeZone: orgTimezone,
-                        })
-                      : null;
-                    return todayLine ? (
-                      <p className="whitespace-nowrap text-center text-xs text-muted-foreground">
-                        {todayLine}
-                      </p>
-                    ) : null;
+                    const todayLine = visibleBillingLine(
+                      orgTrialCheckout ? todayChargeCopy(preview, orgTimezone) : null,
+                    );
+                    const renewal = visibleBillingLine(renewalDisclosure(chargePrice, billingInterval));
+                    return (
+                      <>
+                        {todayLine ? (
+                          <p className="whitespace-nowrap text-center text-xs text-muted-foreground">
+                            {todayLine}
+                          </p>
+                        ) : null}
+                        {renewal ? (
+                          <p className="text-center text-xs text-muted-foreground">
+                            {renewal}
+                          </p>
+                        ) : null}
+                      </>
+                    );
                   })()}
-                  <p className="text-center text-xs text-muted-foreground">
-                    {renewalDisclosure(chargePrice, billingInterval)}
-                  </p>
                 </CardContent>
               </Card>
             );

@@ -27,7 +27,7 @@ import {
   type CheckoutPlanId,
 } from "@/lib/startSubscriptionCheckout";
 import { CustomPriceMissing, isCustomPriceMissing } from "@/lib/priceNotConfigured";
-import { chargeLineFromPreview, renewalDisclosure } from "@/lib/planBillingCopy";
+import { CHARGE_TODAY_NO_AMOUNT, chargeLineFromPreview, planBillingAction, renewalDisclosure, visibleBillingLine } from "@/lib/planBillingCopy";
 import { chargePreviewKey, useSubscriptionChargePreview } from "@/hooks/useSubscriptionChargePreview";
 import { isActiveOrgTrial } from "@/lib/stripeMode";
 import { useAuth } from "@/hooks/useAuth";
@@ -207,15 +207,25 @@ export function UpgradePlanDialog({
 
   if (!targetPlan) return null;
 
+  const contactPlan = planBillingAction(targetPlan.id) === "contact";
   const planPreview = chargePreview.data?.previews[chargePreviewKey(targetPlan.id, "monthly")];
-  const trialLine = planPreview
-    ? chargeLineFromPreview({
-        billNow: planPreview.bill_now,
-        firstChargeAt: planPreview.first_charge_at,
-        amountCents: planPreview.amount_cents_after_discounts,
-        timeZone: orgTimezone,
-      })
-    : null;
+  const trialLine = visibleBillingLine(
+    contactPlan
+      ? null
+      : planPreview
+        ? chargeLineFromPreview({
+            billNow: planPreview.bill_now,
+            firstChargeAt: planPreview.first_charge_at,
+            amountCents: planPreview.amount_cents_after_discounts,
+            timeZone: orgTimezone,
+          })
+        : orgTrialCheckout
+          ? CHARGE_TODAY_NO_AMOUNT
+          : null,
+  );
+  const renewal = visibleBillingLine(
+    contactPlan ? null : renewalDisclosure(targetPlan.monthlyPrice),
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -320,9 +330,11 @@ export function UpgradePlanDialog({
           {trialLine && (
             <p className="whitespace-nowrap text-xs text-muted-foreground">{trialLine}</p>
           )}
-          <p className="text-xs text-muted-foreground">
-            {renewalDisclosure(targetPlan.monthlyPrice)}
-          </p>
+          {renewal && (
+            <p className="text-xs text-muted-foreground">
+              {renewal}
+            </p>
+          )}
         </div>
       </DialogContent>
     </Dialog>
@@ -388,6 +400,9 @@ export function DowngradePlanDialog({
   const lostFeatures = currentPlan
     ? currentPlan.features.filter((f) => !targetPlan.features.includes(f))
     : [];
+  const renewal = visibleBillingLine(
+    planBillingAction(targetPlan.id) === "contact" ? null : renewalDisclosure(targetPlan.monthlyPrice),
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -443,9 +458,11 @@ export function DowngradePlanDialog({
             Downgrade Now
           </Button>
         </DialogFooter>
-        <p className="text-center text-xs text-muted-foreground">
-          {renewalDisclosure(targetPlan.monthlyPrice)}
-        </p>
+        {renewal && (
+          <p className="text-center text-xs text-muted-foreground">
+            {renewal}
+          </p>
+        )}
       </DialogContent>
     </Dialog>
   );

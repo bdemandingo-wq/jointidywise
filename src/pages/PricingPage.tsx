@@ -38,7 +38,7 @@ import {
 
 import { LIFETIME_FEATURES, LIFETIME_SPOT_CAP, PUBLIC_TIERS, type PublicTier } from '@/lib/publicPlans';
 import { isActiveOrgTrial } from '@/lib/stripeMode';
-import { chargeLineFromPreview, renewalDisclosure } from '@/lib/planBillingCopy';
+import { chargeLineFromPreview, renewalDisclosure, todayChargeCopy, visibleBillingLine } from '@/lib/planBillingCopy';
 import { chargePreviewKey, useSubscriptionChargePreview } from '@/hooks/useSubscriptionChargePreview';
 import { formatLoyaltyDollars, LOYALTY_PRICING, pricingPageLoyaltyLine } from '../../supabase/functions/_shared/loyalty-pricing';
 
@@ -663,23 +663,25 @@ export default function PricingPage() {
                   <div className="mb-6 space-y-1 text-center">
                     {(() => {
                       const preview = chargePreview.data?.previews[chargePreviewKey(tier.id, billingInterval)];
-                      const todayLine = preview?.bill_now
-                        ? chargeLineFromPreview({
-                            billNow: true,
-                            firstChargeAt: preview.first_charge_at,
-                            amountCents: preview.amount_cents_after_discounts,
-                            timeZone: orgTimezone,
-                          })
-                        : null;
-                      return todayLine ? (
-                        <p className="whitespace-nowrap text-[11px] text-muted-foreground">
-                          {todayLine}
-                        </p>
-                      ) : null;
+                      const todayLine = visibleBillingLine(
+                        orgTrialCheckout ? todayChargeCopy(preview, orgTimezone) : null,
+                      );
+                      const renewal = visibleBillingLine(renewalDisclosure(chargePrice, billingInterval));
+                      return (
+                        <>
+                          {todayLine ? (
+                            <p className="whitespace-nowrap text-[11px] text-muted-foreground">
+                              {todayLine}
+                            </p>
+                          ) : null}
+                          {renewal ? (
+                            <p className="text-[11px] text-muted-foreground">
+                              {renewal}
+                            </p>
+                          ) : null}
+                        </>
+                      );
                     })()}
-                    <p className="text-[11px] text-muted-foreground">
-                      {renewalDisclosure(chargePrice, billingInterval)}
-                    </p>
                     {!orgTrialCheckout && (
                       <p className="text-[11px] text-muted-foreground">
                         No card to start. After 30 days of Pro the app asks you to pick a plan.
