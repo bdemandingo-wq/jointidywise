@@ -31,7 +31,6 @@ import { useOrgRecord } from '@/hooks/useOrgRecord';
 import { format, startOfMonth, endOfMonth, startOfYear, startOfWeek, addDays } from 'date-fns';
 import { CalendarIcon, Download, AlertTriangle, DollarSign, Clock, Calculator, Briefcase, Check, TrendingUp, TrendingDown, Percent, BarChart3, CreditCard, Banknote, Loader2, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrgId } from '@/hooks/useOrgId';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
@@ -224,7 +223,6 @@ export default function PayrollPage() {
 
   const [staffFilterId, setStaffFilterId] = useState<string>('all');
   const [profitFilter, setProfitFilter] = useState<string>('all');
-  const { isTestMode, maskName, maskEmail } = useTestMode();
   const { organizationId } = useOrgId();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -1224,27 +1222,27 @@ export default function PayrollPage() {
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div>
             <p className="text-muted-foreground">Revenue (Net)</p>
-            <p className="font-semibold">{isTestMode ? '$X,XXX' : `${fmt(forecast.revenueNet)}`}</p>
+            <p className="font-semibold">{`${fmt(forecast.revenueNet)}`}</p>
           </div>
           <div>
             <p className="text-muted-foreground">Payroll</p>
-            <p className="font-semibold">{isTestMode ? '$X,XXX' : `${fmt(forecast.laborTotal)}`}</p>
+            <p className="font-semibold">{`${fmt(forecast.laborTotal)}`}</p>
           </div>
           <div>
             <p className="text-muted-foreground">Profit</p>
             <p className={cn("font-semibold", forecast.profit < 0 ? "text-destructive" : "text-success")}>
-              {isTestMode ? '$XXX' : `${fmt(forecast.profit)}`}
+              {`${fmt(forecast.profit)}`}
             </p>
           </div>
           <div>
             <p className="text-muted-foreground">Labor %</p>
             <p className={cn("font-semibold", forecast.laborPct > settings.labor_percent_warning_threshold ? "text-warning" : "")}>
-              {isTestMode ? 'XX%' : `${forecast.laborPct.toFixed(1)}%`}
+              {`${forecast.laborPct.toFixed(1)}%`}
             </p>
           </div>
           <div>
             <p className="text-muted-foreground">Bookings</p>
-            <p className="font-semibold">{isTestMode ? 'X' : forecast.bookingCount}</p>
+            <p className="font-semibold">{forecast.bookingCount}</p>
           </div>
           {forecast.missingPay > 0 && (
             <div>
@@ -1343,7 +1341,7 @@ export default function PayrollPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Total Payroll</p>
-                <p className="text-xl font-bold">{isTestMode ? '$X,XXX' : `${fmt(totalPayroll)}`}</p>
+                <p className="text-xl font-bold">{`${fmt(totalPayroll)}`}</p>
               </div>
             </div>
           </CardContent>
@@ -1356,7 +1354,7 @@ export default function PayrollPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Revenue (Net)</p>
-                <p className="text-xl font-bold">{isTestMode ? '$X,XXX' : `${fmt(totalRevenue)}`}</p>
+                <p className="text-xl font-bold">{`${fmt(totalRevenue)}`}</p>
               </div>
             </div>
           </CardContent>
@@ -1370,7 +1368,7 @@ export default function PayrollPage() {
               <div>
                 <p className="text-xs text-muted-foreground">Profit</p>
                 <p className={cn("text-xl font-bold", totalProfit < 0 ? "text-destructive" : "text-success")}>
-                  {isTestMode ? '$XXX' : `${fmt(totalProfit)}`}
+                  {`${fmt(totalProfit)}`}
                 </p>
               </div>
             </div>
@@ -1384,7 +1382,7 @@ export default function PayrollPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Avg Labor %</p>
-                <p className="text-xl font-bold">{isTestMode ? 'XX%' : `${avgLaborPct.toFixed(1)}%`}</p>
+                <p className="text-xl font-bold">{`${avgLaborPct.toFixed(1)}%`}</p>
               </div>
             </div>
           </CardContent>
@@ -1397,7 +1395,7 @@ export default function PayrollPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Assigned Cleans</p>
-                <p className="text-xl font-bold">{isTestMode ? 'XX' : totalCleans}</p>
+                <p className="text-xl font-bold">{totalCleans}</p>
               </div>
             </div>
           </CardContent>
@@ -1410,7 +1408,7 @@ export default function PayrollPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Total Hours</p>
-                <p className="text-xl font-bold">{isTestMode ? 'XX.X' : totalHours.toFixed(1)}</p>
+                <p className="text-xl font-bold">{totalHours.toFixed(1)}</p>
               </div>
             </div>
           </CardContent>
@@ -1423,7 +1421,7 @@ export default function PayrollPage() {
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">1099 Filing</p>
-                <p className="text-xl font-bold">{isTestMode ? 'X' : contractorsNeedingFiling}</p>
+                <p className="text-xl font-bold">{contractorsNeedingFiling}</p>
               </div>
             </div>
           </CardContent>
@@ -1601,8 +1599,8 @@ export default function PayrollPage() {
                      <TableRow key={s.id}>
                        <TableCell>
                          <div>
-                           <p className="font-medium">{maskName(s.name)}</p>
-                           <p className="text-xs text-muted-foreground">{maskEmail(s.email)}</p>
+                           <p className="font-medium">{s.name}</p>
+                           <p className="text-xs text-muted-foreground">{s.email}</p>
                          </div>
                        </TableCell>
                        <TableCell>
@@ -1610,22 +1608,22 @@ export default function PayrollPage() {
                            {s.tax_classification === 'w2' ? 'W-2' : '1099'}
                          </Badge>
                        </TableCell>
-                       <TableCell className="text-right">{isTestMode ? 'X' : s.assignedCleans}</TableCell>
-                       <TableCell className="text-right">{isTestMode ? 'X.X' : s.totalHours}</TableCell>
+                       <TableCell className="text-right">{s.assignedCleans}</TableCell>
+                       <TableCell className="text-right">{s.totalHours}</TableCell>
                        <TableCell className="text-right font-medium text-success">
-                         {isTestMode ? '$XXX' : `${fmt(s.totalPay)}`}
+                         {`${fmt(s.totalPay)}`}
                        </TableCell>
                        <TableCell className="text-right">
-                         {isTestMode ? '$XXX' : `${fmt(s.revenueAttributed)}`}
+                         {`${fmt(s.revenueAttributed)}`}
                        </TableCell>
                        <TableCell className={cn("text-right font-medium", s.profitAttributed < 0 ? "text-destructive" : "text-success")}>
-                         {isTestMode ? '$XXX' : `${fmt(s.profitAttributed)}`}
+                         {`${fmt(s.profitAttributed)}`}
                        </TableCell>
                        <TableCell className={cn("text-right", s.laborPercent > settings.labor_percent_warning_threshold ? "text-warning font-medium" : "")}>
-                         {isTestMode ? 'XX%' : `${s.laborPercent.toFixed(1)}%`}
+                         {`${s.laborPercent.toFixed(1)}%`}
                        </TableCell>
                        <TableCell className="text-right">
-                         {isTestMode ? '$X,XXX' : `${fmt(s.ytdEarnings)}`}
+                         {`${fmt(s.ytdEarnings)}`}
                        </TableCell>
                        <TableCell>
                          <div className="flex items-center gap-2">
@@ -1669,7 +1667,7 @@ export default function PayrollPage() {
                             </Button>
                           ) : (
                             <span className="text-xs text-muted-foreground">
-                              {isTestMode ? '$XXX' : `${fmt(s.totalPay)}`}
+                              {`${fmt(s.totalPay)}`}
                             </span>
                          )}
                        </TableCell>
@@ -1759,14 +1757,14 @@ export default function PayrollPage() {
                         {formatInTimezone(b.payroll_date, orgTimezone, { month: 'short', day: 'numeric', year: 'numeric' })}
                       </TableCell>
                       <TableCell>#{b.booking_number}</TableCell>
-                      <TableCell className="font-medium">{maskName(b.staff_name)}</TableCell>
-                      <TableCell>{maskName(b.customer_name)}</TableCell>
+                      <TableCell className="font-medium">{b.staff_name}</TableCell>
+                      <TableCell>{b.customer_name}</TableCell>
                       <TableCell className="text-right">
-                        {isTestMode ? 'X.XX' : b.hours_worked.toFixed(2)}
+                        {b.hours_worked.toFixed(2)}
                         {/* Show both figures so a capped row is legible without
                             opening the booking — otherwise the hours column
                             silently reads as if the job took that long. */}
-                        {!isTestMode && b.isHoursCapped && b.actualHours != null && (
+                        {b.isHoursCapped && b.actualHours != null && (
                           <div className="text-[10px] text-warning whitespace-nowrap">
                             ⏱ {b.actualHours.toFixed(2)}h actual · capped
                           </div>
@@ -1774,11 +1772,11 @@ export default function PayrollPage() {
                       </TableCell>
                       <TableCell className="text-right font-medium text-success">
                         <div className="flex items-center justify-end gap-1.5">
-                          {isTestMode ? '$XXX' : `${fmt(b.calculated_pay)}`}
+                          {`${fmt(b.calculated_pay)}`}
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        {isTestMode ? '$XXX' : b.revenue_is_share ? (
+                        {b.revenue_is_share ? (
                           // Shared booking: this is a split, not an invoiced
                           // amount. Say so on the row, or someone reconciles it
                           // against a client invoice and finds nothing.
@@ -1789,13 +1787,13 @@ export default function PayrollPage() {
                         ) : `${fmt(b.revenue_net)}`}
                       </TableCell>
                       <TableCell className={cn("text-right", b.labor_percent > settings.labor_percent_warning_threshold ? "text-warning font-medium" : "")}>
-                        {isTestMode ? 'XX%' : `${b.labor_percent.toFixed(1)}%`}
+                        {`${b.labor_percent.toFixed(1)}%`}
                       </TableCell>
                       <TableCell className={cn("text-right font-medium", b.profit < 0 ? "text-destructive" : "text-success")}>
-                        {isTestMode ? '$XXX' : `${fmt(b.profit)}`}
+                        {`${fmt(b.profit)}`}
                       </TableCell>
                       <TableCell className={cn("text-right", b.margin_percent < 0 ? "text-destructive" : b.margin_percent > settings.margin_percent_good_threshold ? "text-success" : "")}>
-                        {isTestMode ? 'XX%' : `${b.margin_percent.toFixed(1)}%`}
+                        {`${b.margin_percent.toFixed(1)}%`}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1804,21 +1802,21 @@ export default function PayrollPage() {
                       <TableCell colSpan={4} className="text-right">
                         Totals ({filteredBookingCount} booking{filteredBookingCount !== 1 ? 's' : ''})
                       </TableCell>
-                      <TableCell className="text-right">{isTestMode ? 'X.XX' : filteredTotalHours.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">{filteredTotalHours.toFixed(2)}</TableCell>
                       <TableCell className="text-right text-success">
-                        {isTestMode ? '$XXX' : `${fmt(filteredTotalPay)}`}
+                        {`${fmt(filteredTotalPay)}`}
                       </TableCell>
                       <TableCell className="text-right">
-                        {isTestMode ? '$XXX' : `${fmt(filteredTotalRevenue)}`}
+                        {`${fmt(filteredTotalRevenue)}`}
                       </TableCell>
                       <TableCell className={cn("text-right", filteredTotalRevenue > 0 && (filteredTotalPay / filteredTotalRevenue) * 100 > settings.labor_percent_warning_threshold ? "text-warning" : "")}>
-                        {isTestMode ? 'XX%' : filteredTotalRevenue > 0 ? `${((filteredTotalPay / filteredTotalRevenue) * 100).toFixed(1)}%` : '—'}
+                        {filteredTotalRevenue > 0 ? `${((filteredTotalPay / filteredTotalRevenue) * 100).toFixed(1)}%` : '—'}
                       </TableCell>
                       <TableCell className={cn("text-right", filteredTotalProfit < 0 ? "text-destructive" : "text-success")}>
-                        {isTestMode ? '$XXX' : `${fmt(filteredTotalProfit)}`}
+                        {`${fmt(filteredTotalProfit)}`}
                       </TableCell>
                       <TableCell className="text-right">
-                        {isTestMode ? 'XX%' : filteredTotalRevenue > 0 ? `${((filteredTotalProfit / filteredTotalRevenue) * 100).toFixed(1)}%` : '—'}
+                        {filteredTotalRevenue > 0 ? `${((filteredTotalProfit / filteredTotalRevenue) * 100).toFixed(1)}%` : '—'}
                       </TableCell>
                     </TableRow>
                   )}

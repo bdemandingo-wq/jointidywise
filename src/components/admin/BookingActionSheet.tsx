@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { BookingWithDetails } from '@/hooks/useBookings';
 import { FarCheckinNotice } from '@/components/admin/FarCheckinNotice';
+import { fmt } from '@/lib/activeCurrency';
 
 
 interface BookingActionSheetProps {
@@ -28,8 +29,6 @@ interface BookingActionSheetProps {
   statusConfig: Record<string, { bg: string; text: string; dot: string }>;
   statusLabels: Record<string, string>;
   getPaymentStatusInfo: (booking: BookingWithDetails) => { bg: string; text: string; icon: string; label: string };
-  maskAmount: (amount: number) => string;
-  maskName: (name: string) => string;
   // Action handlers
   onViewDetails: (booking: BookingWithDetails) => void;
   onMarkPaid: (booking: BookingWithDetails) => void;
@@ -160,8 +159,6 @@ export function BookingActionSheet({
   statusConfig: statusCfg,
   statusLabels,
   getPaymentStatusInfo,
-  maskAmount,
-  maskName,
   onViewDetails, onMarkPaid, onMarkComplete, onReopen, onEdit, onDuplicate,
   onMarkCompleteAdjustPay, onMarkScheduled, onMarkCancelled, onAdjustCleanerPay, onDelete,
   onMarkUnpaid, onAdditionalCharge, onChargeCard, onPlaceHold, onCaptureHold,
@@ -218,12 +215,12 @@ export function BookingActionSheet({
             {/* Booking number + amount */}
             <div className="flex items-center justify-between">
               <span className="font-mono text-sm text-primary font-bold">#{booking.booking_number}</span>
-              <span className="text-lg font-bold text-foreground">{maskAmount(booking.total_amount)}</span>
+              <span className="text-lg font-bold text-foreground">{fmt(booking.total_amount)}</span>
             </div>
             {/* Customer name */}
             <p className="text-base font-semibold text-foreground">
               {booking.customer
-                ? maskName(`${booking.customer.first_name} ${booking.customer.last_name}`)
+                ? `${booking.customer.first_name} ${booking.customer.last_name}`
                 : 'Unknown'}
             </p>
             {/* Status pills - bold solid */}

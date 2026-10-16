@@ -25,7 +25,6 @@ import { matrixToCsv } from '@/lib/orgDataExport';
 import { format } from 'date-fns';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { formatInTimezone, formatTimestampWithZone } from '@/lib/timezoneUtils';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { SEOHead } from '@/components/SEOHead';
 
 type StatusFilter = 'all' | 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled';
@@ -46,7 +45,6 @@ export default function SchedulerPage() {
   const [exporting, setExporting] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [staffFilter, setStaffFilter] = useState<string | null>(null);
-  const { maskName } = useTestMode();
 
   const getExportRows = () => {
     const headers = ['Booking #', 'Customer', 'Service', 'Date', 'Time', 'Staff', 'Status', 'Amount'];
@@ -160,7 +158,7 @@ export default function SchedulerPage() {
               <SelectItem value="all">All Staff</SelectItem>
               {staff.map((s) => (
                 <SelectItem key={s.id} value={s.id}>
-                  {maskName(s.name)}
+                  {s.name}
                 </SelectItem>
               ))}
             </SelectContent>

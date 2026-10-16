@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useOrganization } from '@/contexts/OrganizationContext';
-import { useOrganizationSettings } from './useOrganizationSettings';
 
 export interface Discount {
   id: string;
@@ -22,7 +21,6 @@ export interface Discount {
 
 export function useDiscounts() {
   const { organization } = useOrganization();
-  const { settings } = useOrganizationSettings();
   const [discounts, setDiscounts] = useState<Discount[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -30,18 +28,12 @@ export function useDiscounts() {
     if (!organization?.id) return;
 
     try {
-      let query = supabase
+      const { data, error } = await supabase
         .from('discounts')
         .select('*')
         .eq('organization_id', organization.id)
+        .eq('is_test', false)
         .order('created_at', { ascending: false });
-
-      // If not in demo mode, exclude test discounts
-      if (!settings?.demo_mode_enabled) {
-        query = query.eq('is_test', false);
-      }
-
-      const { data, error } = await query;
 
       if (error) throw error;
       setDiscounts((data || []) as Discount[]);
@@ -50,13 +42,13 @@ export function useDiscounts() {
     } finally {
       setLoading(false);
     }
-  }, [organization?.id, settings?.demo_mode_enabled]);
+  }, [organization?.id]);
 
   useEffect(() => {
     fetchDiscounts();
   }, [fetchDiscounts]);
 
-  const createDiscount = async (discount: Omit<Discount, 'id' | 'organization_id' | 'current_uses' | 'created_at'>) => {
+  const createDiscount = async (discount: Omit<Discount, 'id' | 'organization_id' | 'current_uses' | 'created_at' | 'is_test'>) => {
     if (!organization?.id) return null;
 
     try {
@@ -65,7 +57,7 @@ export function useDiscounts() {
         .insert({
           ...discount,
           organization_id: organization.id,
-          is_test: settings?.demo_mode_enabled ?? false,
+          is_test: false,
         })
         .select()
         .single();

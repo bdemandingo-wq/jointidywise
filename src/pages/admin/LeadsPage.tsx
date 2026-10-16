@@ -43,7 +43,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { format, startOfMonth, endOfMonth, subMonths, isWithinInterval, formatDistanceToNow } from 'date-fns';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { LeadPipelineBoard } from '@/components/admin/LeadPipelineBoard';
 import { SEOHead } from '@/components/SEOHead';
@@ -125,7 +124,6 @@ export default function LeadsPage() {
   const [monthFilter, setMonthFilter] = useState('all');
   
   const queryClient = useQueryClient();
-  const { isTestMode, maskName, maskEmail, maskPhone } = useTestMode();
   const { organization } = useOrganization();
 
   const { runSync, isSyncing, flaggedLeadIds } = useLeadSmartSync(organization?.id);
@@ -760,9 +758,6 @@ export default function LeadsPage() {
             void confirmDialog('Delete this lead?').then((ok) => { if (ok) deleteMutation.mutate(id); });
           }}
           onConvert={convertToCustomer}
-          maskName={maskName}
-          maskEmail={maskEmail}
-          maskPhone={maskPhone}
         />
       )}
 
@@ -801,7 +796,7 @@ export default function LeadsPage() {
                   <TableRow key={lead.id} className="[&>td]:py-3 @[pointer:coarse]:min-h-[52px]">
                     <TableCell className="font-medium min-h-[44px]">
                       <div className="space-y-1">
-                        <div>{maskName(lead.name)}</div>
+                        <div>{lead.name}</div>
                         {normalizeTags(lead.tags).length > 0 && (
                           <div className="flex flex-wrap gap-1">
                             {normalizeTags(lead.tags).map((t, i) => (
@@ -814,11 +809,11 @@ export default function LeadsPage() {
                     <TableCell>
                       <div className="space-y-1">
                         <div className="flex items-center gap-1 text-sm">
-                          <Mail className="w-3 h-3" /> {lead.email ? maskEmail(lead.email) : 'No email'}
+                          <Mail className="w-3 h-3" /> {lead.email ? lead.email : 'No email'}
                         </div>
                         {lead.phone && (
                           <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                            <Phone className="w-3 h-3" /> {maskPhone(lead.phone)}
+                            <Phone className="w-3 h-3" /> {lead.phone}
                           </div>
                         )}
                       </div>
@@ -956,9 +951,9 @@ export default function LeadsPage() {
                     return (
                       <TableRow key={link.id}>
                         <TableCell className="font-medium">
-                          {maskName(link.customer_name || 'Unknown')}
+                          {link.customer_name || 'Unknown'}
                           {link.customer_phone && (
-                            <div className="text-xs text-muted-foreground">{maskPhone(link.customer_phone)}</div>
+                            <div className="text-xs text-muted-foreground">{link.customer_phone}</div>
                           )}
                         </TableCell>
                         <TableCell className="text-sm">

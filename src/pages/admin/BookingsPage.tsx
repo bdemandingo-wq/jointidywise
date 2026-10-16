@@ -111,7 +111,6 @@ import { toast } from '@/hooks/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { showChargeFailureToastLegacy, extractFailureReason } from '@/lib/chargeErrorToast';
 import { DateRange } from 'react-day-picker';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePullToRefresh } from '@/hooks/usePullToRefresh';
@@ -274,7 +273,6 @@ export default function BookingsPage() {
   const { refreshing, pullDistance, handlers: pullHandlers } = usePullToRefresh(handlePullRefresh);
   const updateBooking = useUpdateBooking();
   const deleteBooking = useDeleteBooking();
-  const { isTestMode, maskName, maskEmail, maskAmount, maskAddress } = useTestMode();
   const { organization } = useOrganization();
   const { canShowPaymentFlows } = usePlatform();
 
@@ -2051,13 +2049,13 @@ export default function BookingsPage() {
                     <span className="font-mono text-xs font-bold text-primary">
                       #{booking.booking_number}
                     </span>
-                    <span className="font-bold text-sm text-foreground">{maskAmount(booking.total_amount)}</span>
+                    <span className="font-bold text-sm text-foreground">{fmt(booking.total_amount)}</span>
                   </div>
                   
                   {/* Client name */}
                   <p className="text-sm font-medium text-foreground mb-1">
                     {booking.customer 
-                      ? maskName(`${booking.customer.first_name} ${booking.customer.last_name}`)
+                      ? `${booking.customer.first_name} ${booking.customer.last_name}`
                       : 'Unknown'
                     }
                   </p>
@@ -2074,11 +2072,11 @@ export default function BookingsPage() {
                     {(() => {
                       const team = booking.booking_team_assignments?.filter(a => a.staff?.name) || [];
                       if (team.length > 1) {
-                        return <span>{team.map(a => maskName(a.staff!.name)).join(', ')}</span>;
+                        return <span>{team.map(a => a.staff!.name).join(', ')}</span>;
                       }
                       return (
                         <span className={cn(!booking.staff?.name && "italic")}>
-                          {booking.staff?.name ? maskName(booking.staff.name) : 'Unassigned'}
+                          {booking.staff?.name ? booking.staff.name : 'Unassigned'}
                         </span>
                       );
                     })()}
@@ -2200,18 +2198,18 @@ export default function BookingsPage() {
                         <div className="flex items-center gap-2 md:gap-3">
                           <div className="w-7 h-7 md:w-9 md:h-9 rounded-full bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
                             <span className="text-xs md:text-sm font-semibold text-primary">
-                              {isTestMode ? 'J' : (booking.customer?.first_name?.trim()?.[0]?.toUpperCase() || '?')}
+                              {booking.customer?.first_name?.trim()?.[0]?.toUpperCase() || '?'}
                             </span>
                           </div>
                           <div>
                             <p className="text-sm md:text-base font-medium text-foreground">
                               {booking.customer 
-                                ? maskName(`${booking.customer.first_name} ${booking.customer.last_name}`)
+                                ? `${booking.customer.first_name} ${booking.customer.last_name}`
                                 : 'Unknown'
                               }
                             </p>
                             <p className="text-[10px] md:text-xs text-muted-foreground">
-                              {maskEmail(booking.customer?.email || 'No email')}
+                              {booking.customer?.email || 'No email'}
                             </p>
                           </div>
                         </div>
@@ -2260,7 +2258,7 @@ export default function BookingsPage() {
                               <div className="flex flex-col gap-0.5">
                                 {team.map(a => (
                                   <span key={a.staff_id} className="text-sm text-foreground">
-                                    {maskName(a.staff!.name)}
+                                    {a.staff!.name}
                                   </span>
                                 ))}
                               </div>
@@ -2271,7 +2269,7 @@ export default function BookingsPage() {
                               "text-sm",
                               booking.staff?.name ? "text-foreground" : "text-muted-foreground italic"
                             )}>
-                              {booking.staff?.name ? maskName(booking.staff.name) : 'Unassigned'}
+                              {booking.staff?.name ? booking.staff.name : 'Unassigned'}
                             </span>
                           );
                         })()}
@@ -2295,7 +2293,7 @@ export default function BookingsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right">
-                        <span className="font-bold text-foreground">{maskAmount(booking.total_amount)}</span>
+                        <span className="font-bold text-foreground">{fmt(booking.total_amount)}</span>
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>
@@ -2582,8 +2580,6 @@ export default function BookingsPage() {
         statusConfig={statusConfig}
         statusLabels={statusLabels}
         getPaymentStatusInfo={getPaymentStatusInfo}
-        maskAmount={maskAmount}
-        maskName={maskName}
         onViewDetails={(b) => { setActionSheetBooking(null); setActiveBooking(b); setViewDialogOpen(true); }}
         onMarkPaid={async (b) => { await updateBooking.mutateAsync({ id: b.id, payment_status: 'paid' as any }); toast({ title: "Marked Paid", description: `Booking #${b.booking_number} marked as paid.` }); setActionSheetBooking(null); }}
         onMarkComplete={(b) => { handleStatusChange(b.id, 'completed'); setActionSheetBooking(null); }}

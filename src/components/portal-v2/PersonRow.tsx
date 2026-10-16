@@ -12,10 +12,9 @@ import { StatusBadge } from './StatusBadge';
  * "PersonRow" sounds like:
  *
  *   avatar      initials, hue derived from the name
- *   name        passed through maskName()
- *   pay rate    "$28/hr" — gated on hasFinancialAccess AND masked to "$XX/hr"
- *               in test mode, so the row must render a value it is not allowed
- *               to show rather than dropping the field
+ *   name        the person's name
+ *   pay rate    "$28/hr" — gated on hasFinancialAccess. The row renders the
+ *               rate the caller is allowed to show rather than dropping the field
  *   tax class   a 1099 / W-2 badge
  *   inactive    NOT a status pill — the whole row dims, the border goes dashed
  *               and the avatar goes greyscale
@@ -45,8 +44,7 @@ export function PersonRow({
   className,
 }: {
   name: string;
-  /** Short salient facts — "$28/hr", "3 jobs today". Pre-formatted, so a
-   *  redacted value arrives as "$XX/hr" rather than the component deciding. */
+  /** Short salient facts — "$28/hr", "3 jobs today". Pre-formatted by the caller. */
   facts?: string[];
   /* Long-form fields that get their own line instead of joining the wrapped
      facts row. The desktop customers table has Contact and Address columns;

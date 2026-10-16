@@ -38,7 +38,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { format, parseISO } from 'date-fns';
-import { useTestMode } from '@/contexts/TestModeContext';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import { SEOHead } from '@/components/SEOHead';
 import { dispatchZapier } from '@/lib/zapier';
@@ -70,7 +69,6 @@ export default function ClientFeedbackPage() {
     | null
   >(null);
   const queryClient = useQueryClient();
-  const { isTestMode, maskName } = useTestMode();
   const { organization } = useOrganization();
 
   const { data: entries = [], isLoading, error: entriesError } = useQuery({
@@ -375,7 +373,7 @@ export default function ClientFeedbackPage() {
                 filteredEntries.map((entry) => (
                   <TableRow key={entry.id}>
                     <TableCell className="font-medium">
-                      {isTestMode ? maskName(entry.customer_name) : entry.customer_name}
+                      {entry.customer_name}
                     </TableCell>
                     <TableCell>{format(parseISO(entry.feedback_date), 'MMM d, yyyy')}</TableCell>
                     <TableCell>
