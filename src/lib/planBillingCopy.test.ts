@@ -13,9 +13,11 @@ import {
   planChoicesFooter,
   renewalDisclosure,
   showPlanChoices,
+  trialBillsOnCheckout,
   trialFirstChargeLine,
   trialEndDateLabel,
 } from "./planBillingCopy.ts";
+import { stripeTrialEndUnix } from "../../supabase/functions/_shared/trial-end.ts";
 import { LIFETIME_SPOT_CAP } from "./publicPlans.ts";
 
 test("basic and pro stay on checkout and custom is contact", () => {
@@ -40,7 +42,7 @@ test("renewal disclosure names the real price and how to cancel", () => {
   assert.equal(renewalDisclosure(0), "");
 });
 
-test("a trial always names the org-local end as the first charge", () => {
+test("trial charge copy follows stripeTrialEndUnix, the same rule as create-subscription", () => {
   // Nov 13, 11:00pm Eastern is already Nov 14 in UTC.
   const elevenPmEastern = "2026-11-14T04:00:00.000Z";
   const now = Date.parse("2026-10-16T12:00:00.000Z");
@@ -49,27 +51,55 @@ test("a trial always names the org-local end as the first charge", () => {
   assert.equal(trialEndDateLabel(null, "America/New_York"), null);
   assert.equal(trialEndDateLabel("not-a-date", "America/New_York"), null);
   assert.equal(trialEndDateLabel(elevenPmEastern, ""), null);
+
+  assert.equal(stripeTrialEndUnix(elevenPmEastern, now) != null, true);
+  assert.equal(trialBillsOnCheckout(elevenPmEastern, now), false);
   const eastern = trialFirstChargeLine({
     trialEndIso: elevenPmEastern,
     timeZone: "America/New_York",
+    nowMs: now,
   });
   assert.equal(eastern, "Your first charge is Nov 13, 2026.");
   assert.equal(
-    trialFirstChargeLine({ trialEndIso: elevenPmEastern, timeZone: "UTC" }),
+    trialFirstChargeLine({ trialEndIso: elevenPmEastern, timeZone: "UTC", nowMs: now }),
     "Your first charge is Nov 14, 2026.",
   );
-  // Inside 48 hours the line still names the trial end. It does not switch to "today".
+
   const soon = new Date(now + 36 * 60 * 60 * 1000).toISOString();
-  const soonLine = trialFirstChargeLine({ trialEndIso: soon, timeZone: "America/New_York" });
-  assert.equal(soonLine, "Your first charge is Oct 17, 2026.");
-  assert.equal(soonLine?.includes("today"), false);
-  assert.equal(trialFirstChargeLine({ trialEndIso: null, timeZone: "America/New_York" }), null);
-  assert.equal(trialFirstChargeLine({ trialEndIso: "not-a-date", timeZone: "America/New_York" }), null);
-  assert.equal(trialFirstChargeLine({ trialEndIso: elevenPmEastern, timeZone: "Not/AZone" }), null);
-  // text-xs (~6.6px) inside a 375px phone after 16px page padding and 20px card padding.
+  assert.equal(stripeTrialEndUnix(soon, now), null);
+  assert.equal(trialBillsOnCheckout(soon, now), true);
+  assert.equal(
+    trialFirstChargeLine({ trialEndIso: soon, timeZone: "America/New_York", price: 97, nowMs: now }),
+    "You'll be charged $97 today.",
+  );
+  assert.equal(
+    trialFirstChargeLine({ trialEndIso: soon, timeZone: "America/New_York", nowMs: now }),
+    null,
+  );
+
+  const exactly48h = new Date(now + 48 * 60 * 60 * 1000).toISOString();
+  assert.equal(stripeTrialEndUnix(exactly48h, now) != null, true);
+  assert.equal(trialBillsOnCheckout(exactly48h, now), false);
+  assert.match(
+    trialFirstChargeLine({ trialEndIso: exactly48h, timeZone: "America/New_York", price: 49, nowMs: now }) ?? "",
+    /^Your first charge is /,
+  );
+
+  const justUnder = new Date(now + 48 * 60 * 60 * 1000 - 1000).toISOString();
+  assert.equal(stripeTrialEndUnix(justUnder, now), null);
+  assert.equal(
+    trialFirstChargeLine({ trialEndIso: justUnder, timeZone: "America/New_York", price: 49, nowMs: now }),
+    "You'll be charged $49 today.",
+  );
+
+  assert.equal(trialFirstChargeLine({ trialEndIso: null, timeZone: "America/New_York", price: 49, nowMs: now }), null);
+  assert.equal(trialFirstChargeLine({ trialEndIso: "not-a-date", timeZone: "America/New_York", price: 49, nowMs: now }), null);
+  assert.equal(trialFirstChargeLine({ trialEndIso: elevenPmEastern, timeZone: "Not/AZone", nowMs: now }), null);
+
   const innerPx = 375 - 32 - 40;
   assert.ok(eastern);
   assert.ok(eastern.length * 6.6 <= innerPx);
+  assert.ok("You'll be charged $1970 today.".length * 6.6 <= innerPx);
 });
 
 test("the lifetime cap is one shared constant at 100", () => {

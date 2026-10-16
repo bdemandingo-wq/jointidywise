@@ -21,7 +21,7 @@ import { isAlreadyLifetimeError, ALREADY_LIFETIME_MESSAGE } from '@/lib/alreadyL
 import { isCustomPriceMissing } from '@/lib/priceNotConfigured';
 import { openEmbeddedCheckout, readCheckoutSession } from '@/lib/embeddedCheckout';
 import { isActiveOrgTrial, shouldRedirectChoosePlanToDashboard } from '@/lib/stripeMode';
-import { renewalDisclosure, trialFirstChargeLine } from '@/lib/planBillingCopy';
+import { renewalDisclosure, trialBillsOnCheckout, trialFirstChargeLine } from '@/lib/planBillingCopy';
 import {
   hasAnswer,
   normalizeAnswers,
@@ -140,12 +140,12 @@ export default function ChoosePlanPage() {
   const painPitch = pain ? PAIN_PITCH[pain] : null;
   // One redirect per click — same duplicate-session guard as PricingPage.
   const isRedirectingRef = useRef(false);
-  const onTrial = isActiveOrgTrial(subscription) || subscription?.trial_active === true;
-  const trialDateLine = onTrial
-    ? trialFirstChargeLine({
-        trialEndIso: subscription?.trial_end,
-        timeZone: orgTimezone,
-      })
+  const orgTrialCheckout = organization?.plan_type === 'trial' || isActiveOrgTrial(subscription);
+  const trialEndIso = subscription?.trial_end ?? null;
+  const nowMs = Date.now();
+  const billsNow = orgTrialCheckout && trialBillsOnCheckout(trialEndIso, nowMs);
+  const trialDateLine = orgTrialCheckout && !billsNow
+    ? trialFirstChargeLine({ trialEndIso, timeZone: orgTimezone, nowMs })
     : null;
 
   useEffect(() => {
@@ -427,6 +427,16 @@ export default function ChoosePlanPage() {
                       <>Choose {tier.name}</>
                     )}
                   </Button>
+                  {billsNow && (
+                    <p className="whitespace-nowrap text-center text-xs text-muted-foreground">
+                      {trialFirstChargeLine({
+                        trialEndIso,
+                        timeZone: orgTimezone,
+                        price: chargePrice,
+                        nowMs,
+                      })}
+                    </p>
+                  )}
                   <p className="text-center text-xs text-muted-foreground">
                     {renewalDisclosure(chargePrice, billingInterval)}
                   </p>

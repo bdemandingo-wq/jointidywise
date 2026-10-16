@@ -1,5 +1,6 @@
 import { formatInOrgTz } from "./orgDateRange.ts";
 import { LIFETIME_PRICE } from "./publicPlans.ts";
+import { stripeTrialEndUnix } from "../../supabase/functions/_shared/trial-end.ts";
 
 // orgDateRange.ts and publicPlans.ts have zero imports, so node:test can
 // load this file without Vite or the @/ alias.
@@ -51,16 +52,38 @@ export function trialEndDateLabel(
 }
 
 /**
- * One line for an active trial. The date is the org-local trial end already
- * stored on the subscription (profiles.trial_ends_at via check-subscription).
- * Short on purpose: text-xs of this sentence stays on one line at 375px.
- * A missing or invalid timestamp does not invent a date.
+ * Same decision create-subscription uses for an org on plan_type trial.
+ * stripeTrialEndUnix returns null when profiles.trial_ends_at is missing,
+ * invalid, or less than MIN_STRIPE_TRIAL_LEAD_SEC (48 hours) away, including
+ * a trial that already ended. That function is what create-subscription calls.
+ * A null result means it does not set trial_end, so Stripe bills on completion.
+ * A unix result is sent as trial_end, and the card is charged at that second.
+ */
+export function trialBillsOnCheckout(
+  trialEndIso: string | null | undefined,
+  nowMs = Date.now(),
+): boolean {
+  if (!trialEndIso || !Number.isFinite(Date.parse(trialEndIso))) return false;
+  return stripeTrialEndUnix(trialEndIso, nowMs) == null;
+}
+
+/**
+ * One short line. The date is the org-local trial end. Inside the 48-hour
+ * window the line names today's price, because checkout will not set trial_end.
+ * A missing or invalid timestamp does not invent a date or an amount.
  */
 export function trialFirstChargeLine(opts: {
   trialEndIso: string | null | undefined;
   timeZone: string;
+  price?: number;
+  nowMs?: number;
 }): string | null {
+  const nowMs = opts.nowMs ?? Date.now();
   if (!opts.trialEndIso || !Number.isFinite(Date.parse(opts.trialEndIso))) return null;
+  if (trialBillsOnCheckout(opts.trialEndIso, nowMs)) {
+    if (!(opts.price != null && opts.price > 0)) return null;
+    return `You'll be charged $${opts.price} today.`;
+  }
   const date = trialEndDateLabel(opts.trialEndIso, opts.timeZone, true);
   if (!date) return null;
   return `Your first charge is ${date}.`;
