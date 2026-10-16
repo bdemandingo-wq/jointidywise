@@ -13057,6 +13057,7 @@ export type Database = {
           last_name: string
           organization_id: string
           phone: string
+          phone_visible: boolean
         }[]
       }
       get_staff_sensitive_fields: {

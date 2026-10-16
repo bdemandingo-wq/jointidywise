@@ -162,6 +162,13 @@
       "when": 1792116074151,
       "tag": "0022_show_customer_phone_to_staff",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792116304577,
+      "tag": "0023_staff_customers_phone_visible",
+      "breakpoints": true
     }
   ]
 }
