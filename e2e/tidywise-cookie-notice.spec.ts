@@ -362,7 +362,7 @@ test.describe('TidyWise cookie notice', () => {
       await page.goto(path);
       await expect(page).toHaveURL(new RegExp(`${path}$`));
       await expect(page.getByRole('region', { name: 'Cookie notice' })).toHaveCount(0);
-      await expect(page.getByRole('link', { name: DNS })).toBeVisible();
+      await expect(page.locator('footer').getByRole('link', { name: DNS })).toBeVisible();
       await page.waitForTimeout(500);
       expect(tagHits('excluded').length).toBe(before);
     }

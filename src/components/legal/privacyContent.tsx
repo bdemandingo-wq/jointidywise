@@ -107,12 +107,13 @@ export function PrivacyPolicyBody({
       <h2>Location</h2>
       <p>
         <strong>(a) &quot;On My Way&quot; live location.</strong> When a cleaner taps <strong>On My Way</strong>, we share their
-        live location with their cleaning business and with the customer they are traveling to. On iPhone, if the cleaner
-        allows &quot;Always&quot; location access, sharing continues while the app is in the background or the phone is locked,
-        and iOS shows a location indicator while it&apos;s active. On the web, sharing happens only while the page is open.
-        Sharing stops when the cleaner arrives, when the job starts, or when the job ends, whichever comes first. We never
-        collect live location outside an active On My Way trip. Admins may see the cleaner&apos;s last shared location until
-        the job&apos;s start time. Live location data is deleted 30 days after the job&apos;s last location update.
+        location with their business and its customer only during that On My Way trip, so they know when the cleaner will
+        arrive. On iPhone, if the cleaner allows &quot;Always&quot; location access, sharing continues including when the app
+        is closed or the phone is locked, and iOS shows a location indicator while it&apos;s active. On the web, sharing
+        happens only while the page is open. Sharing stops when the cleaner arrives, when the job starts, when the job ends,
+        or after 3 hours, whichever comes first. We never collect live location outside an active On My Way trip. Admins may
+        see the cleaner&apos;s last shared location until the job&apos;s start time. Live location data is deleted 30 days
+        after the job&apos;s last location update.
       </p>
       <p>
         <strong>(b) Clock-in / clock-out and job photos.</strong> If location permission is turned on in the phone or
@@ -131,12 +132,17 @@ export function PrivacyPolicyBody({
 
       <h2>Text messages (SMS)</h2>
       <p>
-        Cleaning businesses use TidyWise to send appointment-related texts (such as confirmations, reminders, and
-        &quot;on the way&quot; notices) to their customers.
+        Texts to a cleaning business&apos;s customers go out through that business&apos;s own OpenPhone account and
+        number. The business controls those records. TidyWise&apos;s own OpenPhone account is used only for platform and
+        admin notices.
+      </p>
+      <p>
+        A business may send appointment texts (such as confirmations, reminders, and &quot;on the way&quot; notices),
+        marketing texts (win-back, follow-up, and broadcast campaigns), review and tip requests, and AI-assisted replies.
       </p>
       <ul>
         <li>The business sending the texts is responsible for getting its customers&apos; consent to receive them.</li>
-        <li>Reply <strong>STOP</strong> to opt out of texts. Reply <strong>HELP</strong> for help.</li>
+        <li>Customers can reply <strong>STOP</strong> at any time to opt out of texts. Reply <strong>HELP</strong> for help.</li>
         <li>Message and data rates may apply. Message frequency varies.</li>
         <li>We do not share mobile numbers or SMS consent with third parties for their own marketing.</li>
       </ul>
