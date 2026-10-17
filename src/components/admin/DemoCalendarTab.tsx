@@ -25,6 +25,7 @@ import { calendarDayKey, orgDateKey } from '@/lib/orgDateRange';
 import { toast } from 'sonner';
 import { DEFAULT_AVAILABILITY, parseAvailability, slotsForDay, WEEKDAY_LABELS, type WeeklyAvailability } from '@/lib/demoAvailability';
 import { QueryError } from '@/components/QueryError';
+import { SUPPORT_EMAIL } from '@/lib/supportEmail';
 
 interface DemoBooking {
   id: string;
@@ -470,7 +471,7 @@ export function DemoCalendarTab() {
       try {
         await sendSms(
           activeBooking.phone,
-          `Hi ${firstName}! Emmanuel here from TidyWise.\n\nI have to cancel our demo scheduled for ${dateDisplay} at ${timeDisplay} EST. I sincerely apologize for the inconvenience! 🙏\n\nPlease rebook at your convenience:\n→ jointidywise.com/demo\n\nOr reply and we'll find a time.\n\n— Emmanuel (561) 571-8725`
+          `Hi ${firstName}! Emmanuel here from TidyWise.\n\nI have to cancel our demo scheduled for ${dateDisplay} at ${timeDisplay} EST. I sincerely apologize for the inconvenience! 🙏\n\nPlease rebook at your convenience:\n→ jointidywise.com/demo\n\nOr reply and we'll find a time.\n\n— Emmanuel\n${SUPPORT_EMAIL}`
         );
         toast.success('✅ Client notified via SMS');
       } catch (err) {
@@ -510,7 +511,7 @@ export function DemoCalendarTab() {
       try {
         await sendSms(
           activeBooking.phone,
-          `Hi ${firstName}! Emmanuel from TidyWise here.\n\nI need to move our demo from ${oldDate} at ${oldTime} to:\n\n📆 ${newDate}\n⏰ ${newTime} EST\n\nReply YES to confirm or NO if that doesn't work and we'll find another time together.\n\n— Emmanuel (561) 571-8725`
+          `Hi ${firstName}! Emmanuel from TidyWise here.\n\nI need to move our demo from ${oldDate} at ${oldTime} to:\n\n📆 ${newDate}\n⏰ ${newTime} EST\n\nReply YES to confirm or NO if that doesn't work and we'll find another time together.\n\n— Emmanuel\n${SUPPORT_EMAIL}`
         );
         toast.success('✅ Demo rescheduled & client notified via SMS');
       } catch (err) {

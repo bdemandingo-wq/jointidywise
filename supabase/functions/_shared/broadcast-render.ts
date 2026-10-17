@@ -60,9 +60,9 @@ export const DEFAULT_SIGNATURE = {
   name: 'Emmanuel Forkuoh',
   linkedInUrl: 'https://www.linkedin.com/in/emmanuel-forkuoh-567724145/',
   title: 'Founder, TidyWise',
-  phone: '561-571-8725',
   // Public support inbox. Keep in sync with SUPPORT_EMAIL (src/lib/supportEmail.ts).
   // This module stays import-free so Node can load it; do not import the constant.
+  // Contact is email only — no phone line.
   email: 'support@jointidywise.com',
 };
 
@@ -76,7 +76,7 @@ export const DEFAULT_SIGNATURE = {
  */
 export function defaultSignatureText(): string {
   const d = DEFAULT_SIGNATURE;
-  return [`${d.name} \u2022 ${d.linkedInUrl}`, d.title, d.phone, d.email].join('\n');
+  return [`${d.name} \u2022 ${d.linkedInUrl}`, d.title, d.email].join('\n');
 }
 
 export type MessageClass = 'transactional' | 'marketing';
@@ -159,7 +159,6 @@ function defaultSignatureHtml(): string {
     `${escapeHtml(d.name)} \u2022 ` +
     `<a href="${escapeHtml(d.linkedInUrl)}" style="color:#111827">LinkedIn</a><br>` +
     `${escapeHtml(d.title)}<br>` +
-    `${escapeHtml(d.phone)}<br>` +
     `${escapeHtml(d.email)}` +
     `</p>`
   );
