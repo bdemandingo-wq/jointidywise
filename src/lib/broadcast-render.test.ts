@@ -213,11 +213,18 @@ test('absent, blank and whitespace-only all fall back to DEFAULT_SIGNATURE', () 
   // other. Equality between two outputs can be satisfied by both being wrong.
   for (const signature of [undefined, null, '', '   ', '\n\n']) {
     const html = renderBroadcastHtml({ bodyText: 'Body', unsubscribeUrl: null, signature });
+    const text = renderBroadcastText({ bodyText: 'Body', unsubscribeUrl: null, signature });
     assert.ok(
       html.includes('Emmanuel Forkuoh'),
       `signature ${JSON.stringify(signature)} must fall back to the default`,
     );
-    assert.ok(!html.includes('tel:'), 'default signature must not include a phone');
+    for (const rendered of [html, text]) {
+      assert.equal(
+        rendered.replace(/\D/g, '').includes('5615718725'),
+        false,
+        'rendered default signature must not contain 5615718725',
+      );
+    }
     assert.ok(html.includes('support@jointidywise.com'), 'email line must survive the fallback');
   }
 });
