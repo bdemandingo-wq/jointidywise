@@ -431,3 +431,18 @@ test("review fixes for totals, links, loyalty, weekly, and empty sections", () =
   assert.equal(reminders?.title, "Before we arrive");
   assert.ok(reminders?.html.includes("Someone 18+"));
 });
+
+test("welcome email has a secondary setup-call button under the dashboard link", () => {
+  const { html, text } = renderCrmEmail("welcome", { vars: base });
+  const demoUrl = "https://jointidywise.com/demo";
+  const primary = html.indexOf("Open my dashboard");
+  const secondary = html.indexOf("Book a free setup call");
+  assert.ok(primary > 0);
+  assert.ok(secondary > primary);
+  assert.ok(html.includes(`href="${demoUrl}"`));
+  assert.ok(html.includes("border:2px solid #1d5fbf"));
+  assert.ok(html.includes("color:#1d5fbf;text-decoration:none;border-radius:4px;\">Book a free setup call"));
+  assert.ok(text.includes("Book a free setup call"));
+  assert.ok(text.includes(demoUrl));
+  assert.equal(containsBlockedPhone(html), false);
+});
