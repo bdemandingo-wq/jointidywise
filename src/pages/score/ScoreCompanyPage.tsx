@@ -228,6 +228,7 @@ export default function ScoreCompanyPage() {
         title={seoTitle}
         description={seoDescription}
         canonical={`/score/c/${company.slug}`}
+        noIndex
       />
       <div className="max-w-4xl mx-auto px-4 py-10">
         <Link to="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8">

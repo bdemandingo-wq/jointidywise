@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -83,10 +84,6 @@ export function AIBusinessTools() {
     <section className="py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-background to-secondary/30">
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full text-primary text-sm font-medium mb-4">
-            <Sparkles className="h-4 w-4" />
-            AI-Powered Business Tools
-          </div>
           <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
             See your growth potential in seconds
           </h2>
@@ -205,8 +202,8 @@ export function AIBusinessTools() {
                   </div>
                   
                   <div className="flex flex-col sm:flex-row gap-3 justify-center pt-4">
-                    <Button size="lg" className="gap-2">
-                      See Plans <ArrowRight className="h-4 w-4" />
+                    <Button size="lg" className="gap-2" asChild>
+                      <Link to="/pricing">See Plans <ArrowRight className="h-4 w-4" /></Link>
                     </Button>
                     <Button size="lg" variant="outline" onClick={() => setShowResults(false)}>
                       Recalculate
@@ -318,8 +315,8 @@ export function AIBusinessTools() {
                   </div>
                   
                   <div className="flex flex-col sm:flex-row gap-3 justify-center pt-2">
-                    <Button size="lg" className="gap-2">
-                      See Plans <ArrowRight className="h-4 w-4" />
+                    <Button size="lg" className="gap-2" asChild>
+                      <Link to="/pricing">See Plans <ArrowRight className="h-4 w-4" /></Link>
                     </Button>
                     <Button size="lg" variant="outline" onClick={() => setShowScore(false)}>
                       Retake Assessment

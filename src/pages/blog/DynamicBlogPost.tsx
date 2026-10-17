@@ -9,6 +9,7 @@ import { format } from "date-fns";
 import { safeJsonLd } from "@/lib/safeJsonLd";
 import { CopyrightYear } from '@/components/CopyrightYear';
 import { DoNotSellShareLink } from '@/components/DoNotSellShareLink';
+import { keywordCanonical } from '@/lib/keywordCanonicals';
 
 export default function DynamicBlogPost() {
   const { slug } = useParams<{ slug: string }>();
@@ -71,7 +72,9 @@ export default function DynamicBlogPost() {
     );
   }
 
-  const canonicalUrl = `https://www.jointidywise.com/blog/post/${post.slug}`;
+  const selfPath = `/blog/post/${post.slug}`;
+  const canonicalPath = keywordCanonical(selfPath) ?? selfPath;
+  const canonicalUrl = `https://www.jointidywise.com${canonicalPath}`;
   const publisher = {
     "@type": "Organization",
     name: "TIDYWISE",
@@ -149,7 +152,8 @@ export default function DynamicBlogPost() {
         ogType="article"
         title={post.meta_title || `${post.title} | TIDYWISE Blog`}
         description={post.meta_description || post.excerpt}
-        canonical={`/blog/post/${post.slug}`}
+        canonical={canonicalPath}
+        noIndex={canonicalPath !== selfPath}
         ogImage={post.featured_image_url || undefined}
       />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(articleSchema) }} />

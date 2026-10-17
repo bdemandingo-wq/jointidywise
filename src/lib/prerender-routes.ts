@@ -23,6 +23,7 @@ import {
   blogPostRouteMeta,
   scoreCityRouteMeta,
   compareNicheRouteMeta,
+  blogIndexPrerenderBody,
   type RouteMeta,
   type ScoreCompanyForMeta,
   type BlogPostForMeta,
@@ -404,6 +405,12 @@ function patchHead(html: string, route: string, meta: RouteMeta): string {
     `<link rel="canonical" href="${canonical}" />`
   );
 
+  const robots = meta.noIndex ? "noindex, nofollow" : "index, follow";
+  out = out.replace(
+    /<meta\s+name="robots"\s+content="[^"]*"\s*\/?\s*>/i,
+    `<meta name="robots" content="${robots}" />`
+  );
+
   // Inject crawler-readable content inside #root.
   //
   // It used to render as plain, unstyled text filling the viewport for the
@@ -476,7 +483,7 @@ function metaFor(
   blogBySlug: Map<string, BlogPostForMeta>,
   cityBySlug: Map<string, ScoreCityForMeta>
 ): RouteMeta {
-  if (STATIC_ROUTE_META[route]) return STATIC_ROUTE_META[route];
+  if (STATIC_ROUTE_META[route]) return { ...STATIC_ROUTE_META[route] };
   const locMatch = route.match(/^\/cleaning-business-software\/([a-z0-9-]+)$/);
   if (locMatch) {
     const slug = locMatch[1];
@@ -537,9 +544,14 @@ export async function prerenderRoutes(
   for (const route of allRoutes(scoreCompanies, blogPosts, scoreCities)) {
     try {
       const meta = metaFor(route, scoreBySlug, blogBySlug, cityBySlug);
-      meta.prerenderBody = buildPrerenderBody(
-        route, meta, scoreBySlug, blogBySlug, cityBySlug, scoreCompanies
-      );
+      if (route === "/blog") {
+        meta.prerenderBody = blogIndexPrerenderBody(blogPosts);
+      } else {
+        const generated = buildPrerenderBody(
+          route, meta, scoreBySlug, blogBySlug, cityBySlug, scoreCompanies
+        );
+        if (generated) meta.prerenderBody = generated;
+      }
       const patched = patchHead(sourceHtml, route, meta);
       const dest = routeToFile(distDir, route);
       mkdirSync(dirname(dest), { recursive: true });
@@ -550,7 +562,28 @@ export async function prerenderRoutes(
       skipped++;
     }
   }
+  const notFound = buildNotFoundHtml(sourceHtml);
+  writeFileSync(join(distDir, "404.html"), notFound);
   return { written, skipped };
+}
+
+/**
+ * SPA hosts that have a 404 document serve this instead of the homepage
+ * shell. It is noindex and has no canonical, so a missing URL is not an
+ * alternate of https://www.jointidywise.com/.
+ */
+function buildNotFoundHtml(sourceHtml: string): string {
+  const meta: RouteMeta = {
+    title: "Page Not Found | TidyWise",
+    description: "The page you are looking for does not exist.",
+    h1: "404",
+    noIndex: true,
+    prerenderBody: `<p>Oops! Page not found</p><p><a href="/">Return to Home</a></p>`,
+  };
+  let html = patchHead(sourceHtml, "/404", meta);
+  html = html.replace(/<link\s+rel="canonical"\s+href="[^"]*"\s*\/?\s*>/i, "");
+  html = html.replace(/<meta\s+property="og:url"\s+content="[^"]*"\s*\/?\s*>/i, "");
+  return html;
 }
 
 // Allow running standalone: `npx tsx src/lib/prerender-routes.ts`

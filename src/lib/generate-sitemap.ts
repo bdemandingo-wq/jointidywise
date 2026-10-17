@@ -22,6 +22,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { COMPETITORS, NICHES } from "../data/compareNicheData";
 import { STATIC_ROUTE_META } from "./routeMeta";
+import { KEYWORD_CANONICALS } from "./keywordCanonicals";
 import { SUPABASE_PUBLIC_ANON_KEY, SUPABASE_PUBLIC_URL } from "./supabasePublicEnv";
 
 /**
@@ -76,7 +77,7 @@ const EXCLUDED_PATHS = new Set<string>([
 // broken page at best, and listing it invites exactly that.
 // `/dev` is a local preview (import.meta.env.DEV). The route is still in
 // App.tsx, so the sitemap AST sees it, but it is not a public page.
-const EXCLUDED_PREFIXES = ["/dashboard", "/staff", "/portal", "/admin", "/auth", "/checkout", "/billing", "/.lovable", "/dev"];
+const EXCLUDED_PREFIXES = ["/dashboard", "/staff", "/portal", "/admin", "/auth", "/checkout", "/billing", "/.lovable", "/dev", "/score"];
 
 function shouldExclude(path: string): boolean {
   if (EXCLUDED_PATHS.has(path)) return true;
@@ -109,55 +110,6 @@ async function fetchPublishedBlogSlugs(): Promise<string[]> {
     return rows.map((r) => r.slug).filter(Boolean);
   } catch (err) {
     console.warn(`[sitemap] blog fetch error:`, err);
-    return [];
-  }
-}
-
-async function fetchScoreCompanies(): Promise<Array<{ slug: string; lastmod?: string }>> {
-  const SUPABASE_URL = SUPABASE_PUBLIC_URL;
-  const ANON_KEY = SUPABASE_PUBLIC_ANON_KEY;
-  try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/score_companies?select=slug,last_scored_at,updated_at&limit=5000`,
-      { headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` } }
-    );
-    if (!res.ok) {
-      console.warn(`[sitemap] score_companies fetch failed: ${res.status}`);
-      return [];
-    }
-    const rows = (await res.json()) as Array<{
-      slug: string;
-      last_scored_at: string | null;
-      updated_at: string | null;
-    }>;
-    return rows
-      .filter((r) => r.slug)
-      .map((r) => ({
-        slug: r.slug,
-        lastmod: (r.last_scored_at ?? r.updated_at ?? undefined)?.slice(0, 10),
-      }));
-  } catch (err) {
-    console.warn(`[sitemap] score_companies fetch error:`, err);
-    return [];
-  }
-}
-
-async function fetchScoreCitySlugs(): Promise<string[]> {
-  const SUPABASE_URL = SUPABASE_PUBLIC_URL;
-  const ANON_KEY = SUPABASE_PUBLIC_ANON_KEY;
-  try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/score_top_cities?select=city_slug&limit=5000`,
-      { headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` } }
-    );
-    if (!res.ok) {
-      console.warn(`[sitemap] score_top_cities fetch failed: ${res.status}`);
-      return [];
-    }
-    const rows = (await res.json()) as Array<{ city_slug: string }>;
-    return rows.map((r) => r.city_slug).filter(Boolean);
-  } catch (err) {
-    console.warn(`[sitemap] score_top_cities fetch error:`, err);
     return [];
   }
 }
@@ -241,7 +193,9 @@ export async function generateSitemap(): Promise<{ count: number; outputPath: st
 
   const source = readFileSync(appTsxPath, "utf8");
   const rawPaths = extractRoutePaths(source);
-  const includedPaths = rawPaths.filter((p) => !shouldExclude(p));
+  const includedPaths = rawPaths.filter(
+    (p) => !shouldExclude(p) && !(p in KEYWORD_CANONICALS),
+  );
 
   /*
     GUARD: every static route this file advertises must also be prerenderable.
@@ -260,9 +214,10 @@ export async function generateSitemap(): Promise<{ count: number; outputPath: st
     fix when it fires is to add the route to STATIC_ROUTE_META, or to
     EXCLUDED_PATHS/EXCLUDED_PREFIXES above if it should not be public at all.
 
-    Dynamic routes are exempt by design — blog posts, locations, score and
+    Dynamic routes are exempt by design — blog posts, locations, and
     competitor pages are expanded separately by BOTH systems and never appear in
-    STATIC_ROUTE_META. Only the static list extracted from App.tsx is checked.
+    STATIC_ROUTE_META. Score pages are prerendered and noindexed, and are not
+    listed here. Only the static list extracted from App.tsx is checked.
   */
   const missingMeta = includedPaths.filter((p) => !(p in STATIC_ROUTE_META));
   if (missingMeta.length > 0) {
@@ -285,6 +240,7 @@ export async function generateSitemap(): Promise<{ count: number; outputPath: st
   const blogSlugs = await fetchPublishedBlogSlugs();
   for (const slug of blogSlugs) {
     const p = `/blog/post/${slug}`;
+    if (p in KEYWORD_CANONICALS) continue;
     entryMap.set(p, { path: p });
   }
 
@@ -299,19 +255,8 @@ export async function generateSitemap(): Promise<{ count: number; outputPath: st
     console.warn(`[sitemap] could not load locationData:`, err);
   }
 
-  // Add /score/c/{slug} pages with per-row lastmod from last_scored_at.
-  const scoreCompanies = await fetchScoreCompanies();
-  for (const c of scoreCompanies) {
-    const p = `/score/c/${c.slug}`;
-    entryMap.set(p, { path: p, lastmod: c.lastmod });
-  }
-
-  // Add /score/city/{citySlug} ranking pages.
-  const scoreCitySlugs = await fetchScoreCitySlugs();
-  for (const slug of scoreCitySlugs) {
-    const p = `/score/city/${slug}`;
-    entryMap.set(p, { path: p });
-  }
+  // /score/* stays out of the sitemap. The pages still render and are
+  // prerendered with noindex so a crawler that already knows the URL drops it.
 
   // Add the 36 /compare/:competitorSlug/for/:nicheSlug pages. This route is
   // registered dynamically in App.tsx (a single `:competitorSlug/:nicheSlug`

@@ -12,6 +12,11 @@
  * If a route isn't listed here, the prerender falls back to the homepage tags.
  */
 
+import { KEYWORD_CANONICALS } from "./keywordCanonicals";
+import { MARKETING_PRERENDER_BODIES } from "./marketingPrerenderBodies";
+
+export { blogIndexPrerenderBody } from "./marketingPrerenderBodies";
+
 export type RouteMeta = {
   title: string;
   description: string;
@@ -23,6 +28,11 @@ export type RouteMeta = {
    * Path-only (e.g. "/login"); the prerender prepends the base URL.
    */
   canonicalPath?: string;
+  /**
+   * When true, prerendered HTML says noindex, nofollow. The page still
+   * renders. Used for score pages and keyword duplicates.
+   */
+  noIndex?: boolean;
   /**
    * Optional extra HTML to inject into the prerendered <body> inside a
    * <noscript> block. Use to surface internal links to non-JS crawlers
@@ -89,6 +99,7 @@ export const STATIC_ROUTE_META: Record<string, RouteMeta> = {
     description:
       "Get a free TidyWise Score for your cleaning business in under a minute. No signup required — see how your online presence and operations compare.",
     h1: "Generate your TidyWise Score",
+    noIndex: true,
   },
   "/get-the-app": {
     title: "Get the TidyWise App — iPhone, iPad, Mac & Windows",
@@ -205,6 +216,7 @@ export const STATIC_ROUTE_META: Record<string, RouteMeta> = {
     description:
       "Look up the TidyWise Score for any US cleaning business. Free, AI-graded ranking of reviews, reputation, and online presence — no signup needed.",
     h1: "Search the TidyWise Score directory",
+    noIndex: true,
   },
 
   // Blog
@@ -505,6 +517,7 @@ export function scoreCompanyRouteMeta(c: ScoreCompanyForMeta): RouteMeta {
     description: description.length > 160 ? description.slice(0, 157) + "..." : description,
     h1,
     jsonLd: [business],
+    noIndex: true,
   };
 }
 
@@ -529,7 +542,9 @@ export type BlogPostForMeta = {
 export function blogPostRouteMeta(post: BlogPostForMeta): RouteMeta {
   const title = post.meta_title || `${post.title} | TIDYWISE Blog`;
   const description = post.meta_description || post.excerpt || post.title;
-  const canonicalPath = `/blog/post/${post.slug}`;
+  const selfPath = `/blog/post/${post.slug}`;
+  const duplicateOf = KEYWORD_CANONICALS[selfPath];
+  const canonicalPath = duplicateOf ?? selfPath;
   const pageUrl = `https://www.jointidywise.com${canonicalPath}`;
 
   const article: Record<string, unknown> = {
@@ -553,6 +568,7 @@ export function blogPostRouteMeta(post: BlogPostForMeta): RouteMeta {
     description: description.length > 160 ? description.slice(0, 157) + "..." : description,
     h1: post.title,
     canonicalPath,
+    noIndex: Boolean(duplicateOf),
     jsonLd: [article],
   };
 }
@@ -576,5 +592,18 @@ export function scoreCityRouteMeta(c: ScoreCityForMeta): RouteMeta {
     title,
     description,
     h1: `Cleaning companies in ${label}`,
+    noIndex: true,
   };
+}
+
+for (const [path, body] of Object.entries(MARKETING_PRERENDER_BODIES)) {
+  const meta = STATIC_ROUTE_META[path];
+  if (meta) meta.prerenderBody = body;
+}
+
+for (const [path, canonical] of Object.entries(KEYWORD_CANONICALS)) {
+  const meta = STATIC_ROUTE_META[path];
+  if (!meta) continue;
+  meta.canonicalPath = canonical;
+  meta.noIndex = true;
 }

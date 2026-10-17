@@ -45,8 +45,27 @@
     <meta name="keywords" content="cleaning business software, maid service software, cleaning company CRM, booking software for cleaning business, house cleaning software, cleaning scheduling software, janitorial software, housekeeping management, Booking Koala alternative, Jobber alternative, cleaning business management software" />
 
 
-    <!-- Default robots directive (Helmet overrides per-route for private pages) -->
-    <meta name="robots" content="index, follow" />
+    <!-- Default for the SPA shell. Prerender sets index,follow on real pages.
+         A path that falls through to this file is not the homepage: the
+         script below noindexes it and drops the homepage canonical. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <script>
+      (function () {
+        var path = location.pathname.replace(/\/+$/, "") || "/";
+        if (path === "/") return;
+        var canonical = document.querySelector('link[rel="canonical"]');
+        if (!canonical) return;
+        var href = canonical.getAttribute("href") || "";
+        var canonicalPath = "/";
+        try {
+          canonicalPath = new URL(href).pathname.replace(/\/+$/, "") || "/";
+        } catch (e) {}
+        if (canonicalPath !== "/") return;
+        var robots = document.querySelector('meta[name="robots"]');
+        if (robots) robots.setAttribute("content", "noindex, nofollow");
+        if (canonical.parentNode) canonical.parentNode.removeChild(canonical);
+      })();
+    </script>
 
     <!-- Security Headers -->
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />

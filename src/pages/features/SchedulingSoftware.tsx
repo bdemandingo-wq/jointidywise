@@ -40,7 +40,8 @@ export default function SchedulingSoftware() {
       <SEOHead 
         title="Cleaning Business Scheduling Software | TidyWise"
         description="Schedule your cleaning team in minutes with TidyWise. Drag-and-drop scheduling, automatic reminders, and real-time updates for your whole team."
-        canonical="/features/scheduling-software"
+        canonical="/blog/post/cleaning-business-scheduling-software"
+        noIndex
         ogImage="/images/og/og-scheduling.png"
         schemaJson={featurePageSchemas({ featureName: 'Scheduling Software', description: 'Drag-and-drop scheduling with recurring jobs, staff availability, and conflict checks.', path: '/features/scheduling-software', crumbLabel: 'Scheduling' })}
       />

@@ -79,6 +79,7 @@ export default function ScoreSearchPage() {
       <SEOHead
         title={`TidyWise Score — search "${name}"`}
         description={`Find the TidyWise Score for ${name} and other cleaning businesses${location ? ` in ${location}` : ""}.`}
+        noIndex
       />
       <div className="max-w-3xl mx-auto px-4 py-10">
         <Link to="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8">
