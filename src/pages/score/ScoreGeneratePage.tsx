@@ -171,6 +171,7 @@ export default function ScoreGeneratePage() {
       <SEOHead
         title="Generate your TidyWise Score"
         description="Generate a free TidyWise Score for your cleaning business — no signup required."
+        noIndex
       />
       <div className="max-w-xl mx-auto px-4 py-10">
         <Link to="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8">

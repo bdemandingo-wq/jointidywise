@@ -1,39 +1,10 @@
 # TidyWise Robots.txt - Cleaning Business Software
 # https://www.jointidywise.com
-
-User-agent: Googlebot
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
-User-agent: Twitterbot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
-
-User-agent: LinkedInBot
-Allow: /
-
-# AI search crawlers — allow citation and indexing
-User-agent: GPTBot
-Allow: /
-
-User-agent: ChatGPT-User
-Allow: /
-
-User-agent: PerplexityBot
-Allow: /
-
-User-agent: ClaudeBot
-Allow: /
-
-User-agent: anthropic-ai
-Allow: /
-
-User-agent: Google-Extended
-Allow: /
+#
+# One group only. A crawler that matches its own User-agent block ignores
+# every other block, so a Googlebot or Bingbot section that only said
+# "Allow: /" was letting those crawlers ignore the Disallow rules below.
+# User-agent: * is the group every crawler uses, including Googlebot and Bingbot.
 
 User-agent: *
 Allow: /
@@ -65,7 +36,8 @@ Allow: /compare/*
 Allow: /features/*
 Allow: /privacy-policy
 Allow: /portal
-# Public reputation score pages (per-company + per-city)
+# Public reputation score pages (per-company + per-city).
+# They stay crawlable so the noindex on each page can be seen.
 Allow: /score/c/*
 Allow: /score/city/*
 

@@ -23,6 +23,7 @@ import {
   blogPostRouteMeta,
   scoreCityRouteMeta,
   compareNicheRouteMeta,
+  blogIndexPrerenderBody,
   type RouteMeta,
   type ScoreCompanyForMeta,
   type BlogPostForMeta,
@@ -404,6 +405,12 @@ function patchHead(html: string, route: string, meta: RouteMeta): string {
     `<link rel="canonical" href="${canonical}" />`
   );
 
+  const robots = meta.noIndex ? "noindex, nofollow" : "index, follow";
+  out = out.replace(
+    /<meta\s+name="robots"\s+content="[^"]*"\s*\/?\s*>/i,
+    `<meta name="robots" content="${robots}" />`
+  );
+
   // Inject crawler-readable content inside #root.
   //
   // It used to render as plain, unstyled text filling the viewport for the
@@ -476,7 +483,7 @@ function metaFor(
   blogBySlug: Map<string, BlogPostForMeta>,
   cityBySlug: Map<string, ScoreCityForMeta>
 ): RouteMeta {
-  if (STATIC_ROUTE_META[route]) return STATIC_ROUTE_META[route];
+  if (STATIC_ROUTE_META[route]) return { ...STATIC_ROUTE_META[route] };
   const locMatch = route.match(/^\/cleaning-business-software\/([a-z0-9-]+)$/);
   if (locMatch) {
     const slug = locMatch[1];
@@ -537,9 +544,14 @@ export async function prerenderRoutes(
   for (const route of allRoutes(scoreCompanies, blogPosts, scoreCities)) {
     try {
       const meta = metaFor(route, scoreBySlug, blogBySlug, cityBySlug);
-      meta.prerenderBody = buildPrerenderBody(
-        route, meta, scoreBySlug, blogBySlug, cityBySlug, scoreCompanies
-      );
+      if (route === "/blog") {
+        meta.prerenderBody = blogIndexPrerenderBody(blogPosts);
+      } else {
+        const generated = buildPrerenderBody(
+          route, meta, scoreBySlug, blogBySlug, cityBySlug, scoreCompanies
+        );
+        if (generated) meta.prerenderBody = generated;
+      }
       const patched = patchHead(sourceHtml, route, meta);
       const dest = routeToFile(distDir, route);
       mkdirSync(dirname(dest), { recursive: true });
@@ -550,7 +562,103 @@ export async function prerenderRoutes(
       skipped++;
     }
   }
+  const notFound = buildNotFoundHtml(sourceHtml);
+  writeFileSync(join(distDir, "404.html"), notFound);
+  assertIndexableHtml(distDir);
   return { written, skipped };
+}
+
+/**
+ * Marker the vite plugin greps for. A homepage or /pricing that ships
+ * noindex, or a 404 that still canonicalizes, fails the build.
+ */
+export const PRERENDER_ROBOTS_ASSERTION = "PRERENDER_ROBOTS_ASSERTION";
+
+function robotsContent(html: string): string | null {
+  const match = html.match(/<meta\s+name="robots"\s+content="([^"]*)"/i);
+  return match ? match[1] : null;
+}
+
+function assertIndexableHtml(distDir: string): void {
+  const homePath = join(distDir, "index.html");
+  const pricingPath = join(distDir, "pricing", "index.html");
+  const notFoundPath = join(distDir, "404.html");
+  const home = readFileSync(homePath, "utf8");
+  const pricing = readFileSync(pricingPath, "utf8");
+  const notFound = readFileSync(notFoundPath, "utf8");
+  const problems: string[] = [];
+
+  if (robotsContent(home) !== "index, follow") {
+    problems.push(`homepage robots are "${robotsContent(home)}", expected "index, follow"`);
+  }
+  if (!home.includes('rel="canonical" href="https://www.jointidywise.com/"')) {
+    problems.push("homepage is missing its canonical");
+  }
+  if (!home.includes("Run your cleaning business on one platform")) {
+    problems.push("homepage was not prerendered over dist/index.html");
+  }
+  if (robotsContent(pricing) !== "index, follow") {
+    problems.push(`/pricing robots are "${robotsContent(pricing)}", expected "index, follow"`);
+  }
+  const notFoundRobots = robotsContent(notFound);
+  if (!notFoundRobots || !notFoundRobots.includes("noindex")) {
+    problems.push(`404.html robots are "${notFoundRobots}", expected noindex`);
+  }
+  if (/<link\s+rel="canonical"/i.test(notFound)) {
+    problems.push("404.html still has a canonical");
+  }
+
+  const sitemapPath = resolve(process.cwd(), "public", "sitemap.xml");
+  if (!existsSync(sitemapPath)) {
+    problems.push("public/sitemap.xml is missing, so indexable routes were not checked");
+  } else {
+    const locs = [...readFileSync(sitemapPath, "utf8").matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+    for (const loc of locs) {
+      let path = "/";
+      try {
+        path = new URL(loc).pathname.replace(/\/+$/, "") || "/";
+      } catch {
+        problems.push(`bad sitemap loc ${loc}`);
+        continue;
+      }
+      const file = path === "/" ? homePath : join(distDir, path.replace(/^\//, ""), "index.html");
+      if (!existsSync(file)) {
+        problems.push(`missing built HTML for ${path}`);
+        continue;
+      }
+      const html = path === "/" ? home : readFileSync(file, "utf8");
+      const robots = robotsContent(html);
+      if (robots !== "index, follow") {
+        problems.push(`${path} robots are "${robots}", expected "index, follow"`);
+      }
+    }
+    console.log(`[prerender] robots assertion checked ${locs.length} sitemap urls`);
+  }
+
+  if (problems.length > 0) {
+    throw new Error(
+      `${PRERENDER_ROBOTS_ASSERTION}:\n${problems.map((p) => `  ${p}`).join("\n")}`,
+    );
+  }
+}
+
+/**
+ * SPA hosts that have a 404 document serve this instead of the homepage
+ * shell. It is noindex and has no canonical, so a missing URL is not an
+ * alternate of https://www.jointidywise.com/.
+ */
+function buildNotFoundHtml(sourceHtml: string): string {
+  const meta: RouteMeta = {
+    title: "Page Not Found | TidyWise",
+    description: "The page you are looking for does not exist.",
+    h1: "404",
+    noIndex: true,
+    prerenderBody: `<p>Oops! Page not found</p><p><a href="/">Return to Home</a></p>`,
+  };
+  let html = patchHead(sourceHtml, "/404", meta);
+  html = html.replace(/<link\s+rel="canonical"\s+href="[^"]*"\s*\/?\s*>/i, "");
+  html = html.replace(/<meta\s+property="og:url"\s+content="[^"]*"\s*\/?\s*>/i, "");
+  return html;
 }
 
 // Allow running standalone: `npx tsx src/lib/prerender-routes.ts`

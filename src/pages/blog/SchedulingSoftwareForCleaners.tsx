@@ -15,7 +15,8 @@ export default function SchedulingSoftwareForCleaners() {
       <SEOHead ogType="article"
         title="Scheduling Software for Cleaning Businesses"
         description="Discover top scheduling software for cleaning businesses. Streamline bookings, dispatch crews, and manage recurring jobs with the right scheduling tool."
-        canonical="/blog/scheduling-software-for-cleaning-business"
+        canonical="/blog/post/cleaning-business-scheduling-software"
+        noIndex
         ogImage="/images/tidywise-og.png"
         schemaJson={{
           "@type": "BlogPosting",

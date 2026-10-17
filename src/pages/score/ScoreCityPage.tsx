@@ -69,7 +69,7 @@ export default function ScoreCityPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <SEOHead title={shortTitle} description={description} />
+      <SEOHead title={shortTitle} description={description} noIndex />
       <div className="max-w-4xl mx-auto px-4 py-10">
         <Link to="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-8">
           <ArrowLeft className="h-4 w-4" /> Back to TidyWise
