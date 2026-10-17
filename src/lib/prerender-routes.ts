@@ -564,7 +564,82 @@ export async function prerenderRoutes(
   }
   const notFound = buildNotFoundHtml(sourceHtml);
   writeFileSync(join(distDir, "404.html"), notFound);
+  assertIndexableHtml(distDir);
   return { written, skipped };
+}
+
+/**
+ * Marker the vite plugin greps for. A homepage or /pricing that ships
+ * noindex, or a 404 that still canonicalizes, fails the build.
+ */
+export const PRERENDER_ROBOTS_ASSERTION = "PRERENDER_ROBOTS_ASSERTION";
+
+function robotsContent(html: string): string | null {
+  const match = html.match(/<meta\s+name="robots"\s+content="([^"]*)"/i);
+  return match ? match[1] : null;
+}
+
+function assertIndexableHtml(distDir: string): void {
+  const homePath = join(distDir, "index.html");
+  const pricingPath = join(distDir, "pricing", "index.html");
+  const notFoundPath = join(distDir, "404.html");
+  const home = readFileSync(homePath, "utf8");
+  const pricing = readFileSync(pricingPath, "utf8");
+  const notFound = readFileSync(notFoundPath, "utf8");
+  const problems: string[] = [];
+
+  if (robotsContent(home) !== "index, follow") {
+    problems.push(`homepage robots are "${robotsContent(home)}", expected "index, follow"`);
+  }
+  if (!home.includes('rel="canonical" href="https://www.jointidywise.com/"')) {
+    problems.push("homepage is missing its canonical");
+  }
+  if (!home.includes("Run your cleaning business on one platform")) {
+    problems.push("homepage was not prerendered over dist/index.html");
+  }
+  if (robotsContent(pricing) !== "index, follow") {
+    problems.push(`/pricing robots are "${robotsContent(pricing)}", expected "index, follow"`);
+  }
+  const notFoundRobots = robotsContent(notFound);
+  if (!notFoundRobots || !notFoundRobots.includes("noindex")) {
+    problems.push(`404.html robots are "${notFoundRobots}", expected noindex`);
+  }
+  if (/<link\s+rel="canonical"/i.test(notFound)) {
+    problems.push("404.html still has a canonical");
+  }
+
+  const sitemapPath = resolve(process.cwd(), "public", "sitemap.xml");
+  if (!existsSync(sitemapPath)) {
+    problems.push("public/sitemap.xml is missing, so indexable routes were not checked");
+  } else {
+    const locs = [...readFileSync(sitemapPath, "utf8").matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+    for (const loc of locs) {
+      let path = "/";
+      try {
+        path = new URL(loc).pathname.replace(/\/+$/, "") || "/";
+      } catch {
+        problems.push(`bad sitemap loc ${loc}`);
+        continue;
+      }
+      const file = path === "/" ? homePath : join(distDir, path.replace(/^\//, ""), "index.html");
+      if (!existsSync(file)) {
+        problems.push(`missing built HTML for ${path}`);
+        continue;
+      }
+      const html = path === "/" ? home : readFileSync(file, "utf8");
+      const robots = robotsContent(html);
+      if (robots !== "index, follow") {
+        problems.push(`${path} robots are "${robots}", expected "index, follow"`);
+      }
+    }
+    console.log(`[prerender] robots assertion checked ${locs.length} sitemap urls`);
+  }
+
+  if (problems.length > 0) {
+    throw new Error(
+      `${PRERENDER_ROBOTS_ASSERTION}:\n${problems.map((p) => `  ${p}`).join("\n")}`,
+    );
+  }
 }
 
 /**

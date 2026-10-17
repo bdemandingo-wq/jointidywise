@@ -73,7 +73,16 @@ function prerenderPlugin(): Plugin {
         if (output) this.info(output);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        this.warn(`prerender failed: ${message}`);
+        const stderr = err && typeof err === "object" && "stderr" in err
+          ? String((err as { stderr?: unknown }).stderr ?? "")
+          : "";
+        const detail = `${message}\n${stderr}`;
+        // Homepage or /pricing shipping noindex, or 404.html shipping a
+        // canonical, is not a warning. Fail the build.
+        if (detail.includes("PRERENDER_ROBOTS_ASSERTION")) {
+          this.error(detail);
+        }
+        this.warn(`prerender failed: ${detail}`);
       }
     },
   };

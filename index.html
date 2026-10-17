@@ -45,10 +45,13 @@
     <meta name="keywords" content="cleaning business software, maid service software, cleaning company CRM, booking software for cleaning business, house cleaning software, cleaning scheduling software, janitorial software, housekeeping management, Booking Koala alternative, Jobber alternative, cleaning business management software" />
 
 
-    <!-- Default for the SPA shell. Prerender sets index,follow on real pages.
-         A path that falls through to this file is not the homepage: the
-         script below noindexes it and drops the homepage canonical. -->
-    <meta name="robots" content="noindex, nofollow" />
+    <!-- Stay index, follow in the raw shell. Prerender overwrites dist/index.html
+         for "/" and writes each real route beside it. If that step does not run,
+         the homepage must still be indexable. The script noindexes only an
+         unknown path that is still this homepage document (canonical "/").
+         /blog/post/* is a real route that can be published after the build, so
+         it stays indexable and loses the homepage canonical. -->
+    <meta name="robots" content="index, follow" />
     <script>
       (function () {
         var path = location.pathname.replace(/\/+$/, "") || "/";
@@ -60,7 +63,14 @@
         try {
           canonicalPath = new URL(href).pathname.replace(/\/+$/, "") || "/";
         } catch (e) {}
+        // Prerendered HTML has its own canonical. Leave it, including
+        // intentional noindex duplicates.
         if (canonicalPath !== "/") return;
+        // Homepage document served at some other path.
+        if (path.indexOf("/blog/post/") === 0) {
+          if (canonical.parentNode) canonical.parentNode.removeChild(canonical);
+          return;
+        }
         var robots = document.querySelector('meta[name="robots"]');
         if (robots) robots.setAttribute("content", "noindex, nofollow");
         if (canonical.parentNode) canonical.parentNode.removeChild(canonical);
