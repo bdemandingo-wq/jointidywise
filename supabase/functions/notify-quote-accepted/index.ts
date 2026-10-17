@@ -10,15 +10,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendOrgEmail } from "../_shared/send-org-email.ts";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
 import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
+import { renderCrmEmail, orgBrandVars } from "../_shared/crm-email/render.ts";
+import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 
 interface Body {
   organization_id: string;
@@ -74,29 +72,28 @@ serve(async (req) => {
 
     // ── Customer email ────────────────────────────────────────────────────
     if (body.customer_email) {
-      const html = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-          <h2 style="color: #1a1a1a; margin: 0 0 12px;">Your quote ${escapeHtml(String(quoteLabel))} is approved 🎉</h2>
-          <p style="color: #333; line-height: 1.6;">
-            Hi ${escapeHtml(firstName)}, great news — we've approved your quote
-            ${quoteLabel ? `(${escapeHtml(String(quoteLabel))})` : ""} and your
-            service is now booked with <strong>${escapeHtml(orgName)}</strong>.
-          </p>
-          ${totalDisplay ? `<p style="color: #333;"><strong>Total:</strong> ${escapeHtml(totalDisplay)}</p>` : ""}
-          ${body.booking_number ? `<p style="color: #333;"><strong>Booking #:</strong> ${escapeHtml(String(body.booking_number))}</p>` : ""}
-          <p style="color: #333; line-height: 1.6;">
-            We'll be in touch shortly with the exact arrival time. If you have
-            any questions, just reply to this email.
-          </p>
-          <p style="color: #555; margin-top: 24px;">— ${escapeHtml(orgName)}</p>
-        </div>`;
+      const brand = await loadLooseBrand(body.organization_id);
+      const rendered = renderCrmEmail("quote-approved", {
+        vars: {
+          ...orgBrandVars(brand),
+          orgName,
+          quoteLabel,
+          booking_number: body.booking_number != null && body.booking_number !== ""
+            ? String(body.booking_number)
+            : "",
+          firstName,
+          totalDisplay: totalDisplay || "",
+        },
+        rawKeys: ["email_footer"],
+      });
       try {
         await sendOrgEmail({
           templateName: "quote_accepted",
           organizationId: body.organization_id,
           to: body.customer_email,
           subject: `Quote ${quoteLabel} approved — your service is booked`,
-          html,
+          html: rendered.html,
+          text: rendered.text,
         });
       } catch (err) {
         console.error("[notify-quote-accepted] email failed:", err);

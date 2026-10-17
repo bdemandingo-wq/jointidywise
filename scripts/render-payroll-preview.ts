@@ -9,9 +9,17 @@
 // matches the schema and shape the cron will produce. Visual review is the
 // point — real numbers populate once the function is deployed.
 
-import * as React from "npm:react@18.3.1";
-import { renderAsync } from "npm:@react-email/components@0.0.22";
-import { PayrollPeriodReport } from "../supabase/functions/_shared/email-templates/payroll-period-report.tsx";
+import { renderCrmEmail } from "../supabase/functions/_shared/crm-email/render.ts";
+
+const fmtUsd = (n: number) =>
+  n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+const fmtUsdCents = (n: number) =>
+  n.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 const props = {
   orgName: "TidyWise Cleaning",
@@ -93,9 +101,49 @@ const props = {
   ctaUrl: "https://app.jointidywise.com/dashboard/payroll",
 };
 
-const html = await renderAsync(
-  React.createElement(PayrollPeriodReport, props),
-);
+const currency = fmtUsd(props.totals.payroll);
+const { html } = renderCrmEmail("payroll-period-report", {
+  vars: {
+    periodLabel: props.periodLabel,
+    currency,
+    orgName: props.orgName,
+    changeVsPrevious: `Revenue +${props.changeVsPrevious.revenuePct}% · Payroll +${props.changeVsPrevious.payrollPct}% · Jobs +${props.changeVsPrevious.jobsPct}%`,
+    "totals.revenue": fmtUsd(props.totals.revenue),
+    "totals.payroll": fmtUsd(props.totals.payroll),
+    "totals.profit": fmtUsd(props.totals.profit),
+    "totals.laborPct": `${props.totals.laborPct.toFixed(1)}%`,
+    "totals.jobs": props.totals.jobs,
+    "totals.cleanersWorked": props.totals.cleanersWorked,
+    ctaUrl: props.ctaUrl,
+  },
+  repeats: [
+    {
+      prefix: "cleaner.",
+      rows: props.cleaners.map((c) => ({
+        "cleaner.name": c.name,
+        "cleaner.jobs": String(c.jobs),
+        "cleaner.pay": fmtUsdCents(c.payout),
+      })),
+    },
+    {
+      prefix: "standout",
+      rows: [
+        { standout: `Top earner: ${props.standouts.topEarner.name} — ${fmtUsdCents(props.standouts.topEarner.payout)}` },
+        { standout: `Most jobs: ${props.standouts.mostJobs.name} — ${props.standouts.mostJobs.jobs} jobs` },
+        { standout: `Highest average per job: ${props.standouts.highestAvg.name} — ${fmtUsdCents(props.standouts.highestAvg.avgPayout)}` },
+      ],
+    },
+    {
+      prefix: "warning",
+      rows: [
+        { warning: `Stripe Connect not set up: ${props.warnings.noStripeCleaners.join(", ")}` },
+        { warning: `Idle cleaners: ${props.warnings.idleCleaners.join(", ")}` },
+        { warning: `Negative-margin bookings: ${props.warnings.negativeMarginBookings}` },
+        { warning: `$0 cleaner pay: ${props.warnings.zeroPayBookings}` },
+      ],
+    },
+  ],
+});
 
 const previewDir = new URL("../preview/", import.meta.url);
 try {

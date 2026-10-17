@@ -12,6 +12,10 @@ import {
   PLATFORM_SENDER_FROM,
 } from "../_shared/email-sender-resolution.ts";
 import { anthropicChat, MODEL_SONNET } from "../_shared/anthropic.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { ensureUnsubscribeToken } from "../_shared/unsubscribe-token.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -248,79 +252,40 @@ Give practical advice for a cleaning business owner.`;
         }
       }
 
-      // Build email HTML
-      const reportHtml = `
-        <!DOCTYPE html>
-        <html>
-        <head><meta charset="utf-8"></head>
-        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #f3f4f6;">
-          <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 30px; border-radius: 12px 12px 0 0;">
-            <h1 style="margin: 0;">📈 Weekly Business Report</h1>
-            <p style="margin: 10px 0 0; opacity: 0.9;">${companyName}</p>
-            <p style="margin: 5px 0 0; opacity: 0.7; font-size: 14px;">${weekRange}</p>
-          </div>
-          
-          <div style="background: white; padding: 25px; border-radius: 0 0 12px 12px;">
-            <p style="color: #374151; margin: 0 0 20px; font-size: 15px;">${wsResolved.text}</p>
-            <h2 style="color: #374151; margin-top: 0;">Key Metrics</h2>
-            
-            <table style="width: 100%; margin-bottom: 20px;">
-              <tr>
-                <td style="padding: 15px; background: #f0fdf4; border-radius: 8px; text-align: center; width: 50%;">
-                  <div style="font-size: 28px; font-weight: bold; color: #10b981;">$${thisWeekRevenue.toFixed(2)}</div>
-                  <div style="font-size: 12px; color: #6b7280;">Revenue ${revenueChange !== 'N/A' ? `(${Number(revenueChange) >= 0 ? '+' : ''}${revenueChange}%)` : ''}</div>
-                </td>
-                <td style="width: 10px;"></td>
-                <td style="padding: 15px; background: #eff6ff; border-radius: 8px; text-align: center; width: 50%;">
-                  <div style="font-size: 28px; font-weight: bold; color: #3b82f6;">${thisWeekCompleted}</div>
-                  <div style="font-size: 12px; color: #6b7280;">Jobs Completed ${bookingsChange !== 'N/A' ? `(${Number(bookingsChange) >= 0 ? '+' : ''}${bookingsChange}%)` : ''}</div>
-                </td>
-              </tr>
-            </table>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 20px;">
-              <div style="padding: 12px; background: #f9fafb; border-radius: 8px; text-align: center;">
-                <div style="font-size: 20px; font-weight: bold;">${thisWeekNewBookings}</div>
-                <div style="font-size: 11px; color: #6b7280;">New Bookings</div>
-              </div>
-              <div style="padding: 12px; background: #f9fafb; border-radius: 8px; text-align: center;">
-                <div style="font-size: 20px; font-weight: bold;">${newCustomers || 0}</div>
-                <div style="font-size: 11px; color: #6b7280;">New Customers</div>
-              </div>
-              <div style="padding: 12px; background: #f9fafb; border-radius: 8px; text-align: center;">
-                <div style="font-size: 20px; font-weight: bold;">${newLeads || 0}</div>
-                <div style="font-size: 11px; color: #6b7280;">New Leads</div>
-              </div>
-            </div>
-
-            ${avgRating ? `
-            <div style="padding: 15px; background: #fef3c7; border-radius: 8px; margin-bottom: 20px;">
-              <div style="font-size: 14px; color: #92400e;">⭐ Average Rating: <strong>${avgRating.toFixed(1)}/5</strong> (${reviews?.length} reviews)</div>
-            </div>
-            ` : ''}
-
-            ${topPerformer ? `
-            <div style="padding: 15px; background: #dbeafe; border-radius: 8px; margin-bottom: 20px;">
-              <div style="font-size: 14px; color: #1e40af;">🏆 Top Performer: <strong>${topPerformer.name}</strong> (${topPerformer.jobs} jobs completed)</div>
-            </div>
-            ` : ''}
-
-            ${thisWeekCancelled > 0 ? `
-            <div style="padding: 15px; background: #fee2e2; border-radius: 8px; margin-bottom: 20px;">
-              <div style="font-size: 14px; color: #dc2626;">⚠️ ${thisWeekCancelled} cancellation(s) this week</div>
-            </div>
-            ` : ''}
-
-            ${aiInsights ? `
-            <h3 style="color: #374151; margin-top: 20px;">🤖 AI Insights</h3>
-            <div style="padding: 15px; background: #f3e8ff; border-radius: 8px; color: #6b21a8; font-size: 14px; line-height: 1.6;">
-              ${aiInsights.replace(/\n/g, '<br>')}
-            </div>
-            ` : ''}
-          </div>
-        </body>
-        </html>
-      `;
+      // Platform digest: TidyWise logo and colors, not the org brand.
+      // Unsubscribe is minted the same way as the morning brief (global token)
+      // and does not apply that helper's subscription gate.
+      let unsubscribeUrl = `mailto:${tidywiseSupportEmail()}?subject=Unsubscribe`;
+      const unsubToken = await ensureUnsubscribeToken(supabase, adminEmail);
+      if (unsubToken && SUPABASE_URL) {
+        unsubscribeUrl = `${SUPABASE_URL}/functions/v1/handle-email-unsubscribe?token=${unsubToken}`;
+      } else {
+        console.warn(`[weekly-business-report] org=${org.id}: unsubscribe token unavailable, using mailto fallback`);
+      }
+      const introHtml = escapeHtml(wsResolved.text)
+        .replace(/\{/g, "&#123;")
+        .replace(/\}/g, "&#125;")
+        .replace(/\n/g, "<br>");
+      const report = renderCrmEmail("weekly-business-report", {
+        vars: {
+          company_name: companyName,
+          week_range: weekRange,
+          revenue: `$${thisWeekRevenue.toFixed(2)}`,
+          jobsCompleted: thisWeekCompleted,
+          newLeads: newLeads || 0,
+          avgRating: avgRating ? avgRating.toFixed(1) : "No reviews",
+          topStaff: topPerformer ? `${topPerformer.name} (${topPerformer.jobs} jobs)` : "N/A",
+          APP_URL: Deno.env.get("APP_URL") || "https://jointidywise.com",
+          aiSummary: escapeHtml(aiInsights)
+            .replace(/\{/g, "&#123;")
+            .replace(/\}/g, "&#125;")
+            .replace(/\n/g, "<br>"),
+          UNSUBSCRIBE_URL: unsubscribeUrl,
+        },
+        slots: [introHtml],
+        includeOptional: aiInsights.trim().length > 0,
+        rawKeys: ["aiSummary"],
+      });
 
       // Send email using organization-specific settings
       const emailSettingsResult = await getOrgEmailSettings(org.id);
@@ -366,7 +331,12 @@ Give practical advice for a cleaning business owner.`;
             from: fromHeader,
             to: [adminEmail],
             subject: wsSubject,
-            html: reportHtml,
+            html: report.html,
+            text: report.text,
+            headers: {
+              "List-Unsubscribe": `<${unsubscribeUrl}>`,
+              "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+            },
           });
           return { data, error };
         };

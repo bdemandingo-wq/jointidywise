@@ -200,6 +200,12 @@ function b64(s: string): string {
   return btoa(unescape(encodeURIComponent(s)));
 }
 
+/** Org designs already place email_footer above "Sent with TidyWise". */
+function withOrgFooter(html: string, footer: string | null | undefined): string {
+  if (!footer || html.includes("Sent with TidyWise")) return html;
+  return html + `<br/><br/><p style="color:#666;font-size:12px;">${escapeHtml(footer)}</p>`;
+}
+
 async function sendViaGmailSmtp(
   settings: OrgEmailSettings,
   opts: SendOrgEmailOptions,
@@ -218,7 +224,7 @@ async function sendViaGmailSmtp(
     },
   });
   try {
-    const html = opts.html + (settings.email_footer ? `<br/><br/><p style="color:#666;font-size:12px;">${escapeHtml(settings.email_footer)}</p>` : "");
+    const html = withOrgFooter(opts.html, settings.email_footer);
     const text = opts.text ?? "This email requires an HTML-capable client.";
     // Stamp a real Message-ID so bounces landing in the org's Gmail inbox can be
     // matched back to this send via email_send_log.message_id.
@@ -269,7 +275,7 @@ async function sendViaResend(
     to: toArr(opts.to),
     reply_to: replyTo,
     subject: opts.subject,
-    html: opts.html + (settings.email_footer ? `<br/><br/><p style="color:#666;font-size:12px;">${escapeHtml(settings.email_footer)}</p>` : ""),
+    html: withOrgFooter(opts.html, settings.email_footer),
   };
   if (opts.cc) payload.cc = toArr(opts.cc);
   if (opts.bcc) payload.bcc = toArr(opts.bcc);
@@ -415,15 +421,24 @@ export async function sendOrgEmail(opts: SendOrgEmailOptions): Promise<SendOrgEm
     );
     if (token) {
       const unsubUrl = `${url}/functions/v1/handle-email-unsubscribe?token=${token}`;
+      const htmlUrl = unsubUrl.replace(/&/g, "&amp;");
+      // Branded designs leave this sentinel where the footer unsubscribe link
+      // goes. Replacing it keeps one link in the design. Mail that has no
+      // sentinel still gets the appended line, so a sender that forgets the
+      // design does not ship a marketing email with no way out.
+      const designed = opts.html.includes("__TW_UNSUBSCRIBE_URL__");
       opts = {
         ...opts,
-        html:
-          opts.html +
-          `<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;color:#9ca3af;font-size:12px;text-align:center">` +
-          `Don't want these emails? <a href="${unsubUrl}" style="color:#9ca3af;text-decoration:underline">Unsubscribe</a>.` +
-          `</div>`,
+        html: designed
+          ? opts.html.split("__TW_UNSUBSCRIBE_URL__").join(htmlUrl)
+          : opts.html +
+            `<div style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;color:#9ca3af;font-size:12px;text-align:center">` +
+            `Don't want these emails? <a href="${htmlUrl}" style="color:#9ca3af;text-decoration:underline">Unsubscribe</a>.` +
+            `</div>`,
         text: opts.text
-          ? `${opts.text}\n\n---\nDon't want these emails? Unsubscribe: ${unsubUrl}`
+          ? (opts.text.includes("__TW_UNSUBSCRIBE_URL__")
+            ? opts.text.split("__TW_UNSUBSCRIBE_URL__").join(unsubUrl)
+            : `${opts.text}\n\n---\nDon't want these emails? Unsubscribe: ${unsubUrl}`)
           : undefined,
         headers: {
           ...(opts.headers ?? {}),

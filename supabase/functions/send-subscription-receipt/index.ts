@@ -10,6 +10,7 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { isServiceRoleRequest } from "../_shared/require-caller-org.ts";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://jointidywise.com";
@@ -40,12 +41,6 @@ const PLAN_LABELS: Record<string, string> = {
   custom: "Custom",
   lifetime: "Lifetime",
 };
-
-function escapeHtml(s: string): string {
-  return s.replace(/[<>&"']/g, (c) => ({
-    "<": "&lt;", ">": "&gt;", "&": "&amp;", "\"": "&quot;", "'": "&#039;",
-  }[c] as string));
-}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -87,25 +82,21 @@ serve(async (req) => {
       : null;
     const subjectPlan = planLine ? ` (${planLine})` : "";
 
-    const html = `
-<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a">
-  <h1 style="font-size:22px;margin:0 0 12px">TidyWise receipt</h1>
-  <p style="color:#475569;margin:0 0 24px">Thanks — your TidyWise subscription payment was successful.</p>
-  <div style="border:1px solid #e2e8f0;border-radius:12px;padding:20px;margin-bottom:24px">
-    ${planLine ? `<div style="display:flex;justify-content:space-between;margin-bottom:8px"><span>Plan</span><strong>${escapeHtml(planLine)}</strong></div>` : ""}
-    <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span>Amount paid</span><strong>${amount}</strong></div>
-    <div style="display:flex;justify-content:space-between;margin-bottom:8px"><span>Invoice</span><span>${escapeHtml(String(invoice_id))}</span></div>
-    ${nextDate ? `<div style="display:flex;justify-content:space-between"><span>Next billing date</span><span>${nextDate}</span></div>` : ""}
-  </div>
-  ${hosted_invoice_url && /^https:\/\//.test(hosted_invoice_url) ? `<p><a href="${escapeHtml(hosted_invoice_url)}" style="color:#0ea5e9">View full invoice</a></p>` : ""}
-  <p style="color:#475569;font-size:13px;margin-top:24px">
-    Manage your subscription anytime at
-    <a href="${APP_URL}/dashboard/subscription">${APP_URL}/dashboard/subscription</a>.
-  </p>
-  <p style="color:#94a3b8;font-size:12px;margin-top:16px">
-    Questions? Reply to this email or write to ${SUPPORT_EMAIL}. Charges appear as "TIDYWISE" on your statement.
-  </p>
-</div>`;
+    const safeInvoiceUrl = hosted_invoice_url && /^https:\/\//.test(hosted_invoice_url)
+      ? hosted_invoice_url
+      : `${APP_URL}/dashboard/subscription`;
+    const receipt = renderCrmEmail("subscription-receipt", {
+      vars: {
+        amount,
+        subjectPlan,
+        planLine: planLine || "TidyWise",
+        invoice_id: String(invoice_id || ""),
+        nextDate: nextDate || "—",
+        hosted_invoice_url: safeInvoiceUrl,
+        SUPPORT_EMAIL,
+        APP_URL,
+      },
+    });
 
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -118,7 +109,8 @@ serve(async (req) => {
         reply_to: SUPPORT_EMAIL,
         to: [email],
         subject: `TidyWise receipt — ${amount} paid${subjectPlan}`,
-        html,
+        html: receipt.html,
+        text: receipt.text,
       }),
     });
     const body = await res.text();

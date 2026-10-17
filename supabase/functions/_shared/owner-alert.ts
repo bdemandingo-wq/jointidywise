@@ -8,6 +8,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { parseAlertPhones } from "./alertPhones.ts";
 import { escapeHtml } from "./escapeHtml.ts";
+import { renderCrmEmail } from "./crm-email/render.ts";
 import { notifyOffice } from "./office-notify.ts";
 import { ownerChannelMasterOn } from "./owner-notify-gates.ts";
 
@@ -429,13 +430,23 @@ async function defaultSendEmail(args: {
   return { success: result.success };
 }
 
-function alertHtml(body: string, link: string | undefined): string {
-  const text = escapeHtml(body).replace(/\n/g, "<br>");
-  if (!link) return `<p>${text}</p>`;
+function ownerAlertMail(title: string, body: string, link: string): { html: string; text: string } {
   const href = /^https?:\/\//i.test(link)
     ? link
     : `${APP_ORIGIN}${link.startsWith("/") ? link : `/${link}`}`;
-  return `<p>${text}</p><p><a href="${escapeHtml(href)}">Open in TidyWise</a></p>`;
+  const bodyHtml = escapeHtml(body)
+    .replace(/\{/g, "&#123;")
+    .replace(/\}/g, "&#125;")
+    .replace(/\n/g, "<br>");
+  return renderCrmEmail("owner-alert", {
+    vars: {
+      "alert.title": title,
+      "alert.url": href,
+    },
+    slots: [
+      `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:21px;color:#111111;text-align:left;padding:0 0 14px 0;">${bodyHtml}</div>`,
+    ],
+  });
 }
 
 const defaultDeps: OwnerAlertDeps = {
@@ -603,12 +614,13 @@ export async function notifyOwner(
     emailSkippedReason = "No alert email configured";
   } else {
     try {
+      const mail = ownerAlertMail(alert.title, alert.body, link);
       const sent = await io.sendEmail({
         organizationId: org.organizationId,
         to: ctx.emailTo,
         subject: alert.title,
-        text: alert.body,
-        html: alertHtml(alert.body, link),
+        text: mail.text,
+        html: mail.html,
         messageId: dedupeKey,
       });
       email = sent.success;

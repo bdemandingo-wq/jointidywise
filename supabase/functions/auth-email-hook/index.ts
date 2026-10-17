@@ -1,14 +1,7 @@
-import * as React from 'npm:react@18.3.1'
-import { renderAsync } from 'https://esm.sh/@react-email/components@0.0.22?deps=react@18.3.1'
 import { parseEmailWebhookPayload } from 'npm:@lovable.dev/email-js'
 import { WebhookError, verifyWebhookRequest } from 'npm:@lovable.dev/webhooks-js'
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { SignupEmail } from '../_shared/email-templates/signup.tsx'
-import { InviteEmail } from '../_shared/email-templates/invite.tsx'
-import { MagicLinkEmail } from '../_shared/email-templates/magic-link.tsx'
-import { RecoveryEmail } from '../_shared/email-templates/recovery.tsx'
-import { EmailChangeEmail } from '../_shared/email-templates/email-change.tsx'
-import { ReauthenticationEmail } from '../_shared/email-templates/reauthentication.tsx'
+import { renderAuthEmail, type AuthEmailKind } from '../_shared/crm-email/render.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -25,14 +18,13 @@ const EMAIL_SUBJECTS: Record<string, string> = {
   reauthentication: "Verify it's you",
 }
 
-// Template mapping
-const EMAIL_TEMPLATES: Record<string, React.ComponentType<any>> = {
-  signup: SignupEmail,
-  invite: InviteEmail,
-  magiclink: MagicLinkEmail,
-  recovery: RecoveryEmail,
-  email_change: EmailChangeEmail,
-  reauthentication: ReauthenticationEmail,
+const AUTH_KINDS = new Set<AuthEmailKind>([
+  'signup', 'invite', 'magiclink', 'recovery', 'email_change', 'reauthentication',
+])
+
+function renderAuth(type: string, props: { confirmationUrl?: string; token?: string }) {
+  if (!AUTH_KINDS.has(type as AuthEmailKind)) return null
+  return renderAuthEmail(type as AuthEmailKind, props)
 }
 
 // Configuration
@@ -111,17 +103,17 @@ async function handlePreview(req: Request): Promise<Response> {
     })
   }
 
-  const EmailTemplate = EMAIL_TEMPLATES[type]
+  const sampleData = (SAMPLE_DATA[type] || {}) as { confirmationUrl?: string; token?: string }
+  const rendered = renderAuth(type, sampleData)
 
-  if (!EmailTemplate) {
+  if (!rendered) {
     return new Response(JSON.stringify({ error: `Unknown email type: ${type}` }), {
       status: 400,
       headers: { ...previewCorsHeaders, 'Content-Type': 'application/json' },
     })
   }
 
-  const sampleData = SAMPLE_DATA[type] || {}
-  const html = await renderAsync(React.createElement(EmailTemplate, sampleData))
+  const html = rendered.html
 
   return new Response(html, {
     status: 200,
@@ -208,8 +200,11 @@ async function handleWebhook(req: Request): Promise<Response> {
   const emailType = payload.data.action_type
   console.log('Received auth event', { emailType, email: payload.data.email, run_id })
 
-  const EmailTemplate = EMAIL_TEMPLATES[emailType]
-  if (!EmailTemplate) {
+  const rendered = renderAuth(emailType, {
+    confirmationUrl: payload.data.url,
+    token: payload.data.token,
+  })
+  if (!rendered) {
     console.error('Unknown email type', { emailType, run_id })
     return new Response(
       JSON.stringify({ error: `Unknown email type: ${emailType}` }),
@@ -217,22 +212,10 @@ async function handleWebhook(req: Request): Promise<Response> {
     )
   }
 
-  // Build template props from payload.data (HookData structure)
-  const templateProps = {
-    siteName: SITE_NAME,
-    siteUrl: `https://${ROOT_DOMAIN}`,
-    recipient: payload.data.email,
-    confirmationUrl: payload.data.url,
-    token: payload.data.token,
-    email: payload.data.email,
-    newEmail: payload.data.new_email,
-  }
-
-  // Render React Email to HTML and plain text
-  const html = await renderAsync(React.createElement(EmailTemplate, templateProps))
-  const text = await renderAsync(React.createElement(EmailTemplate, templateProps), {
-    plainText: true,
-  })
+  // confirmationUrl and token stay wired to the auth hook payload.
+  // email / newEmail are still on the payload and are not rendered (same as before).
+  const html = rendered.html
+  const text = rendered.text
 
   // Enqueue email for async processing by the dispatcher (process-email-queue).
   const supabase = createClient(

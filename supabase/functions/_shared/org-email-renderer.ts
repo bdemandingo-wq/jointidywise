@@ -6,7 +6,8 @@
 // The identical function is used for all three paths so previews match reality.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { renderSectionsToHtml, type EmailSection } from "./email-sections.ts";
+import { renderSectionsToHtml, sanitizeSectionHtml, type EmailSection } from "./email-sections.ts";
+import { orgBrandVars, renderCrmEmail } from "./crm-email/render.ts";
 
 export interface OrgBrand {
   companyName: string;
@@ -171,7 +172,75 @@ export interface RenderOptions {
  * Renders a fully branded, responsive HTML email using the org's identity.
  * If `sections` are provided, they take precedence over `bodyText`.
  */
+function bookingSlotHtml(body: string, data: BookingEmailData): string {
+  const replaced = replaceBookingVariables(body || "", data);
+  return replaced
+    .split(/\n{2,}/)
+    .map((para) => {
+      const lines = para.split(/\n/).map((line) => escapeHtml(line)).join("<br>");
+      return `<p style="margin:0 0 16px 0;">${lines}</p>`;
+    })
+    .join("");
+}
+
+function sectionCards(sections: EmailSection[] | undefined, data: BookingEmailData): Array<Record<string, string>> {
+  const active = [...(sections ?? [])].filter((s) => s.enabled).sort((a, b) => a.order - b.order);
+  return active.map((section) => {
+    const title = section.title?.trim() || "";
+    const raw = section.html?.trim() || "";
+    const body = sanitizeSectionHtml(raw);
+    let filled = body;
+    for (const [k, v] of Object.entries(data)) {
+      filled = filled.split(`{{${k}}}`).join(escapeHtml(String(v ?? "")));
+    }
+    let titleFilled = title;
+    for (const [k, v] of Object.entries(data)) {
+      titleFilled = titleFilled.split(`{{${k}}}`).join(String(v ?? ""));
+    }
+    return { "section.title": titleFilled, "section.body": filled };
+  });
+}
+
+/**
+ * Booking confirmation uses the branded design as a wrapper. The owner's
+ * subject, body and sections stay owner-editable and render inside it.
+ * Reminder previews keep the previous shell — that email has no production
+ * sender and no design in the set.
+ */
+function renderConfirmationDesign(opts: RenderOptions): { subject: string; html: string } {
+  const { brand, data } = opts;
+  const subject = replaceBookingVariables(opts.subject || "", data);
+  const useSections = !!opts.sections && opts.sections.some((s) => s.enabled);
+  const slot = useSections ? "" : bookingSlotHtml(opts.bodyText || "", data);
+  const { html } = renderCrmEmail("booking-confirmation", {
+    vars: {
+      ...orgBrandVars({
+        companyName: brand.companyName,
+        logoUrl: brand.logoUrl,
+        primaryColor: brand.primaryColor,
+        accentColor: brand.accentColor,
+        emailFooter: brand.emailFooter,
+      }),
+      customer_name: data.customer_name,
+      booking_number: data.booking_number,
+      service_name: data.service_name,
+      scheduled_date: data.scheduled_date,
+      scheduled_time: data.scheduled_time,
+      address: data.address,
+      total_amount: data.total_amount,
+      company_name: data.company_name || brand.companyName,
+    },
+    slots: [slot],
+    repeats: [{ prefix: "section.", rows: useSections ? sectionCards(opts.sections, data) : [] }],
+    rawKeys: ["section.body", "email_footer"],
+  });
+  return { subject, html };
+}
+
 export function renderBrandedEmail(opts: RenderOptions): { subject: string; html: string } {
+  if (opts.bannerLabel !== "Appointment Reminder") {
+    return renderConfirmationDesign(opts);
+  }
   const { brand, data } = opts;
   const subject = replaceBookingVariables(opts.subject || "", data);
 
@@ -274,4 +343,50 @@ export function renderBrandedEmail(opts: RenderOptions): { subject: string; html
 </html>`;
 
   return { subject, html };
+}
+
+/** Branding for org-colored mail. Missing settings fall back; they do not block the send. */
+export async function loadLooseBrand(organizationId: string): Promise<{
+  companyName: string;
+  logoUrl: string | null;
+  primaryColor: string | null;
+  accentColor: string | null;
+  emailFooter: string | null;
+}> {
+  const empty = {
+    companyName: "Your business",
+    logoUrl: null as string | null,
+    primaryColor: null as string | null,
+    accentColor: null as string | null,
+    emailFooter: null as string | null,
+  };
+  if (!organizationId) return empty;
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !supabaseKey) return empty;
+    const admin = createClient(supabaseUrl, supabaseKey);
+    const [{ data: bs }, { data: es }] = await Promise.all([
+      admin
+        .from("business_settings")
+        .select("company_name, logo_url, primary_color, accent_color")
+        .eq("organization_id", organizationId)
+        .maybeSingle(),
+      admin
+        .from("organization_email_settings")
+        .select("from_name, email_footer")
+        .eq("organization_id", organizationId)
+        .maybeSingle(),
+    ]);
+    return {
+      companyName: bs?.company_name || es?.from_name || "Your business",
+      logoUrl: await resolveLogoUrl(bs?.logo_url ?? null, supabaseUrl, admin as any),
+      primaryColor: bs?.primary_color ?? null,
+      accentColor: bs?.accent_color ?? null,
+      emailFooter: es?.email_footer ?? null,
+    };
+  } catch (err) {
+    console.error("[loadLooseBrand]", err);
+    return empty;
+  }
 }

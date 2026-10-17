@@ -11,6 +11,7 @@ import {
   renderBroadcastHtml,
   renderBroadcastText,
 } from "../_shared/broadcast-render.ts";
+import { wrapBroadcastDocument } from "../_shared/crm-email/broadcast-shell.ts";
 import { ensureUnsubscribeToken } from "../_shared/unsubscribe-token.ts";
 import { tidywiseSupportFrom } from "../_shared/email-footer.ts";
 
@@ -201,7 +202,10 @@ serve(async (req: Request) => {
         from: FROM,
         to: [to],
         subject: `[TEST] ${b.subject}`,
-        html: renderBroadcastHtml({ bodyText: b.body_text, unsubscribeUrl, signature: b.signature_text }),
+        html: wrapBroadcastDocument({
+          subject: b.subject,
+          innerHtml: renderBroadcastHtml({ bodyText: b.body_text, unsubscribeUrl, signature: b.signature_text }),
+        }),
         text: renderBroadcastText({ bodyText: b.body_text, unsubscribeUrl, signature: b.signature_text }),
       }),
     });

@@ -41,6 +41,7 @@ import { format, addWeeks, addMonths, isAfter } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { formatFullAddress } from '@/lib/formatAddress';
 import { useOrgId } from '@/hooks/useOrgId';
+import { useOrganization } from '@/contexts/OrganizationContext';
 import { useOrgTimezone } from '@/hooks/useOrgTimezone';
 import { selectedDateTimeToUTCISO, getTimeInTimezone, formatInTimezone, formatTimeWithZone } from '@/lib/timezoneUtils';
 import { orgAddDaysPreservingTime } from '@/lib/orgDateRange';
@@ -243,6 +244,7 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
   };
 
   const { organizationId } = useOrgId();
+  const { organization } = useOrganization();
   const { data: schedulingConfig } = useSchedulingMode(organizationId);
 
   const createBooking = useCreateBooking();
@@ -556,26 +558,20 @@ export function BookingStepper({ booking, onClose, onDuplicate }: BookingStepper
       const fullAddr = [address, city, state, zipCode].filter(Boolean).join(', ');
       const extrasTextList = selectedExtras && selectedExtras.length > 0 ? selectedExtras.join(', ') : 'None';
 
-      const quoteHtml = `
-        <h2>Your Cleaning Quote</h2>
-        <p>Hi ${customerName},</p>
-        <p>Thank you for your interest! Here's your personalized quote:</p>
-        <table style="width:100%;border-collapse:collapse;margin:20px 0;">
-          <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Service</td><td style="padding:8px;border-bottom:1px solid #eee;font-weight:600;">${selectedService?.name || 'Cleaning Service'}</td></tr>
-          ${fullAddr ? `<tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Address</td><td style="padding:8px;border-bottom:1px solid #eee;font-weight:600;">${fullAddr}</td></tr>` : ''}
-          <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Home Size</td><td style="padding:8px;border-bottom:1px solid #eee;font-weight:600;">${bedrooms || '?'} bed / ${bathrooms || '?'} bath</td></tr>
-          <tr><td style="padding:8px;border-bottom:1px solid #eee;color:#666;">Extras</td><td style="padding:8px;border-bottom:1px solid #eee;font-weight:600;">${extrasTextList}</td></tr>
-          <tr><td style="padding:8px;color:#666;">Estimated Total</td><td style="padding:8px;font-weight:bold;font-size:18px;color:#22c55e;">${fmt(quoteAmount)}</td></tr>
-        </table>
-        <p>This quote is valid for 7 days. Reply to this email to confirm your booking or if you have any questions!</p>
-      `;
-
       const { error } = await supabase.functions.invoke('send-direct-email', {
         body: {
           organizationId,
           to: email,
           subject: `Your Cleaning Quote - ${fmt(quoteAmount)}`,
-          body: quoteHtml,
+          crmTemplate: 'quote',
+          customerName,
+          companyName: organization?.name || '',
+          serviceName: selectedService?.name || 'Cleaning Service',
+          address: fullAddr,
+          bedrooms: bedrooms || '?',
+          bathrooms: bathrooms || '?',
+          extras: extrasTextList,
+          estimatedTotal: fmt(quoteAmount),
         },
       });
 

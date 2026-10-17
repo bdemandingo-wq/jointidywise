@@ -1,13 +1,8 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronOrUser } from "../_shared/requireCronOrUser.ts";
-import { checkOrgEmailEligibility, unsubscribeFooterHtml } from "../_shared/emailEligibility.ts";
+import { checkOrgEmailEligibility } from "../_shared/emailEligibility.ts";
 import { tidywiseSupportFrom } from "../_shared/email-footer.ts";
-import { escapeHtml } from "../_shared/escapeHtml.ts";
-
-function htmlPerson(c: { first_name?: string | null; last_name?: string | null } | null | undefined): string {
-  const raw = c ? `${c.first_name || ""} ${c.last_name || ""}`.trim() : "";
-  return escapeHtml(raw || "Unknown");
-}
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -159,7 +154,7 @@ Deno.serve(async (req) => {
     const { data, error } = await supabase
       .from("bookings")
       .select(
-        "id, scheduled_at, status, customers(first_name, last_name)"
+        "id, scheduled_at, status, total_amount, customers(first_name, last_name)"
       )
       .eq("organization_id", orgId)
       .gte("scheduled_at", tomorrowStartNY)
@@ -179,134 +174,15 @@ Deno.serve(async (req) => {
     month: "long",
     day: "numeric",
   });
-
-  const formatTime = (iso: string) =>
-    new Date(iso).toLocaleTimeString("en-US", {
-      timeZone: "America/New_York",
-      hour: "numeric",
-      minute: "2-digit",
-    });
-
-  // Build summary section
-  const summaryHtml = `
-    <div style="display:flex;gap:12px;margin-bottom:24px;">
-      <div style="flex:1;background:#f0fdf4;border-radius:8px;padding:16px;text-align:center;">
-        <div style="font-size:28px;font-weight:bold;color:#16a34a;">${completedJobs.length}</div>
-        <div style="font-size:12px;color:#4ade80;">Completed</div>
-      </div>
-      <div style="flex:1;background:#fef3c7;border-radius:8px;padding:16px;text-align:center;">
-        <div style="font-size:28px;font-weight:bold;color:#ca8a04;">${pendingJobs.length}</div>
-        <div style="font-size:12px;color:#ca8a04;">Pending</div>
-      </div>
-      <div style="flex:1;background:#fef2f2;border-radius:8px;padding:16px;text-align:center;">
-        <div style="font-size:28px;font-weight:bold;color:#dc2626;">${cancelledJobs.length}</div>
-        <div style="font-size:12px;color:#dc2626;">Cancelled</div>
-      </div>
-      <div style="flex:1;background:#eff6ff;border-radius:8px;padding:16px;text-align:center;">
-        <div style="font-size:28px;font-weight:bold;color:#2563eb;">$${totalRevenue.toFixed(0)}</div>
-        <div style="font-size:12px;color:#2563eb;">Revenue</div>
-      </div>
-    </div>`;
-
-  // Build completed jobs list
-  let completedHtml = "";
-  if (completedJobs.length === 0) {
-    completedHtml = `<p style="color:#888;">No jobs completed today.</p>`;
-  } else {
-    completedHtml = completedJobs
-      .map((b) => {
-        const c = b.customers;
-        const name = htmlPerson(c);
-        return `<div style="padding:6px 0;border-bottom:1px solid #eee;">
-          <strong>${name}</strong> — ${formatTime(b.scheduled_at)} · 
-          $${Number(b.total_amount || 0).toFixed(2)} · 
-          Payment: <span style="color:${b.payment_status === 'paid' ? '#16a34a' : '#dc2626'}">${b.payment_status}</span>
-        </div>`;
-      })
-      .join("");
-  }
-
-  // Build unpaid jobs alert
-  let unpaidHtml = "";
-  if (unpaidJobs.length > 0) {
-    unpaidHtml = `
-      <div style="background:#fef2f2;border:1px solid #fca5a5;padding:12px;border-radius:8px;margin:16px 0;">
-        <h3 style="color:#dc2626;margin:0 0 8px;font-size:14px;">⚠️ ${unpaidJobs.length} Unpaid Completed Job${unpaidJobs.length > 1 ? 's' : ''}</h3>
-        ${unpaidJobs.map((b) => {
-          const c = b.customers;
-          const name = htmlPerson(c);
-          return `<div style="padding:4px 0;color:#991b1b;">${name} — $${Number(b.total_amount || 0).toFixed(2)}</div>`;
-        }).join("")}
-      </div>`;
-  }
-
-  // Build tomorrow preview
-  let tomorrowHtml = "";
-  if (tomorrowBookings.length === 0) {
-    tomorrowHtml = `<p style="color:#888;">No jobs scheduled for tomorrow.</p>`;
-  } else {
-    tomorrowHtml = tomorrowBookings
-      .map((b) => {
-        const c = b.customers;
-        const name = htmlPerson(c);
-        return `<div style="padding:6px 0;border-bottom:1px solid #eee;">
-          <strong>${name}</strong> — ${formatTime(b.scheduled_at)}
-        </div>`;
-      })
-      .join("");
-  }
-
-  // Open estimates section
-  let estimatesHtml = "";
-  if (openEstimates.length > 0) {
-    estimatesHtml = `
-      <h2 style="font-size:16px;color:#ca8a04;margin:24px 0 12px;">🟡 Open Estimates (${openEstimates.length})</h2>
-      ${openEstimates.map((e) => {
-        const amount = e.estimated_total ? `$${Number(e.estimated_total).toFixed(2)}` : "N/A";
-        return `<div style="padding:6px 0;border-bottom:1px solid #eee;">
-          <strong>${escapeHtml(e.client_name || "Unknown")}</strong> — ${amount}
-        </div>`;
-      }).join("")}`;
-  }
-
-  let errorsHtml = "";
+  const appUrl = Deno.env.get("APP_URL") || "https://jointidywise.com";
+  const tomorrowRevenue = tomorrowBookings.reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
+  const fmt = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
   if (errors.length > 0) {
-    errorsHtml = `<div style="background:#fef2f2;border:1px solid #fca5a5;padding:12px;border-radius:8px;margin-top:20px;">
-      <h3 style="color:#dc2626;margin:0 0 8px;">⚠️ Errors</h3>
-      ${errors.map((e) => `<p style="margin:4px 0;color:#991b1b;">${escapeHtml(e)}</p>`).join("")}
-    </div>`;
+    console.warn("[evening-brief] query issues omitted from the branded email:", errors);
   }
 
-  const html = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;background:#f9fafb;">
-  <div style="background:#ffffff;border-radius:12px;padding:24px;border:1px solid #e5e7eb;">
-    <h1 style="font-size:22px;margin:0 0 4px;">🌙 Tidywise End of Day Report</h1>
-    <p style="color:#6b7280;margin:0 0 24px;font-size:14px;">${subjectDate}</p>
-
-    ${summaryHtml}
-
-    <h2 style="font-size:16px;color:#16a34a;margin:0 0 12px;">✅ Completed Jobs (${completedJobs.length})</h2>
-    ${completedHtml}
-
-    ${unpaidHtml}
-
-    ${estimatesHtml}
-
-    <h2 style="font-size:16px;color:#2563eb;margin:24px 0 12px;">📋 Tomorrow's Preview (${tomorrowBookings.length})</h2>
-    ${tomorrowHtml}
-
-    ${errorsHtml}
-
-    <p style="color:#9ca3af;font-size:12px;margin:24px 0 0;text-align:center;">
-      Sent by Tidywise · <a href="${Deno.env.get("APP_URL") || "https://jointidywise.com"}" style="color:#6b7280;">Dashboard</a>
-    </p>
-  </div>
-</body>
-</html>`;
-
-  // Eligibility: subscription status, unsubscribe flag, owner email
+  // Eligibility: subscription status, unsubscribe flag, owner email.
+  // Sent through Resend directly, so the unsubscribe URL must be the real one.
   const eligibility = await checkOrgEmailEligibility(supabase, orgId);
   if (!eligibility.ok) {
     console.log(`Skipping org ${orgId}: ${eligibility.reason}`);
@@ -317,9 +193,21 @@ Deno.serve(async (req) => {
   }
   const recipientEmail = eligibility.email;
 
-  // Inject unsubscribe footer before closing container div
-  const footer = unsubscribeFooterHtml(eligibility.unsubscribeUrl);
-  const htmlWithFooter = html.replace(/<\/body>/i, `${footer}</body>`);
+  const brief = renderCrmEmail("evening-brief", {
+    vars: {
+      subjectDate,
+      completedCount: completedJobs.length,
+      pendingCount: pendingJobs.length,
+      cancelledCount: cancelledJobs.length,
+      revenue: fmt(totalRevenue),
+      APP_URL: appUrl,
+      tomorrowCount: tomorrowBookings.length,
+      tomorrowRevenue: fmt(tomorrowRevenue),
+      openEstimatesCount: openEstimates.length,
+      UNSUBSCRIBE_URL: eligibility.unsubscribeUrl,
+    },
+  });
+
 
   // Send via Resend
   try {
@@ -333,7 +221,8 @@ Deno.serve(async (req) => {
         from: tidywiseSupportFrom(),
         to: [recipientEmail],
         subject: `Tidywise End of Day Report — ${subjectDate}`,
-        html: htmlWithFooter,
+        html: brief.html,
+        text: brief.text,
         headers: {
           "List-Unsubscribe": `<${eligibility.unsubscribeUrl}>`,
           "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",

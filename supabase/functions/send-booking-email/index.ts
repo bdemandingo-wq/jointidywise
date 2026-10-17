@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getOrgEmailSettings } from "../_shared/get-org-email-settings.ts";
 import { logAudit, AuditActions } from "../_shared/audit-log.ts";
 import { loadOrgBrand, renderBrandedEmail } from "../_shared/org-email-renderer.ts";
+import { htmlToText } from "../_shared/crm-email/fill.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 import { isServiceRoleRequest, rejectUnauthenticated, resolveCallerOrg } from "../_shared/require-caller-org.ts";
 import { formatFullAddress } from "../_shared/format-address.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
@@ -282,6 +284,7 @@ const handler = async (req: Request): Promise<Response> => {
       to: customerEmail,
       subject: emailSubject,
       html: emailHtml,
+      text: htmlToText(emailHtml),
     });
 
     if (!customerSend.success) {
@@ -295,19 +298,21 @@ const handler = async (req: Request): Promise<Response> => {
     const customerData: any = { id: customerSend.id };
     console.log("Customer email sent via", customerSend.method, "id:", customerSend.id);
 
-    // Send notification to admin
-    const adminNotificationHtml = `
-      <h2>New Booking Received</h2>
-      <p><strong>Customer:</strong> ${escapeHtml(customerName || "N/A")}</p>
-      <p><strong>Email:</strong> ${escapeHtml(customerEmail)}</p>
-      <p><strong>Phone:</strong> ${escapeHtml(booking.customerPhone || "N/A")}</p>
-      <p><strong>Service:</strong> ${escapeHtml(booking.serviceName || "N/A")}</p>
-      <p><strong>Date:</strong> ${escapeHtml(booking.appointmentDate || "N/A")}</p>
-      <p><strong>Time:</strong> ${escapeHtml(booking.appointmentTime || "N/A")}</p>
-      <p><strong>Address:</strong> ${escapeHtml(fullAddress || "N/A")}</p>
-      <p><strong>Total:</strong> $${escapeHtml(String(booking.totalPrice ?? "N/A"))}</p>
-      <p><strong>Extras:</strong> ${escapeHtml(extrasText)}</p>
-    `;
+    // Owner copy. The client's phone is included; TidyWise's own number is not.
+    const adminNotification = renderCrmEmail("new-booking-admin-copy", {
+      vars: {
+        customerName: customerName || "N/A",
+        customerEmail: customerEmail || "",
+        customerPhone: booking.customerPhone || "Not provided",
+        serviceName: booking.serviceName || "Cleaning",
+        appointmentDate: booking.appointmentDate || "",
+        appointmentTime: booking.appointmentTime || "",
+        address: fullAddress || "N/A",
+        total: `$${booking.totalPrice ?? "N/A"}`,
+        extras: extrasText,
+        APP_URL: Deno.env.get("APP_URL") || "https://jointidywise.com",
+      },
+    });
 
     try {
       await sendOrgEmail({
@@ -315,7 +320,8 @@ const handler = async (req: Request): Promise<Response> => {
         organizationId: booking.organizationId,
         to: senderEmail,
         subject: `New Booking - ${booking.serviceName || "Cleaning"} - ${booking.appointmentDate || ""}`,
-        html: adminNotificationHtml,
+        html: adminNotification.html,
+        text: adminNotification.text,
       });
       console.log("Admin notification sent successfully");
     } catch (adminError) {

@@ -5,6 +5,7 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { renderBroadcastHtml, renderBroadcastText } from "../_shared/broadcast-render.ts";
+import { wrapBroadcastDocument } from "../_shared/crm-email/broadcast-shell.ts";
 import { ensureUnsubscribeToken } from "../_shared/unsubscribe-token.ts";
 import { tidywiseSupportFrom } from "../_shared/email-footer.ts";
 
@@ -97,7 +98,10 @@ serve(async (req: Request) => {
             from: FROM,
             to: [r.email],
             subject: b.subject,
-            html: renderBroadcastHtml({ bodyText: b.body_text, unsubscribeUrl, signature: b.signature_text }),
+            html: wrapBroadcastDocument({
+              subject: b.subject,
+              innerHtml: renderBroadcastHtml({ bodyText: b.body_text, unsubscribeUrl, signature: b.signature_text }),
+            }),
             text: renderBroadcastText({ bodyText: b.body_text, unsubscribeUrl, signature: b.signature_text }),
           }),
         });

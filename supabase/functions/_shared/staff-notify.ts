@@ -50,10 +50,10 @@ export async function sendStaffSms(supabase: any, organizationId: string, phone:
   }
 }
 
-export async function sendStaffEmail(organizationId: string, to: string | null, subject: string, html: string, tag: string): Promise<boolean> {
+export async function sendStaffEmail(organizationId: string, to: string | null, subject: string, html: string, tag: string, text?: string): Promise<boolean> {
   try {
     if (!to) return false;
-    const r = await sendOrgEmail({ organizationId, to, subject, html, templateName: "staff_payout_notice" });
+    const r = await sendOrgEmail({ organizationId, to, subject, html, text, templateName: "staff_payout_notice" });
     return !!(r as { success?: boolean }).success;
   } catch (e) {
     console.error(`[${tag}] staff email threw`, e);

@@ -3,7 +3,8 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { PLATFORM_SENDER_EMAIL } from "../_shared/email-sender-resolution.ts";
-import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { orgBrandVars, renderCrmEmail } from "../_shared/crm-email/render.ts";
+import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -217,6 +218,20 @@ serve(async (req: Request) => {
               const firstName = staff.name?.split(" ")[0] || "there";
               const fromName = orgEmailSettings?.from_name || "TidyWise";
               const fromEmail = orgEmailSettings?.from_email || PLATFORM_SENDER_EMAIL;
+              const portalUrl = "https://jointidywise.com/staff-portal?tab=payouts";
+              const supportMailto = `mailto:${tidywiseSupportEmail()}`;
+              const brand = await loadLooseBrand(payoutAccount.organization_id);
+              const activeMail = renderCrmEmail("payouts-active", {
+                vars: {
+                  ...orgBrandVars(brand),
+                  firstName,
+                  portalUrl,
+                },
+                rawKeys: ["email_footer"],
+              });
+              const activeText = activeMail.text.includes(supportMailto)
+                ? activeMail.text
+                : `${activeMail.text}\n${supportMailto}`;
 
               await fetch("https://api.resend.com/emails", {
                 method: "POST",
@@ -229,22 +244,8 @@ serve(async (req: Request) => {
                   reply_to: tidywiseSupportEmail(),
                   to: [staff.email],
                   subject: "You're all set — payouts are now active on your TidyWise account",
-                  html: `
-                    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-                      <h2 style="color:#1a1a2e;">Hi ${escapeHtml(firstName)},</h2>
-                      <p style="color:#333;font-size:15px;line-height:1.6;">
-                        Great news — your payout setup is now complete! 🎉
-                      </p>
-                      <p style="color:#333;font-size:15px;line-height:1.6;">
-                        Payouts are now active on your TidyWise account. Your earnings will be processed automatically on our net 30 schedule.
-                      </p>
-                      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
-                      <p style="color:#888;font-size:13px;">
-                        Need help? Contact us at <a href="mailto:${tidywiseSupportEmail()}" style="color:#4f46e5;">${tidywiseSupportEmail()}</a>.
-                      </p>
-                      <p style="color:#888;font-size:13px;">— The TidyWise Team</p>
-                    </div>
-                  `,
+                  html: activeMail.html,
+                  text: activeText,
                 }),
               });
               console.log("[stripe-connect-webhook] Sent 'all set' email to", staff.email);

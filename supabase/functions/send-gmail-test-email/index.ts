@@ -12,6 +12,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
 import { getOrgEmailSettings, formatEmailFrom, getReplyTo } from "../_shared/get-org-email-settings.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -67,8 +68,11 @@ serve(async (req) => {
 
     const from = formatEmailFrom(settings);
     const replyTo = getReplyTo(settings);
-    const html = `<p>Hi,</p><p>This is a test email sent from <strong>${settings.from_name}</strong> using your connected Gmail account (<code>${settings.smtp_email}</code>).</p><p>If you received it, Gmail SMTP is configured correctly and customer emails will now send from your own Gmail address.</p>`;
-    const text = "If you're reading this in HTML, Gmail SMTP is working.";
+    const testMail = renderCrmEmail("gmail-smtp-test", {
+      vars: { APP_URL: Deno.env.get("APP_URL") || "https://jointidywise.com" },
+    });
+    const html = testMail.html;
+    const text = testMail.text;
     const b64 = (s: string) => btoa(unescape(encodeURIComponent(s)));
     try {
       await client.send({

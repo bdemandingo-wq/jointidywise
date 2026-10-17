@@ -1,12 +1,12 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronOrUser } from "../_shared/requireCronOrUser.ts";
-import { checkOrgEmailEligibility, unsubscribeFooterHtml } from "../_shared/emailEligibility.ts";
+import { checkOrgEmailEligibility } from "../_shared/emailEligibility.ts";
 import { tidywiseSupportFrom } from "../_shared/email-footer.ts";
-import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 
-function htmlPerson(c: { first_name?: string | null; last_name?: string | null } | null | undefined): string {
+function plainPerson(c: { first_name?: string | null; last_name?: string | null } | null | undefined): string {
   const raw = c ? `${c.first_name || ""} ${c.last_name || ""}`.trim() : "";
-  return escapeHtml(raw || "Unknown");
+  return raw || "Unknown";
 }
 
 const corsHeaders = {
@@ -138,7 +138,6 @@ Deno.serve(async (req) => {
 
   const fmt = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const formatTime = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
-  const formatShortDate = (iso: string) => new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const pctChange = (curr: number, prev: number) => {
     if (prev === 0 && curr === 0) return "—";
     if (prev === 0) return "🔼 ∞%";
@@ -162,6 +161,20 @@ Deno.serve(async (req) => {
   }, []);
 
   const todayRevenue = todayBookings.reduce((s, b) => s + (Number(b.total_amount) || 0), 0);
+  const tomorrowEndNY = new Date(new Date(`${y}-${m}-${d}T00:00:00-04:00`).getTime() + 2 * 86400000).toISOString();
+  const tomorrowBookings = await safeQuery("Tomorrow's bookings", async () => {
+    const { data, error } = await supabase
+      .from("bookings")
+      .select("id, scheduled_at, status, total_amount")
+      .eq("organization_id", orgId)
+      .gte("scheduled_at", tomorrowStartNY)
+      .lt("scheduled_at", tomorrowEndNY)
+      .neq("status", "cancelled")
+      .order("scheduled_at", { ascending: true });
+    if (error) throw error;
+    return data || [];
+  }, []);
+  const tomorrowRevenue = tomorrowBookings.reduce((s, b) => s + (Number(b.total_amount) || 0), 0);
   const confirmedCount = todayBookings.filter(b => b.status === "confirmed" || b.status === "completed").length;
   const unconfirmedBookings = todayBookings.filter(b => b.status !== "confirmed" && b.status !== "completed" && b.status !== "cancelled");
 
@@ -693,196 +706,18 @@ Deno.serve(async (req) => {
 
   // ════════════════════════════════════════════════════
   // BUILD HTML
+  // Branded morning-brief design only: today's jobs, new leads, tomorrow,
+  // and week-over-week revenue. Alerts, pipeline, and marketing stats are
+  // still queried above for the send summary and are not rendered.
   // ════════════════════════════════════════════════════
 
   const subjectDate = now.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric" });
   const subjectLine = `📋 Tidywise Daily Brief — ${subjectDate} — ${todayBookings.length} jobs • ${fmt(todayRevenue)} booked • ${newLeads.length} leads`;
+  const appUrl = Deno.env.get("APP_URL") || "https://jointidywise.com";
+  const wowChange = pctChange(wow.thisWeek.revenue, wow.lastWeek.revenue);
 
-  const renderList = (items: string[], max = 5) => {
-    if (items.length === 0) return `<p style="color:#9ca3af;margin:4px 0;">None</p>`;
-    const shown = items.slice(0, max).join("");
-    const remaining = items.length - max;
-    return shown + (remaining > 0 ? `<p style="color:#6b7280;font-size:13px;margin:8px 0;">+ ${remaining} more — <a href="${Deno.env.get("APP_URL") || "https://jointidywise.com"}/dashboard" style="color:#2563eb;">see admin dashboard</a></p>` : "");
-  };
-
-  const sectionStyle = `margin:0 0 28px;`;
-  const headerStyle = (color: string) => `font-size:16px;color:${color};margin:0 0 12px;padding-bottom:8px;border-bottom:2px solid ${color}20;`;
-  const rowStyle = `padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:13px;line-height:1.5;`;
-  const metricRow = (label: string, value: string, highlight = false) =>
-    `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;font-size:13px;">${label}</td><td style="padding:4px 0;font-weight:600;font-size:13px;${highlight ? "color:#dc2626;" : ""}">${value}</td></tr>`;
-
-  // Section 1: Operations Today
-  const unconfirmedHtml = unconfirmedBookings.length > 0
-    ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:12px;margin-bottom:12px;">
-        <strong style="color:#dc2626;">⚠️ ${unconfirmedBookings.length} Unconfirmed Booking${unconfirmedBookings.length > 1 ? "s" : ""}</strong>
-        ${unconfirmedBookings.map(b => {
-          const c = b.customers;
-          const name = htmlPerson(c);
-          return `<div style="${rowStyle}"><strong>${name}</strong> — ${formatTime(b.scheduled_at)} · ${escapeHtml(String(b.status || ""))}</div>`;
-        }).join("")}
-      </div>` : "";
-
-  const jobRows = todayBookings.map(b => {
-    const c = b.customers;
-    const name = htmlPerson(c);
-    const staffName = escapeHtml(b.staff?.name || "Unassigned");
-    const serviceName = escapeHtml(b.services?.name || "—");
-    const statusColor = b.status === "completed" ? "#16a34a" : b.status === "cancelled" ? "#dc2626" : b.status === "confirmed" ? "#2563eb" : "#ca8a04";
-    const payColor = b.payment_status === "paid" ? "#16a34a" : "#dc2626";
-    return `<div style="${rowStyle}">
-      <strong>${name}</strong> · ${formatTime(b.scheduled_at)}<br/>
-      <span style="color:#6b7280;">👤 ${staffName} · 🧹 ${serviceName}</span><br/>
-      <span style="color:#6b7280;">📍 ${escapeHtml(b.address || "No address")}</span><br/>
-      <span style="color:${statusColor};">${escapeHtml(String(b.status || ""))}</span> · <span style="color:${payColor};">💳 ${escapeHtml(String(b.payment_status || ""))}</span> · ${fmt(Number(b.total_amount) || 0)}
-    </div>`;
-  });
-
-  const sec1Html = `<div style="${sectionStyle}">
-    <h2 style="${headerStyle("#dc2626")}">🔥 OPERATIONS TODAY</h2>
-    <table style="margin-bottom:12px;">${metricRow("Total Jobs", String(todayBookings.length))}${metricRow("Booked Revenue", fmt(todayRevenue))}${metricRow("Confirmed", String(confirmedCount))}${metricRow("Unconfirmed", String(unconfirmedBookings.length), unconfirmedBookings.length > 0)}</table>
-    ${unconfirmedHtml}
-    ${todayBookings.length === 0 ? `<p style="color:#9ca3af;">All clear — no jobs scheduled today.</p>` : renderList(jobRows, 15)}
-  </div>`;
-
-  // Section 2: Alerts
-  const alertItems: string[] = [];
-  if (cancellations24h.length > 0) alertItems.push(`<div style="margin-bottom:12px;"><strong style="color:#dc2626;">🚫 ${cancellations24h.length} Cancellation${cancellations24h.length > 1 ? "s" : ""} (24h)</strong>${renderList(cancellations24h.map(b => `<div style="${rowStyle}">${htmlPerson(b.customers)} — ${formatShortDate(b.scheduled_at)} · ${fmt(Number(b.total_amount) || 0)}</div>`))}</div>`);
-  if (noShows.length > 0) alertItems.push(`<div style="margin-bottom:12px;"><strong style="color:#dc2626;">❌ ${noShows.length} No-Show${noShows.length > 1 ? "s" : ""} Yesterday</strong>${renderList(noShows.map(b => `<div style="${rowStyle}">${htmlPerson(b.customers)} — ${formatShortDate(b.scheduled_at)}</div>`))}</div>`);
-  if (overduePayments.length > 0) {
-    const overdueTotal = overduePayments.reduce((s, b) => s + (Number(b.total_amount) || 0), 0);
-    alertItems.push(`<div style="margin-bottom:12px;"><strong style="color:#dc2626;">💸 ${overduePayments.length} Overdue Payment${overduePayments.length > 1 ? "s" : ""} (${fmt(overdueTotal)})</strong>${renderList(overduePayments.map(b => `<div style="${rowStyle}">${htmlPerson(b.customers)} — ${formatShortDate(b.scheduled_at)} · ${fmt(Number(b.total_amount) || 0)}</div>`))}</div>`);
-  }
-  if (lowRatings.length > 0) alertItems.push(`<div style="margin-bottom:12px;"><strong style="color:#ca8a04;">⭐ ${lowRatings.length} Low Rating${lowRatings.length > 1 ? "s" : ""} (48h)</strong>${renderList(lowRatings.map(r => `<div style="${rowStyle}">${escapeHtml(r.customer_name || "") || htmlPerson(r.customers)} — ${r.rating ? `${r.rating}★` : "N/A"} · ${escapeHtml(r.comment || r.issue_description || "No comment")}</div>`))}</div>`);
-
-  const sec2Html = `<div style="${sectionStyle}">
-    <h2 style="${headerStyle("#dc2626")}">🚨 ALERTS & ATTENTION NEEDED</h2>
-    ${alertItems.length === 0 ? `<p style="color:#16a34a;">✅ All clear — no alerts.</p>` : alertItems.join("")}
-  </div>`;
-
-  // Section 3: Revenue
-  const momDelta = pctChange(thisMonthRevenue, lastMonthSamePeriodRevenue);
-  const grossProfit = thisMonthRevenue - expensesThisMonth;
-
-  const sec3Html = `<div style="${sectionStyle}">
-    <h2 style="${headerStyle("#16a34a")}">💰 REVENUE</h2>
-    <table>
-      ${metricRow("Today Booked", fmt(todayRevenue))}
-      ${metricRow("Yesterday Completed", fmt(yesterdayCompletedRevenue))}
-      ${metricRow("This Week (Mon–Today)", fmt(thisWeekRevenue))}
-      ${metricRow("This Month", fmt(thisMonthRevenue))}
-      ${metricRow("Last Month Same Period", fmt(lastMonthSamePeriodRevenue))}
-      ${metricRow("Month-over-Month", momDelta)}
-      ${metricRow("Outstanding Receivables", fmt(outstandingReceivables), outstandingReceivables > 0)}
-      ${metricRow("Pending Deposits", `${pendingDeposits.count} (${fmt(pendingDeposits.total)})`)}
-      ${metricRow("Expenses This Month", fmt(expensesThisMonth))}
-      ${metricRow("Gross Profit Est.", fmt(grossProfit), grossProfit < 0)}
-    </table>
-  </div>`;
-
-  // Section 4: Sales Pipeline
-  const convRate = estimateConversion.sent > 0 ? `${Math.round(estimateConversion.approved / estimateConversion.sent * 100)}%` : "N/A";
-
-  const sec4Html = `<div style="${sectionStyle}">
-    <h2 style="${headerStyle("#7c3aed")}">📈 SALES PIPELINE</h2>
-    <strong>New Leads (24h): ${newLeads.length}</strong>
-    ${renderList(newLeads.map(l => `<div style="${rowStyle}"><strong>${escapeHtml(l.name)}</strong> · ${escapeHtml(l.source)} · ${escapeHtml(l.service)}</div>`))}
-    <div style="margin-top:12px;"><strong>Open Estimates: ${openEstimates.length}</strong></div>
-    ${renderList(openEstimates.map(e => `<div style="${rowStyle}"><strong>${escapeHtml(e.client_name || "Unknown")}</strong> — ${e.estimated_total ? fmt(Number(e.estimated_total)) : "N/A"} · Sent ${formatShortDate(e.quote_sent_at)}</div>`))}
-    ${staleEstimates.length > 0 ? `<div style="margin-top:12px;background:#fef3c7;border:1px solid #fcd34d;border-radius:6px;padding:8px;"><strong style="color:#92400e;">⏰ ${staleEstimates.length} Stale Estimate${staleEstimates.length > 1 ? "s" : ""} (>7 days)</strong>${renderList(staleEstimates.map(e => `<div style="${rowStyle}">${escapeHtml(e.client_name || "Unknown")} — ${e.estimated_total ? fmt(Number(e.estimated_total)) : "N/A"}</div>`))}</div>` : ""}
-    <table style="margin-top:12px;">
-      ${metricRow("Wins (7 days)", String(estimateWins.length))}
-      ${metricRow("Conversion Rate (30d)", convRate)}
-      ${metricRow("Abandoned Bookings (24h)", String(abandonedBookings24h.length), abandonedBookings24h.length > 0)}
-    </table>
-  </div>`;
-
-  // Section 5: Customers
-  const sec5Html = `<div style="${sectionStyle}">
-    <h2 style="${headerStyle("#0891b2")}">👥 CUSTOMERS</h2>
-    <table>
-      ${metricRow("New (24h)", `${newCustomers24h.length}${newCustomers24h.length > 0 ? " — " + newCustomers24h.slice(0, 3).map(c => htmlPerson(c)).join(", ") : ""}`)}
-      ${metricRow("New (7 days)", String(newCustomers7d))}
-      ${metricRow("Total Active", String(totalActiveCustomers))}
-    </table>
-    ${churnRisk.length > 0 ? `<div style="margin-top:12px;"><strong style="color:#dc2626;">⚠️ Churn Risk (no booking >90 days)</strong>${renderList(churnRisk.map(c => `<div style="${rowStyle}">${htmlPerson(c)} — Last: ${formatShortDate(c.lastBooking)}</div>`))}</div>` : ""}
-    ${topCustomersMonth.length > 0 ? `<div style="margin-top:12px;"><strong>🏆 Top Customers This Month</strong>${topCustomersMonth.map((c, i) => `<div style="${rowStyle}">${i + 1}. ${escapeHtml(c.name)} — ${fmt(c.total)}</div>`).join("")}</div>` : ""}
-  </div>`;
-
-  // Section 6: Marketing
-  const sec6Html = `<div style="${sectionStyle}">
-    <h2 style="${headerStyle("#ea580c")}">📣 MARKETING & CAMPAIGNS</h2>
-    <table>
-      ${metricRow("Emails Sent (24h)", String(emailsSent24h))}
-      ${metricRow("SMS Sent (24h)", String(smsSent24h))}
-      ${metricRow("Active Automations", String(activeAutomations))}
-      ${metricRow("Automation Errors (24h)", String(automationErrors.length), automationErrors.length > 0)}
-      ${metricRow("Facebook Leads (24h)", String(fbLeads24h))}
-      ${metricRow("Review SMS Queue", String(reviewQueueDepth))}
-    </table>
-  </div>`;
-
-  // Section 7: Messages
-  const sec7Html = `<div style="${sectionStyle}">
-    <h2 style="${headerStyle("#6366f1")}">💬 MESSAGES & COMMUNICATION</h2>
-    <table>
-      ${metricRow("AI Replies (24h)", String(aiReplies24h))}
-      ${metricRow("Client Portal Sessions (24h)", String(portalSessions))}
-    </table>
-  </div>`;
-
-  // Section 8: Operations Analytics
-  const sec8Html = `<div style="${sectionStyle}">
-    <h2 style="${headerStyle("#0d9488")}">🧹 OPERATIONS ANALYTICS</h2>
-    <table>
-      ${metricRow("Checklist Completion (7d)", `${checklistCompletion.rate}% (${checklistCompletion.completed}/${checklistCompletion.total})`)}
-      ${metricRow("Avg Rating (7d)", avgRatingWeek.count > 0 ? `${avgRatingWeek.avg}★ (${avgRatingWeek.count} reviews)` : "No reviews")}
-    </table>
-    ${staffUtilization.length > 0 ? `<div style="margin-top:12px;"><strong>Staff Utilization Today</strong>${staffUtilization.map(s => `<div style="${rowStyle}">${escapeHtml(s.name)}: ${s.count} job${s.count > 1 ? "s" : ""}</div>`).join("")}</div>` : ""}
-    ${serviceVolume.length > 0 ? `<div style="margin-top:12px;"><strong>Top Services This Week</strong>${serviceVolume.map(s => `<div style="${rowStyle}">${escapeHtml(s.name)}: ${s.count} booking${s.count > 1 ? "s" : ""}</div>`).join("")}</div>` : ""}
-  </div>`;
-
-  // Section 9: Week-over-Week
-  const wowRow = (label: string, thisW: number, lastW: number, isCurrency = false) => {
-    const thisVal = isCurrency ? fmt(thisW) : String(thisW);
-    const lastVal = isCurrency ? fmt(lastW) : String(lastW);
-    return `<tr><td style="padding:4px 8px;border:1px solid #e5e7eb;font-size:13px;">${label}</td><td style="padding:4px 8px;border:1px solid #e5e7eb;text-align:center;font-size:13px;">${lastVal}</td><td style="padding:4px 8px;border:1px solid #e5e7eb;text-align:center;font-size:13px;">${thisVal}</td><td style="padding:4px 8px;border:1px solid #e5e7eb;text-align:center;font-size:13px;">${pctChange(thisW, lastW)}</td></tr>`;
-  };
-
-  const sec9Html = `<div style="${sectionStyle}">
-    <h2 style="${headerStyle("#374151")}">📊 WEEK-OVER-WEEK SNAPSHOT</h2>
-    <table style="border-collapse:collapse;width:100%;">
-      <tr style="background:#f3f4f6;"><th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left;font-size:12px;">Metric</th><th style="padding:6px 8px;border:1px solid #e5e7eb;font-size:12px;">Last Week</th><th style="padding:6px 8px;border:1px solid #e5e7eb;font-size:12px;">This Week</th><th style="padding:6px 8px;border:1px solid #e5e7eb;font-size:12px;">Change</th></tr>
-      ${wowRow("Bookings", wow.thisWeek.bookings, wow.lastWeek.bookings)}
-      ${wowRow("Revenue", wow.thisWeek.revenue, wow.lastWeek.revenue, true)}
-      ${wowRow("New Customers", wow.thisWeek.newCustomers, wow.lastWeek.newCustomers)}
-      ${wowRow("Cancellations", wow.thisWeek.cancellations, wow.lastWeek.cancellations)}
-      ${wowRow("Estimate Wins", wow.thisWeek.estimateWins, wow.lastWeek.estimateWins)}
-    </table>
-  </div>`;
-
-  // Errors section
-  const errorsHtml = skippedSections.length > 0 ? `<div style="margin-top:20px;padding:8px;background:#f9fafb;border-radius:6px;font-size:11px;color:#9ca3af;">
-    <strong>Sections with issues:</strong> ${skippedSections.join(", ")}${errors.length > 0 ? `<br/>${errors.map(e => `• ${e}`).join("<br/>")}` : ""}
-  </div>` : "";
-
-  const generatedAt = now.toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "long" });
-
-  const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;padding:20px;background:#f9fafb;color:#1f2937;">
-  <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e7eb;">
-    <h1 style="font-size:22px;margin:0 0 4px;">📋 Tidywise Daily Brief</h1>
-    <p style="color:#6b7280;margin:0 0 28px;font-size:14px;">${subjectDate}</p>
-    ${sec1Html}${sec2Html}${sec3Html}${sec4Html}${sec5Html}${sec6Html}${sec7Html}${sec8Html}${sec9Html}
-    ${errorsHtml}
-    <div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;text-align:center;">
-      <a href="${Deno.env.get("APP_URL") || "https://jointidywise.com"}/dashboard/notifications" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">Open Dashboard</a>
-      <p style="color:#9ca3af;font-size:11px;margin:12px 0 0;">Generated ${generatedAt}</p>
-    </div>
-  </div>
-</body></html>`;
-
-  // Eligibility: subscription status, unsubscribe flag, owner email
+  // Eligibility: subscription status, unsubscribe flag, owner email.
+  // Sent through Resend directly, so the unsubscribe URL must be the real one.
   const eligibility = await checkOrgEmailEligibility(supabase, orgId);
   if (!eligibility.ok) {
     console.log(`Skipping org ${orgId}: ${eligibility.reason}`);
@@ -893,8 +728,40 @@ Deno.serve(async (req) => {
   }
   const recipientEmail = eligibility.email;
 
-  const footer = unsubscribeFooterHtml(eligibility.unsubscribeUrl);
-  const htmlWithFooter = html.replace(/<\/body>/i, `${footer}</body>`);
+  const brief = renderCrmEmail("morning-brief", {
+    vars: {
+      subjectDate,
+      todayBookingsCount: todayBookings.length,
+      todayRevenue: fmt(todayRevenue),
+      newLeadsCount: newLeads.length,
+      staffOnToday: staffUtilization.length,
+      APP_URL: appUrl,
+      tomorrowCount: tomorrowBookings.length,
+      tomorrowRevenue: fmt(tomorrowRevenue),
+      wowChange,
+      UNSUBSCRIBE_URL: eligibility.unsubscribeUrl,
+    },
+    repeats: [
+      {
+        prefix: "job.",
+        rows: todayBookings.map((b) => ({
+          "job.time": formatTime(b.scheduled_at),
+          "job.customer": plainPerson(b.customers),
+          "job.service": b.services?.name || "—",
+          "job.staff": b.staff?.name || "Unassigned",
+          "job.total": fmt(Number(b.total_amount) || 0),
+        })),
+      },
+      {
+        prefix: "lead.",
+        rows: newLeads.map((l) => ({
+          "lead.name": l.name || "Unknown",
+          "lead.source": l.source || "",
+        })),
+      },
+    ],
+  });
+
 
   // Send via Resend
   try {
@@ -908,7 +775,8 @@ Deno.serve(async (req) => {
         from: tidywiseSupportFrom(),
         to: [recipientEmail],
         subject: subjectLine,
-        html: htmlWithFooter,
+        html: brief.html,
+        text: brief.text,
         headers: {
           "List-Unsubscribe": `<${eligibility.unsubscribeUrl}>`,
           "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",

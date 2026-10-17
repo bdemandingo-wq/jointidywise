@@ -3,8 +3,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@18.5.0";
 import { requireOrgAdmin } from "../_shared/requireOrgAdmin.ts";
 import { sendOrgEmail } from "../_shared/send-org-email.ts";
-import { escapeHtml } from "../_shared/escapeHtml.ts";
 import { sendOpenPhoneMessage } from "../_shared/send-sms.ts";
+import { renderCrmEmail, orgBrandVars } from "../_shared/crm-email/render.ts";
+import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -224,36 +225,23 @@ const handler = async (req: Request): Promise<Response> => {
 
     if (!deliveredVia && (channel === "email" || (channel === "sms" && email))) {
       // Email path (primary or fallback) — routed through per-org sender (Gmail SMTP or Resend)
+      const brand = await loadLooseBrand(organizationId);
+      const rendered = renderCrmEmail("card-on-file-link", {
+        vars: {
+          ...orgBrandVars(brand),
+          companyName,
+          customerName,
+          sessionUrl: session.url || "",
+        },
+        rawKeys: ["email_footer"],
+      });
       const emailResult = await sendOrgEmail({
         templateName: "card_collection_link",
         organizationId,
         to: email!,
         subject: `Add Your Payment Card - ${companyName}`,
-        html: `
-          <!DOCTYPE html><html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;margin:0;padding:0;">
-            <div style="max-width:600px;margin:0 auto;padding:20px;">
-              <div style="background:linear-gradient(135deg,#10b981,#059669);color:white;padding:30px;text-align:center;border-radius:10px 10px 0 0;">
-                <h1 style="margin:0;">🔒 Secure Card Setup</h1>
-              </div>
-              <div style="background:#f9fafb;padding:30px;border-radius:0 0 10px 10px;">
-                <p>Hi ${escapeHtml(customerName)},</p>
-                <p>We need your payment card on file to complete your booking with ${escapeHtml(companyName)}.</p>
-                <div style="background:white;padding:20px;border-radius:8px;margin:20px 0;border-left:4px solid #10b981;">
-                  <p><strong>Why do we need this?</strong></p>
-                  <p style="margin:0;color:#666;">Your card will be securely saved for your upcoming service. You won't be charged until after your service is completed.</p>
-                </div>
-                <div style="text-align:center;">
-                  <a href="${session.url}" style="display:inline-block;background:#10b981;color:white;padding:15px 40px;text-decoration:none;border-radius:8px;font-weight:bold;margin:20px 0;">Add My Card Securely</a>
-                </div>
-                <p style="text-align:center;color:#666;font-size:14px;">🔒 Secured by Stripe — Bank-level encryption</p>
-                <p style="color:#666;font-size:14px;margin-top:20px;">This link will expire in 24 hours.</p>
-              </div>
-              <div style="text-align:center;color:#666;font-size:12px;margin-top:20px;">
-                <p>&copy; ${new Date().getFullYear()} ${escapeHtml(companyName)}. All rights reserved.</p>
-              </div>
-            </div>
-          </body></html>
-        `,
+        html: rendered.html,
+        text: rendered.text,
       });
       if (!emailResult.success) {
         return new Response(

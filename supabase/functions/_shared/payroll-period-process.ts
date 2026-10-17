@@ -3,8 +3,6 @@
 // admin-triggered `admin-trigger-payroll-report` function so the report logic
 // has exactly one source of truth.
 
-import * as React from "npm:react@18.3.1";
-import { renderAsync } from "https://esm.sh/@react-email/components@0.0.22?deps=react@18.3.1";
 import { Resend } from "https://esm.sh/resend@2.0.0";
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -28,10 +26,8 @@ import {
   resolveSender,
   PLATFORM_SENDER_FROM,
 } from "./email-sender-resolution.ts";
-import {
-  PayrollPeriodReport,
-  type CleanerRow,
-} from "./email-templates/payroll-period-report.tsx";
+import { type CleanerRow } from "./email-templates/payroll-period-report.tsx";
+import { renderCrmEmail } from "./crm-email/render.ts";
 
 const TEMPLATE_NAME = "payroll-period-report";
 const APP_URL =
@@ -752,30 +748,91 @@ export async function processOrg(
   const emailSettingsResult = await getOrgEmailSettings(org.id);
   const orgEmailSettings = emailSettingsResult.success ? emailSettingsResult.settings ?? null : null;
 
-  // --- 13. Render React Email -----------------------------------------------
-  const subject = `📊 Payroll report — ${result.periodLabel} · ${
-    totals.payroll.toLocaleString("en-US", {
+  // --- 13. Render branded payroll email ------------------------------------
+  const fmtUsd = (n: number) =>
+    n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  const fmtUsdCents = (n: number) =>
+    n.toLocaleString("en-US", {
       style: "currency",
       currency: "USD",
-      maximumFractionDigits: 0,
-    })
-  }`;
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  const fmtPct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
+  const currency = fmtUsd(totals.payroll);
+  const subject = `📊 Payroll report — ${result.periodLabel} · ${currency}`;
+  const changeLabel = changeVsPrevious
+    ? `Revenue ${fmtPct(changeVsPrevious.revenuePct)} · Payroll ${fmtPct(changeVsPrevious.payrollPct)} · Jobs ${fmtPct(changeVsPrevious.jobsPct)}`
+    : "No prior period to compare";
 
-  const props = {
-    orgName: companyName,
-    periodLabel: result.periodLabel!,
-    totals,
-    changeVsPrevious,
-    cleaners,
-    standouts,
-    warnings,
-    ctaUrl: `${APP_URL}/dashboard/payroll`,
-  };
-  const html = await renderAsync(React.createElement(PayrollPeriodReport, props));
-  const text = await renderAsync(
-    React.createElement(PayrollPeriodReport, props),
-    { plainText: true },
-  );
+  const standoutRows: Array<Record<string, string>> = [];
+  if (standouts?.topEarner) {
+    standoutRows.push({
+      standout: `Top earner: ${standouts.topEarner.name} — ${fmtUsdCents(standouts.topEarner.payout)}`,
+    });
+  }
+  if (standouts?.mostJobs) {
+    standoutRows.push({
+      standout: `Most jobs: ${standouts.mostJobs.name} — ${standouts.mostJobs.jobs} jobs`,
+    });
+  }
+  if (standouts?.highestAvg) {
+    standoutRows.push({
+      standout: `Highest average per job: ${standouts.highestAvg.name} — ${fmtUsdCents(standouts.highestAvg.avgPayout)}`,
+    });
+  }
+
+  const warningRows: Array<Record<string, string>> = [];
+  if (warnings.noStripeCleaners.length > 0) {
+    warningRows.push({
+      warning: `Stripe Connect not set up (${warnings.noStripeCleaners.length}): ${warnings.noStripeCleaners.join(", ")} — these cleaners can't receive direct payouts until they finish onboarding.`,
+    });
+  }
+  if (warnings.idleCleaners.length > 0) {
+    warningRows.push({
+      warning: `Idle cleaners (${warnings.idleCleaners.length}): ${warnings.idleCleaners.join(", ")} worked in at least one of the prior 2 periods but had zero jobs this period.`,
+    });
+  }
+  if (warnings.negativeMarginBookings > 0) {
+    warningRows.push({
+      warning: `Negative-margin bookings (${warnings.negativeMarginBookings}): labor cost exceeded revenue. Review pricing or wage configuration.`,
+    });
+  }
+  if (warnings.zeroPayBookings > 0) {
+    warningRows.push({
+      warning: `$0 cleaner pay (${warnings.zeroPayBookings}): completed bookings have no cleaner pay configured.`,
+    });
+  }
+
+  const rendered = renderCrmEmail("payroll-period-report", {
+    vars: {
+      periodLabel: result.periodLabel!,
+      currency,
+      orgName: companyName,
+      changeVsPrevious: changeLabel,
+      "totals.revenue": fmtUsd(totals.revenue),
+      "totals.payroll": fmtUsd(totals.payroll),
+      "totals.profit": fmtUsd(totals.profit),
+      "totals.laborPct": `${totals.laborPct.toFixed(1)}%`,
+      "totals.jobs": totals.jobs,
+      "totals.cleanersWorked": totals.cleanersWorked,
+      ctaUrl: `${APP_URL}/dashboard/payroll`,
+    },
+    repeats: [
+      {
+        prefix: "cleaner.",
+        rows: cleaners.map((c) => ({
+          "cleaner.name": c.name,
+          "cleaner.jobs": String(c.jobs),
+          "cleaner.pay": fmtUsdCents(c.payout),
+        })),
+      },
+      { prefix: "standout", rows: standoutRows },
+      { prefix: "warning", rows: warningRows },
+    ],
+  });
+  const html = rendered.html;
+  const text = rendered.text;
   result.html = html;
   result.text = text;
   result.subject = subject;

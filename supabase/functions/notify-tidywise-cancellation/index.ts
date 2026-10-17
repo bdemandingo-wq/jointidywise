@@ -19,8 +19,9 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { tidywiseEmailFooterHtml, tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { PLATFORM_SENDER_EMAIL } from "../_shared/email-sender-resolution.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -128,30 +129,16 @@ serve(async (req: Request) => {
     const from = `${fromName} <${fromEmail}>`;
 
     if (resendKey) {
+      const appUrl = Deno.env.get("APP_URL") || "https://jointidywise.com";
       try {
-        const customerHtml = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-            <h2 style="color: #1a1a1a; margin: 0 0 12px;">We're sorry to see you go, ${escapeHtml(firstName)}.</h2>
-            <p style="color: #333; line-height: 1.6;">
-              We received your cancellation. Your TidyWise account stays fully active until
-              <strong>${escapeHtml(periodEndDisplay)}</strong> — keep using everything until then.
-            </p>
-            <p style="color: #333; line-height: 1.6;">
-              After that date, your account drops to read-only. Your data (customers, bookings,
-              invoices, staff) stays safe and untouched. If you change your mind later, you can
-              resubscribe with one click and pick up where you left off.
-            </p>
-            <p style="color: #333; line-height: 1.6;">
-              If something specific pushed you to cancel, reply to this email — Emmanuel
-              reads every one personally.
-            </p>
-            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-            <p style="color: #555; line-height: 1.6;">
-              — The TidyWise team<br/>
-              <a href="mailto:${ADMIN_EMAIL}" style="color: #2563eb;">${ADMIN_EMAIL}</a>
-            </p>
-            ${tidywiseEmailFooterHtml()}
-          </div>`;
+        const customerMail = renderCrmEmail("cancellation-confirmed", {
+          vars: {
+            userName: firstName,
+            email,
+            plan: `${body.plan || "TidyWise"} · access until ${periodEndDisplay}`,
+            APP_URL: appUrl,
+          },
+        });
 
         await fetch("https://api.resend.com/emails", {
           method: "POST",
@@ -164,7 +151,8 @@ serve(async (req: Request) => {
             to: [email],
             reply_to: ADMIN_EMAIL,
             subject: "Your TidyWise cancellation is confirmed",
-            html: customerHtml,
+            html: customerMail.html,
+            text: customerMail.text,
           }),
         });
         console.log("[notify-tidywise-cancellation] Customer email sent to", email);
@@ -174,26 +162,28 @@ serve(async (req: Request) => {
 
       // ── 3. Admin alert email ─────────────────────────────────────────────
       try {
-        const adminHtml = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-            <h2 style="color: #1a1a1a; margin: 0 0 12px;">📉 TidyWise cancellation</h2>
-            <table style="border-collapse: collapse; width: 100%;">
-              <tr><td style="padding: 6px 0;"><strong>Customer:</strong></td><td>${escapeHtml(userName || "—")}</td></tr>
-              <tr><td style="padding: 6px 0;"><strong>Email:</strong></td><td><a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a></td></tr>
-              <tr><td style="padding: 6px 0;"><strong>Phone:</strong></td><td>${escapeHtml(userPhone || "—")}</td></tr>
-              <tr><td style="padding: 6px 0;"><strong>Organization:</strong></td><td>${escapeHtml(body.organization_name || "—")}</td></tr>
-              <tr><td style="padding: 6px 0;"><strong>Plan:</strong></td><td>${escapeHtml(body.plan || "—")}</td></tr>
-              <tr><td style="padding: 6px 0;"><strong>Reason:</strong></td><td>${escapeHtml(reasonLabel)}</td></tr>
-              <tr><td style="padding: 6px 0;"><strong>Access until:</strong></td><td>${escapeHtml(periodEndDisplay)}</td></tr>
-              <tr><td style="padding: 6px 0;"><strong>Cancelled by:</strong></td><td>${escapeHtml(body.triggered_by === "admin" ? "Platform admin (you)" : "User (self-serve)")}</td></tr>
-            </table>
-            ${body.feedback_text ? `<h3 style="margin-top: 20px;">Feedback</h3><blockquote style="border-left: 3px solid #2563eb; padding: 8px 16px; background: #f5f5f5; white-space: pre-wrap;">${escapeHtml(body.feedback_text)}</blockquote>` : ""}
-            ${body.kept_text ? `<h3 style="margin-top: 20px;">What would have kept them</h3><blockquote style="border-left: 3px solid #16a34a; padding: 8px 16px; background: #f0fdf4; white-space: pre-wrap;">${escapeHtml(body.kept_text)}</blockquote>` : ""}
-            ${body.competitor_name ? `<p><strong>Switching to:</strong> ${escapeHtml(body.competitor_name)}</p>` : ""}
-            ${body.missing_feature ? `<p><strong>Missing feature:</strong> ${escapeHtml(body.missing_feature)}</p>` : ""}
-            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 16px 0;" />
-            <p style="font-size: 13px; color: #888;">Reply to this email to reach ${escapeHtml(userName || "the customer")} directly.</p>
-          </div>`;
+        const detailLines = [
+          userPhone ? `Phone: ${escapeHtml(userPhone)}` : "",
+          `Organization: ${escapeHtml(body.organization_name || "—")}`,
+          `Reason: ${escapeHtml(reasonLabel)}`,
+          `Access until: ${escapeHtml(periodEndDisplay)}`,
+          `Cancelled by: ${escapeHtml(body.triggered_by === "admin" ? "Platform admin" : "User (self-serve)")}`,
+          body.feedback_text ? `Feedback: ${escapeHtml(body.feedback_text)}` : "",
+          body.kept_text ? `Would have kept them: ${escapeHtml(body.kept_text)}` : "",
+          body.competitor_name ? `Switching to: ${escapeHtml(body.competitor_name)}` : "",
+          body.missing_feature ? `Missing feature: ${escapeHtml(body.missing_feature)}` : "",
+        ].filter(Boolean);
+        const details = `<p style="margin:0;padding:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:21px;color:#1b1b1b;">${detailLines.join("<br>")}</p>`;
+        const adminMail = renderCrmEmail("internal-cancellation", {
+          vars: {
+            userName: userName || email,
+            email,
+            plan: body.plan || "—",
+            details,
+            APP_URL: appUrl,
+          },
+          rawKeys: ["details"],
+        });
 
         await fetch("https://api.resend.com/emails", {
           method: "POST",
@@ -206,7 +196,8 @@ serve(async (req: Request) => {
             to: [ADMIN_EMAIL],
             reply_to: email,
             subject: `📉 Cancellation: ${userName || email}`,
-            html: adminHtml,
+            html: adminMail.html,
+            text: adminMail.text,
           }),
         });
         console.log("[notify-tidywise-cancellation] Admin email sent");

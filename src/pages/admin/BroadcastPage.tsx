@@ -21,6 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/hooks/useAuth';
 import { defaultSignatureText, MAX_SUBJECT, renderBroadcastHtml } from '@/lib/broadcast-render';
+import { wrapBroadcastDocument } from '../../../supabase/functions/_shared/crm-email/broadcast-shell.ts';
 import {
   useBroadcasts,
   useBroadcastTested,
@@ -121,16 +122,19 @@ export function BroadcastView({ embedded = false }: { embedded?: boolean }) {
 
   const previewHtml = useMemo(
     () =>
-      renderBroadcastHtml({
-        bodyText,
-        unsubscribeUrl: messageClass === 'marketing' ? PREVIEW_UNSUBSCRIBE_URL : null,
-        // Deliberately not passing `signature`. Passing the default's plain text
-        // would send the renderer down the STORED path, which escapes and emits
-        // no markup — so the preview would show a dead "Emmanuel Forkuoh •
-        // https://..." line instead of the anchor the recipient actually gets.
-        // Omitting it is what makes this preview truthful.
+      wrapBroadcastDocument({
+        subject: subject.trim() || 'Preview',
+        innerHtml: renderBroadcastHtml({
+          bodyText,
+          unsubscribeUrl: messageClass === 'marketing' ? PREVIEW_UNSUBSCRIBE_URL : null,
+          // Deliberately not passing `signature`. Passing the default's plain text
+          // would send the renderer down the STORED path, which escapes and emits
+          // no markup — so the preview would show a dead "Emmanuel Forkuoh •
+          // https://..." line instead of the anchor the recipient actually gets.
+          // Omitting it is what makes this preview truthful.
+        }),
       }),
-    [bodyText, messageClass],
+    [bodyText, messageClass, subject],
   );
 
   function handleCreateDraft() {

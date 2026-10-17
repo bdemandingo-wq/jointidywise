@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendOrgEmail } from "../_shared/send-org-email.ts";
+import { renderCrmEmail, orgBrandVars } from "../_shared/crm-email/render.ts";
+import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,8 +24,23 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) throw new Error("Unauthorized");
 
-    const { organizationId, to, subject, body, attachments } = await req.json();
-    if (!organizationId || !to || !subject || !body) {
+    const {
+      organizationId,
+      to,
+      subject,
+      body,
+      attachments,
+      crmTemplate,
+      customerName,
+      companyName,
+      serviceName,
+      address,
+      bedrooms,
+      bathrooms,
+      extras,
+      estimatedTotal,
+    } = await req.json();
+    if (!organizationId || !to || !subject || (crmTemplate !== "quote" && !body)) {
       throw new Error("Missing required fields: organizationId, to, subject, body");
     }
 
@@ -35,12 +52,53 @@ serve(async (req) => {
       .maybeSingle();
     if (!membership) throw new Error("Unauthorized: not a member of this organization");
 
+    let html: string = body;
+    let text: string | undefined;
+    if (crmTemplate === "quote") {
+      const brand = await loadLooseBrand(organizationId);
+      const { data: orgRow } = await supabase
+        .from("organizations")
+        .select("slug")
+        .eq("id", organizationId)
+        .maybeSingle();
+      const appUrl = (Deno.env.get("APP_URL") || "https://jointidywise.com").replace(/\/+$/, "");
+      const slug = typeof orgRow?.slug === "string" ? orgRow.slug.trim() : "";
+      const bookingUrl = slug ? `${appUrl}/book/${slug}` : `${appUrl}/book`;
+      const specificName = typeof companyName === "string" ? companyName.trim() : "";
+      const rendered = renderCrmEmail("quote", {
+        vars: {
+          ...orgBrandVars(brand),
+          ...(specificName
+            ? {
+                companyName: specificName,
+                company_name: specificName,
+                orgName: specificName,
+                biz: specificName,
+                businessName: specificName,
+              }
+            : {}),
+          customerName: customerName ?? "",
+          serviceName: serviceName ?? "",
+          address: address ?? "",
+          bedrooms: bedrooms ?? "",
+          bathrooms: bathrooms ?? "",
+          extras: extras ?? "",
+          estimatedTotal: estimatedTotal ?? "",
+          bookingUrl,
+        },
+        rawKeys: ["email_footer"],
+      });
+      html = rendered.html;
+      text = rendered.text;
+    }
+
     const result = await sendOrgEmail({
       templateName: "direct_email",
       organizationId,
       to,
       subject,
-      html: body,
+      html,
+      ...(text ? { text } : {}),
       attachments: Array.isArray(attachments)
         ? attachments.map((a: { name: string; content: string; type: string }) => ({
             filename: a.name,

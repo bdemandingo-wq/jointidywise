@@ -4,7 +4,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { resolveCallerOrg, isServiceRoleRequest } from "../_shared/require-caller-org.ts";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { PLATFORM_SENDER_EMAIL } from "../_shared/email-sender-resolution.ts";
-import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { orgBrandVars, renderCrmEmail } from "../_shared/crm-email/render.ts";
+import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -260,6 +261,22 @@ serve(async (req: Request) => {
                 const firstName = staff.name?.split(" ")[0] || "there";
                 const fromName = orgEmailSettings?.from_name || "TidyWise";
                 const fromEmail = orgEmailSettings?.from_email || PLATFORM_SENDER_EMAIL;
+                const portalUrl = "https://jointidywise.com/staff-portal?tab=payouts";
+                const supportEmail = tidywiseSupportEmail();
+                const supportMailto = `mailto:${tidywiseSupportEmail()}`;
+                const brand = await loadLooseBrand(account.organization_id);
+                const requirementsMail = renderCrmEmail("stripe-requirements", {
+                  vars: {
+                    ...orgBrandVars(brand),
+                    firstName,
+                    portalUrl,
+                    supportEmail,
+                  },
+                  rawKeys: ["email_footer"],
+                });
+                const requirementsText = requirementsMail.text.includes(supportMailto)
+                  ? requirementsMail.text
+                  : `${requirementsMail.text}\n${supportMailto}`;
 
                 const resendRes = await fetch("https://api.resend.com/emails", {
                   method: "POST",
@@ -272,27 +289,8 @@ serve(async (req: Request) => {
                     reply_to: tidywiseSupportEmail(),
                     to: [staff.email],
                     subject: "You have a pending action in your TidyWise Cleaner Portal",
-                    html: `
-                      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-                        <h2 style="color:#1a1a2e;">Hi ${escapeHtml(firstName)},</h2>
-                        <p style="color:#333;font-size:15px;line-height:1.6;">
-                          You have a pending action in your TidyWise Cleaner Portal that needs your attention to keep receiving payouts.
-                        </p>
-                        <div style="text-align:center;margin:28px 0;">
-                          <a href="https://jointidywise.com/staff-portal?tab=payouts" style="display:inline-block;background:#4f46e5;color:#fff;font-size:16px;font-weight:600;padding:14px 36px;border-radius:8px;text-decoration:none;">
-                            Log in to Resolve
-                          </a>
-                        </div>
-                        <p style="color:#888;font-size:13px;">
-                          TidyWise operates on net 30 terms. Payouts are held until your setup is complete.
-                        </p>
-                        <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
-                        <p style="color:#888;font-size:13px;">
-                          Need help? Contact us at <a href="mailto:${tidywiseSupportEmail()}" style="color:#4f46e5;">${tidywiseSupportEmail()}</a>.
-                        </p>
-                        <p style="color:#888;font-size:13px;">— The TidyWise Team</p>
-                      </div>
-                    `,
+                    html: requirementsMail.html,
+                    text: requirementsText,
                   }),
                 });
 
