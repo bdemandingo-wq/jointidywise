@@ -14,15 +14,27 @@ import {
   helpFaqIntroRuns,
   helpFaqJsonLd,
   type HelpFaqEntry,
+  type HelpFaqRun,
 } from "@/content/helpFaq";
 
-type Run = string | { strong: string };
-
-function Runs({ runs }: { runs: Run[] }) {
+function Runs({ runs }: { runs: HelpFaqRun[] }) {
   return (
     <>
       {runs.map((run, index) => {
         if (typeof run === "string") return <span key={index}>{run}</span>;
+        if ("href" in run) {
+          return (
+            <a
+              key={index}
+              href={run.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary underline decoration-primary/40 underline-offset-4 hover:decoration-primary"
+            >
+              {run.text}
+            </a>
+          );
+        }
         if (run.strong === SUPPORT_EMAIL) {
           return (
             <strong key={index}>

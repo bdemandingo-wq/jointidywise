@@ -63,6 +63,35 @@ test("every approved question is present and the support address is a mailto", (
   assert.match(needHelp, /tutorial videos under Help in the sidebar/);
 });
 
+test("cleaners can use the iPhone App Store app, the Android Google Play app, or a browser", () => {
+  const entry = helpFaqEntries().find(
+    (item) => item.question === "How do my cleaners get the app and sign in?",
+  );
+  assert.ok(entry);
+  const text = helpFaqAnswerText(entry);
+  const expected =
+    "Cleaners can use the TidyWise app for iPhone (App Store) or Android (Google Play), or any web browser. They sign in at the Staff Portal (jointidywise.com/staff/login) with the email and password you created for them.";
+  assert.equal(text, expected);
+  assert.equal(text.includes("no Android"), false);
+  assert.equal(text.includes("iPhone app or any web browser"), false);
+
+  const html = helpFaqPrerenderBody();
+  assert.match(
+    html,
+    /Cleaners can use the TidyWise app for iPhone \(<a href="https:\/\/apps\.apple\.com\/app\/id6788275014" target="_blank" rel="noopener noreferrer">App Store<\/a>\) or Android \(Google Play\), or any web browser\./,
+  );
+  assert.equal(html.includes("play.google.com"), false);
+  assert.equal(html.includes("no Android app"), false);
+
+  const jsonLd = helpFaqJsonLd() as {
+    mainEntity: { name: string; acceptedAnswer: { text: string } }[];
+  };
+  const answer = jsonLd.mainEntity.find(
+    (item) => item.name === "How do my cleaners get the app and sign in?",
+  );
+  assert.equal(answer?.acceptedAnswer.text, expected);
+});
+
 test("the public page and footer point at /help", () => {
   const page = readFileSync(new URL("../pages/HelpFaqPage.tsx", import.meta.url), "utf8");
   const footer = readFileSync(new URL("../components/SiteFooter.tsx", import.meta.url), "utf8");
