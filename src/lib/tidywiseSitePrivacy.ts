@@ -44,6 +44,7 @@ const MARKETING_EXACT = new Set([
   '/demo',
   '/contact',
   '/get-the-app',
+  '/help',
   '/privacy-policy',
   '/terms',
   '/referral',

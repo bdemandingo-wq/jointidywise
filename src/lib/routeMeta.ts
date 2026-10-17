@@ -1,3 +1,12 @@
+import {
+  HELP_FAQ_DESCRIPTION,
+  HELP_FAQ_H1,
+  HELP_FAQ_PATH,
+  HELP_FAQ_TITLE,
+  helpFaqJsonLd,
+  helpFaqPrerenderBody,
+} from "../content/helpFaq.ts";
+
 /**
  * Per-route SEO metadata.
  *
@@ -130,6 +139,14 @@ export const STATIC_ROUTE_META: Record<string, RouteMeta> = {
           <li><a href="/privacy-policy">Privacy policy</a></li>
         </ul>
       </nav>`,
+  },
+  [HELP_FAQ_PATH]: {
+    title: HELP_FAQ_TITLE,
+    description: HELP_FAQ_DESCRIPTION,
+    h1: HELP_FAQ_H1,
+    canonicalPath: HELP_FAQ_PATH,
+    prerenderBody: helpFaqPrerenderBody(),
+    jsonLd: helpFaqJsonLd(),
   },
   "/login": {
     title: "Log In to TidyWise | Cleaning Business Software",

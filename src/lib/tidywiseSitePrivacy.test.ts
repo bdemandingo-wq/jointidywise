@@ -72,6 +72,7 @@ test('marketing and signup paths are the only notice surface', () => {
     '/contact',
     '/demo',
     '/get-the-app',
+    '/help',
   ]) {
     assert.equal(isTidyWiseMarketingOrSignupPath(path), true, path);
   }
