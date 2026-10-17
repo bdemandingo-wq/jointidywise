@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sendOrgEmail } from "../_shared/send-org-email.ts";
+import { renderCrmEmail, orgBrandVars } from "../_shared/crm-email/render.ts";
+import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
 
 
 const corsHeaders = {
@@ -103,24 +105,24 @@ serve(async (req) => {
     const origin = (Deno.env.get("PUBLIC_SITE_URL") || "https://www.jointidywise.com").replace(/\/$/, "");
     const acceptUrl = `${origin}/accept-invite?token=${encodeURIComponent(inviteToken)}`;
 
-    const esc = (s: string) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px;">
-        <h2 style="margin:0 0 12px;">You're invited to ${esc(orgName)}</h2>
-        <p>You've been invited to join <strong>${esc(orgName)}</strong> as <strong>${esc(role)}</strong>.</p>
-        <p style="margin:24px 0;">
-          <a href="${acceptUrl}" style="background:#2563eb;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;">Accept invitation</a>
-        </p>
-        <p style="font-size:12px;color:#666;">Or paste this link into your browser:<br/><span style="word-break:break-all;">${acceptUrl}</span></p>
-        <p style="color:#666;font-size:12px;">This link expires in 14 days. If you weren't expecting this, ignore this email.</p>
-      </div>`;
+    const brand = await loadLooseBrand(orgId);
+    const rendered = renderCrmEmail("team-invite", {
+      vars: {
+        ...orgBrandVars(brand),
+        orgName,
+        acceptUrl,
+        role,
+      },
+      rawKeys: ["email_footer"],
+    });
 
     const sendResult = await sendOrgEmail({
       templateName: "team_invite",
       organizationId: orgId,
       to: email,
       subject: `You're invited to join ${orgName}`,
-      html,
+      html: rendered.html,
+      text: rendered.text,
       // Auth/account-access mail: must reach the user even if a previous
       // send to this address hard-bounced.
       ignoreSuppression: true,

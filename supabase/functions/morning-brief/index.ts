@@ -1,12 +1,17 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronOrUser } from "../_shared/requireCronOrUser.ts";
-import { checkOrgEmailEligibility, unsubscribeFooterHtml } from "../_shared/emailEligibility.ts";
+import { checkOrgEmailEligibility } from "../_shared/emailEligibility.ts";
 import { tidywiseSupportFrom } from "../_shared/email-footer.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
 
-function htmlPerson(c: { first_name?: string | null; last_name?: string | null } | null | undefined): string {
+function plainPerson(c: { first_name?: string | null; last_name?: string | null } | null | undefined): string {
   const raw = c ? `${c.first_name || ""} ${c.last_name || ""}`.trim() : "";
-  return escapeHtml(raw || "Unknown");
+  return raw || "Unknown";
+}
+
+function htmlPerson(c: any): string {
+  return escapeHtml(plainPerson(c));
 }
 
 const corsHeaders = {
@@ -138,7 +143,10 @@ Deno.serve(async (req) => {
 
   const fmt = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const formatTime = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
-  const formatShortDate = (iso: string) => new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const formatShortDate = (iso: string | null | undefined) => {
+    if (!iso) return "";
+    return new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  };
   const pctChange = (curr: number, prev: number) => {
     if (prev === 0 && curr === 0) return "—";
     if (prev === 0) return "🔼 ∞%";
@@ -162,6 +170,20 @@ Deno.serve(async (req) => {
   }, []);
 
   const todayRevenue = todayBookings.reduce((s, b) => s + (Number(b.total_amount) || 0), 0);
+  const tomorrowEndNY = new Date(new Date(`${y}-${m}-${d}T00:00:00-04:00`).getTime() + 2 * 86400000).toISOString();
+  const tomorrowBookings = await safeQuery("Tomorrow's bookings", async () => {
+    const { data, error } = await supabase
+      .from("bookings")
+      .select("id, scheduled_at, status, total_amount")
+      .eq("organization_id", orgId)
+      .gte("scheduled_at", tomorrowStartNY)
+      .lt("scheduled_at", tomorrowEndNY)
+      .neq("status", "cancelled")
+      .order("scheduled_at", { ascending: true });
+    if (error) throw error;
+    return data || [];
+  }, []);
+  const tomorrowRevenue = tomorrowBookings.reduce((s, b) => s + (Number(b.total_amount) || 0), 0);
   const confirmedCount = todayBookings.filter(b => b.status === "confirmed" || b.status === "completed").length;
   const unconfirmedBookings = todayBookings.filter(b => b.status !== "confirmed" && b.status !== "completed" && b.status !== "cancelled");
 
@@ -691,12 +713,22 @@ Deno.serve(async (req) => {
     return { thisWeek: thisW, lastWeek: lastW };
   }, { thisWeek: { bookings: 0, revenue: 0, newCustomers: 0, cancellations: 0, estimateWins: 0 }, lastWeek: { bookings: 0, revenue: 0, newCustomers: 0, cancellations: 0, estimateWins: 0 } });
 
-  // ════════════════════════════════════════════════════
-  // BUILD HTML
-  // ════════════════════════════════════════════════════
-
   const subjectDate = now.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "long", day: "numeric" });
   const subjectLine = `📋 Tidywise Daily Brief — ${subjectDate} — ${todayBookings.length} jobs • ${fmt(todayRevenue)} booked • ${newLeads.length} leads`;
+  const appUrl = Deno.env.get("APP_URL") || "https://jointidywise.com";
+  const wowChange = pctChange(wow.thisWeek.revenue, wow.lastWeek.revenue);
+
+  // Eligibility: subscription status, unsubscribe flag, owner email.
+  // Sent through Resend directly, so the unsubscribe URL must be the real one.
+  const eligibility = await checkOrgEmailEligibility(supabase, orgId);
+  if (!eligibility.ok) {
+    console.log(`Skipping org ${orgId}: ${eligibility.reason}`);
+    return new Response(
+      JSON.stringify({ skipped: true, reason: eligibility.reason, org_id: orgId }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
+  const recipientEmail = eligibility.email;
 
   const renderList = (items: string[], max = 5) => {
     if (items.length === 0) return `<p style="color:#9ca3af;margin:4px 0;">None</p>`;
@@ -723,10 +755,11 @@ Deno.serve(async (req) => {
       </div>` : "";
 
   const jobRows = todayBookings.map(b => {
-    const c = b.customers;
+    const row = b as any;
+    const c = row.customers;
     const name = htmlPerson(c);
-    const staffName = escapeHtml(b.staff?.name || "Unassigned");
-    const serviceName = escapeHtml(b.services?.name || "—");
+    const staffName = escapeHtml(row.staff?.name || "Unassigned");
+    const serviceName = escapeHtml(row.services?.name || "—");
     const statusColor = b.status === "completed" ? "#16a34a" : b.status === "cancelled" ? "#dc2626" : b.status === "confirmed" ? "#2563eb" : "#ca8a04";
     const payColor = b.payment_status === "paid" ? "#16a34a" : "#dc2626";
     return `<div style="${rowStyle}">
@@ -862,39 +895,47 @@ Deno.serve(async (req) => {
 
   // Errors section
   const errorsHtml = skippedSections.length > 0 ? `<div style="margin-top:20px;padding:8px;background:#f9fafb;border-radius:6px;font-size:11px;color:#9ca3af;">
-    <strong>Sections with issues:</strong> ${skippedSections.join(", ")}${errors.length > 0 ? `<br/>${errors.map(e => `• ${e}`).join("<br/>")}` : ""}
+    <strong>Sections with issues:</strong> ${skippedSections.join(", ")}${errors.length > 0 ? `<br/>${errors.map(e => `• ${escapeHtml(e)}`).join("<br/>")}` : ""}
   </div>` : "";
 
-  const generatedAt = now.toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "long" });
+  const opsDetail = `${sec1Html}${sec2Html}${sec3Html}${sec4Html}${sec5Html}${sec6Html}${sec7Html}${sec8Html}${sec9Html}${errorsHtml}`;
 
-  const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;padding:20px;background:#f9fafb;color:#1f2937;">
-  <div style="background:#fff;border-radius:12px;padding:28px;border:1px solid #e5e7eb;">
-    <h1 style="font-size:22px;margin:0 0 4px;">📋 Tidywise Daily Brief</h1>
-    <p style="color:#6b7280;margin:0 0 28px;font-size:14px;">${subjectDate}</p>
-    ${sec1Html}${sec2Html}${sec3Html}${sec4Html}${sec5Html}${sec6Html}${sec7Html}${sec8Html}${sec9Html}
-    ${errorsHtml}
-    <div style="margin-top:28px;padding-top:16px;border-top:1px solid #e5e7eb;text-align:center;">
-      <a href="${Deno.env.get("APP_URL") || "https://jointidywise.com"}/dashboard/notifications" style="display:inline-block;background:#2563eb;color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">Open Dashboard</a>
-      <p style="color:#9ca3af;font-size:11px;margin:12px 0 0;">Generated ${generatedAt}</p>
-    </div>
-  </div>
-</body></html>`;
+  const brief = renderCrmEmail("morning-brief", {
+    vars: {
+      subjectDate,
+      todayBookingsCount: todayBookings.length,
+      todayRevenue: fmt(todayRevenue),
+      newLeadsCount: newLeads.length,
+      staffOnToday: staffUtilization.length,
+      APP_URL: appUrl,
+      tomorrowCount: tomorrowBookings.length,
+      tomorrowRevenue: fmt(tomorrowRevenue),
+      wowChange,
+      UNSUBSCRIBE_URL: eligibility.unsubscribeUrl,
+      opsDetail,
+    },
+    rawKeys: ["opsDetail"],
+    repeats: [
+      {
+        prefix: "job.",
+        rows: todayBookings.map((b) => ({
+          "job.time": formatTime(b.scheduled_at),
+          "job.customer": plainPerson(b.customers),
+          "job.service": b.services?.name || "—",
+          "job.staff": b.staff?.name || "Unassigned",
+          "job.total": fmt(Number(b.total_amount) || 0),
+        })),
+      },
+      {
+        prefix: "lead.",
+        rows: newLeads.map((l) => ({
+          "lead.name": l.name || "Unknown",
+          "lead.source": l.source || "",
+        })),
+      },
+    ],
+  });
 
-  // Eligibility: subscription status, unsubscribe flag, owner email
-  const eligibility = await checkOrgEmailEligibility(supabase, orgId);
-  if (!eligibility.ok) {
-    console.log(`Skipping org ${orgId}: ${eligibility.reason}`);
-    return new Response(
-      JSON.stringify({ skipped: true, reason: eligibility.reason, org_id: orgId }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
-  const recipientEmail = eligibility.email;
-
-  const footer = unsubscribeFooterHtml(eligibility.unsubscribeUrl);
-  const htmlWithFooter = html.replace(/<\/body>/i, `${footer}</body>`);
 
   // Send via Resend
   try {
@@ -908,7 +949,8 @@ Deno.serve(async (req) => {
         from: tidywiseSupportFrom(),
         to: [recipientEmail],
         subject: subjectLine,
-        html: htmlWithFooter,
+        html: brief.html,
+        text: brief.text,
         headers: {
           "List-Unsubscribe": `<${eligibility.unsubscribeUrl}>`,
           "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",

@@ -4,6 +4,8 @@ import { verifyAdminAuth, createUnauthorizedResponse, createForbiddenResponse } 
 import { logAudit } from "../_shared/audit-log.ts";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { PLATFORM_SENDER_FROM } from "../_shared/email-sender-resolution.ts";
+import { orgBrandVars, renderCrmEmail } from "../_shared/crm-email/render.ts";
+import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -154,31 +156,23 @@ serve(async (req) => {
     const businessName = bizSettings?.company_name || "your cleaning business";
 
     const resendKey = Deno.env.get("RESEND_API_KEY");
-
-    const escapeHtml = (v: string) =>
-      v.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-    const noticeIntro = `
-      <p>Hi ${escapeHtml(staffMember.name || "there")},</p>
-      <p>A password setup link was generated for your staff account by
-      <strong>${escapeHtml(adminIdentity)}</strong> at
-      <strong>${escapeHtml(businessName)}</strong>.</p>`;
-
-    const noticeFooter = `
-      <p>If you were not expecting this, please contact
-      ${escapeHtml(businessName)} right away.</p>
-      <p style="color:#64748b;font-size:12px;">TidyWise</p>`;
-
-    const emailHtml = isMultiOrg
-      ? `${noticeIntro}
-        <p>Your account is linked to more than one business, so the link was sent
-        directly to you instead of being shared with the administrator.</p>
-        <p><a href="${resetLink}" style="background:#0f172a;color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;display:inline-block;">Set your password</a></p>
-        ${noticeFooter}`
-      : `${noticeIntro}
-        <p>The administrator will share the setup link with you directly. This
-        message is only to let you know a link was created.</p>
-        ${noticeFooter}`;
+    const brand = await loadLooseBrand(staffMember.organization_id);
+    const staffName = staffMember.name || "there";
+    const branded = {
+      ...orgBrandVars(brand),
+      businessName,
+      adminIdentity,
+      staffName,
+    };
+    const email = isMultiOrg
+      ? renderCrmEmail("staff-password-link", {
+          vars: { ...branded, resetLink: resetLink || "" },
+          rawKeys: ["email_footer"],
+        })
+      : renderCrmEmail("staff-password-notice", {
+          vars: branded,
+          rawKeys: ["email_footer"],
+        });
 
     // SECURITY DEPENDENCY: emailing staff.email is only safe because UPDATE on
     // staff.email is NOT granted to `authenticated` (commit 903f7e9b). If that
@@ -196,7 +190,8 @@ serve(async (req) => {
           to: [staffMember.email],
           reply_to: tidywiseSupportEmail(),
           subject,
-          html: emailHtml,
+          html: email.html,
+          text: email.text,
         }),
       });
       if (!res.ok) {

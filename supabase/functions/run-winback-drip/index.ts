@@ -9,6 +9,8 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { renderCrmEmail, orgBrandVars, UNSUBSCRIBE_URL_SENTINEL } from "../_shared/crm-email/render.ts";
+import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -80,6 +82,7 @@ serve(async (req) => {
       const baseUrl = (bizSettings?.app_url || Deno.env.get("APP_URL") || "https://jointidywise.com").replace(/\/+$/, "");
       const companyName = emailSettings?.from_name || "Your Cleaning Company";
       const fromEmail = emailSettings?.from_email || "noreply@jointidywise.com";
+      const brand = await loadLooseBrand(org.id);
 
       let sentThisOrg = 0;
 
@@ -163,13 +166,14 @@ serve(async (req) => {
             wbTokens,
           );
 
-          const html = buildWinbackEmail({
+          const rendered = buildWinbackEmail({
             customerName: `${customer.first_name} ${customer.last_name}`,
             companyName,
             offerPercent,
             bookingUrl: `${baseUrl}/book`,
             step,
             bodyHtml,
+            brand,
           });
 
           const { sendOrgEmail } = await import("../_shared/send-org-email.ts");
@@ -179,7 +183,8 @@ serve(async (req) => {
             organizationId: org.id,
             to: customer.email,
             subject: resolvedSubject,
-            html,
+            html: rendered.html,
+            text: rendered.text,
           });
 
           if (sendResult.success) {
@@ -249,44 +254,36 @@ async function getWinbackCandidatesDirect(
   return results;
 }
 
-function buildWinbackEmail({ customerName, companyName, offerPercent, bookingUrl, step, bodyHtml }: {
+function buildWinbackEmail({ customerName, companyName, offerPercent, bookingUrl, step, bodyHtml, brand }: {
   customerName: string; companyName: string; offerPercent: number; bookingUrl: string; step: number;
   /** Paragraph HTML. Plain templates are escaped by the caller. Markup templates keep their tags. */
   bodyHtml?: string;
+  brand: Awaited<ReturnType<typeof loadLooseBrand>>;
 }) {
-  // Kept only as a last-resort fallback for callers that pass no bodyText.
+  // Kept only as a last-resort fallback for callers that pass no body.
   // The live path always supplies it via resolveTemplate.
   const messages: Record<number, string> = {
     1: `It's been a month since we last cleaned your home, and we've been thinking about you! We'd love to welcome you back.`,
     2: `It's been two months and your home deserves the care it got before. We're still here and ready to help!`,
     3: `It's been three months since your last clean. This is our final check-in - we'd love one more chance to earn your business.`,
   };
+  const paragraph = (bodyHtml ?? escapeHtml(messages[step] || ""))
+    .replace(/\{/g, "{\u200b");
 
-  return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;">
-<table cellpadding="0" cellspacing="0" width="100%"><tr><td style="padding:20px;">
-<table cellpadding="0" cellspacing="0" width="600" style="margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;">
-  <tr><td style="background:#1e5bb0;padding:30px;text-align:center;">
-    <h1 style="color:#fff;margin:0;font-size:24px;">${escapeHtml(companyName)}</h1>
-  </td></tr>
-  <tr><td style="padding:40px 30px;text-align:center;">
-    <div style="font-size:48px;margin-bottom:16px;">🏠</div>
-    <h2 style="color:#1e5bb0;margin:0 0 16px;">Hi ${escapeHtml(customerName)}!</h2>
-    <p style="font-size:16px;color:#555;margin:0 0 24px;">${bodyHtml ?? escapeHtml(messages[step])}</p>
-    <div style="background:#f0f7ff;border-radius:8px;padding:20px;margin-bottom:24px;">
-      <p style="font-size:14px;color:#777;margin:0 0 8px;">Special offer just for you</p>
-      <p style="font-size:36px;font-weight:bold;color:#1e5bb0;margin:0;">${offerPercent}% OFF</p>
-      <p style="font-size:13px;color:#999;margin:8px 0 0;">Your next cleaning service</p>
-    </div>
-    <a href="${escapeHtml(bookingUrl)}" style="display:inline-block;background:#1e5bb0;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:bold;">Book Now — ${offerPercent}% Off</a>
-    <p style="font-size:12px;color:#aaa;margin-top:20px;">Just reply to this email and mention this offer when booking.</p>
-  </td></tr>
-  <tr><td style="background:#333;padding:20px;text-align:center;">
-    <p style="color:#fff;font-size:13px;margin:0;">${escapeHtml(companyName)} &copy; ${new Date().getFullYear()}</p>
-  </td></tr>
-</table></td></tr></table>
-</body></html>`;
+  return renderCrmEmail("customer-winback-drip", {
+    vars: {
+      ...orgBrandVars(brand),
+      company_name: companyName,
+      companyName,
+      orgName: companyName,
+      customer_name: customerName,
+      offer_percent: String(offerPercent),
+      BOOK_URL: bookingUrl,
+      UNSUBSCRIBE_URL: UNSUBSCRIBE_URL_SENTINEL,
+    },
+    slots: [paragraph],
+    rawKeys: ["email_footer"],
+  });
 }
 
 function jsonOk(data: unknown) {

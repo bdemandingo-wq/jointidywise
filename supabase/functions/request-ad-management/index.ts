@@ -4,6 +4,8 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { PLATFORM_SENDER_FROM } from "../_shared/email-sender-resolution.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -159,20 +161,35 @@ serve(async (req) => {
     try {
       const resendKey = Deno.env.get("RESEND_API_KEY");
       if (resendKey) {
-        const html = `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-            <h2>📣 New ad-management request</h2>
-            <table style="border-collapse: collapse;">
-              <tr><td style="padding: 4px 12px 4px 0; color: #888;">Service:</td><td>${SERVICE_LABEL[service_type]}</td></tr>
-              <tr><td style="padding: 4px 12px 4px 0; color: #888;">Org:</td><td>${orgName || orgId}</td></tr>
-              <tr><td style="padding: 4px 12px 4px 0; color: #888;">Business:</td><td>${body.business_name || "—"}</td></tr>
-              <tr><td style="padding: 4px 12px 4px 0; color: #888;">Area:</td><td>${body.service_area || "—"}</td></tr>
-              <tr><td style="padding: 4px 12px 4px 0; color: #888;">Budget:</td><td>${budgetNum ? "$" + budgetNum + "/mo" : "—"}</td></tr>
-              <tr><td style="padding: 4px 12px 4px 0; color: #888;">Has ad accts:</td><td>${body.has_ad_accounts ? "Yes" : "No"}</td></tr>
-              <tr><td style="padding: 4px 12px 4px 0; color: #888;">Readiness:</td><td>GBP:${body.has_google_business ?? "—"} • GAds:${body.has_google_ads ?? "—"} • LSA:${body.has_lsa_verified ?? "—"} • FBBM:${body.has_facebook_bm ?? "—"}</td></tr>
-              <tr><td style="padding: 4px 12px 4px 0; color: #888;">Contact:</td><td>${body.contact_name || ""} ${body.contact_email || user.email} ${body.contact_phone || ""}</td></tr>
-            </table>
-          </div>`;
+        const noteLine = (label: string, value: string) => `${label}: ${escapeHtml(value)}`;
+        const contactBits = [body.contact_name, body.contact_email || user.email, body.contact_phone]
+          .filter((part) => typeof part === "string" && part.trim())
+          .join(" ");
+        const noteLines = [
+          noteLine("Org", orgName || orgId || "—"),
+          noteLine("Area", body.service_area || "—"),
+          noteLine("Budget", budgetNum ? `$${budgetNum}/mo` : "—"),
+          noteLine("Has ad accounts", body.has_ad_accounts ? "Yes" : "No"),
+          noteLine(
+            "Readiness",
+            `GBP:${body.has_google_business ?? "—"} • GAds:${body.has_google_ads ?? "—"} • LSA:${body.has_lsa_verified ?? "—"} • FBBM:${body.has_facebook_bm ?? "—"}`,
+          ),
+          noteLine("Contact", contactBits || "—"),
+        ];
+        const freeNotes = typeof body.notes === "string" ? body.notes.trim() : "";
+        if (freeNotes) noteLines.push(noteLine("Notes", freeNotes));
+        const notes = noteLines.join("\n").replace(/\n/g, "<br>") || "—";
+
+        const adminMail = renderCrmEmail("internal-ad-management", {
+          vars: {
+            serviceLabel: SERVICE_LABEL[service_type],
+            businessName: body.business_name || orgName,
+            requesterEmail: body.contact_email || user.email,
+            notes,
+            APP_URL: Deno.env.get("APP_URL") || "https://jointidywise.com",
+          },
+          rawKeys: ["notes"],
+        });
         await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: {
@@ -184,7 +201,8 @@ serve(async (req) => {
             to: [tidywiseSupportEmail()],
             reply_to: body.contact_email || user.email,
             subject: `📣 Ad mgmt: ${SERVICE_LABEL[service_type]} — ${body.business_name || orgName}`,
-            html,
+            html: adminMail.html,
+            text: adminMail.text,
           }),
         });
       } else {

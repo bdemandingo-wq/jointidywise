@@ -8,8 +8,9 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { tidywiseEmailFooterHtml, tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { PLATFORM_SENDER_EMAIL } from "../_shared/email-sender-resolution.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -75,21 +76,13 @@ serve(async (req: Request) => {
     const fromEmail = emailSettings?.from_email || PLATFORM_SENDER_EMAIL;
     const from = `${fromName} <${fromEmail}>`;
 
-    const safeName = escapeHtml(name);
-    const safeEmail = escapeHtml(email);
-    const safeMessage = escapeHtml(message).replace(/\n/g, "<br/>");
+    const safeMessage = escapeHtml(message).replace(/\n/g, "<br>");
 
     // 1. Admin alert
-    const adminHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-        <h2 style="color: #1a1a1a; margin: 0 0 12px;">New contact form message</h2>
-        <p style="margin: 4px 0;"><strong>From:</strong> ${safeName}</p>
-        <p style="margin: 4px 0;"><strong>Email:</strong> <a href="mailto:${safeEmail}">${safeEmail}</a></p>
-        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 16px 0;" />
-        <div style="color: #333; line-height: 1.6; white-space: pre-wrap;">${safeMessage}</div>
-        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 16px 0;" />
-        <p style="font-size: 12px; color: #888;">Reply directly to this email to respond to ${safeName}.</p>
-      </div>`;
+    const adminMail = renderCrmEmail("internal-contact-form", {
+      vars: { name, email, message: safeMessage },
+      rawKeys: ["message"],
+    });
 
     const adminRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -102,7 +95,8 @@ serve(async (req: Request) => {
         to: [SUPPORT_EMAIL],
         reply_to: email,
         subject: `[Contact form] ${name}`,
-        html: adminHtml,
+        html: adminMail.html,
+        text: adminMail.text,
       }),
     });
     if (!adminRes.ok) {
@@ -115,25 +109,11 @@ serve(async (req: Request) => {
     }
     console.log("[notify-contact-form] Admin email sent");
 
-    // 2. User confirmation
+    // 2. User confirmation. The design greets by name; it does not echo the message.
     const firstName = name.split(" ")[0] || name;
-    const safeFirst = escapeHtml(firstName);
-    const userHtml = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-        <h2 style="color: #1a1a1a; margin: 0 0 12px;">Thanks ${safeFirst} — we got your message.</h2>
-        <p style="color: #555; line-height: 1.6;">We'll get back to you within 24 business hours.</p>
-        <p style="color: #555; line-height: 1.6;">For your records, here's what you sent:</p>
-        <div style="background: #f5f5f5; border-left: 3px solid #2563eb; padding: 12px 16px; margin: 16px 0; color: #333; line-height: 1.6; white-space: pre-wrap;">${safeMessage}</div>
-        <p style="color: #555; line-height: 1.6;">
-          Need us sooner? Reply to this email or write us at
-          <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.
-        </p>
-        <p style="color: #555; line-height: 1.6; margin-top: 24px;">
-          — The TidyWise team<br/>
-          <a href="https://jointidywise.com" style="color: #2563eb;">jointidywise.com</a>
-        </p>
-        ${tidywiseEmailFooterHtml()}
-      </div>`;
+    const userMail = renderCrmEmail("contact-auto-reply", {
+      vars: { name: firstName },
+    });
 
     try {
       const userRes = await fetch("https://api.resend.com/emails", {
@@ -147,7 +127,8 @@ serve(async (req: Request) => {
           to: [email],
           reply_to: SUPPORT_EMAIL,
           subject: "We got your message — TidyWise",
-          html: userHtml,
+          html: userMail.html,
+          text: userMail.text,
         }),
       });
       if (!userRes.ok) {

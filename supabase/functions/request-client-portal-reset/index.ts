@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { PLATFORM_SENDER_FROM } from "../_shared/email-sender-resolution.ts";
+import { renderCrmEmail, orgBrandVars } from "../_shared/crm-email/render.ts";
+import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -42,24 +44,24 @@ serve(async (req) => {
 
     const customerIds = (customers ?? []).map((c) => c.id);
     const byCustomer = customerIds.length
-      ? await supabase.from("client_portal_users").select("id, is_active").in("customer_id", customerIds).eq("is_active", true)
-      : { data: [] as { id: string }[] };
+      ? await supabase.from("client_portal_users").select("id, is_active, organization_id").in("customer_id", customerIds).eq("is_active", true)
+      : { data: [] as { id: string; organization_id: string | null }[] };
     const byUsername = await supabase
       .from("client_portal_users")
-      .select("id, is_active")
+      .select("id, is_active, organization_id")
       .ilike("username", email)
       .eq("is_active", true)
       .limit(5);
 
-    const ids = new Set<string>();
-    for (const row of byCustomer.data ?? []) ids.add(row.id);
-    for (const row of byUsername.data ?? []) ids.add(row.id);
-    if (ids.size === 0) return ok();
+    const portals = new Map<string, string | null>();
+    for (const row of byCustomer.data ?? []) portals.set(row.id, row.organization_id ?? null);
+    for (const row of byUsername.data ?? []) portals.set(row.id, row.organization_id ?? null);
+    if (portals.size === 0) return ok();
 
     const origin = (Deno.env.get("PUBLIC_SITE_URL") || "https://www.jointidywise.com").replace(/\/$/, "");
     const resendKey = Deno.env.get("RESEND_API_KEY");
 
-    for (const portalUserId of ids) {
+    for (const [portalUserId, organizationId] of portals) {
       const bytes = new Uint8Array(32);
       crypto.getRandomValues(bytes);
       const token = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -81,6 +83,14 @@ serve(async (req) => {
       }
 
       const link = `${origin}/portal/reset-password?token=${encodeURIComponent(token)}`;
+      const brand = await loadLooseBrand(organizationId || "");
+      const rendered = renderCrmEmail("portal-password-reset", {
+        vars: {
+          ...orgBrandVars(brand),
+          link,
+        },
+        rawKeys: ["email_footer"],
+      });
       const response = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
@@ -91,7 +101,8 @@ serve(async (req) => {
           from: PLATFORM_SENDER_FROM,
           to: [email],
           subject: "Reset your client portal password",
-          html: `<p>Use this link to choose a new client portal password. It expires in one hour.</p><p><a href="${link}">${link}</a></p><p>If you didn't ask for this, you can ignore this email.</p>`,
+          html: rendered.html,
+          text: rendered.text,
         }),
       });
       if (!response.ok) {

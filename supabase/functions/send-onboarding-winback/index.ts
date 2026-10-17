@@ -4,6 +4,8 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { ensureOnboardingCoupon, type OnboardingCouponOffer } from "../_shared/onboarding-coupons.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://jointidywise.com";
@@ -168,12 +170,18 @@ serve(async (req) => {
           from: "TidyWise <billing@jointidywise.com>",
           to: [profile.email],
           subject,
-          html: `<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a">
-            <h1 style="font-size:22px;margin:0 0 12px">${headline}</h1>
-            <p style="color:#475569">${detail}</p>
-            <p style="margin:24px 0"><a href="${link}" style="background:#4f46e5;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Continue setup</a></p>
-            <p style="color:#94a3b8;font-size:12px">The discount is applied when you pick a plan. Nothing is charged for finishing setup.</p>
-          </div>`,
+          ...renderCrmEmail(
+            offer === "first_month_free" ? "onboarding-winback-24h" : "onboarding-winback-1h",
+            {
+              vars: {
+                headline,
+                detail,
+                link,
+                APP_URL,
+                UNSUBSCRIBE_URL: `mailto:${tidywiseSupportEmail()}?subject=${encodeURIComponent("Unsubscribe")}`,
+              },
+            },
+          ),
         }),
       });
       emailed = response.ok;

@@ -2,6 +2,9 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { PLATFORM_SENDER_FROM } from "../_shared/email-sender-resolution.ts";
+import { orgBrandVars, renderCrmEmail } from "../_shared/crm-email/render.ts";
+import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -404,7 +407,6 @@ serve(async (req) => {
         .maybeSingle();
       const orgName = org?.name || "your team";
       const loginUrl = "https://www.jointidywise.com/staff/login";
-      const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
       const firstName = name.trim().split(" ")[0] || "there";
 
       // Existing users keep their current password; only newly created users
@@ -413,32 +415,28 @@ serve(async (req) => {
       // the old html.replace() never matched (indentation differed by one
       // space), so linked accounts were emailed a temp password that was
       // never written to auth.
-      const credentialRows = linkedExistingAccount
-        ? `<tr><td colspan="2" style="padding: 8px;">Use your existing TidyWise email and password to sign in.</td></tr>`
-        : `<tr><td style="padding: 8px;"><strong>Email:</strong></td><td style="padding: 8px;">${esc(email)}</td></tr>
-            <tr><td style="padding: 8px;"><strong>Temporary password:</strong></td><td style="padding: 8px; font-family: monospace;">${esc(password!)}</td></tr>`;
+      const passwordLine = linkedExistingAccount
+        ? "Use your existing password"
+        : escapeHtml(password || "").replace(/\{/g, "&#123;").replace(/\}/g, "&#125;");
       const passwordNotice = linkedExistingAccount
-        ? `<strong>Your existing password has not changed.</strong>`
-        : `<strong>Please change your password</strong> after signing in for the first time.`;
+        ? "Your existing password has not changed."
+        : "Please change your password after signing in for the first time.";
 
-      const emailHtml = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-          <h2 style="color: #1a1a1a; margin: 0 0 12px;">Welcome to ${esc(orgName)}, ${esc(firstName)} 👋</h2>
-          <p style="color: #333; line-height: 1.6;">
-            You've been added as a team member. Use the credentials below to
-            sign in to your staff portal and start picking up jobs.
-          </p>
-          <table style="border-collapse: collapse; margin: 16px 0; background: #f5f5f5; padding: 12px; width: 100%; max-width: 400px;">
-            ${credentialRows}
-          </table>
-          <p style="margin: 16px 0;">
-            <a href="${loginUrl}" style="display: inline-block; background: #2563eb; color: #fff; padding: 12px 24px; text-decoration: none; border-radius: 6px;">Sign in to staff portal</a>
-          </p>
-          <p style="color: #92400e; background: #fff7ed; border-left: 4px solid #f59e0b; padding: 12px 16px; line-height: 1.5;">
-            ${passwordNotice}
-          </p>
-          <p style="color: #555; margin-top: 24px;">— ${esc(orgName)}</p>
-        </div>`;
+      const brand = await loadLooseBrand(organizationId!);
+      const welcome = renderCrmEmail("staff-welcome", {
+        vars: {
+          ...orgBrandVars(brand),
+          orgName,
+          loginEmail: email,
+          passwordLine,
+          firstName,
+          loginUrl,
+          passwordNotice,
+        },
+        // email_footer is already escaped by orgBrandVars. The temp password is
+        // escaped above so a brace in it cannot look like a token.
+        rawKeys: linkedExistingAccount ? ["email_footer"] : ["email_footer", "passwordLine"],
+      });
 
       // Try Resend directly with platform key (works regardless of org email setup).
       const resendKey = Deno.env.get("RESEND_API_KEY");
@@ -451,7 +449,8 @@ serve(async (req) => {
             to: [email.toLowerCase().trim()],
             reply_to: tidywiseSupportEmail(),
             subject: `Welcome to ${orgName} — your staff login`,
-            html: emailHtml,
+            html: welcome.html,
+            text: welcome.text,
           }),
         });
         await logToSystem('info', 'Staff welcome email sent', { staffId: staffData.id, email }, adminUserId, organizationId);

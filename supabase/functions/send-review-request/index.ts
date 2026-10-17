@@ -2,7 +2,8 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getOrgEmailSettings, formatEmailFrom, getReplyTo } from "../_shared/get-org-email-settings.ts";
 import { resolveCallerOrg } from "../_shared/require-caller-org.ts";
-import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { renderCrmEmail, orgBrandVars, UNSUBSCRIBE_URL_SENTINEL } from "../_shared/crm-email/render.ts";
+import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -163,94 +164,19 @@ const handler = async (req: Request): Promise<Response> => {
 
     console.log("Sending review request email to:", customerEmail, "for organization:", organizationId);
 
-    const emailHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>How did we do?</title>
-</head>
-<body style="margin:0;padding:0;background-color:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#333333;line-height:1.6;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color:#f5f5f5;">
-    <tr>
-      <td style="padding:20px;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" style="margin:0 auto;background-color:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-          
-          <!-- Header -->
-          <tr>
-            <td style="background-color:#1e5bb0;padding:30px;text-align:center;">
-              <div style="font-size:32px;font-weight:bold;color:#ffffff;">
-                ${escapeHtml(companyName)}
-              </div>
-              <p style="color:#ffffff;font-size:14px;margin:5px 0 0 0;">Professional Cleaning Services</p>
-            </td>
-          </tr>
-          
-          <!-- Main Content -->
-          <tr>
-            <td style="padding:40px 30px;text-align:center;">
-              <h1 style="margin:0 0 20px 0;color:#1e5bb0;font-size:28px;">How was your ${escapeHtml(serviceName)}?</h1>
-              
-              <p style="font-size:16px;margin:0 0 30px 0;color:#666;">
-                Hi ${escapeHtml(customerName)}! We'd love to hear about your experience. Your feedback helps us improve and helps others find great cleaning services.
-              </p>
-              
-              <p style="font-size:16px;margin:0 0 20px 0;color:#333;font-weight:600;">
-                Tap a star to rate your experience:
-              </p>
-              
-              <!-- Star Rating Buttons -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:0 auto 30px auto;">
-                <tr>
-                  <td style="padding:0 5px;">
-                    <a href="${reviewPageUrl}?rating=1" style="text-decoration:none;font-size:40px;">⭐</a>
-                  </td>
-                  <td style="padding:0 5px;">
-                    <a href="${reviewPageUrl}?rating=2" style="text-decoration:none;font-size:40px;">⭐</a>
-                  </td>
-                  <td style="padding:0 5px;">
-                    <a href="${reviewPageUrl}?rating=3" style="text-decoration:none;font-size:40px;">⭐</a>
-                  </td>
-                  <td style="padding:0 5px;">
-                    <a href="${reviewPageUrl}?rating=4" style="text-decoration:none;font-size:40px;">⭐</a>
-                  </td>
-                  <td style="padding:0 5px;">
-                    <a href="${reviewPageUrl}?rating=5" style="text-decoration:none;font-size:40px;">⭐</a>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="text-align:center;font-size:12px;color:#999;">1</td>
-                  <td style="text-align:center;font-size:12px;color:#999;">2</td>
-                  <td style="text-align:center;font-size:12px;color:#999;">3</td>
-                  <td style="text-align:center;font-size:12px;color:#999;">4</td>
-                  <td style="text-align:center;font-size:12px;color:#999;">5</td>
-                </tr>
-              </table>
-              
-              <p style="font-size:14px;color:#999;margin:0;">
-                It only takes a minute and means a lot to us!
-              </p>
-            </td>
-          </tr>
-          
-          <!-- Footer -->
-          <tr>
-            <td style="background-color:#333333;padding:20px;text-align:center;">
-              <p style="color:#ffffff;font-size:14px;font-weight:600;margin:0 0 5px 0;">${escapeHtml(companyName)}</p>
-              <p style="color:#999999;font-size:12px;margin:0;">
-                © ${new Date().getFullYear()} ${escapeHtml(companyName)}. All rights reserved.
-              </p>
-            </td>
-          </tr>
-          
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>
-    `;
+    // Star links in the design are {{reviewPageUrl}}?rating=N. Pass the bare page URL.
+    const brand = await loadLooseBrand(organizationId);
+    const rendered = renderCrmEmail("review-request", {
+      vars: {
+        ...orgBrandVars(brand),
+        ...(companyName ? { companyName } : {}),
+        serviceName: serviceName || "",
+        customerName: customerName || "",
+        reviewPageUrl,
+        UNSUBSCRIBE_URL: UNSUBSCRIBE_URL_SENTINEL,
+      },
+      rawKeys: ["email_footer"],
+    });
 
     const { sendOrgEmail } = await import("../_shared/send-org-email.ts");
     const sendResult = await sendOrgEmail({
@@ -259,7 +185,8 @@ const handler = async (req: Request): Promise<Response> => {
       organizationId,
       to: customerEmail,
       subject: `How was your ${serviceName}? We'd love your feedback!`,
-      html: emailHtml,
+      html: rendered.html,
+      text: rendered.text,
     });
 
     if (!sendResult.success) {

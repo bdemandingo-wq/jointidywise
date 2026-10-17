@@ -4,6 +4,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 import { requireCronSecret } from "../_shared/requireCronSecret.ts";
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://jointidywise.com";
@@ -94,16 +95,9 @@ serve(async (req) => {
         year: "numeric", month: "long", day: "numeric",
       });
 
-      const html = `
-<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#0f172a">
-  <h1 style="font-size:22px;margin:0 0 12px">Your TidyWise plan renews ${renewDate}</h1>
-  <p style="color:#475569">Just a heads-up that your TidyWise subscription (${amount}) will renew on <strong>${renewDate}</strong> using the card on file. Charges appear as "TIDYWISE" on your statement.</p>
-  <p style="margin:24px 0">
-    <a href="${APP_URL}/dashboard/subscription" style="background:#0ea5e9;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Manage subscription</a>
-  </p>
-  <p style="color:#475569;font-size:13px">Need to cancel or change plans? You can do it in one click from your dashboard, or reply to this email and we'll take care of it.</p>
-  <p style="color:#94a3b8;font-size:12px;margin-top:16px">Questions? ${SUPPORT_EMAIL}</p>
-</div>`;
+      const renewal = renderCrmEmail("subscription-renewal-reminder", {
+        vars: { renewDate, amount, APP_URL, SUPPORT_EMAIL },
+      });
 
       const r = await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -113,7 +107,8 @@ serve(async (req) => {
           reply_to: SUPPORT_EMAIL,
           to: [email],
           subject: `Heads up: your TidyWise plan renews ${renewDate}`,
-          html,
+          html: renewal.html,
+          text: renewal.text,
         }),
       });
 

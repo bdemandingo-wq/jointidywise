@@ -5,17 +5,14 @@
 
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
-import { tidywiseEmailFooterHtml, tidywiseSupportEmail } from "../_shared/email-footer.ts";
+import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { PLATFORM_SENDER_FROM } from "../_shared/email-sender-resolution.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -60,27 +57,13 @@ serve(async (req) => {
       dateStyle: "long", timeStyle: "short",
     });
 
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-        <h2 style="color: #1a1a1a; margin: 0 0 12px;">Your TidyWise password was changed</h2>
-        <p style="color: #333; line-height: 1.6;">
-          Hi ${escapeHtml(firstName)}, this is a confirmation that the password
-          for your TidyWise account was successfully changed on
-          <strong>${escapeHtml(when)}</strong>.
-        </p>
-        <p style="color: #333; line-height: 1.6;">
-          If you made this change, no further action is needed.
-        </p>
-        <div style="background: #fff7ed; border-left: 4px solid #f59e0b; padding: 12px 16px; margin: 16px 0;">
-          <p style="color: #92400e; margin: 0; line-height: 1.5;">
-            <strong>Didn't change your password?</strong> Reset it immediately at
-            <a href="https://www.jointidywise.com/forgot-password" style="color: #92400e;">jointidywise.com/forgot-password</a>
-            and contact <a href="mailto:${tidywiseSupportEmail()}" style="color: #92400e;">${tidywiseSupportEmail()}</a>.
-          </p>
-        </div>
-        <p style="color: #555; margin-top: 24px;">— The TidyWise team</p>
-        ${tidywiseEmailFooterHtml()}
-      </div>`;
+    const changed = renderCrmEmail("password-changed", {
+      vars: {
+        firstName,
+        when,
+        forgotPasswordUrl: "https://www.jointidywise.com/forgot-password",
+      },
+    });
 
     try {
       await fetch("https://api.resend.com/emails", {
@@ -91,7 +74,8 @@ serve(async (req) => {
           to: [email],
           reply_to: tidywiseSupportEmail(),
           subject: "Your TidyWise password was changed",
-          html,
+          html: changed.html,
+          text: changed.text,
         }),
       });
     } catch (err) {

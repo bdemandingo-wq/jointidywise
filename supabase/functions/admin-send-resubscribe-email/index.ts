@@ -13,6 +13,7 @@ import Stripe from "https://esm.sh/stripe@18.5.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
 import { tidywiseSupportEmail, tidywiseSupportFrom } from "../_shared/email-footer.ts";
 import { billingSecretKey } from "../_shared/billing-stripe.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -53,200 +54,19 @@ function membershipLabel(createdAt: string): string {
   return `${years} yr${years === 1 ? "" : "s"} ${rem} mo`;
 }
 
-// ── Email building ──────────────────────────────────────────────────────────
-// Table-based, fully inline styles, system font stack only. No <style> block,
-// no web fonts, no external assets — renders in Gmail and Apple Mail.
-
-function ctaButton(checkoutUrl: string): string {
-  return `
-    <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto;">
-      <tr>
-        <td align="center" bgcolor="#2563eb" style="border-radius:10px;">
-          <a href="${checkoutUrl}" style="display:inline-block;padding:16px 40px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:10px;">Reactivate TidyWise Pro</a>
-        </td>
-      </tr>
-    </table>`;
-}
-
-function statCards(stats: OrgStats): string {
-  const cards: { value: string; label: string }[] = [
-    { value: fmtInt(stats.bookings), label: "Jobs booked" },
-  ];
-  if (stats.customers > 0) cards.push({ value: fmtInt(stats.customers), label: "Customers" });
-  if (stats.revenue > 0) cards.push({ value: `$${fmtInt(stats.revenue)}`, label: "Processed" });
-
-  const w = Math.floor(100 / cards.length);
-  const cells = cards
-    .map((c, i) => {
-      const padLeft = i === 0 ? 0 : 5;
-      const padRight = i === cards.length - 1 ? 0 : 5;
-      return `
-        <td width="${w}%" valign="top" style="padding:0 ${padRight}px 0 ${padLeft}px;">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e6e9ef;border-radius:12px;">
-            <tr>
-              <td align="center" style="padding:20px 8px;">
-                <div style="font-family:Arial,Helvetica,sans-serif;font-size:27px;line-height:1.1;font-weight:800;color:#2563eb;">${c.value}</div>
-                <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.6px;text-transform:uppercase;color:#64748b;margin-top:7px;">${c.label}</div>
-              </td>
-            </tr>
-          </table>
-        </td>`;
-    })
-    .join("");
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>${cells}</tr></table>`;
-}
-
-// Pro-plan capabilities (sourced from ChoosePlanPage's 'pro' tier), framed as
-// what's switched off right now. Emoji are used as email-safe "icons" — no
-// external images, renders in Gmail and Apple Mail.
-const PRO_LOCKED_FEATURES: { icon: string; label: string }[] = [
-  { icon: "⚡", label: "Automations — reviews, reminders, win-back" },
-  { icon: "🤖", label: "AI Intelligence + Copilot" },
-  { icon: "📍", label: "GPS tracking" },
-  { icon: "📊", label: "Advanced reports" },
-  { icon: "💵", label: "Payroll" },
-  { icon: "📦", label: "Inventory" },
-  { icon: "🔑", label: "Client portal" },
-];
-
-// "What's new since you left." No changelog source exists in the repo, so this
-// is authored copy — leave empty to hide the section entirely. Each item below
-// maps to a shipped, verified feature (component + edge function present).
-const WHATS_NEW: { title: string; desc: string }[] = [
-  { title: "Tidy AI Co-pilot", desc: "an in-app assistant that knows your business and answers questions, drafts messages, and helps you move faster." },
-  { title: "AI text auto-reply", desc: "incoming customer texts get answered automatically, so leads don't sit waiting." },
-  { title: "GPS arrival tracking", desc: "see cleaners en route and on-site, and share live arrival tracking with customers." },
-  { title: "Automation Center", desc: "hands-off reminders, review requests, rebooking nudges, and win-back offers running in the background." },
-];
-
-// Dark panel listing the Pro toolkit as switched off — the emotional weight of
-// the email. Dimmed rows on a dark card read as "the lights are off."
-function lockedFeaturesPanel(): string {
-  const rows = PRO_LOCKED_FEATURES.map((f, i) => `
-    <tr>
-      <td style="padding:13px 0;${i ? "border-top:1px solid #1e293b;" : ""}">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-          <td width="28" valign="middle" style="font-size:17px;line-height:1;">${f.icon}</td>
-          <td valign="middle" style="font-family:Arial,Helvetica,sans-serif;font-size:15px;color:#cbd5e1;">${f.label}</td>
-          <td align="right" valign="middle" style="font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.8px;color:#f59e0b;">OFF</td>
-        </tr></table>
-      </td>
-    </tr>`).join("");
-  return `
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0f172a;border-radius:14px;margin:0 0 30px;">
-      <tr><td style="padding:24px 22px 4px;">
-        <div style="font-family:Arial,Helvetica,sans-serif;font-size:18px;font-weight:800;color:#ffffff;">Your Pro toolkit is switched off</div>
-        <div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#94a3b8;margin-top:6px;">Reactivating turns all of it back on — nothing was deleted.</div>
-      </td></tr>
-      <tr><td style="padding:8px 22px 22px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table>
-      </td></tr>
-    </table>`;
-}
-
-// "New since you left" — renders only when WHATS_NEW has items.
-function whatsNewSection(): string {
-  if (WHATS_NEW.length === 0) return "";
-  const items = WHATS_NEW.map((n) => `
-    <tr><td style="padding:0 0 16px;">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-        <td width="52" valign="top">
-          <span style="display:inline-block;background:#dcfce7;color:#15803d;font-family:Arial,Helvetica,sans-serif;font-size:10px;font-weight:700;letter-spacing:0.6px;padding:4px 9px;border-radius:20px;">NEW</span>
-        </td>
-        <td valign="top" style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#475569;">
-          <strong style="color:#0f172a;">${n.title}</strong> — ${n.desc}
-        </td>
-      </tr></table>
-    </td></tr>`).join("");
-  return `
-    <p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;font-weight:700;">New since you left</p>
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 30px;">${items}</table>`;
-}
-
-function innerBody(checkoutUrl: string, ctx: EmailContext): string {
-  const p = (text: string) =>
-    `<p style="margin:0 0 26px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;color:#475569;">${text}</p>`;
-  const eyebrow =
-    `<p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#2563eb;font-weight:700;">Welcome back</p>`;
-
-  // Shared tail: locked Pro toolkit, what's-new (if any), value line, CTA, link.
-  const tail = `
-    ${lockedFeaturesPanel()}
-    ${whatsNewSection()}
-    ${p("Reactivate your Pro plan and pick up right where you stopped — your customers, bookings, and invoices are waiting.")}
-
-    ${ctaButton(checkoutUrl)}
-    <p style="margin:14px 0 0;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#94a3b8;">$50/month · cancel anytime</p>
-
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:30px 0 0;"><tr><td style="border-top:1px solid #eef1f5;font-size:0;line-height:0;">&nbsp;</td></tr></table>
-    <p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;color:#94a3b8;word-break:break-all;">Button not working? Paste this link into your browser:<br/><a href="${checkoutUrl}" style="color:#2563eb;">${checkoutUrl}</a></p>`;
-
-  if (ctx.stats) {
-    const s = ctx.stats;
-    const heading = ctx.firstName
-      ? `Hi ${ctx.firstName}, your business is still here.`
-      : `Your business is still here.`;
-    return `
-      ${eyebrow}
-      <h1 style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:27px;line-height:1.25;color:#0f172a;font-weight:800;">${heading}</h1>
-      ${p("Before you go for good, here's what you built on TidyWise. None of it has gone anywhere.")}
-
-      <p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#94a3b8;font-weight:700;">What you built</p>
-      ${statCards(s)}
-
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:14px 0 30px;">
-        <tr>
-          <td align="center" bgcolor="#0f172a" style="border-radius:10px;padding:13px 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#e2e8f0;">
-            A TidyWise member for <strong style="color:#ffffff;">${s.membershipLabel}</strong>
-          </td>
-        </tr>
-      </table>
-      ${tail}`;
-  }
-
-  // Clean, stat-free fallback (org unresolved or < 5 bookings).
-  const heading = ctx.firstName ? `${ctx.firstName}, come back to TidyWise` : `Come back to TidyWise`;
-  return `
-    ${eyebrow}
-    <h1 style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:27px;line-height:1.25;color:#0f172a;font-weight:800;">${heading}</h1>
-    ${p("Your account access ended when your Pro subscription was canceled — but everything you set up is still here, exactly where you left it.")}
-    ${tail}`;
-}
-
-function buildEmailHtml(checkoutUrl: string, ctx: EmailContext): string {
-  return `<!doctype html>
-<html>
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#eef1f5;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef1f5;">
-    <tr>
-      <td align="center" style="padding:24px 12px;">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;">
-          <tr>
-            <td style="padding:8px 8px 20px;font-family:Arial,Helvetica,sans-serif;">
-              <span style="font-size:20px;font-weight:800;letter-spacing:-0.4px;color:#0f172a;">Tidy<span style="color:#2563eb;">Wise</span></span>
-              <span style="font-size:12px;color:#94a3b8;margin-left:8px;">Cleaning Business Management</span>
-            </td>
-          </tr>
-          <tr>
-            <td style="background:#ffffff;border-radius:16px;border:1px solid #e6e9ef;">
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                <tr><td style="height:4px;background:#2563eb;border-radius:16px 16px 0 0;font-size:0;line-height:0;">&nbsp;</td></tr>
-                <tr><td style="padding:38px 36px 40px;">${innerBody(checkoutUrl, ctx)}</td></tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:22px 20px 8px;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#94a3b8;line-height:1.5;">
-              Sent by the TidyWise team · Reply to this email with any questions.
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+function renderResubscribe(checkoutUrl: string, ctx: EmailContext) {
+  const stats = ctx.stats;
+  return renderCrmEmail("admin-resubscribe", {
+    vars: {
+      firstName: ctx.firstName || "there",
+      bookings: stats ? fmtInt(stats.bookings) : "—",
+      customers: stats ? fmtInt(stats.customers) : "—",
+      revenue: stats && stats.revenue > 0 ? `$${fmtInt(stats.revenue)}` : "—",
+      membershipLabel: stats?.membershipLabel || "—",
+      checkoutUrl,
+      UNSUBSCRIBE_URL: `mailto:${tidywiseSupportEmail()}?subject=${encodeURIComponent("Unsubscribe")}`,
+    },
+  });
 }
 
 // ── Org lookup ──────────────────────────────────────────────────────────────
@@ -405,7 +225,7 @@ serve(async (req) => {
     log("Payment link created", { id: paymentLink.id, url });
 
     // --- Send email via Resend (platform-level, not org-scoped) ---
-    const html = buildEmailHtml(url, ctx);
+    const resubscribe = renderResubscribe(url, ctx);
     const resendRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -417,7 +237,8 @@ serve(async (req) => {
         to: [customerEmail],
         reply_to: tidywiseSupportEmail(),
         subject: "Reactivate your TidyWise subscription",
-        html,
+        html: resubscribe.html,
+        text: resubscribe.text,
       }),
     });
     const resendData = await resendRes.json().catch(() => ({}));

@@ -2,6 +2,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { verifyAdminAuth, createUnauthorizedResponse, createForbiddenResponse } from "../_shared/verify-admin-auth.ts";
 import { getOrgEmailSettings, formatEmailFrom } from "../_shared/get-org-email-settings.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { renderCrmEmail, orgBrandVars, UNSUBSCRIBE_URL_SENTINEL } from "../_shared/crm-email/render.ts";
+import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -169,6 +172,7 @@ serve(async (req) => {
       .single();
     const orgSlug = orgData?.slug || "";
     const bookingUrl = orgSlug ? `${appUrl}/book/${orgSlug}` : `${appUrl}/book`;
+    const brand = await loadLooseBrand(campaign.organization_id);
 
     // Throttle Gmail SMTP: pace sends and cap per run so we don't trip Gmail's
     // burst rate limits. The daily cap (500/2000) is enforced separately in
@@ -192,45 +196,37 @@ serve(async (req) => {
           .replace(/\{booking_link\}/g, bookingUrl);
 
       const subject = substitutions(campaign.subject);
-      const body = substitutions(campaign.body);
+      const body = substitutions(campaign.body || "");
 
-      // Convert markdown-style bold to HTML
-      const htmlBody = body
+      // Escape before **bold** so an owner body cannot inject tags.
+      // Braces in the owner body stay literal; fill.ts neutralizes them.
+      const bodyHtml = escapeHtml(body)
         .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
         .replace(/\n/g, "<br>");
 
       try {
         const { sendOrgEmail } = await import("../_shared/send-org-email.ts");
-        const html = `
-              <!DOCTYPE html>
-              <html>
-              <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              </head>
-              <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-                <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-                  <h1 style="color: white; margin: 0; font-size: 24px;">We Miss You! 💙</h1>
-                </div>
-                <div style="background: #f8fafc; padding: 30px; border-radius: 0 0 12px 12px;">
-                  <p style="font-size: 16px;">${htmlBody}</p>
-                  <div style="text-align: center; margin-top: 30px;">
-                    <a href="${bookingUrl}"
-                       style="display: inline-block; background: #3b82f6; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold;">
-                      Book Now
-                    </a>
-                  </div>
-                </div>
-              </body>
-              </html>
-            `;
+        const rendered = renderCrmEmail("followup-campaign", {
+          vars: {
+            ...orgBrandVars(brand),
+            ...(companyName
+              ? { company_name: companyName, companyName, orgName: companyName }
+              : {}),
+            booking_link: bookingUrl,
+            first_name: customer.first_name || "",
+            UNSUBSCRIBE_URL: UNSUBSCRIBE_URL_SENTINEL,
+          },
+          slots: [bodyHtml],
+          rawKeys: ["email_footer"],
+        });
         const sendResult = await sendOrgEmail({
           templateName: "followup_campaign",
           marketing: true,
           organizationId: campaign.organization_id,
           to: customer.email,
           subject,
-          html,
+          html: rendered.html,
+          text: rendered.text,
         });
         if (sendResult.success) {
           const { error: logErr } = await supabase.from("campaign_emails").insert({

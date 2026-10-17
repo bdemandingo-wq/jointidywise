@@ -14,6 +14,7 @@ import {
 import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { LIFETIME_SPOT_CAP } from "../_shared/lifetime-cap.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 import { hasInternalBrandLink } from "../_shared/blogLinks.ts";
 import {
   MAX_KEYWORD_ATTEMPTS,
@@ -427,6 +428,17 @@ async function sendFailureAlert(errors: string[]) {
   const resendKey = Deno.env.get("RESEND_API_KEY");
   if (!resendKey) { console.warn("RESEND_API_KEY not set — cannot send alert"); return; }
   try {
+    const lastError = errors.length
+      ? errors.map((e) => escapeHtml(e)).join("<br>")
+      : "—";
+    const alert = renderCrmEmail("internal-blog-failure", {
+      vars: {
+        lastAttempt: "3 consecutive failures",
+        lastError,
+        logsUrl: "https://jointidywise.com/admin/blog/keywords",
+      },
+      rawKeys: ["lastError"],
+    });
     await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
@@ -434,7 +446,8 @@ async function sendFailureAlert(errors: string[]) {
         from: "TidyWise Blog Bot <noreply@jointidywise.com>",
         to: [FAILURE_ALERT_EMAIL],
         subject: "🚨 Blog generation — 3 consecutive failures",
-        html: `<h2>Blog generation needs attention</h2><p>3 consecutive failures detected.</p><h3>Recent errors:</h3><ul>${errors.map((e) => `<li><code>${escapeHtml(e)}</code></li>`).join("")}</ul><p>Review at <a href="https://jointidywise.com/admin/blog/keywords">/admin/blog/keywords</a>.</p>`,
+        html: alert.html,
+        text: alert.text,
       }),
     });
   } catch (e) { console.error("Alert failed:", e); }

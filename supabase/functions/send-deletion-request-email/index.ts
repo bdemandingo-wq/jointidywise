@@ -5,15 +5,16 @@
 // password, or simply not want to log back in just to ask to be deleted.
 // Requiring a JWT here would break that flow for exactly the users who
 // most need it. Already had rate limiting (1/request per email per day,
-// 5/hour per IP) before this review; the email body is plain `text` (not
-// `html`), so there's no HTML-injection surface from the free-text
-// fields. Added a length cap on those fields below as light additional
-// hardening against oversized-payload abuse.
+// 5/hour per IP) before this review. Free-text fields are escaped before
+// they go into the HTML body. Added a length cap on those fields below as
+// light additional hardening against oversized-payload abuse.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logToSystem } from "../_shared/system-logger.ts";
 import { getOrgEmailSettings, formatEmailFrom, getReplyTo } from "../_shared/get-org-email-settings.ts";
 import { checkAndRecord, getClientIp } from "../_shared/rate-limit.ts";
+import { escapeHtml } from "../_shared/crm-email/fill.ts";
+import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -120,17 +121,22 @@ serve(async (req) => {
     const senderFrom = formatEmailFrom(settings);
     const companyName = settings.from_name;
 
-    const emailBody = `
-Account Deletion Request
-
-Name: ${name}
-Email: ${email}
-Organization: ${organizationName || companyName}
-Reason: ${reason || "Not provided"}
-Submitted: ${new Date().toISOString()}
-
-Please verify the user's identity and process this deletion request within 7 business days.
-    `.trim();
+    const request = [
+      `Name: ${escapeHtml(String(name))}`,
+      `Email: ${escapeHtml(String(email))}`,
+      `Organization: ${escapeHtml(String(organizationName || companyName || ""))}`,
+      `Reason: ${escapeHtml(String(reason || "Not provided"))}`,
+      `Submitted: ${escapeHtml(new Date().toISOString())}`,
+      "Please verify the user's identity and process this deletion request within 7 business days.",
+    ].join("<br>");
+    const deletion = renderCrmEmail("account-deletion-request", {
+      vars: {
+        email,
+        request,
+        APP_URL: Deno.env.get("APP_URL") || "https://jointidywise.com",
+      },
+      rawKeys: ["request"],
+    });
 
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -143,7 +149,8 @@ Please verify the user's identity and process this deletion request within 7 bus
         to: [settings.from_email],
         reply_to: getReplyTo(settings),
         subject: `Account Deletion Request - ${email}`,
-        text: emailBody,
+        html: deletion.html,
+        text: deletion.text,
       }),
     });
 
