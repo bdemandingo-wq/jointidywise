@@ -537,9 +537,13 @@ export async function prerenderRoutes(
   for (const route of allRoutes(scoreCompanies, blogPosts, scoreCities)) {
     try {
       const meta = metaFor(route, scoreBySlug, blogBySlug, cityBySlug);
-      meta.prerenderBody = buildPrerenderBody(
+      const generated = buildPrerenderBody(
         route, meta, scoreBySlug, blogBySlug, cityBySlug, scoreCompanies
       );
+      // Dynamic routes (blog, score, locations) build a body here. A static
+      // route keeps the prerenderBody authored on its route meta. Assigning
+      // the empty string used to wipe that copy, so crawlers saw only the h1.
+      if (generated) meta.prerenderBody = generated;
       const patched = patchHead(sourceHtml, route, meta);
       const dest = routeToFile(distDir, route);
       mkdirSync(dirname(dest), { recursive: true });

@@ -450,6 +450,7 @@ function conversionDecision(event: TidyWiseConversion, pathname: string) {
  * trial_started is allowed on /onboarding and /dashboard, where the trial
  * is created. The scripts load for that event only; those routes do not
  * get a pageview tag.
+ * dedupeKey stays in this tab. The pixel payload is the event name and send_to.
  */
 export function trackTidyWiseConversion(event: TidyWiseConversion, dedupeKey?: string): void {
   try {
@@ -485,7 +486,8 @@ export function trackTidyWiseConversion(event: TidyWiseConversion, dedupeKey?: s
       metaGate.allowed = true;
       metaGate.revoked = false;
       try {
-        fbqFn()?.('trackSingle', decision.metaId, payload.meta);
+        const metaCommand = payload.metaCustom ? 'trackSingleCustom' : 'trackSingle';
+        fbqFn()?.(metaCommand, decision.metaId, payload.meta);
       } finally {
         metaGate.allowed = prev;
       }

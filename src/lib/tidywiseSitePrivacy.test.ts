@@ -67,6 +67,7 @@ test('marketing and signup paths are the only notice surface', () => {
     '/cleaning-business-software',
     '/cleaning-business-software/texas',
     '/score/search',
+    '/tools/house-cleaning-price-calculator',
     '/privacy-policy',
     '/do-not-sell',
     '/contact',
@@ -243,6 +244,62 @@ test('trial_started is allowed on onboarding and the dashboard, signup_completed
   assert.equal(tidyWiseConversionAllowed({ ...base, event: 'signup_completed', pathname: '/signup', choice: 'opted_out' }), false);
 });
 
+test('calculator events stay on the marketing surface and carry no user fields', () => {
+  const base = {
+    native: false,
+    choice: null as const,
+    gpc: false,
+    hostnameAllowed: true,
+    hasDestination: true,
+  };
+  for (const event of ['calc_completed', 'trial_click'] as const) {
+    assert.equal(
+      tidyWiseConversionAllowed({ ...base, event, pathname: '/tools/house-cleaning-price-calculator' }),
+      true,
+      event,
+    );
+    assert.equal(tidyWiseConversionAllowed({ ...base, event, pathname: '/signup' }), true, event);
+    assert.equal(tidyWiseConversionAllowed({ ...base, event, pathname: '/book/acme' }), false, event);
+    assert.equal(tidyWiseConversionAllowed({ ...base, event, pathname: '/dashboard' }), false, event);
+    assert.equal(
+      tidyWiseConversionAllowed({ ...base, event, pathname: '/tools/house-cleaning-price-calculator', gpc: true }),
+      false,
+      event,
+    );
+    assert.equal(
+      tidyWiseConversionAllowed({
+        ...base,
+        event,
+        pathname: '/tools/house-cleaning-price-calculator',
+        choice: 'opted_out',
+      }),
+      false,
+      event,
+    );
+    assert.equal(
+      tidyWiseConversionAllowed({
+        ...base,
+        event,
+        pathname: '/tools/house-cleaning-price-calculator',
+        native: true,
+      }),
+      false,
+      event,
+    );
+    const payload = conversionPayload(event);
+    assert.deepEqual(payload, { meta: event, ga: event, metaCustom: true });
+    assert.deepEqual(Object.keys(payload).sort(), ['ga', 'meta', 'metaCustom']);
+  }
+  const tags = readFileSync(new URL('./tidywiseTags.ts', import.meta.url), 'utf8');
+  assert.match(tags, /payload\.metaCustom \? 'trackSingleCustom' : 'trackSingle'/);
+  assert.match(tags, /gtag\?\.\('event', payload\.ga, \{ send_to: id \}\)/);
+  const page = readFileSync(new URL('../pages/tools/HouseCleaningPriceCalculatorPage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /trackTidyWiseConversion\("calc_completed", eventKey\)/);
+  assert.match(page, /CALC_COMPLETED_DEBOUNCE_MS/);
+  assert.match(page, /trackTidyWiseConversion\("trial_click"\)/);
+  assert.equal(page.includes('trackTidyWiseConversion("trial_click",'), false);
+});
+
 test('acknowledged and opted_out persist as distinct values', () => {
   const storage = memoryStorage();
   assert.equal(readPrivacyChoice(storage), null);
@@ -290,8 +347,8 @@ test('org broadcast track is not sent to the TidyWise pixel once other pixels ar
 });
 
 test('conversion names stay on the TidyWise tags', () => {
-  assert.deepEqual(conversionPayload('signup_completed'), { meta: 'CompleteRegistration', ga: 'sign_up' });
-  assert.deepEqual(conversionPayload('trial_started'), { meta: 'StartTrial', ga: 'trial_started' });
+  assert.deepEqual(conversionPayload('signup_completed'), { meta: 'CompleteRegistration', ga: 'sign_up', metaCustom: false });
+  assert.deepEqual(conversionPayload('trial_started'), { meta: 'StartTrial', ga: 'trial_started', metaCustom: false });
 });
 
 test('the notice layout rules keep a 44px target, safe area, and page clearance', () => {

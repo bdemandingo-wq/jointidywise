@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -119,6 +120,14 @@ export function AIBusinessTools() {
           {/* Revenue Calculator */}
           {activeTool === "calculator" && (
             <div className="p-6 sm:p-8">
+              <p className="text-center mb-6">
+                <Link
+                  to="/tools/house-cleaning-price-calculator"
+                  className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  Try the full price calculator
+                </Link>
+              </p>
               {!showResults ? (
                 <div className="space-y-8">
                   <div className="grid sm:grid-cols-3 gap-6">

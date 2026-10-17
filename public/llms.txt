@@ -39,6 +39,7 @@ TIDYWISE is an all-in-one software platform built specifically for residential c
 - Compare Housecall Pro: https://www.jointidywise.com/compare/housecall-pro
 - Compare ServiceTitan: https://www.jointidywise.com/compare/servicetitan
 - Features overview: https://www.jointidywise.com/cleaning-business-software
+- House cleaning price calculator: https://www.jointidywise.com/tools/house-cleaning-price-calculator
 
 ## Contact
 
@@ -59,6 +60,7 @@ TIDYWISE is an all-in-one software platform built specifically for residential c
 - [Payroll Software](/features/payroll-software): Automated payroll for cleaners.
 - [Route Optimization](/features/route-optimization): Smart routing for cleaning crews.
 - [Booking Software](/features/booking): Public booking page with instant quotes.
+- [House cleaning price calculator](/tools/house-cleaning-price-calculator): Free calculator for what to charge per clean, using the TidyWise rate sheet and the costs you enter.
 - [Quote Software](/features/quotes): Generate and send cleaning quotes.
 - [SMS Notifications](/features/sms-notifications): Automated SMS reminders and updates.
 - [Payment Processing](/features/payments): Stripe-powered payment processing.
