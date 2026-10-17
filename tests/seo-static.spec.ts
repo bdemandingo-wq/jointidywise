@@ -114,16 +114,9 @@ test.describe("12.4 — New /compare/*/for/* pages render for crawlers", () => {
   });
 
   test("all 36 niche pages are listed in the static /sitemap.xml on the main domain", async ({ request }) => {
-    // FIXED 2026-07-14 (pushed as 24e668fb, pending a Lovable rebuild as of
-    // this writing): two different sitemaps exist — a build-time static
-    // public/sitemap.xml (src/lib/generate-sitemap.ts) and a runtime
-    // dynamic supabase/functions/sitemap edge function. robots.txt points
-    // crawlers at the static one, but it never expanded the dynamic
-    // /compare/:competitorSlug/for/:nicheSlug route into its 36 concrete
-    // URLs the way blog/score/location routes already were — so the pages
-    // rendered correctly but were undiscoverable via the sitemap Google
-    // actually reads. Until the rebuild lands, this will correctly show
-    // the OLD (missing) state as a failure — that's the honest signal.
+    // robots.txt lists the live sitemap function first and this static file
+    // as a fallback. The static file still has to contain the 36 niche URLs
+    // on its own, because Lovable cannot proxy /sitemap.xml at the function.
     const resp = await request.get(`${BASE}/sitemap.xml`);
     expect(resp.status()).toBe(200);
     const xml = await resp.text();

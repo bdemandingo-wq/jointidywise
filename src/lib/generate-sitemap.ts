@@ -1,15 +1,14 @@
 /**
- * Auto-sitemap generator (build-time, static).
+ * Auto-sitemap generator (build-time, static fallback).
  *
  * Parses `src/App.tsx` using @babel/parser, walks the AST with @babel/traverse,
- * extracts every static `<Route path="...">` value, applies exclusion rules,
- * deduplicates, fetches all PUBLISHED blog post slugs from Supabase at build
- * time, and writes `public/sitemap.xml`.
+ * and checks those routes against INDEXABLE_STATIC_PATHS. The URL list itself
+ * — static pages, locations, compare niches, and published posts — is built by
+ * src/lib/sitemapRoutes.ts, which the live `sitemap` edge function imports too.
  *
- * Production source of truth: this static file is what robots.txt points at
- * (https://jointidywise.lovable.app/sitemap.xml). The /functions/v1/sitemap
- * edge function exposes the same data dynamically and is useful for ad-hoc
- * verification, but production crawlers consume this static build output.
+ * Crawlers are pointed at the live function (see public/robots.txt). This file
+ * is the fallback at https://www.jointidywise.com/sitemap.xml. Lovable does
+ * not proxy that path to the function.
  *
  * Invoked from vite.config.ts via `sitemapPlugin()` on `buildEnd`.
  */
@@ -20,10 +19,16 @@ import * as t from "@babel/types";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { COMPETITORS, NICHES } from "../data/compareNicheData";
 import { STATIC_ROUTE_META } from "./routeMeta";
-import { KEYWORD_CANONICALS } from "./keywordCanonicals";
 import { SUPABASE_PUBLIC_ANON_KEY, SUPABASE_PUBLIC_URL } from "./supabasePublicEnv";
+import {
+  SITEMAP_STATIC_PATH_DRIFT,
+  diffStaticPaths,
+  fetchPublishedBlogPosts,
+  renderSitemap,
+  staticPathsFromAppRoutes,
+  type SitemapBlogPost,
+} from "./sitemapRoutes";
 
 /**
  * Marker the build plugin greps for to tell a route-meta mismatch — which must
@@ -37,84 +42,7 @@ const traverse =
   ((_traverse as unknown as { default?: typeof _traverse }).default as typeof _traverse) ??
   _traverse;
 
-const BASE_URL = "https://www.jointidywise.com";
-
-// Exact path exclusions.
-const EXCLUDED_PATHS = new Set<string>([
-  "/login",
-  "/signup",
-  "/logout",
-  "/auth",
-  "/auth/callback",
-  "/auth/confirm",
-  "/onboarding",
-  "/card-saved",
-  "/delete-account",
-  // Token link from marketing email. Nothing to index, and the page noindexes.
-  "/unsubscribe",
-  "/forgot-password",
-  "/reset-password",
-  // The hard paywall between onboarding and the dashboard. Reachable only with
-  // a session, redirects to /login on native, and has nothing to offer a
-  // crawler — it was being advertised purely because it is a top-level route.
-  "/choose-plan",
-  // Both only function with a one-time token in the URL. A crawler arriving
-  // without one gets an error state, and indexing either invites people to a
-  // page that cannot work for them.
-  "/set-password",
-  "/accept-invite",
-  // Aliases of /referral and /contact. The canonical page is indexed.
-  "/refer",
-  "/affiliate",
-  "/feedback",
-  "*",
-]);
-
-// Prefix exclusions — any route whose path starts with one of these is skipped.
-// `/.lovable` holds the OAuth 2.1 consent screen for MCP clients. It is a step
-// inside an authorization handshake — it only functions with a live
-// authorization_id in the query string — so a crawler reaching it finds a
-// broken page at best, and listing it invites exactly that.
-// `/dev` is a local preview (import.meta.env.DEV). The route is still in
-// App.tsx, so the sitemap AST sees it, but it is not a public page.
-const EXCLUDED_PREFIXES = ["/dashboard", "/staff", "/portal", "/admin", "/auth", "/checkout", "/billing", "/.lovable", "/dev", "/score"];
-
-function shouldExclude(path: string): boolean {
-  if (EXCLUDED_PATHS.has(path)) return true;
-  if (path.includes(":")) return true; // dynamic segments
-  if (path.includes("*")) return true; // wildcard / splat routes
-  for (const prefix of EXCLUDED_PREFIXES) {
-    if (path === prefix || path.startsWith(`${prefix}/`)) return true;
-  }
-  return false;
-}
-
-async function fetchPublishedBlogSlugs(): Promise<string[]> {
-  const SUPABASE_URL = SUPABASE_PUBLIC_URL;
-  const ANON_KEY = SUPABASE_PUBLIC_ANON_KEY;
-  try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/blog_posts?select=slug&status=eq.published&limit=5000`,
-      {
-        headers: {
-          apikey: ANON_KEY,
-          Authorization: `Bearer ${ANON_KEY}`,
-        },
-      }
-    );
-    if (!res.ok) {
-      console.warn(`[sitemap] blog fetch failed: ${res.status}`);
-      return [];
-    }
-    const rows = (await res.json()) as Array<{ slug: string }>;
-    return rows.map((r) => r.slug).filter(Boolean);
-  } catch (err) {
-    console.warn(`[sitemap] blog fetch error:`, err);
-    return [];
-  }
-}
-
-function extractRoutePaths(source: string): string[] {
+export function extractRoutePaths(source: string): string[] {
   const ast = parse(source, {
     sourceType: "module",
     plugins: ["typescript", "jsx"],
@@ -147,42 +75,6 @@ function extractRoutePaths(source: string): string[] {
   return [...paths];
 }
 
-type SitemapEntry = { path: string; lastmod?: string };
-
-function buildSitemap(entries: SitemapEntry[]): string {
-  // <lastmod> is specified as a UTC date; this is the one place where slicing
-  // toISOString() is exactly what the format asks for.
-  /* eslint-disable-next-line local/no-device-local-dates */
-  const today = new Date().toISOString().slice(0, 10);
-  const sorted = [...entries].sort((a, b) => {
-    if (a.path === "/") return -1;
-    if (b.path === "/") return 1;
-    return a.path.localeCompare(b.path);
-  });
-
-  const urls = sorted
-    .map((e) => {
-      const p = e.path;
-      const loc = p === "/" ? `${BASE_URL}/` : `${BASE_URL}${p}`;
-      const priority = p === "/" ? "1.0" : "0.8";
-      const changefreq = p === "/" ? "weekly" : "monthly";
-      const lastmod = e.lastmod ?? today;
-      return `  <url>
-    <loc>${loc}</loc>
-    <lastmod>${lastmod}</lastmod>
-    <changefreq>${changefreq}</changefreq>
-    <priority>${priority}</priority>
-  </url>`;
-    })
-    .join("\n");
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls}
-</urlset>
-`;
-}
-
 export async function generateSitemap(): Promise<{ count: number; outputPath: string }> {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = dirname(__filename);
@@ -193,26 +85,38 @@ export async function generateSitemap(): Promise<{ count: number; outputPath: st
 
   const source = readFileSync(appTsxPath, "utf8");
   const rawPaths = extractRoutePaths(source);
-  const includedPaths = rawPaths.filter(
-    (p) => !shouldExclude(p) && !(p in KEYWORD_CANONICALS),
-  );
+  const drift = diffStaticPaths(rawPaths);
+  if (drift.missingFromShared.length > 0 || drift.extraInShared.length > 0) {
+    console.error(
+      `${SITEMAP_STATIC_PATH_DRIFT}: INDEXABLE_STATIC_PATHS in src/lib/sitemapRoutes.ts ` +
+        `does not match the public routes in src/App.tsx.\n` +
+        `Missing from the shared list:\n` +
+        (drift.missingFromShared.map((p) => `  ${p}`).join("\n") || "  (none)") +
+        `\nExtra in the shared list:\n` +
+        (drift.extraInShared.map((p) => `  ${p}`).join("\n") || "  (none)") +
+        `\n\nUpdate INDEXABLE_STATIC_PATHS, or exclude the route in src/lib/sitemapRoutes.ts ` +
+        `if it should not be public. The live sitemap function imports that same list.`,
+    );
+    process.exit(1);
+  }
+  const includedPaths = staticPathsFromAppRoutes(rawPaths);
 
   /*
     GUARD: every static route this file advertises must also be prerenderable.
 
-    These two systems take their routes from different places, and only one is
-    automatic. This file AST-extracts them from App.tsx, so a new public page
-    lands in sitemap.xml the moment it is added. prerender-routes.ts takes its
-    static routes from STATIC_ROUTE_META, which is hand-maintained — so a new
-    page is advertised to Google immediately and prerendered never, and crawlers
-    fetch the SPA shell carrying THE HOMEPAGE'S title and description.
+    prerender-routes.ts takes its static routes from STATIC_ROUTE_META, which
+    is hand-maintained. A new public page has to be added to
+    INDEXABLE_STATIC_PATHS (the drift check above fails the build until it is)
+    and to STATIC_ROUTE_META. If only the sitemap list is updated, the page is
+    advertised to Google and prerendered never, and crawlers fetch the SPA
+    shell carrying the homepage's title and description.
 
     That is not hypothetical: /get-the-app shipped in exactly that state and was
     caught only because someone looked at the build output.
 
     Failing here makes the two agree by construction rather than by memory. The
-    fix when it fires is to add the route to STATIC_ROUTE_META, or to
-    EXCLUDED_PATHS/EXCLUDED_PREFIXES above if it should not be public at all.
+    fix when it fires is to add the route to STATIC_ROUTE_META, or to the
+    exclusion lists in src/lib/sitemapRoutes.ts if it should not be public.
 
     Dynamic routes are exempt by design — blog posts, locations, and
     competitor pages are expanded separately by BOTH systems and never appear in
@@ -227,57 +131,30 @@ export async function generateSitemap(): Promise<{ count: number; outputPath: st
         `will serve the homepage's title and description to crawlers:\n` +
         missingMeta.map((p) => `  ${p}`).join("\n") +
         `\n\nAdd them to STATIC_ROUTE_META in src/lib/routeMeta.ts, or exclude them ` +
-        `in src/lib/generate-sitemap.ts if they should not be public.`,
+        `in src/lib/sitemapRoutes.ts if they should not be public.`,
     );
     process.exit(1);
   }
 
-  // Dedupe (HashRouter + BrowserRouter branches in App.tsx share most routes).
-  const entryMap = new Map<string, SitemapEntry>();
-  for (const p of includedPaths) entryMap.set(p, { path: p });
-
-  // Add dynamic published blog post URLs from the database.
-  const blogSlugs = await fetchPublishedBlogSlugs();
-  for (const slug of blogSlugs) {
-    const p = `/blog/post/${slug}`;
-    if (p in KEYWORD_CANONICALS) continue;
-    entryMap.set(p, { path: p });
-  }
-
-  // Add concrete location pages (states + cities).
+  // A transient blog read must not fail the build or replace the previous
+  // fallback with a copy that has zero posts. Leave the file alone and warn.
+  // The live function returns 500 instead, so Google keeps its cached copy.
+  let posts: SitemapBlogPost[] | null = null;
   try {
-    const { locationData } = await import("../data/locationData");
-    for (const slug of Object.keys(locationData)) {
-      const p = `/cleaning-business-software/${slug}`;
-      entryMap.set(p, { path: p });
-    }
+    posts = await fetchPublishedBlogPosts(SUPABASE_PUBLIC_URL, SUPABASE_PUBLIC_ANON_KEY);
   } catch (err) {
-    console.warn(`[sitemap] could not load locationData:`, err);
+    console.warn(`[sitemap] blog fetch error:`, err);
+  }
+  if (!posts) {
+    console.warn(`[sitemap] left ${outputPath} unchanged`);
+    return { count: 0, outputPath };
   }
 
-  // /score/* stays out of the sitemap. The pages still render and are
-  // prerendered with noindex so a crawler that already knows the URL drops it.
-
-  // Add the 36 /compare/:competitorSlug/for/:nicheSlug pages. This route is
-  // registered dynamically in App.tsx (a single `:competitorSlug/:nicheSlug`
-  // Route), so extractRoutePaths()'s AST walk correctly excludes it as a
-  // template (shouldExclude() drops any path containing ":") — same as
-  // /blog/post/:slug or /score/c/:slug. Unlike those, though, nothing was
-  // ever expanding it into its concrete URLs the way blog/score entries
-  // are added above, so all 36 pages were silently absent from the sitemap
-  // even though they render correctly (see src/lib/prerender-routes.ts,
-  // which does enumerate these from the same COMPETITORS x NICHES data).
-  for (const compSlug of Object.keys(COMPETITORS)) {
-    for (const nicheSlug of Object.keys(NICHES)) {
-      const p = `/compare/${compSlug}/for/${nicheSlug}`;
-      entryMap.set(p, { path: p });
-    }
-  }
-
-  const xml = buildSitemap([...entryMap.values()]);
+  const xml = renderSitemap(posts);
   writeFileSync(outputPath, xml, "utf8");
 
-  return { count: entryMap.size, outputPath };
+  const count = xml.split("<url>").length - 1;
+  return { count, outputPath };
 }
 
 // Allow direct execution: `tsx src/lib/generate-sitemap.ts`

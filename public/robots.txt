@@ -41,5 +41,10 @@ Allow: /portal
 Allow: /score/c/*
 Allow: /score/city/*
 
-# Sitemap (static — regenerated at build time from src/lib/generate-sitemap.ts)
+# Live sitemap. The function reads published blog_posts, so a post is listed
+# without a frontend rebuild. A Sitemap URL on another host is valid when it
+# is declared here. Lovable does not proxy /sitemap.xml to the function
+# (www.jointidywise.com/functions/v1/* falls through to the SPA shell).
+Sitemap: https://slwfkaqczvwvvvavkgpr.supabase.co/functions/v1/sitemap
+# Static fallback, rewritten at build time by src/lib/generate-sitemap.ts.
 Sitemap: https://www.jointidywise.com/sitemap.xml

@@ -175,6 +175,9 @@ project_id = "slwfkaqczvwvvvavkgpr"
     verify_jwt = false
   [functions.send-tip-request]
     verify_jwt = false
+  # Public read-only sitemap. Googlebot GETs this with no JWT. The function
+  # uses the anon key and a published-posts select; it does not take the
+  # service-role key.
   [functions.sitemap]
     verify_jwt = false
   [functions.stripe-invoice-webhook]

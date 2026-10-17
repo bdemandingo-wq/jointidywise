@@ -15,9 +15,9 @@
 // site's own domain.
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.57.2";
+import { pingBlogRecache } from "../_shared/pingBlogRecache.ts";
 
 const SITE_DOMAIN = "https://www.jointidywise.com";
-const DEFAULT_ENCITED_ENDPOINT = "https://encited.com/api/prerender/cache/invalidate-page-cache";
 // Matches PLATFORM_ORG_ID in src/components/PlatformAdminRoute.tsx exactly.
 const PLATFORM_ORG_ID = "e95b92d0-7099-408e-a773-e4407b34f8b4";
 
@@ -28,31 +28,6 @@ const corsHeaders = {
 };
 
 interface RecacheBody { slug?: string; url?: string; }
-interface RecacheResult { ok: boolean; status?: number; response?: string; }
-
-async function recacheViaEncited(targetUrl: string, token: string): Promise<RecacheResult> {
-  const endpoint = Deno.env.get("ENCITED_RECACHE_ENDPOINT") || DEFAULT_ENCITED_ENDPOINT;
-  const parsed = new URL(targetUrl);
-  const domain = Deno.env.get("ENCITED_DOMAIN") || parsed.host;
-  const path = parsed.pathname;
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-lovablehtml-api-key": token },
-    body: JSON.stringify({ domain, path, prewarm: true }),
-  });
-  const text = await res.text().catch(() => "");
-  return { ok: res.ok, status: res.status, response: text.slice(0, 500) };
-}
-
-async function recacheViaPrerender(targetUrl: string, token: string): Promise<RecacheResult> {
-  const res = await fetch("https://api.prerender.io/recache", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prerenderToken: token, url: targetUrl }),
-  });
-  const text = await res.text().catch(() => "");
-  return { ok: res.ok, status: res.status, response: text.slice(0, 500) };
-}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -105,19 +80,14 @@ serve(async (req) => {
       return new Response(JSON.stringify({ ok: false, error: "Invalid url" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    const encitedToken = Deno.env.get("ENCITED_API_TOKEN");
-    const prerenderToken = Deno.env.get("PRERENDER_TOKEN");
-    let provider: string; let result: RecacheResult;
-    if (encitedToken) { provider = "encited"; result = await recacheViaEncited(targetUrl, encitedToken); }
-    else if (prerenderToken) { provider = "prerender"; result = await recacheViaPrerender(targetUrl, prerenderToken); }
-    else {
-      console.warn("[recache-blog-post] No recache provider configured — skipping for", targetUrl);
+    const result = await pingBlogRecache(targetUrl);
+    if (result.skipped) {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: "no recache provider configured", url: targetUrl }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    if (!result.ok) console.error(`[recache-blog-post] ${provider} error`, result.status, result.response);
-    else console.log(`[recache-blog-post] Recached via ${provider}:`, targetUrl);
-    return new Response(JSON.stringify({ ok: result.ok, provider, status: result.status, url: targetUrl, response: result.response }),
+    if (!result.ok) console.error(`[recache-blog-post] ${result.provider} error`, result.status, result.response);
+    else console.log(`[recache-blog-post] Recached via ${result.provider}:`, targetUrl);
+    return new Response(JSON.stringify({ ok: result.ok, provider: result.provider, status: result.status, url: targetUrl, response: result.response }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";

@@ -20,6 +20,7 @@ import {
   attemptsAfterClaim,
   canRetryKeyword,
 } from "../_shared/keywordAttempts.ts";
+import { pingBlogRecache, publishedBlogUrl } from "../_shared/pingBlogRecache.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -605,6 +606,22 @@ serve(async (req) => {
         }).select("id, slug, title").single();
 
         if (insErr) throw insErr;
+
+        // Same Encited / prerender.io ping as recache-blog-post. The HTTP
+        // function requires a platform-admin user, which this cron worker
+        // does not have. Drafts are not recached. A failed ping does not
+        // fail the publish.
+        if (shouldPublish && inserted?.slug) {
+          const target = publishedBlogUrl(inserted.slug);
+          if (target) {
+            try {
+              const recache = await pingBlogRecache(target);
+              if (!recache.ok) console.error("[bg] recache ping failed", recache.status, recache.response);
+            } catch (recacheErr) {
+              console.error("[bg] recache ping failed:", recacheErr instanceof Error ? recacheErr.message : recacheErr);
+            }
+          }
+        }
 
         await supabase.from("blog_keyword_queue")
           .update({ status: "completed", generated_post_id: inserted.id, error_message: null })
