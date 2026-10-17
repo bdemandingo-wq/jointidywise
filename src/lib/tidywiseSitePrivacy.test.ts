@@ -67,6 +67,7 @@ test('marketing and signup paths are the only notice surface', () => {
     '/cleaning-business-software',
     '/cleaning-business-software/texas',
     '/score/search',
+    '/tools/house-cleaning-price-calculator',
     '/privacy-policy',
     '/do-not-sell',
     '/contact',

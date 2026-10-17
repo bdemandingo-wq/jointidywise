@@ -59,6 +59,7 @@ const MARKETING_PREFIXES = [
   '/features',
   '/cleaning-business-software',
   '/score',
+  '/tools',
 ];
 
 /** These pages keep the footer link and show neither tags nor the bar. */

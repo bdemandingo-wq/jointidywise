@@ -175,6 +175,7 @@ const PayrollSoftware = lazy(() => import("./pages/features/PayrollSoftware"));
 const CompareHousecallPro = lazy(() => import("./pages/compare/CompareHousecallPro"));
 const CompareNichePage = lazy(() => import("./pages/compare/CompareNichePage"));
 const PricingPage = lazy(() => import("./pages/PricingPage"));
+const HouseCleaningPriceCalculatorPage = lazy(() => import("./pages/tools/HouseCleaningPriceCalculatorPage"));
 const GetTheAppPage = lazy(() => import("./pages/GetTheAppPage"));
 const ChoosePlanPage = lazy(() => import("./pages/ChoosePlanPage"));
 const CheckoutSuccessPage = lazy(() => import("./pages/CheckoutSuccessPage"));
@@ -447,6 +448,7 @@ const App = () => (
                       <Route path="/review/:token" element={<ReviewPage />} />
                       {/* Redirect all marketing pages to login on native */}
                       <Route path="/blog/*" element={<Navigate to="/login" replace />} />
+                      <Route path="/tools/*" element={<Navigate to="/login" replace />} />
                       <Route path="/compare/*" element={<Navigate to="/login" replace />} />
                       <Route path="/features/*" element={<Navigate to="/login" replace />} />
                       <Route path="/cleaning-business-software/*" element={<Navigate to="/login" replace />} />
@@ -586,6 +588,7 @@ const App = () => (
                      <Route path="/delete-account" element={<DeleteAccountPage />} />
                      <Route path="/unsubscribe" element={<UnsubscribePage />} />
                      <Route path="/pricing" element={<ErrorBoundary featureName="Pricing"><PricingPage /></ErrorBoundary>} />
+                     <Route path="/tools/house-cleaning-price-calculator" element={<ErrorBoundary featureName="Price calculator"><HouseCleaningPriceCalculatorPage /></ErrorBoundary>} />
                      <Route path="/get-the-app" element={<ErrorBoundary featureName="Get the app"><GetTheAppPage /></ErrorBoundary>} />
                      <Route path="/choose-plan" element={<ErrorBoundary featureName="Choose Plan"><ChoosePlanPage /></ErrorBoundary>} />
                      <Route path="/checkout/success" element={<ErrorBoundary featureName="Checkout Success"><CheckoutSuccessPage /></ErrorBoundary>} />

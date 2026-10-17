@@ -12,6 +12,15 @@
  * If a route isn't listed here, the prerender falls back to the homepage tags.
  */
 
+import {
+  CALCULATOR_DESCRIPTION,
+  CALCULATOR_H1,
+  CALCULATOR_PATH,
+  CALCULATOR_TITLE,
+  buildCalculatorPrerenderBody,
+  calculatorJsonLd,
+} from "./houseCleaningCalculatorContent";
+
 export type RouteMeta = {
   title: string;
   description: string;
@@ -71,6 +80,7 @@ export const STATIC_ROUTE_META: Record<string, RouteMeta> = {
           <li><a href="/pricing">Pricing — plans from $49/mo</a></li>
           <li><a href="/demo">Book a demo</a></li>
           <li><a href="/blog">Blog</a></li>
+          <li><a href="/tools/house-cleaning-price-calculator">Try the full price calculator</a></li>
           <li><a href="/cleaning-business-software">Cleaning software by state</a></li>
           <li><a href="/score/search">TidyWise Score directory</a></li>
         </ul>
@@ -385,6 +395,14 @@ export const STATIC_ROUTE_META: Record<string, RouteMeta> = {
     description:
       "Auto-send booking confirmations, reminders, on-my-way texts, and review requests. Cut no-shows and earn more 5-star reviews on autopilot.",
     h1: "SMS Notifications for Cleaning Businesses",
+  },
+  [CALCULATOR_PATH]: {
+    title: CALCULATOR_TITLE,
+    description: CALCULATOR_DESCRIPTION,
+    h1: CALCULATOR_H1,
+    canonicalPath: CALCULATOR_PATH,
+    prerenderBody: buildCalculatorPrerenderBody(),
+    jsonLd: calculatorJsonLd(),
   },
 };
 

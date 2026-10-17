@@ -10,7 +10,7 @@
  * is applied as a floor.
  */
 
-import { squareFootageRanges } from '@/data/pricingData';
+import { squareFootageRanges } from '../data/pricingData.ts';
 
 export interface PricingEngineInput {
   /** Tier prices indexed by squareFootageRanges position. */
