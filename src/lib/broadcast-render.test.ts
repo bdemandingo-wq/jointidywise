@@ -217,7 +217,7 @@ test('absent, blank and whitespace-only all fall back to DEFAULT_SIGNATURE', () 
       html.includes('Emmanuel Forkuoh'),
       `signature ${JSON.stringify(signature)} must fall back to the default`,
     );
-    assert.ok(html.includes('561-571-8725'), 'phone line must survive the fallback');
+    assert.ok(!html.includes('tel:'), 'default signature must not include a phone');
     assert.ok(html.includes('support@jointidywise.com'), 'email line must survive the fallback');
   }
 });
@@ -276,7 +276,7 @@ test('a stored signature wins over the default, and the default disappears', () 
     const out = render({ bodyText: 'Body', unsubscribeUrl: null, signature: stored });
     assert.ok(out.includes('Someone Else'), 'stored signature must appear');
     assert.ok(!out.includes('Emmanuel Forkuoh'), 'default must not also appear');
-    assert.ok(!out.includes('561-571-8725'), 'default phone must not leak in');
+    assert.ok(!out.includes('support@jointidywise.com'), 'default email must not leak in');
   }
 });
 
@@ -293,7 +293,6 @@ test('DEFAULT_SIGNATURE holds every field the renderer needs', () => {
     name: 'Emmanuel Forkuoh',
     linkedInUrl: 'https://www.linkedin.com/in/emmanuel-forkuoh-567724145/',
     title: 'Founder, TidyWise',
-    phone: '561-571-8725',
     email: 'support@jointidywise.com',
   });
   // The tracking suffix was stripped from the URL deliberately; assert it stays
@@ -301,13 +300,13 @@ test('DEFAULT_SIGNATURE holds every field the renderer needs', () => {
   assert.ok(!DEFAULT_SIGNATURE.linkedInUrl.includes('?trk='), 'tracking suffix must not return');
 });
 
-test('defaultSignatureText flattens to four lines, URL bare on the first', () => {
+test('defaultSignatureText flattens to three lines, URL bare on the first, with no phone', () => {
   assert.deepEqual(defaultSignatureText().split('\n'), [
     'Emmanuel Forkuoh \u2022 https://www.linkedin.com/in/emmanuel-forkuoh-567724145/',
     'Founder, TidyWise',
-    '561-571-8725',
     'support@jointidywise.com',
   ]);
+  assert.equal('phone' in DEFAULT_SIGNATURE, false, 'default signature must not carry a phone');
 });
 
 test('the default is still escaped, and still sits above the <hr>', () => {

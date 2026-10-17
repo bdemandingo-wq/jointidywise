@@ -288,7 +288,7 @@ serve(async (req: Request) => {
                         </p>
                         <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
                         <p style="color:#888;font-size:13px;">
-                          Need help? Contact us at <a href="mailto:${tidywiseSupportEmail()}" style="color:#4f46e5;">${tidywiseSupportEmail()}</a> or call <a href="tel:+15615718725" style="color:#4f46e5;">(561) 571-8725</a>.
+                          Need help? Contact us at <a href="mailto:${tidywiseSupportEmail()}" style="color:#4f46e5;">${tidywiseSupportEmail()}</a>.
                         </p>
                         <p style="color:#888;font-size:13px;">— The TidyWise Team</p>
                       </div>

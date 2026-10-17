@@ -182,7 +182,6 @@ serve(async (req: Request) => {
             Talk soon!<br/>
             <strong>Emmanuel Forkuoh</strong><br/>
             Founder, TidyWise<br/>
-            📞 (561) 571-8725<br/>
             🌐 jointidywise.com
           </p>
         </div>`
@@ -204,7 +203,6 @@ serve(async (req: Request) => {
             Talk soon,<br/>
             <strong>Emmanuel Forkuoh</strong><br/>
             Founder, TidyWise<br/>
-            📞 (561) 571-8725<br/>
             🌐 jointidywise.com
           </p>
         </div>`;
