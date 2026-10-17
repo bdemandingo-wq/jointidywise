@@ -3,6 +3,12 @@ import { requireCronOrUser } from "../_shared/requireCronOrUser.ts";
 import { checkOrgEmailEligibility } from "../_shared/emailEligibility.ts";
 import { tidywiseSupportFrom } from "../_shared/email-footer.ts";
 import { renderCrmEmail } from "../_shared/crm-email/render.ts";
+import { escapeHtml } from "../_shared/escapeHtml.ts";
+
+function htmlPerson(c: any): string {
+  const raw = c ? `${c.first_name || ""} ${c.last_name || ""}`.trim() : "";
+  return escapeHtml(raw || "Unknown");
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -177,8 +183,14 @@ Deno.serve(async (req) => {
   const appUrl = Deno.env.get("APP_URL") || "https://jointidywise.com";
   const tomorrowRevenue = tomorrowBookings.reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
   const fmt = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  const formatTime = (iso: string) =>
+    new Date(iso).toLocaleTimeString("en-US", {
+      timeZone: "America/New_York",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   if (errors.length > 0) {
-    console.warn("[evening-brief] query issues omitted from the branded email:", errors);
+    console.warn("[evening-brief] query issues included in the email:", errors);
   }
 
   // Eligibility: subscription status, unsubscribe flag, owner email.
@@ -193,6 +205,35 @@ Deno.serve(async (req) => {
   }
   const recipientEmail = eligibility.email;
 
+  const completedHtml = completedJobs.length === 0
+    ? `<p style="color:#888;margin:4px 0 12px;">No jobs completed today.</p>`
+    : completedJobs.map((b) => {
+      const pay = escapeHtml(String(b.payment_status || ""));
+      const payColor = b.payment_status === "paid" ? "#16a34a" : "#dc2626";
+      return `<div style="padding:6px 0;border-bottom:1px solid #eee;font-size:13px;"><strong>${htmlPerson(b.customers)}</strong> — ${formatTime(b.scheduled_at)} · $${Number(b.total_amount || 0).toFixed(2)} · Payment: <span style="color:${payColor};">${pay}</span></div>`;
+    }).join("");
+
+  const unpaidHtml = unpaidJobs.length > 0
+    ? `<div style="background:#fef2f2;border:1px solid #fca5a5;padding:12px;border-radius:8px;margin:16px 0;"><h3 style="color:#dc2626;margin:0 0 8px;font-size:14px;">⚠️ ${unpaidJobs.length} Unpaid Completed Job${unpaidJobs.length > 1 ? "s" : ""}</h3>${unpaidJobs.map((b) => `<div style="padding:4px 0;color:#991b1b;">${htmlPerson(b.customers)} — $${Number(b.total_amount || 0).toFixed(2)}</div>`).join("")}</div>`
+    : "";
+
+  const estimatesHtml = openEstimates.length > 0
+    ? `<h2 style="font-size:16px;color:#ca8a04;margin:24px 0 12px;">Open Estimates (${openEstimates.length})</h2>${openEstimates.map((e) => {
+      const amount = e.estimated_total ? `$${Number(e.estimated_total).toFixed(2)}` : "N/A";
+      return `<div style="padding:6px 0;border-bottom:1px solid #eee;font-size:13px;"><strong>${escapeHtml(e.client_name || "Unknown")}</strong> — ${amount}</div>`;
+    }).join("")}`
+    : "";
+
+  const tomorrowHtml = tomorrowBookings.length === 0
+    ? `<p style="color:#888;margin:4px 0;">No jobs scheduled for tomorrow.</p>`
+    : tomorrowBookings.map((b) => `<div style="padding:6px 0;border-bottom:1px solid #eee;font-size:13px;"><strong>${htmlPerson(b.customers)}</strong> — ${formatTime(b.scheduled_at)}</div>`).join("");
+
+  const errorsHtml = errors.length > 0
+    ? `<div style="background:#fef2f2;border:1px solid #fca5a5;padding:12px;border-radius:8px;margin-top:20px;"><h3 style="color:#dc2626;margin:0 0 8px;">Errors</h3>${errors.map((e) => `<p style="margin:4px 0;color:#991b1b;">${escapeHtml(e)}</p>`).join("")}</div>`
+    : "";
+
+  const opsDetail = `<h2 style="font-size:16px;color:#16a34a;margin:8px 0 12px;">Completed Jobs (${completedJobs.length})</h2>${completedHtml}${unpaidHtml}${estimatesHtml}<h2 style="font-size:16px;color:#2563eb;margin:24px 0 12px;">Tomorrow's Preview (${tomorrowBookings.length})</h2>${tomorrowHtml}${errorsHtml}`;
+
   const brief = renderCrmEmail("evening-brief", {
     vars: {
       subjectDate,
@@ -205,7 +246,9 @@ Deno.serve(async (req) => {
       tomorrowRevenue: fmt(tomorrowRevenue),
       openEstimatesCount: openEstimates.length,
       UNSUBSCRIBE_URL: eligibility.unsubscribeUrl,
+      opsDetail,
     },
+    rawKeys: ["opsDetail"],
   });
 
 

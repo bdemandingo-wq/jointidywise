@@ -53,6 +53,14 @@ export function sanitizeSectionHtml(html: string): string {
   return s;
 }
 
+/** Booking confirmation total. The design prints the value with no currency sign. */
+export function formatBookingTotal(amount: string): string {
+  const v = String(amount ?? "").trim();
+  if (!v) return "";
+  if (v.startsWith("$")) return v;
+  return `$${v}`;
+}
+
 export function replaceVariables(text: string, data: BookingEmailData): string {
   if (!text) return '';
   let out = text;
@@ -69,6 +77,24 @@ function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function visibleSectionText(html: string): string {
+  return html.replace(/<[^>]+>/g, "").replace(/&nbsp;/gi, " ").trim();
+}
+
+/**
+ * Enabled-but-empty sections use the branded default copy. A card with no
+ * visible body (the empty custom default, or a blank owner section) is omitted.
+ */
+export function sectionCardContent(section: EmailSection): { title: string; html: string } | null {
+  const hasHtml = !!section.html?.trim();
+  const rawHtml = hasHtml ? section.html : (SECTION_DEFAULTS[section.key]?.html ?? "");
+  const rawTitle = section.title?.trim()
+    ? section.title
+    : (hasHtml ? "" : (SECTION_DEFAULTS[section.key]?.title ?? ""));
+  if (!visibleSectionText(rawHtml)) return null;
+  return { title: rawTitle, html: rawHtml };
 }
 
 /** Server-side branded defaults, used when a section is enabled but empty. */

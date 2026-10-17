@@ -21,15 +21,27 @@ export const DEFAULT_ORG_ACCENT = "#14b8a6";
 const DOUBLE = /\{\{\s*([A-Za-z0-9_.]+)\s*\}\}/g;
 const SINGLE = /(?<![{.\w])\{([a-z_]+)\}(?!\})/g;
 const SLOT = /<!-- CONTENT SLOT START:[\s\S]*?-->([\s\S]*?)<!-- CONTENT SLOT END -->/g;
-const CONDITIONAL_COMMENT = /<!--(?!\[if)(?!<!\[endif)[\s\S]*?-->/g;
+// Keep the org-footer marker. send-org-email uses it to avoid a second footer.
+const CONDITIONAL_COMMENT = /<!--(?!\[if)(?!<!\[endif])(?!\s*tw-org-footer\s*-->)[\s\S]*?-->/g;
+
+/**
+ * Turn braces into entities so a filled value can never look like a
+ * template token. Applied to every inserted value, not to the template.
+ * Already-encoded entities are left alone.
+ */
+export function neutralizeBraces(value: string): string {
+  return value.replace(/\{/g, "&#123;").replace(/\}/g, "&#125;");
+}
 
 export function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  return neutralizeBraces(
+    value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;"),
+  );
 }
 
 export function safeColor(value: string | null | undefined, fallback: string): string {
@@ -70,7 +82,9 @@ function applyTokens(html: string, vars: Record<string, string>, raw: Set<string
   const replacer = (rawKey: boolean) => (_m: string, key: string) => {
     if (!Object.prototype.hasOwnProperty.call(vars, key)) return _m;
     const val = vars[key];
-    return rawKey || raw.has(key) ? val : escapeHtml(val);
+    // Raw HTML keeps its tags. Braces are still neutralized so a name,
+    // address, or owner sentence cannot throw the leftover-token check.
+    return rawKey || raw.has(key) ? neutralizeBraces(val) : escapeHtml(val);
   };
   return html
     .replace(DOUBLE, (m, key) => replacer(false)(m, key))
@@ -83,7 +97,8 @@ function replaceSlots(html: string, slots: Array<string | null | undefined> | un
   return html.replace(SLOT, (full) => {
     const next = slots[i++];
     if (next === null || next === undefined) return full;
-    return next;
+    // Owner copy is already substituted. Unknown {tokens} stay literal.
+    return neutralizeBraces(next);
   });
 }
 
@@ -172,16 +187,49 @@ export function htmlToText(html: string): string {
   s = s.replace(/<br\s*\/?>/gi, "\n");
   s = s.replace(/<\/(p|h1|h2|h3|div|tr|table)>/gi, "\n");
   s = s.replace(/<[^>]+>/g, "");
-  s = s
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&rsquo;/g, "'")
-    .replace(/&middot;/g, "·")
-    .replace(/&#\d+;/g, " ");
+  s = decodeEntities(s);
   s = s.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   return s;
+}
+
+const NAMED_ENTITIES: Record<string, string> = {
+  nbsp: " ",
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  rsquo: "\u2019",
+  lsquo: "\u2018",
+  rdquo: "\u201d",
+  ldquo: "\u201c",
+  middot: "\u00b7",
+  copy: "\u00a9",
+  reg: "\u00ae",
+  trade: "\u2122",
+  zwnj: "\u200c",
+  zwj: "\u200d",
+  rsaquo: "\u203a",
+  lsaquo: "\u2039",
+  mdash: "\u2014",
+  ndash: "\u2013",
+  hellip: "\u2026",
+  bull: "\u2022",
+  times: "\u00d7",
+  divide: "\u00f7",
+  shy: "\u00ad",
+};
+
+/** One pass. `&amp;nbsp;` stays `&nbsp;` because the replacement is not rescanned. */
+function decodeEntities(value: string): string {
+  return value.replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z]+);/g, (entity, body: string) => {
+    if (body[0] === "#") {
+      const hex = body[1] === "x" || body[1] === "X";
+      const cp = hex ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      if (!Number.isFinite(cp) || cp < 0 || cp > 0x10ffff) return entity;
+      return String.fromCodePoint(cp);
+    }
+    const named = NAMED_ENTITIES[body.toLowerCase()];
+    return named === undefined ? entity : named;
+  });
 }

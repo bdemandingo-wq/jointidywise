@@ -6,6 +6,7 @@ import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 import { PLATFORM_SENDER_EMAIL } from "../_shared/email-sender-resolution.ts";
 import { orgBrandVars, renderCrmEmail } from "../_shared/crm-email/render.ts";
 import { loadLooseBrand } from "../_shared/org-email-renderer.ts";
+import { PORTAL_URL } from "../_shared/staff-notify.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -261,7 +262,7 @@ serve(async (req: Request) => {
                 const firstName = staff.name?.split(" ")[0] || "there";
                 const fromName = orgEmailSettings?.from_name || "TidyWise";
                 const fromEmail = orgEmailSettings?.from_email || PLATFORM_SENDER_EMAIL;
-                const portalUrl = "https://jointidywise.com/staff-portal?tab=payouts";
+                const portalUrl = PORTAL_URL;
                 const supportEmail = tidywiseSupportEmail();
                 const supportMailto = `mailto:${tidywiseSupportEmail()}`;
                 const brand = await loadLooseBrand(account.organization_id);
@@ -274,9 +275,10 @@ serve(async (req: Request) => {
                   },
                   rawKeys: ["email_footer"],
                 });
-                const requirementsText = requirementsMail.text.includes(supportMailto)
-                  ? requirementsMail.text
-                  : `${requirementsMail.text}\n${supportMailto}`;
+                // supportMailto is the reply-to contract (see supportReplyTo.test.ts).
+                // It is not added to the body: the footer is the business's own contact.
+                void supportMailto;
+                const requirementsText = requirementsMail.text;
 
                 const resendRes = await fetch("https://api.resend.com/emails", {
                   method: "POST",

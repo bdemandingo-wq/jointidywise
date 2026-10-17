@@ -198,13 +198,11 @@ serve(async (req) => {
       const subject = substitutions(campaign.subject);
       const body = substitutions(campaign.body || "");
 
-      // Escape before **bold** so an owner body cannot inject tags. A
-      // zero-width space after "{" keeps leftover braces as literal text
-      // so they do not fail the branded shell's token check.
+      // Escape before **bold** so an owner body cannot inject tags.
+      // Braces in the owner body stay literal; fill.ts neutralizes them.
       const bodyHtml = escapeHtml(body)
         .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-        .replace(/\n/g, "<br>")
-        .replace(/\{/g, "{\u200b");
+        .replace(/\n/g, "<br>");
 
       try {
         const { sendOrgEmail } = await import("../_shared/send-org-email.ts");

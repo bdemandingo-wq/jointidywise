@@ -6,7 +6,7 @@
 // The identical function is used for all three paths so previews match reality.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { renderSectionsToHtml, sanitizeSectionHtml, type EmailSection } from "./email-sections.ts";
+import { formatBookingTotal, renderSectionsToHtml, sanitizeSectionHtml, sectionCardContent, type EmailSection } from "./email-sections.ts";
 import { orgBrandVars, renderCrmEmail } from "./crm-email/render.ts";
 
 export interface OrgBrand {
@@ -18,6 +18,8 @@ export interface OrgBrand {
   fromEmail: string;
   replyToEmail: string;
   emailFooter: string | null;
+  companyAddress: string;
+  contactEmail: string;
 }
 
 export interface BookingEmailData {
@@ -120,7 +122,7 @@ export async function loadOrgBrand(organizationId: string): Promise<
   const [{ data: bs, error: bsErr }, { data: es, error: esErr }] = await Promise.all([
     supabase
       .from("business_settings")
-      .select("company_name, logo_url, primary_color, accent_color")
+      .select("company_name, logo_url, primary_color, accent_color, company_address, company_city, company_state, company_zip, company_email")
       .eq("organization_id", organizationId)
       .maybeSingle(),
     supabase
@@ -149,6 +151,8 @@ export async function loadOrgBrand(organizationId: string): Promise<
     fromEmail: es.from_email,
     replyToEmail: es.reply_to_email || es.from_email,
     emailFooter: es.email_footer ?? null,
+    companyAddress: formatStoredAddress(bs),
+    contactEmail: (es.reply_to_email || es.from_email || bs?.company_email || "").trim(),
   };
   return { success: true, brand };
 }
@@ -185,20 +189,22 @@ function bookingSlotHtml(body: string, data: BookingEmailData): string {
 
 function sectionCards(sections: EmailSection[] | undefined, data: BookingEmailData): Array<Record<string, string>> {
   const active = [...(sections ?? [])].filter((s) => s.enabled).sort((a, b) => a.order - b.order);
-  return active.map((section) => {
-    const title = section.title?.trim() || "";
-    const raw = section.html?.trim() || "";
-    const body = sanitizeSectionHtml(raw);
+  const rows: Array<Record<string, string>> = [];
+  for (const section of active) {
+    const resolved = sectionCardContent(section);
+    if (!resolved) continue;
+    const body = sanitizeSectionHtml(resolved.html);
     let filled = body;
     for (const [k, v] of Object.entries(data)) {
       filled = filled.split(`{{${k}}}`).join(escapeHtml(String(v ?? "")));
     }
-    let titleFilled = title;
+    let titleFilled = resolved.title;
     for (const [k, v] of Object.entries(data)) {
       titleFilled = titleFilled.split(`{{${k}}}`).join(String(v ?? ""));
     }
-    return { "section.title": titleFilled, "section.body": filled };
-  });
+    rows.push({ "section.title": titleFilled, "section.body": filled });
+  }
+  return rows;
 }
 
 /**
@@ -220,6 +226,8 @@ function renderConfirmationDesign(opts: RenderOptions): { subject: string; html:
         primaryColor: brand.primaryColor,
         accentColor: brand.accentColor,
         emailFooter: brand.emailFooter,
+        companyAddress: brand.companyAddress,
+        contactEmail: brand.contactEmail || brand.replyToEmail,
       }),
       customer_name: data.customer_name,
       booking_number: data.booking_number,
@@ -227,7 +235,7 @@ function renderConfirmationDesign(opts: RenderOptions): { subject: string; html:
       scheduled_date: data.scheduled_date,
       scheduled_time: data.scheduled_time,
       address: data.address,
-      total_amount: data.total_amount,
+      total_amount: formatBookingTotal(data.total_amount),
       company_name: data.company_name || brand.companyName,
     },
     slots: [slot],
@@ -346,12 +354,30 @@ export function renderBrandedEmail(opts: RenderOptions): { subject: string; html
 }
 
 /** Branding for org-colored mail. Missing settings fall back; they do not block the send. */
+export function formatStoredAddress(bs: {
+  company_address?: string | null;
+  company_city?: string | null;
+  company_state?: string | null;
+  company_zip?: string | null;
+} | null | undefined): string {
+  if (!bs) return "";
+  const street = (bs.company_address || "").trim();
+  const city = (bs.company_city || "").trim();
+  const state = (bs.company_state || "").trim();
+  const zip = (bs.company_zip || "").trim();
+  const region = [state, zip].filter(Boolean).join(" ");
+  const cityLine = [city, region].filter(Boolean).join(", ");
+  return [street, cityLine].filter(Boolean).join(", ");
+}
+
 export async function loadLooseBrand(organizationId: string): Promise<{
   companyName: string;
   logoUrl: string | null;
   primaryColor: string | null;
   accentColor: string | null;
   emailFooter: string | null;
+  companyAddress: string;
+  contactEmail: string;
 }> {
   const empty = {
     companyName: "Your business",
@@ -359,6 +385,8 @@ export async function loadLooseBrand(organizationId: string): Promise<{
     primaryColor: null as string | null,
     accentColor: null as string | null,
     emailFooter: null as string | null,
+    companyAddress: "",
+    contactEmail: "",
   };
   if (!organizationId) return empty;
   try {
@@ -369,12 +397,12 @@ export async function loadLooseBrand(organizationId: string): Promise<{
     const [{ data: bs }, { data: es }] = await Promise.all([
       admin
         .from("business_settings")
-        .select("company_name, logo_url, primary_color, accent_color")
+        .select("company_name, logo_url, primary_color, accent_color, company_address, company_city, company_state, company_zip, company_email")
         .eq("organization_id", organizationId)
         .maybeSingle(),
       admin
         .from("organization_email_settings")
-        .select("from_name, email_footer")
+        .select("from_name, from_email, reply_to_email, email_footer")
         .eq("organization_id", organizationId)
         .maybeSingle(),
     ]);
@@ -384,6 +412,8 @@ export async function loadLooseBrand(organizationId: string): Promise<{
       primaryColor: bs?.primary_color ?? null,
       accentColor: bs?.accent_color ?? null,
       emailFooter: es?.email_footer ?? null,
+      companyAddress: formatStoredAddress(bs),
+      contactEmail: (es?.reply_to_email || es?.from_email || bs?.company_email || "").trim(),
     };
   } catch (err) {
     console.error("[loadLooseBrand]", err);

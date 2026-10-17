@@ -14,8 +14,6 @@ import {
 import { anthropicChat, MODEL_SONNET } from "../_shared/anthropic.ts";
 import { renderCrmEmail } from "../_shared/crm-email/render.ts";
 import { escapeHtml } from "../_shared/escapeHtml.ts";
-import { ensureUnsubscribeToken } from "../_shared/unsubscribe-token.ts";
-import { tidywiseSupportEmail } from "../_shared/email-footer.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -252,16 +250,9 @@ Give practical advice for a cleaning business owner.`;
         }
       }
 
-      // Platform digest: TidyWise logo and colors, not the org brand.
-      // Unsubscribe is minted the same way as the morning brief (global token)
-      // and does not apply that helper's subscription gate.
-      let unsubscribeUrl = `mailto:${tidywiseSupportEmail()}?subject=Unsubscribe`;
-      const unsubToken = await ensureUnsubscribeToken(supabase, adminEmail);
-      if (unsubToken && SUPABASE_URL) {
-        unsubscribeUrl = `${SUPABASE_URL}/functions/v1/handle-email-unsubscribe?token=${unsubToken}`;
-      } else {
-        console.warn(`[weekly-business-report] org=${org.id}: unsubscribe token unavailable, using mailto fallback`);
-      }
+      // The weekly report had no unsubscribe link before the branded shell.
+      // A global token would also silence morning briefs, evening briefs, and
+      // trial reminders, which this report never did.
       const introHtml = escapeHtml(wsResolved.text)
         .replace(/\{/g, "&#123;")
         .replace(/\}/g, "&#125;")
@@ -280,7 +271,6 @@ Give practical advice for a cleaning business owner.`;
             .replace(/\{/g, "&#123;")
             .replace(/\}/g, "&#125;")
             .replace(/\n/g, "<br>"),
-          UNSUBSCRIBE_URL: unsubscribeUrl,
         },
         slots: [introHtml],
         includeOptional: aiInsights.trim().length > 0,
@@ -333,10 +323,6 @@ Give practical advice for a cleaning business owner.`;
             subject: wsSubject,
             html: report.html,
             text: report.text,
-            headers: {
-              "List-Unsubscribe": `<${unsubscribeUrl}>`,
-              "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-            },
           });
           return { data, error };
         };

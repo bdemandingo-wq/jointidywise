@@ -31,7 +31,10 @@ function tierMinLabel(value: unknown): string {
   if (value == null || value === "") return "";
   const n = Number(value);
   if (!Number.isFinite(n)) return String(value);
-  return Number.isInteger(n) ? String(n) : String(n);
+  // min_spending is lifetime dollars. The column header is "Spend" and the
+  // cell is `$` + this number + `+`.
+  const num = Number.isInteger(n) ? String(n) : n.toFixed(2);
+  return num.replace(/^\$/, "");
 }
 
 const handler = async (req: Request): Promise<Response> => {

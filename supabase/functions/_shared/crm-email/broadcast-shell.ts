@@ -34,5 +34,6 @@ export function wrapBroadcastDocument(args: {
       LOGO_URL: args.logoUrl || TIDYWISE_LOGO_URL,
     },
   });
-  return filled.replace("___BROADCAST_INNER___", args.innerHtml);
+  // A function replacer leaves `$`, `$$`, and `$&` in the body alone.
+  return filled.replace("___BROADCAST_INNER___", () => args.innerHtml);
 }

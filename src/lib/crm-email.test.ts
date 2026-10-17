@@ -12,6 +12,7 @@ import { TEMPLATES, type CrmSlug } from "../../supabase/functions/_shared/crm-em
 import { renderCrmEmail, containsBlockedPhone, orgBrandVars, UNSUBSCRIBE_URL_SENTINEL } from "../../supabase/functions/_shared/crm-email/render.ts";
 import { wrapBroadcastDocument } from "../../supabase/functions/_shared/crm-email/broadcast-shell.ts";
 import { renderBroadcastHtml } from "./broadcast-render.ts";
+import { formatBookingTotal, sectionCardContent, type EmailSection } from "../../supabase/functions/_shared/email-sections.ts";
 
 const APP = "https://app.jointidywise.com";
 const LOGO = "https://jointidywise.com/email-logo.png";
@@ -22,7 +23,9 @@ const brand = orgBrandVars({
   logoUrl: ORG_LOGO,
   primaryColor: "#0f766e",
   accentColor: "#f59e0b",
-  emailFooter: "Brightside Home Cleaning · 210 Palm Ave, Boca Raton, FL 33432",
+  emailFooter: "Licensed and insured.",
+  companyAddress: "210 Palm Ave, Boca Raton, FL 33432",
+  contactEmail: "hello@brightside.test",
 });
 
 const base: Record<string, string> = {
@@ -151,7 +154,8 @@ const base: Record<string, string> = {
   amt: "$412.50",
   week_start: "Oct 5, 2026",
   estStr: "in about 2 business days",
-  portalUrl: "https://jointidywise.com/staff-portal?tab=payouts",
+  portalUrl: "https://www.jointidywise.com/staff",
+  opsDetail: "",
   supportEmail: "support@jointidywise.com",
   message: "Hi! I run a 6-person cleaning team and want to move off spreadsheets.",
   prospectPhone: "555-019-8833",
@@ -225,13 +229,29 @@ test("every CRM design renders with no leftover tokens and no TidyWise phone", (
     assert.equal(containsBlockedPhone(text), false, `${slug} text contains 5615718725`);
     assert.ok(!html.includes("{{"), `${slug} still has a double-brace token`);
     assert.ok(!/\{[a-z_]+\}/.test(html.replace(/\{[0-9#.%]/g, "")), `${slug} still has a single-brace token`);
-    assert.ok(html.includes("65 SW 12th Ave"), `${slug} is missing the postal address`);
-    assert.ok(html.includes("Deerfield Beach, FL 33442"), `${slug} is missing the city line`);
     assert.ok(text.length > 40, `${slug} plain text is empty`);
+    assert.equal(text.includes("&copy;"), false, `${slug} text left &copy;`);
+    assert.equal(text.includes("&nbsp;"), false, `${slug} text left &nbsp;`);
+    assert.equal(text.includes("&zwnj;"), false, `${slug} text left &zwnj;`);
+    assert.equal(text.includes("&middot;"), false, `${slug} text left &middot;`);
+    assert.equal(text.includes("&#"), false, `${slug} text left a numeric entity`);
     if (ORG_SLUGS.has(slug)) {
+      assert.equal(html.includes("65 SW 12th Ave"), false, `${slug} still has the TidyWise address`);
+      assert.equal(html.includes("Sent with TidyWise"), false, `${slug} still says Sent with TidyWise`);
+      // Stripe requirement mail still offers the platform support inbox as the
+      // "Questions? Email us" link. Every other org design must not.
+      if (slug !== "stripe-requirements") {
+        assert.equal(html.includes("support@jointidywise.com"), false, `${slug} still has TidyWise support`);
+      }
+      assert.equal(html.toLowerCase().includes("powered by"), false, `${slug} added a Powered by line`);
+      assert.ok(html.includes("hello@brightside.test"), `${slug} is missing the business contact`);
+      assert.ok(html.includes("210 Palm Ave"), `${slug} is missing the business address`);
       assert.equal(html.includes("#1d5fbf"), false, `${slug} leaked TidyWise blue`);
       assert.equal(html.includes("#3fbf2a"), false, `${slug} leaked TidyWise green`);
       assert.ok(html.includes("#0f766e") || html.includes(ORG_LOGO) || html.includes("Brightside"), `${slug} missing org brand`);
+    } else {
+      assert.ok(html.includes("65 SW 12th Ave"), `${slug} is missing the postal address`);
+      assert.ok(html.includes("Deerfield Beach, FL 33442"), `${slug} is missing the city line`);
     }
   }
 });
@@ -293,4 +313,121 @@ test("broadcast shell keeps the inner unsubscribe rules", () => {
   assert.ok(marketing.includes("Unsubscribe"));
   assert.equal(marketing.includes(UNSUBSCRIBE_URL_SENTINEL), false);
   assert.equal(marketing.includes("{{"), false);
+
+  const tricky = wrapBroadcastDocument({
+    subject: "Pricing",
+    innerHtml: "Cost is $$50 and $& bonus",
+  });
+  assert.ok(tricky.includes("Cost is $$50 and $& bonus"));
+});
+
+test("braces in user and owner values render literally and do not throw", () => {
+  const contact = renderCrmEmail("internal-contact-form", {
+    vars: { ...base, name: "Ada {brace}", email: "ada@example.com", message: "hello {test}<br>line" },
+    rawKeys: ["message"],
+  });
+  assert.ok(contact.text.includes("hello {test}"));
+  assert.ok(contact.text.includes("Ada {brace}"));
+  assert.equal(contact.html.includes("{test}"), false);
+
+  const booking = renderCrmEmail("booking-confirmation", {
+    vars: { ...base, address: "12 Main {rear}", total_amount: formatBookingTotal("260.00") },
+    slots: ["<p>See you {{customer_nme}}.</p>"],
+    repeats: [{ prefix: "section.", rows: [] }],
+    rawKeys: ["section.body", "email_footer"],
+  });
+  assert.ok(booking.text.includes("12 Main {rear}"));
+  assert.ok(booking.text.includes("{{customer_nme}}"));
+  assert.ok(booking.html.includes("$260.00"));
+  assert.equal(booking.html.includes("$$"), false);
+
+  const admin = renderCrmEmail("new-booking-admin-copy", {
+    vars: { ...base, address: "12 Main {rear}", customerName: "Sam {{x}}" },
+  });
+  assert.ok(admin.text.includes("12 Main {rear}"));
+  assert.ok(admin.text.includes("Sam {{x}}"));
+
+  const deletion = renderCrmEmail("account-deletion-request", {
+    vars: { ...base, request: "Please delete {reason}<br>thanks" },
+    rawKeys: ["request"],
+  });
+  assert.ok(deletion.text.includes("Please delete {reason}"));
+
+  const morning = renderCrmEmail("morning-brief", {
+    vars: { ...base, opsDetail: "<p>Sections with issues: Today's bookings</p><p>Cancellations 24h: boom {err}</p>" },
+    rawKeys: ["opsDetail"],
+    repeats: [
+      { prefix: "job.", rows: [{ "job.time": "9:00 AM", "job.customer": "Pat {rear}", "job.service": "Deep", "job.staff": "Ann", "job.total": "$80.00" }] },
+      { prefix: "lead.", rows: [{ "lead.name": "Lee {{lead}}", "lead.source": "Web" }] },
+    ],
+  });
+  assert.ok(morning.text.includes("Pat {rear}"));
+  assert.ok(morning.text.includes("Lee {{lead}}"));
+  assert.ok(morning.text.includes("Sections with issues"));
+  assert.ok(morning.text.includes("boom {err}"));
+
+  const referral = renderCrmEmail("referral-invite", {
+    vars: { ...base, referrerName: "Nia {friend}" },
+    rawKeys: ["email_footer"],
+  });
+  assert.ok(referral.text.includes("Nia {friend}"));
+
+  const demo = renderCrmEmail("demo-request", {
+    vars: { ...base, fullName: "Omar {{demo}}" },
+  });
+  assert.ok(demo.text.includes("Omar {{demo}}"));
+  assert.equal(containsBlockedPhone(demo.html + contact.html + booking.html), false);
+});
+
+test("review fixes for totals, links, loyalty, weekly, and empty sections", () => {
+  assert.equal(formatBookingTotal("260.00"), "$260.00");
+  assert.equal(formatBookingTotal("$260.00"), "$260.00");
+
+  const evening = renderCrmEmail("evening-brief", {
+    vars: {
+      ...base,
+      opsDetail: "<p>1 Unpaid Completed Job</p><p>Open Estimates (2)</p><p>Tomorrow's Preview</p><p>Bookings query error: relation missing</p>",
+    },
+    rawKeys: ["opsDetail"],
+  });
+  assert.ok(evening.html.includes("/dashboard/estimates"));
+  assert.equal(evening.html.includes("/dashboard/quotes"), false);
+  assert.ok(evening.text.includes("Unpaid Completed Job"));
+  assert.ok(evening.text.includes("Bookings query error"));
+
+  const loyalty = renderCrmEmail("loyalty-progress", {
+    vars: base,
+    repeats,
+    rawKeys: ["email_footer"],
+  });
+  assert.ok(loyalty.html.includes(">Spend<"));
+  assert.ok(loyalty.html.includes("$500+"));
+  assert.ok(loyalty.html.includes("Lifetime points"));
+
+  const weekly = renderCrmEmail("weekly-business-report", { vars: base, includeOptional: false });
+  assert.equal(weekly.html.toLowerCase().includes("unsubscribe"), false);
+
+  const followup = renderCrmEmail("followup-campaign", {
+    vars: base,
+    slots: ["<p>Thanks for having us.</p>"],
+    rawKeys: ["email_footer"],
+  });
+  assert.ok(followup.html.includes("mailto:hello@brightside.test"));
+  assert.equal(followup.html.includes("support@jointidywise.com"), false);
+
+  const payouts = renderCrmEmail("payouts-active", { vars: base, rawKeys: ["email_footer"] });
+  assert.equal(payouts.html.split("Open my portal").length - 1, 1);
+  assert.equal(payouts.html.includes("staff-portal"), false);
+  assert.ok(payouts.html.includes("https://www.jointidywise.com/staff"));
+
+  const emptyCustom: EmailSection = {
+    id: "1", key: "custom", title: "", html: "", enabled: true, order: 1,
+  };
+  assert.equal(sectionCardContent(emptyCustom), null);
+  const emptyReminders: EmailSection = {
+    id: "2", key: "reminders", title: "", html: "   ", enabled: true, order: 2,
+  };
+  const reminders = sectionCardContent(emptyReminders);
+  assert.equal(reminders?.title, "Before we arrive");
+  assert.ok(reminders?.html.includes("Someone 18+"));
 });

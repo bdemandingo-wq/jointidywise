@@ -54,12 +54,19 @@ export interface OrgBrandInput {
   primaryColor?: string | null;
   accentColor?: string | null;
   emailFooter?: string | null;
+  /** Street plus city line, already joined. Empty when the org has none stored. */
+  companyAddress?: string | null;
+  /** Reply-to or from address. Empty when the org has none stored. */
+  contactEmail?: string | null;
 }
 
 /** Tokens shared by every org-branded (client or staff) design. */
 export function orgBrandVars(brand: OrgBrandInput = {}): Record<string, string> {
   const name = (brand.companyName || "Your business").trim() || "Your business";
   const footer = brand.emailFooter ? escapeFooter(brand.emailFooter) : "";
+  const address = (brand.companyAddress || "").trim();
+  const contact = (brand.contactEmail || "").trim();
+  const orgContactLine = [name, address, contact].filter(Boolean).join(" · ");
   return {
     ORG_LOGO_URL: brand.logoUrl || "",
     primary_color: safeColor(brand.primaryColor, DEFAULT_ORG_PRIMARY),
@@ -70,6 +77,9 @@ export function orgBrandVars(brand: OrgBrandInput = {}): Record<string, string> 
     orgName: name,
     biz: name,
     businessName: name,
+    company_address: address,
+    contact_email: contact,
+    org_contact_line: orgContactLine,
   };
 }
 

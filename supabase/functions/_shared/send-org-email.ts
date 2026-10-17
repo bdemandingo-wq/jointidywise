@@ -200,9 +200,9 @@ function b64(s: string): string {
   return btoa(unescape(encodeURIComponent(s)));
 }
 
-/** Org designs already place email_footer above "Sent with TidyWise". */
+/** Designed org mail already renders email_footer. One-off compose still gets it appended. */
 function withOrgFooter(html: string, footer: string | null | undefined): string {
-  if (!footer || html.includes("Sent with TidyWise")) return html;
+  if (!footer || html.includes("tw-org-footer") || html.includes("Sent with TidyWise")) return html;
   return html + `<br/><br/><p style="color:#666;font-size:12px;">${escapeHtml(footer)}</p>`;
 }
 
