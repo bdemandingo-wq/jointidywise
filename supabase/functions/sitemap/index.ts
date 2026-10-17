@@ -6,11 +6,13 @@
 // URLs come from src/lib/sitemapRoutes.ts, the same module the build-time
 // writer uses.
 //
-// Content-Type is application/xml. On 2026-10-17 the Supabase edge gateway
-// rewrote this function's response to text/plain on the wire and sandboxed
-// it. The header is still set so a gateway change or a same-host proxy
-// serves the type Search Console expects. robots.txt also lists the static
-// /sitemap.xml, which the site serves as application/xml.
+// Content-Type is application/xml. Checked 2026-10-17 against the deployed
+// function: HEAD returns that type, but GET (what a crawler sends, including
+// Googlebot and Accept: application/xml) is rewritten to text/plain with a
+// sandbox CSP and X-Content-Type-Options: nosniff. The body is still the XML.
+// The header stays application/xml because that is what the function controls.
+// Nothing in this repo can stop the gateway rewrite or proxy /sitemap.xml
+// onto the www host. robots.txt is how crawlers find this URL.
 
 import { fetchPublishedBlogPosts, handleSitemapRequest } from "../../../src/lib/sitemapRoutes.ts";
 

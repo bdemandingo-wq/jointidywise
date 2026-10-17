@@ -14,7 +14,7 @@ import { KEYWORD_CANONICALS } from "./keywordCanonicals.ts";
 
 export const SITEMAP_SITE_ORIGIN = "https://www.jointidywise.com";
 
-/** Public function URL. robots.txt and Search Console use this. */
+/** Public function URL. Listed from robots.txt. Not a Search Console submission. */
 export const LIVE_SITEMAP_URL =
   "https://slwfkaqczvwvvvavkgpr.supabase.co/functions/v1/sitemap";
 
