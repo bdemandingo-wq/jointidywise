@@ -22,8 +22,10 @@ import {
   explainerWordCount,
 } from "./houseCleaningCalculatorContent.ts";
 import {
+  CALC_COMPLETED_DEBOUNCE_MS,
   addonHint,
   calculateHouseCleaningQuote,
+  calculationEventKey,
   visitsPerMonth,
   type HouseCleaningQuoteInput,
 } from "./houseCleaningPriceCalculator.ts";
@@ -214,6 +216,31 @@ test("weekly overhead uses 52/12 visits and a short quote funds no hours", () =>
   assert.equal(short?.economics?.estimatedHours, null);
   assert.equal(short?.economics?.shortfall, 50);
   assert.equal(short?.economics?.profit, null);
+});
+
+test("calculation event key changes with the quote and is not an email", () => {
+  assert.equal(CALC_COMPLETED_DEBOUNCE_MS >= 400, true);
+  const first: HouseCleaningQuoteInput = {
+    size: { mode: "sqft", squareFeet: 1500 },
+    cleanType: "standard_recurring",
+    conditionId: 2,
+    frequency: "biweekly",
+    addons: none,
+  };
+  const second: HouseCleaningQuoteInput = {
+    ...first,
+    addons: { ...none, oven: true, fridge: true },
+    costs: {
+      hourlyWage: 20,
+      teamSize: 1,
+      supplyCostPerVisit: 0,
+      monthlyOverhead: 0,
+      marginPct: 20,
+    },
+  };
+  assert.equal(calculationEventKey(first), calculationEventKey({ ...first }));
+  assert.notEqual(calculationEventKey(first), calculationEventKey(second));
+  assert.equal(calculationEventKey(first).includes("@"), false);
 });
 
 test("blank costs leave the quote and skip hours", () => {

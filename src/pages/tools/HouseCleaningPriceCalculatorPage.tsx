@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { SEOHead } from "@/components/SEOHead";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -24,14 +24,18 @@ import {
   calculatorJsonLd,
 } from "@/lib/houseCleaningCalculatorContent";
 import {
+  CALC_COMPLETED_DEBOUNCE_MS,
   addonHint,
   calculateHouseCleaningQuote,
+  calculationEventKey,
   formatHours,
   formatUsd,
   type CalculatorAddonId,
   type CalculatorCleanType,
   type CalculatorFrequency,
+  type HouseCleaningQuoteInput,
 } from "@/lib/houseCleaningPriceCalculator";
+import { trackTidyWiseConversion } from "@/lib/tidywiseTags";
 
 const controlClass =
   "flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
@@ -50,7 +54,7 @@ function TrialActions() {
   return (
     <div className="flex flex-col sm:flex-row gap-3">
       <Button asChild size="lg" className="h-auto whitespace-normal text-center">
-        <Link to="/signup">{TRIAL_CTA_LABEL}</Link>
+        <Link to="/signup" onClick={() => trackTidyWiseConversion("trial_click")}>{TRIAL_CTA_LABEL}</Link>
       </Button>
       <Button asChild size="lg" variant="outline">
         <Link to="/pricing">{SEE_PLANS_LABEL}</Link>
@@ -86,7 +90,7 @@ export default function HouseCleaningPriceCalculatorPage() {
   const [overhead, setOverhead] = useState("");
   const [margin, setMargin] = useState("");
 
-  const result = useMemo(() => {
+  const quoteInput = useMemo((): HouseCleaningQuoteInput | null => {
     const feet = parseOptional(squareFeet);
     const size = sizeMode === "sqft"
       ? feet != null && feet > 0
@@ -113,15 +117,23 @@ export default function HouseCleaningPriceCalculatorPage() {
         }
       : null;
 
-    return calculateHouseCleaningQuote({
-      size,
-      cleanType,
-      conditionId,
-      frequency,
-      addons,
-      costs,
-    });
+    return { size, cleanType, conditionId, frequency, addons, costs };
   }, [addons, bathrooms, bedrooms, cleanType, conditionId, frequency, margin, overhead, sizeMode, squareFeet, supplyCost, teamSize, wage]);
+
+  const result = useMemo(
+    () => (quoteInput ? calculateHouseCleaningQuote(quoteInput) : null),
+    [quoteInput],
+  );
+  const eventKey = result && quoteInput ? calculationEventKey(quoteInput) : null;
+
+  useEffect(() => {
+    if (!eventKey) return;
+    // One event after the inputs settle. The helper drops a repeat of the same quote.
+    const timer = window.setTimeout(() => {
+      trackTidyWiseConversion("calc_completed", eventKey);
+    }, CALC_COMPLETED_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [eventKey]);
 
   return (
     <div className="min-h-screen bg-background">

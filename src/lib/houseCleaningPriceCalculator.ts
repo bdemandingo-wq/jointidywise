@@ -134,6 +134,32 @@ export function visitsLabel(frequency: CalculatorFrequency): string {
   return "1";
 }
 
+/** Wait until inputs stop changing before reporting one calculation. */
+export const CALC_COMPLETED_DEBOUNCE_MS = 600;
+
+/**
+ * Local sessionStorage dedupe key for one quote. It is not attached to the
+ * Meta or Google payload.
+ */
+export function calculationEventKey(input: HouseCleaningQuoteInput): string {
+  const size = input.size.mode === "sqft"
+    ? `sqft:${input.size.squareFeet}`
+    : `beds:${input.size.bedrooms}:${input.size.bathrooms}`;
+  const addons = (["oven", "fridge", "windows", "laundry"] as const)
+    .filter((id) => input.addons[id])
+    .join(",");
+  const costs = input.costs
+    ? [
+        input.costs.hourlyWage,
+        input.costs.teamSize,
+        input.costs.supplyCostPerVisit,
+        input.costs.monthlyOverhead,
+        input.costs.marginPct,
+      ].join(":")
+    : "nocosts";
+  return [size, input.cleanType, input.conditionId, input.frequency, addons, costs].join("|");
+}
+
 function extraById(id: string) {
   const extra = extras.find((item) => item.id === id);
   if (!extra) throw new Error(`Missing rate-sheet extra: ${id}`);

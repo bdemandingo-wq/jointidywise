@@ -23,7 +23,11 @@ export const PRODUCTION_TAG_HOSTS = ['jointidywise.com', 'www.jointidywise.com']
 
 export type PrivacyChoice = 'acknowledged' | 'opted_out';
 
-export type TidyWiseConversion = 'signup_completed' | 'trial_started';
+export type TidyWiseConversion =
+  | 'signup_completed'
+  | 'trial_started'
+  | 'calc_completed'
+  | 'trial_click';
 
 export interface PrivacyStorage {
   getItem(key: string): string | null;
@@ -261,9 +265,10 @@ export function tidyWiseTagDecision(input: {
 
 /**
  * Conversion events follow the same opt-out, GPC, native, and hostname rules.
- * signup_completed stays on marketing and signup pages.
- * trial_started also fires on /onboarding and /dashboard, where the trial
- * actually exists. Pageview tags still do not load on those app routes.
+ * signup_completed, calc_completed, and trial_click stay on marketing and
+ * signup pages. trial_started also fires on /onboarding and /dashboard,
+ * where the trial actually exists. Pageview tags still do not load on those
+ * app routes.
  */
 export function tidyWiseConversionAllowed(input: {
   event: TidyWiseConversion;
@@ -326,9 +331,21 @@ export function planMetaCommand(input: {
   return { action: 'passthrough' };
 }
 
-export function conversionPayload(event: TidyWiseConversion): { meta: string; ga: string } {
-  if (event === 'signup_completed') return { meta: 'CompleteRegistration', ga: 'sign_up' };
-  return { meta: 'StartTrial', ga: 'trial_started' };
+/**
+ * Event names only. metaCustom selects Meta's custom-event method.
+ * Nothing in this object is a user field.
+ */
+export function conversionPayload(event: TidyWiseConversion): { meta: string; ga: string; metaCustom: boolean } {
+  switch (event) {
+    case 'signup_completed':
+      return { meta: 'CompleteRegistration', ga: 'sign_up', metaCustom: false };
+    case 'trial_started':
+      return { meta: 'StartTrial', ga: 'trial_started', metaCustom: false };
+    case 'calc_completed':
+      return { meta: 'calc_completed', ga: 'calc_completed', metaCustom: true };
+    case 'trial_click':
+      return { meta: 'trial_click', ga: 'trial_click', metaCustom: true };
+  }
 }
 
 /** One trial_started pixel per org, and only while the org is still new. */
