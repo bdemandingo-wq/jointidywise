@@ -1,9 +1,10 @@
 /**
  * Public Help FAQ copy for /help.
  *
- * Wording matches the approved FAQ. Bold runs are the only formatting,
- * and the support address is the one mailto on the page.
+ * Bold runs are the only inline emphasis. The support address is the one
+ * mailto. The App Store link uses the URL already defined for the iPhone app.
  */
+import { APP_STORE_URL } from "../lib/appVersion.ts";
 import { SUPPORT_EMAIL } from "../lib/supportEmail.ts";
 
 export const HELP_FAQ_PATH = "/help";
@@ -12,7 +13,12 @@ export const HELP_FAQ_H1 = "TidyWise Help FAQ";
 export const HELP_FAQ_DESCRIPTION =
   "Quick answers for getting your cleaning business set up and running on TidyWise, from the free trial and plans through booking, payments, and texts.";
 
-type Run = string | { strong: string };
+export type HelpFaqRun =
+  | string
+  | { strong: string }
+  | { href: string; text: string };
+
+type Run = HelpFaqRun;
 
 type Block =
   | { kind: "p"; runs: Run[] }
@@ -257,9 +263,11 @@ export const HELP_FAQ_SECTIONS: HelpFaqSection[] = [
           {
             kind: "p",
             runs: [
-              "Cleaners can use the TidyWise iPhone app or any web browser. They sign in at the ",
+              "Cleaners can use the TidyWise app for iPhone (",
+              { href: APP_STORE_URL, text: "App Store" },
+              ") or Android (Google Play), or any web browser. They sign in at the ",
               strong("Staff Portal"),
-              " (jointidywise.com/staff/login) with the email and password you created for them. There's no Android app right now, so Android users should use their phone's browser.",
+              " (jointidywise.com/staff/login) with the email and password you created for them.",
             ],
           },
         ],
@@ -588,7 +596,13 @@ export function helpFaqEntries(): HelpFaqEntry[] {
 }
 
 function runsToText(runs: Run[]): string {
-  return runs.map((run) => (typeof run === "string" ? run : run.strong)).join("");
+  return runs
+    .map((run) => {
+      if (typeof run === "string") return run;
+      if ("strong" in run) return run.strong;
+      return run.text;
+    })
+    .join("");
 }
 
 /** Plain answer text for FAQPage JSON-LD. Wording is unchanged; lists keep their order. */
@@ -632,6 +646,9 @@ function runsToHtml(runs: Run[]): string {
   return runs
     .map((run) => {
       if (typeof run === "string") return escapeHtml(run);
+      if ("href" in run) {
+        return `<a href="${escapeHtml(run.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(run.text)}</a>`;
+      }
       const inner =
         run.strong === SUPPORT_EMAIL
           ? `<a href="mailto:${SUPPORT_EMAIL}">${escapeHtml(SUPPORT_EMAIL)}</a>`
