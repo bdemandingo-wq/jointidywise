@@ -345,7 +345,9 @@ function buildPrerenderBody(
     if (comp && niche) return buildCompareNicheBody(comp, nicheMatch[1], niche);
   }
 
-  return "";
+  // Static pages can supply their own crawler HTML on RouteMeta. Dynamic
+  // routes above replace that field; every other route keeps what it declared.
+  return _meta.prerenderBody ?? "";
 }
 
 function patchHead(html: string, route: string, meta: RouteMeta): string {

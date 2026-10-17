@@ -151,6 +151,7 @@ export function SiteFooter() {
                   <li><Link to="/demo" className={linkClass}>Book a Demo</Link></li>
                   <li><Link to="/pricing" className={linkClass}>Pricing</Link></li>
                   <li><Link to="/contact" className={linkClass}>Contact</Link></li>
+                  <li><Link to="/help" className={linkClass}>Help & FAQ</Link></li>
                   <li>
                     <a href={`mailto:${SUPPORT_EMAIL}`} className={linkClass}>{SUPPORT_EMAIL}</a>
                   </li>

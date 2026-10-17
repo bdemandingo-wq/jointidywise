@@ -184,6 +184,7 @@ const CleaningBusinessSoftware = lazy(() => import("./pages/CleaningBusinessSoft
 const LocationSoftwarePage = lazy(() => import("./pages/locations/LocationSoftwarePage"));
 const DemoPage = lazy(() => import("./pages/DemoPage"));
 const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
+const HelpFaqPage = lazy(() => import("./pages/HelpFaqPage"));
 const DoNotSellPage = lazy(() => import("./pages/DoNotSellPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const DeleteAccountPage = lazy(() => import("./pages/DeleteAccountPage"));
@@ -444,6 +445,8 @@ const App = () => (
                           gate sends users here, so it must not be behind it. */}
                       <Route path="/onboarding" element={<OnboardingPage />} />
                       <Route path="/demo" element={<Navigate to="/login" replace />} />
+                      {/* The public FAQ lists plan prices, so it stays off the native app. */}
+                      <Route path="/help" element={<Navigate to="/login" replace />} />
                       <Route path="/review/:token" element={<ReviewPage />} />
                       {/* Redirect all marketing pages to login on native */}
                       <Route path="/blog/*" element={<Navigate to="/login" replace />} />
@@ -581,6 +584,7 @@ const App = () => (
                      <Route path="/deposit/:token" element={<DepositPage />} />
                      <Route path="/track/:token" element={<TrackCleanerPage />} />
                       <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                      <Route path="/help" element={<HelpFaqPage />} />
                       <Route path="/do-not-sell" element={<DoNotSellPage />} />
                       <Route path="/terms" element={<TermsPage />} />
                      <Route path="/delete-account" element={<DeleteAccountPage />} />
